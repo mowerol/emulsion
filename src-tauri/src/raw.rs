@@ -17,8 +17,15 @@ struct EmuRawInfo {
     width: c_int,
     height: c_int,
     cam_xyz: Mat3,
+    cam_mul: [f32; 3],
     make: [c_char; 64],
     model: [c_char; 64],
+}
+
+impl EmuRawInfo {
+    fn empty() -> Self {
+        EmuRawInfo { width: 0, height: 0, cam_xyz: [[0.0; 3]; 3], cam_mul: [0.0; 3], make: [0; 64], model: [0; 64] }
+    }
 }
 
 #[repr(C)]
@@ -41,6 +48,7 @@ unsafe extern "C" {
         err: *mut c_char,
         errlen: usize,
     ) -> c_int;
+    fn emu_raw_info(path: *const c_char, info: *mut EmuRawInfo, err: *mut c_char, errlen: usize) -> c_int;
     fn emu_raw_thumb(path: *const c_char, thumb: *mut EmuRawThumb, out: *mut *mut c_void, err: *mut c_char, errlen: usize) -> c_int;
     fn emu_raw_free(img: *mut c_void);
 }
@@ -135,12 +143,52 @@ fn c_path(path: &Path) -> Result<CString, String> {
     CString::new(path.to_string_lossy().as_bytes()).map_err(|_| format!("Invalid path {}", path.display()))
 }
 
-/// Decode `path` to scene-linear Rec.2020, scaled by [`BASELINE_GAIN`]. With
-/// `half`, LibRaw skips the demosaic and returns half size, which is several
-/// times faster and plenty for a preview.
-pub fn decode(path: &Path, half: bool) -> Result<DynamicImage, String> {
+/// A decoded RAW.
+pub struct Decoded {
+    /// Scene-linear Rec.2020, scaled by [`BASELINE_GAIN`], white balanced as shot.
+    pub image: DynamicImage,
+    /// The as-shot white point, CIE 1931 xy, when the file records one.
+    pub white: Option<[f32; 2]>,
+}
+
+/// Chromaticity of the light the camera balanced for: a surface recorded as
+/// neutral has raw values 1 / multiplier, and the camera's matrix takes them to
+/// XYZ (darktable's WB_coeffs_to_illuminant_xy, without its D50 adaptation as
+/// Emulsion works in D65).
+pub fn white_point(cam_xyz: &Mat3, cam_mul: &[f32; 3]) -> Option<[f32; 2]> {
+    if cam_mul.iter().any(|m| !(*m > 0.0)) {
+        return None;
+    }
+    let xyz_from_cam = invert(cam_xyz)?;
+    let neutral = [1.0 / cam_mul[0], 1.0 / cam_mul[1], 1.0 / cam_mul[2]];
+    let xyz: Vec<f32> = (0..3).map(|i| (0..3).map(|j| xyz_from_cam[i][j] * neutral[j]).sum()).collect();
+    let sum = xyz[0] + xyz[1] + xyz[2];
+    (sum > 0.0 && xyz.iter().all(|v| v.is_finite())).then(|| [xyz[0] / sum, xyz[1] / sum])
+}
+
+fn white_for(info: &EmuRawInfo) -> Option<[f32; 2]> {
+    let model = error_text(&info.model);
+    let (matrix, _) = colour_matrix(&model, &info.cam_xyz);
+    white_point(&matrix?, &info.cam_mul)
+}
+
+/// The as-shot white point of `path`, reading metadata only.
+pub fn as_shot_white(path: &Path) -> Result<Option<[f32; 2]>, String> {
     let cpath = c_path(path)?;
-    let mut info = EmuRawInfo { width: 0, height: 0, cam_xyz: [[0.0; 3]; 3], make: [0; 64], model: [0; 64] };
+    let mut info = EmuRawInfo::empty();
+    let mut err = [0 as c_char; 256];
+    let rc = unsafe { emu_raw_info(cpath.as_ptr(), &mut info, err.as_mut_ptr(), err.len()) };
+    if rc != 0 {
+        return Err(format!("Could not read {}: {}", file_name(path), error_text(&err)));
+    }
+    Ok(white_for(&info))
+}
+
+/// Decode `path`. With `half`, LibRaw skips the demosaic and returns half
+/// size, which is several times faster and plenty for a preview.
+pub fn decode(path: &Path, half: bool) -> Result<Decoded, String> {
+    let cpath = c_path(path)?;
+    let mut info = EmuRawInfo::empty();
     let mut img: *mut c_void = std::ptr::null_mut();
     let mut pixels: *const u16 = std::ptr::null();
     let mut err = [0 as c_char; 256];
@@ -180,7 +228,7 @@ pub fn decode(path: &Path, half: bool) -> Result<DynamicImage, String> {
     unsafe { emu_raw_free(img) };
 
     let buf = ImageBuffer::<Rgb<f32>, _>::from_raw(w, h, out).ok_or("RAW image has the wrong size")?;
-    Ok(DynamicImage::ImageRgb32F(buf))
+    Ok(Decoded { image: DynamicImage::ImageRgb32F(buf), white: white_for(&info) })
 }
 
 fn file_name(path: &Path) -> String {
@@ -328,7 +376,7 @@ mod tests {
         for path in samples.split(':') {
             let raw = decode(Path::new(path), true).unwrap();
             let y = &REC2020_TO_XYZ[1];
-            let raw_y = median(raw.to_rgb32f().pixels().map(|p| (y[0] * p[0] + y[1] * p[1] + y[2] * p[2]) / BASELINE_GAIN).collect());
+            let raw_y = median(raw.image.to_rgb32f().pixels().map(|p| (y[0] * p[0] + y[1] * p[1] + y[2] * p[2]) / BASELINE_GAIN).collect());
             let jpeg_y = median(
                 embedded_preview(Path::new(path))
                     .unwrap()
@@ -374,8 +422,22 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let p = dir.path().join("pureraw.dng");
         std::fs::write(&p, tiff_with_subifd(52546)).unwrap();
-        let err = decode(&p, true).unwrap_err();
+        let err = decode(&p, true).err().expect("a JPEG XL DNG must not decode");
         assert!(err.contains("JPEG XL"), "{err}");
+    }
+
+    #[test]
+    fn finds_the_as_shot_white_point() {
+        // With the camera matrix of an sRGB-like camera, multipliers that make
+        // raw (1, 1, 1) neutral put the white at that space's white, D65.
+        let xyz_from_srgb: Mat3 = [[0.412_456, 0.357_576, 0.180_438], [0.212_673, 0.715_152, 0.072_175], [0.019_334, 0.119_192, 0.950_304]];
+        let cam_xyz = invert(&xyz_from_srgb).unwrap();
+        let w = white_point(&cam_xyz, &[1.0, 1.0, 1.0]).unwrap();
+        assert!((w[0] - 0.3127).abs() < 1e-3 && (w[1] - 0.3290).abs() < 1e-3, "{w:?}");
+        // A camera that needed more red gain was under bluer light.
+        let blue = white_point(&cam_xyz, &[2.0, 1.0, 1.0]).unwrap();
+        assert!(blue[0] < w[0]);
+        assert_eq!(white_point(&cam_xyz, &[0.0, 1.0, 1.0]), None);
     }
 
     #[test]

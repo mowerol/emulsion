@@ -3,7 +3,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { loadImage, logToTerminal } from '../backend/api';
 import { Engine, type Source } from '../engine/engine';
 import { histogram } from '../engine/histogram';
-import { activePhoto, showToast, useApp } from '../library/store';
+import { D65_XY, clampWhiteBalance, neutralizingWhite, temperatureTint } from '../engine/whitebalance';
+import { activePhoto, editActive, setPhotoWhite, showToast, useApp } from '../library/store';
 import { sourceFromBlob, thumbs } from '../library/thumbs';
 import { Filmstrip } from './Filmstrip';
 
@@ -31,6 +32,7 @@ export function Develop() {
 
   const photo = useApp(activePhoto);
   const compare = useApp((s) => s.compare);
+  const picking = useApp((s) => s.picking);
   const path = photo?.path;
 
   // Start the GPU engine for this canvas.
@@ -70,7 +72,7 @@ export function Develop() {
       try {
         const orig = await thumbs.original(path);
         if (!cancelled && loadedRef.current?.path !== path) {
-          const { src } = await sourceFromBlob(engine, orig.blob);
+          const { src } = await sourceFromBlob(engine, orig.blob, useApp.getState().photos.find((p) => p.path === path)?.white ?? null);
           swap(src, false);
           previewShown = true;
         }
@@ -79,6 +81,7 @@ export function Develop() {
       }
       try {
         const img = await loadImage(path, Math.min(PREVIEW_EDGE, engine.maxTextureSize));
+        if (img.white) setPhotoWhite(path, img.white);
         if (!cancelled) swap(engine.sourceFromHalf(img), true);
       } catch (err) {
         if (cancelled) return;
@@ -167,6 +170,35 @@ export function Develop() {
     return () => clearTimeout(timer);
   }, [recipe, seed, compare, loadedVersion, path]);
 
+  // Eyedropper: Escape cancels; leaving the photo stops it.
+  useEffect(() => {
+    if (!picking) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') useApp.setState({ picking: false });
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [picking]);
+  useEffect(() => () => useApp.setState({ picking: false }), [path]);
+
+  /** Set white balance so the clicked spot becomes neutral. */
+  const pickNeutral = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!picking) return;
+    const engine = engineRef.current;
+    const loaded = loadedRef.current;
+    if (!engine || !loaded || loaded.path !== path) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    const sample = engine.sampleScene(loaded.source, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
+    const w = neutralizingWhite(sample, loaded.source.white ?? D65_XY);
+    useApp.setState({ picking: false });
+    if (!w) {
+      showToast('That spot is too dark to judge white balance from. Try a lighter neutral area.');
+      return;
+    }
+    const { temperature, tint } = temperatureTint(w);
+    editActive((rec) => (rec ? { ...rec, wb: clampWhiteBalance({ temperature, tint: Math.round(tint) }) } : rec));
+  };
+
   const loaded = loadedRef.current;
   const showing = loaded && loaded.path === path;
 
@@ -174,7 +206,7 @@ export function Develop() {
     <section className="develop">
       <div className="stage">
         <div className="stage-box" ref={boxRef}>
-          <canvas ref={canvasRef} className="view" aria-label={photo ? `Developed preview of ${photo.name}` : 'Preview'} style={{ visibility: showing ? 'visible' : 'hidden' }} />
+          <canvas ref={canvasRef} className={`view${picking ? ' picking' : ''}`} onClick={pickNeutral} aria-label={photo ? `Developed preview of ${photo.name}` : 'Preview'} style={{ visibility: showing ? 'visible' : 'hidden' }} />
           {error && <p className="stage-error">{error}</p>}
         </div>
         {compare && <span className="badge">Original</span>}

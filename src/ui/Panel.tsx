@@ -12,6 +12,7 @@ import { offscreenEngine, sourceFromBlob, thumbs } from '../library/thumbs';
 import { MOD, Segmented } from './common';
 import { Histogram } from './Histogram';
 import { CurveEditor } from './CurveEditor';
+import { WhiteBalanceControls } from './WhiteBalanceControls';
 
 function summary(r: Recipe | null) {
   if (!r) return 'Original, not developed';
@@ -26,6 +27,7 @@ const StockPicker = memo(function StockPicker({ photo, current, onPick }: { phot
   const path = photo?.path;
   const recipe = photo?.recipe ?? null;
   const seed = photo?.seed ?? 0;
+  const white = photo?.white ?? null;
 
   useEffect(() => {
     if (!path) return;
@@ -40,7 +42,7 @@ const StockPicker = memo(function StockPicker({ photo, current, onPick }: { phot
         return;
       }
       if (cancelled) return;
-      const { src, w, h } = await sourceFromBlob(eng, orig.blob);
+      const { src, w, h } = await sourceFromBlob(eng, orig.blob, white);
       try {
         for (const s of STOCKS) {
           const c = canvases.current[s.id];
@@ -59,7 +61,7 @@ const StockPicker = memo(function StockPicker({ photo, current, onPick }: { phot
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [path, recipe, seed]);
+  }, [path, recipe, seed, white]);
 
   return (
     <div className="stocks">
@@ -178,6 +180,7 @@ export function Panel() {
           <Fragment key={group}>
             <section className="group">
               <h2>{title}</h2>
+              {group === 'adjust' && <WhiteBalanceControls recipe={recipe} white={photo.white} />}
               <div className="sliders">
                 {SLIDERS.filter((d) => d.group === group).map((d) => (
                   <SliderRow key={d.key} def={d} recipe={recipe} onChange={setSlider} />

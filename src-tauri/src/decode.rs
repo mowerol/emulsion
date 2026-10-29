@@ -30,7 +30,7 @@ pub enum InputMode {
 /// several times faster and still at least 2600 px wide for 20 MP sensors.
 const RAW_HALF_MAX_EDGE: u32 = 2560;
 
-pub const HEADER_BYTES: usize = 16;
+pub const HEADER_BYTES: usize = 24;
 
 /// Open a photo and apply its EXIF orientation.
 pub fn open_oriented(path: &Path) -> Result<DynamicImage, String> {
@@ -138,13 +138,18 @@ pub fn linear_f16_rgba(img: &DynamicImage) -> Vec<u8> {
     out
 }
 
-/// Header (width, height, mode, reserved as little-endian u32) followed by pixels.
-pub fn payload(w: u32, h: u32, mode: InputMode, pixels: Vec<u8>) -> Vec<u8> {
+/// Header followed by pixels. The header is width, height, mode and flags as
+/// little-endian u32 (flag 1: a white point follows), then the as-shot white
+/// point x and y as little-endian f32.
+pub fn payload(w: u32, h: u32, mode: InputMode, white: Option<[f32; 2]>, pixels: Vec<u8>) -> Vec<u8> {
     let mut out = Vec::with_capacity(HEADER_BYTES + pixels.len());
     out.extend_from_slice(&w.to_le_bytes());
     out.extend_from_slice(&h.to_le_bytes());
     out.extend_from_slice(&(mode as u32).to_le_bytes());
-    out.extend_from_slice(&0u32.to_le_bytes());
+    out.extend_from_slice(&(white.is_some() as u32).to_le_bytes());
+    let [x, y] = white.unwrap_or([0.0, 0.0]);
+    out.extend_from_slice(&x.to_le_bytes());
+    out.extend_from_slice(&y.to_le_bytes());
     out.extend_from_slice(&pixels);
     out
 }
@@ -153,13 +158,14 @@ pub fn payload(w: u32, h: u32, mode: InputMode, pixels: Vec<u8>) -> Vec<u8> {
 pub fn load_for_engine(path: &Path, max_edge: Option<u32>) -> Result<Vec<u8>, String> {
     if classify(path) == Kind::Raw {
         let half = max_edge.is_some_and(|m| m <= RAW_HALF_MAX_EDGE);
-        let img = resize_to(raw::decode(path, half)?, max_edge);
+        let raw = raw::decode(path, half)?;
+        let img = resize_to(raw.image, max_edge);
         let (w, h) = (img.width(), img.height());
-        return Ok(payload(w, h, InputMode::SceneLinear, linear_f16_rgba(&img)));
+        return Ok(payload(w, h, InputMode::SceneLinear, raw.white, linear_f16_rgba(&img)));
     }
     let img = resize_to(open_oriented(path)?, max_edge);
     let (w, h) = (img.width(), img.height());
-    Ok(payload(w, h, InputMode::DisplayLinear, linear_f16_rgba(&img)))
+    Ok(payload(w, h, InputMode::DisplayLinear, None, linear_f16_rgba(&img)))
 }
 
 #[cfg(test)]
@@ -203,6 +209,7 @@ mod tests {
         assert_eq!(u32::from_le_bytes(out[0..4].try_into().unwrap()), 4);
         assert_eq!(u32::from_le_bytes(out[4..8].try_into().unwrap()), 2);
         assert_eq!(u32::from_le_bytes(out[8..12].try_into().unwrap()), 0);
+        assert_eq!(u32::from_le_bytes(out[12..16].try_into().unwrap()), 0, "ordinary photos carry no white point");
         assert_eq!(out.len(), HEADER_BYTES + 4 * 2 * 8);
         let v = px(&out, 0);
         assert!((v[0] - 1.0).abs() < 1e-3 && (v[1] - 0.2158).abs() < 2e-3 && v[2] == 0.0 && v[3] == 1.0);

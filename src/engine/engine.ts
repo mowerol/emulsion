@@ -12,6 +12,7 @@ import { InputMode, developUniforms, needsPasses, type Uniforms } from './params
 import { GLOW_SIGMA, HALATION_SIGMA, blurPlan, pyramidFor, type Pyramid } from './pyramid';
 import { MASK_SIGMA } from './toneequalizer';
 import { CURVE_RES, curveTable } from '../film/curve';
+import type { Xy } from './whitebalance';
 import { SHADERS } from './shaders';
 
 export { GpuError, InputMode };
@@ -21,6 +22,8 @@ export interface HalfImage {
   width: number;
   height: number;
   mode: InputMode;
+  /** As-shot white point of a RAW, CIE xy. */
+  white: Xy | null;
   data: Uint16Array;
 }
 
@@ -29,6 +32,8 @@ export interface Source {
   w: number;
   h: number;
   mode: InputMode;
+  /** As-shot white point; null for D65 (anything that is not a RAW, or not known yet). */
+  white: Xy | null;
 }
 
 interface Chain {
@@ -50,6 +55,7 @@ export class Engine {
   private develop: Program;
   private extract: Program;
   private teqMask: Program;
+  private sampleP: Program;
   /** The point curve's lookup table, re-uploaded only when the curve changes. */
   private curveTex: WebGLTexture | null = null;
   private curveKey = '';
@@ -64,6 +70,7 @@ export class Engine {
     this.develop = this.gpu.program(SHADERS.vertex, SHADERS.develop);
     this.extract = this.gpu.program(SHADERS.vertex, SHADERS.extract);
     this.teqMask = this.gpu.program(SHADERS.vertex, SHADERS.toneeqmask);
+    this.sampleP = this.gpu.program(SHADERS.vertex, SHADERS.sample);
     this.blurP = this.gpu.program(SHADERS.vertex, SHADERS.blur);
     this.down = this.gpu.program(SHADERS.vertex, SHADERS.down);
     this.store = this.gpu.hdr ? 1 : 0.25;
@@ -83,11 +90,11 @@ export class Engine {
     const mips = this.gpu.hdr;
     if (mips) gl.generateMipmap(gl.TEXTURE_2D);
     this.gpu.params(mips);
-    return { tex, w: img.width, h: img.height, mode: img.mode };
+    return { tex, w: img.width, h: img.height, mode: img.mode, white: img.white };
   }
 
-  /** Upload an sRGB image (a thumbnail). */
-  sourceFromImage(img: TexImageSource, w: number, h: number): Source {
+  /** Upload an sRGB image (a thumbnail), shot for `white` (a RAW's camera preview) or D65. */
+  sourceFromImage(img: TexImageSource, w: number, h: number, white: Xy | null = null): Source {
     const gl = this.gpu.gl;
     const tex = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, tex);
@@ -96,7 +103,7 @@ export class Engine {
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, img);
     gl.generateMipmap(gl.TEXTURE_2D);
     this.gpu.params(true);
-    return { tex, w, h, mode: InputMode.DisplayEncoded };
+    return { tex, w, h, mode: InputMode.DisplayEncoded, white };
   }
 
   release(src: Source | null | undefined) {
@@ -191,7 +198,7 @@ export class Engine {
   render(src: Source, recipe: Recipe | null, opts: { target: Target | 'screen'; width: number; height: number; seed: number; compare?: boolean }) {
     const g = this.gpu;
     const u = developUniforms(recipe, {
-      width: opts.width, height: opts.height, seed: opts.seed, inputMode: src.mode, store: this.store, compare: opts.compare,
+      width: opts.width, height: opts.height, seed: opts.seed, inputMode: src.mode, store: this.store, compare: opts.compare, white: src.white,
     });
     const passes = needsPasses(u);
     let hal: WebGLTexture = g.blackTexture;
@@ -237,6 +244,43 @@ export class Engine {
     this.develop.set({ ...u, ...teqU, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3 });
     if (opts.target === 'screen') g.draw(this.develop, null, opts.width, opts.height, true);
     else g.draw(this.develop, opts.target, opts.width, opts.height, false);
+  }
+
+  /**
+   * Average scene light (linear Rec.2020, before white balance and the look)
+   * over a small patch around (u, v), with v = 0 at the top of the photo.
+   * The patch spans about 0.4% of the frame, whatever the source size.
+   */
+  sampleScene(src: Source, u: number, v: number): [number, number, number] {
+    const g = this.gpu;
+    const gl = g.gl;
+    const t = g.target(1, 1, g.hdr, g.float32);
+    try {
+      const step = 0.002 * Math.max(src.w, src.h);
+      g.bind(0, src.tex);
+      this.sampleP.set({
+        ...developUniforms(null, { width: 1, height: 1, seed: 0, inputMode: src.mode, store: 1 }),
+        uSrc: 0,
+        uAt: [u, v],
+        uTexel: [step / src.w, step / src.h],
+      });
+      g.draw(this.sampleP, t, 1, 1);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo);
+      let rgb: [number, number, number];
+      if (g.hdr) {
+        const px = new Float32Array(4);
+        gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.FLOAT, px);
+        rgb = [px[0], px[1], px[2]];
+      } else {
+        const px = new Uint8Array(4);
+        gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        rgb = [px[0] / 255, px[1] / 255, px[2] / 255];
+      }
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      return rgb;
+    } finally {
+      g.free(t);
+    }
   }
 
   /** Develop into RGBA8 pixels, top row first. */

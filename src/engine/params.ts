@@ -20,6 +20,7 @@ import {
   yToLStar,
 } from './colorbalance';
 import { isIdentity } from '../film/curve';
+import { D65_XY, whiteBalanceMatrix, whiteXy, type Xy } from './whitebalance';
 import { EXPOSURE_BOOST, FEATHERING, SMOOTHING, bandFactors, bandGains } from './toneequalizer';
 
 export type UniformValue = number | number[];
@@ -46,9 +47,12 @@ export interface RenderContext {
   store: number;
   /** Show the original instead of the developed frame. */
   compare?: boolean;
+  /** The source's as-shot white point; D65 when unknown or not a RAW. */
+  white?: Xy | null;
 }
 
 const WORKING = columnMajor(SRGB_TO_REC2020);
+const IDENTITY = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 const NEUTRAL_CURVE = packCurve(sigmoidCurve(NEUTRAL));
 
 /** Lowering Blacks to -100 cuts scene light below this, about 4.5 stops under middle grey. */
@@ -92,17 +96,17 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uHalThreshold: HALATION_THRESHOLD,
   };
   if (!recipe || ctx.compare) {
-    return { ...base, uCompare: 1, uExposure: 0, uExpBlack: 0, uWB: [1, 1, 1], uBW: 0, uTeqOn: 0, uCurveOn: 0 };
+    return { ...base, uCompare: 1, uExposure: 0, uExpBlack: 0, uWbMat: IDENTITY, uWB: [1, 1, 1], uBW: 0, uTeqOn: 0, uCurveOn: 0 };
   }
 
   const s = STOCK[recipe.stock];
   const sc = SCANNER[recipe.scanner];
   const push = recipe.push;
 
-  const w = recipe.warmth / 100;
-  const t = recipe.tint / 100;
-  const gains = [s.balance[0] * (1 + 0.22 * w), s.balance[1] * (1 - 0.1 * t), s.balance[2] * (1 - 0.22 * w)];
+  // The stock's own colour balance, normalised to keep luminance.
+  const gains = s.balance;
   const lum = gains[0] * LUMA_REC2020[0] + gains[1] * LUMA_REC2020[1] + gains[2] * LUMA_REC2020[2];
+  const wbMat = recipe.wb ? columnMajor(whiteBalanceMatrix(ctx.white ?? D65_XY, whiteXy(recipe.wb.temperature, recipe.wb.tint))) : IDENTITY;
 
   const look = toneLookFor(recipe);
   const teqOn = recipe.shadows !== 0 || recipe.highlights !== 0;
@@ -127,6 +131,7 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uSigG: packCurve(curveFor(look.contrast * look.channels[1], look)),
     uSigB: packCurve(curveFor(look.contrast * look.channels[2], look)),
     uSigMag: whiteTargetFor(recipe.whites) / 100,
+    uWbMat: wbMat,
     uWB: gains.map((g) => g / lum),
     uVig: recipe.vignette / 100,
     uSharp: sc.sharpness,

@@ -5,6 +5,7 @@
 import { STOCK, isStockId, type StockId } from './stocks';
 import { isScannerId, type ScannerId } from './scanners';
 import { normalizeCurve, type ToneCurve } from './curve';
+import { clampWhiteBalance, type WhiteBalance } from '../engine/whitebalance';
 
 export const RECIPE_VERSION = 1;
 
@@ -23,8 +24,6 @@ export interface Recipe {
   blacks: number;
   vibrance: number;
   saturation: number;
-  warmth: number;
-  tint: number;
   fade: number;
   halation: number;
   glow: number;
@@ -33,9 +32,11 @@ export interface Recipe {
   grainSize: number;
   /** Point curve on the final display image; null is a straight line. */
   curve: ToneCurve | null;
+  /** White balance; null keeps the as-shot white. */
+  wb: WhiteBalance | null;
 }
 
-export type SliderKey = Exclude<keyof Recipe, 'v' | 'stock' | 'push' | 'scanner' | 'curve'>;
+export type SliderKey = Exclude<keyof Recipe, 'v' | 'stock' | 'push' | 'scanner' | 'curve' | 'wb'>;
 
 export interface SliderDef {
   key: SliderKey;
@@ -62,8 +63,6 @@ export const SLIDERS: SliderDef[] = [
   { key: 'blacks', label: 'Blacks', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'vibrance', label: 'Vibrance', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'saturation', label: 'Saturation', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
-  { key: 'warmth', label: 'Warmth', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
-  { key: 'tint', label: 'Tint', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'fade', label: 'Fade', group: 'adjust', min: 0, max: 100, step: 1 },
   { key: 'halation', label: 'Halation', group: 'optics', min: 0, max: 100, step: 1, stockKey: 'halation' },
   { key: 'glow', label: 'Glow', group: 'optics', min: 0, max: 100, step: 1 },
@@ -100,8 +99,6 @@ export function defaultRecipe(stock: StockId = 'portra400', scanner: ScannerId =
     blacks: 0,
     vibrance: 0,
     saturation: 0,
-    warmth: 0,
-    tint: 0,
     fade: 0,
     halation: s.halation,
     glow: 0,
@@ -109,6 +106,7 @@ export function defaultRecipe(stock: StockId = 'portra400', scanner: ScannerId =
     grain: s.grain,
     grainSize: s.grainSize,
     curve: null,
+    wb: null,
   };
 }
 
@@ -126,6 +124,13 @@ export function resetAdjustments(recipe: Recipe): Recipe {
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
+function normalizeWhiteBalance(input: unknown): WhiteBalance | null {
+  if (!input || typeof input !== 'object') return null;
+  const { temperature, tint } = input as Record<string, unknown>;
+  if (typeof temperature !== 'number' || !Number.isFinite(temperature) || typeof tint !== 'number' || !Number.isFinite(tint)) return null;
+  return clampWhiteBalance({ temperature, tint });
+}
+
 /**
  * Turn anything read from a sidecar into a valid recipe, or `null` when it is
  * not a recipe at all. Unknown stocks fall back to the default stock; missing or
@@ -138,7 +143,7 @@ export function normalizeRecipe(input: unknown): Recipe | null {
   const scanner: ScannerId = isScannerId(o.scanner) ? o.scanner : 'frontier';
   const base = defaultRecipe(stock, scanner);
   const push = typeof o.push === 'number' && [-1, 0, 1, 2].includes(o.push) ? (o.push as Push) : 0;
-  const out: Recipe = { ...base, push, curve: normalizeCurve(o.curve) };
+  const out: Recipe = { ...base, push, curve: normalizeCurve(o.curve), wb: normalizeWhiteBalance(o.wb) };
   for (const def of SLIDERS) {
     const v = o[def.key];
     if (typeof v === 'number' && Number.isFinite(v)) out[def.key] = clamp(v, def.min, def.max);

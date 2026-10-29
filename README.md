@@ -14,7 +14,8 @@ Version 0.1. Working today:
 - Point tone curve, master and per channel, on the final image (darktable's monotone spline), with the frame's histogram behind it.
 - Live histogram of the developed frame (red, green, blue and luma) with clipping readouts.
 - Nine stocks (Portra 400 and 160, Gold 200, Ektar 100, Superia 400, Pro 400H, CineStill 800T, Tri-X 400, HP5 Plus), push and pull processing, four scanner profiles (Frontier, Noritsu, flatbed, straight).
-- Exposure, contrast, highlights, shadows, whites, blacks, vibrance, saturation, warmth, tint, fade, halation, glow, vignette, grain amount and size. Contrast, vibrance and saturation are ported from darktable's colour balance rgb; the tone curve, whites and blacks from darktable's sigmoid; highlights and shadows from darktable's tone equalizer.
+- White balance: Temperature and Tint from the RAW's as-shot setting, presets and a neutral eyedropper, by CAT16 chromatic adaptation (ported from darktable).
+- Exposure, contrast, highlights, shadows, whites, blacks, vibrance, saturation, fade, halation, glow, vignette, grain amount and size. Contrast, vibrance and saturation are ported from darktable's colour balance rgb; the tone curve, whites and blacks from darktable's sigmoid; highlights and shadows from darktable's tone equalizer.
 - Stock tiles that preview the current photo through each stock.
 - Copy and paste settings, apply to the selection or the whole folder, hold `\` to compare with the original.
 - Camera RAW files through LibRaw 0.22.3, including Fujifilm X-Trans RAF and OM System/Olympus ORF. Thumbnails use the camera's embedded preview; the develop view decodes the RAW itself, white balanced as shot.
@@ -74,8 +75,8 @@ npm run probe     # build the engine probe (see docs/ARCHITECTURE.md, Testing)
 
 ## Roadmap
 
-1. RAW controls: white balance, highlight recovery, a per-camera exposure baseline.
-2. Port darktable's grain module.
+1. Film grain modelled on how film forms it: by ISO or set by hand, strongest in the midtones and clumping in thin shadows.
+2. RAW controls: highlight recovery, a per-camera exposure baseline.
 3. Real stock characterisations, starting with GPL-compatible Hald CLUT packs.
 4. Undo history, presets, 16-bit TIFF export, colour-managed input and output (Display P3).
 5. Move the pipeline to WebGPU (WGSL), so it can later be shared with a native Rust core.

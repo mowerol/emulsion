@@ -24,8 +24,14 @@ describe('recipes', () => {
   });
 
   it('round-trips through JSON unchanged', () => {
-    const r = { ...defaultRecipe('ektar100', 'noritsu'), push: 1 as const, exposure: 0.35, warmth: -12 };
+    const r = { ...defaultRecipe('ektar100', 'noritsu'), push: 1 as const, exposure: 0.35, wb: { temperature: 4300, tint: -12 } };
     expect(normalizeRecipe(JSON.parse(JSON.stringify(r)))).toEqual(r);
+  });
+
+  it('clamps or drops white balance read from a sidecar', () => {
+    expect(normalizeRecipe({ stock: 'portra400', wb: { temperature: 900, tint: 400 } })!.wb).toEqual({ temperature: 2000, tint: 100 });
+    expect(normalizeRecipe({ stock: 'portra400', wb: { temperature: 'warm' } })!.wb).toBeNull();
+    expect(normalizeRecipe({ stock: 'portra400', warmth: 40 })!.wb).toBeNull();
   });
 
   it('switching stock resets only stock-owned sliders', () => {

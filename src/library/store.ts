@@ -4,7 +4,8 @@
 
 import { create } from 'zustand';
 import type { Histogram } from '../engine/histogram';
-import { scanFolder } from '../backend/api';
+import type { Xy } from '../engine/whitebalance';
+import { scanFolder, whitePoints } from '../backend/api';
 import { normalizeRecipe, type Recipe } from '../film/recipe';
 import { seedFor } from '../engine/engine';
 import { saveRecipe } from './sidecars';
@@ -17,6 +18,8 @@ export interface Photo {
   modified: number;
   recipe: Recipe | null;
   seed: number;
+  /** As-shot white point of a RAW; null for D65 (other files, or not read yet). */
+  white: Xy | null;
 }
 
 export interface Folder {
@@ -47,6 +50,8 @@ interface State {
   exportOpen: boolean;
   /** Histogram of the developed frame in the develop view. */
   histogram: { path: string; data: Histogram } | null;
+  /** The white balance eyedropper is waiting for a click on the photo. */
+  picking: boolean;
 }
 
 export const useApp = create<State>(() => ({
@@ -62,6 +67,7 @@ export const useApp = create<State>(() => ({
   toast: null,
   exportOpen: false,
   histogram: null,
+  picking: false,
 }));
 
 const set = useApp.setState;
@@ -108,6 +114,7 @@ export async function openFolder(path: string, view: View = 'library') {
       modified: e.modified,
       recipe: normalizeRecipe(e.recipe),
       seed: seedFor(e.path),
+      white: null,
     }));
     const focus = res.focus ? photos.findIndex((p) => p.path === res.focus) : -1;
     const active = photos.length ? Math.max(0, focus) : -1;
@@ -121,6 +128,7 @@ export async function openFolder(path: string, view: View = 'library') {
       compare: false,
     });
     rememberFolder({ root: res.root, name: res.name });
+    loadWhitePoints(res.root, photos.map((p) => p.path));
     const notes: string[] = [];
     if (res.unreadable) notes.push(`${res.unreadable} ${res.unreadable === 1 ? 'item' : 'items'} could not be read`);
     if (!photos.length) showToast(`No photos Emulsion can open in ${res.name}.${notes.length ? ' ' + notes.join('. ') + '.' : ''}`);
@@ -222,3 +230,33 @@ export const setCompare = (compare: boolean) => {
   if (get().compare !== compare) set({ compare });
 };
 export const setExportOpen = (exportOpen: boolean) => set({ exportOpen });
+
+/** Record a photo's as-shot white point (from a decode or the background read). */
+export function setPhotoWhite(path: string, white: Xy | null) {
+  const photos = get().photos;
+  const i = photos.findIndex((p) => p.path === path);
+  if (i < 0 || sameWhite(photos[i].white, white)) return;
+  const next = photos.slice();
+  next[i] = { ...photos[i], white };
+  set({ photos: next });
+}
+
+const sameWhite = (a: Xy | null, b: Xy | null) => a === b || (!!a && !!b && a[0] === b[0] && a[1] === b[1]);
+
+/** Read RAW white points in the background, in batches, so thumbnails match the develop view. */
+async function loadWhitePoints(root: string, paths: string[]) {
+  const BATCH = 64;
+  for (let i = 0; i < paths.length; i += BATCH) {
+    const chunk = paths.slice(i, i + BATCH);
+    let whites: (Xy | null)[];
+    try {
+      whites = await whitePoints(chunk);
+    } catch {
+      return;
+    }
+    if (get().folder?.root !== root) return;
+    const byPath = new Map(chunk.map((p, k) => [p, whites[k]]));
+    if (![...byPath.values()].some(Boolean)) continue;
+    set({ photos: get().photos.map((p) => (byPath.get(p.path) && !sameWhite(p.white, byPath.get(p.path)!) ? { ...p, white: byPath.get(p.path)! } : p)) });
+  }
+}

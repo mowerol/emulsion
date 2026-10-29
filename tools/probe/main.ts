@@ -15,6 +15,11 @@ import { drawHistogram } from '../../src/ui/Histogram';
 import { createElement } from 'react';
 import { createRoot } from 'react-dom/client';
 import { CurveEditor } from '../../src/ui/CurveEditor';
+import { WhiteBalanceControls } from '../../src/ui/WhiteBalanceControls';
+import { whiteBalanceMatrix, whiteXy, type Xy } from '../../src/engine/whitebalance';
+import { mulVec } from '../../src/engine/color';
+import { STOCK } from '../../src/film/stocks';
+import { toneInverse } from '../../src/engine/tone';
 import { CURVE_RES, curveTable, type ToneCurve } from '../../src/film/curve';
 import '../../src/styles.css';
 import { bandFactors, bandGains, correction, luminance, toneEqualize } from '../../src/engine/toneequalizer';
@@ -119,6 +124,21 @@ function probeTone(eng: Engine) {
   return { tone, roundTrip };
 }
 
+/** Exposure stage with a white balance matrix, against the reference. */
+function probeWhiteBalance(eng: Engine) {
+  const shot: Xy = [0.3441, 0.3631];
+  const cases = Object.fromEntries(
+    ([['tungsten', 2850, 0], ['shade', 7500, 10], ['magenta', 5100, 60]] as const).map(([name, temperature, tint]) => {
+      const recipe = { ...defaultRecipe('portra400'), wb: { temperature, tint } };
+      const m = whiteBalanceMatrix(shot, whiteXy(temperature, tint));
+      const b = STOCK.portra400.balance;
+      const lum = b[0] * 0.2627 + b[1] * 0.678 + b[2] * 0.0593;
+      return [name, { uniforms: developUniforms(recipe, { ...stageCtx, white: shot }), ref: (c: Vec3) => mulVec(m, c).map((v, i) => (v * b[i]) / lum) as Vec3 }];
+    }),
+  );
+  return probeStage(eng, ['stages/tone.glsl', 'stages/exposure.glsl'], 'stageExposure(c)', COLOURS, cases);
+}
+
 /** Point curve stage against its lookup table, interpolated as the GPU filters it. */
 function probeCurve(eng: Engine, curve: ToneCurve) {
   const gl = eng.gpu.gl;
@@ -203,6 +223,18 @@ try {
   out.toneEqualizer = probeToneEqualizer(eng);
   const sCurve: ToneCurve = { rgb: [[0, 0.04], [0.25, 0.19], [0.75, 0.84], [1, 0.97]], r: [[0, 0], [0.5, 0.55], [1, 1]], g: [[0, 0], [1, 1]], b: [[0, 0.05], [1, 1]] };
   out.curve = probeCurve(eng, sCurve);
+  out.whiteBalance = probeWhiteBalance(eng);
+  // Eyedropper sampling: the grey square is near the top left, dark background below it.
+  const greyScene = toneInverse(0.50196);
+  out.sample = {
+    grey: eng.sampleScene(src, 150 / W, 150 / H),
+    background: eng.sampleScene(src, 150 / W, 650 / H),
+    expectedGrey: greyScene,
+  };
+  const wbHost = document.createElement('div');
+  wbHost.style.cssText = 'width:304px;padding:14px 18px;background:#201f1d';
+  document.body.prepend(wbHost);
+  createRoot(wbHost).render(createElement(WhiteBalanceControls, { recipe: { ...defaultRecipe('portra400'), wb: { temperature: 4300, tint: 12 } }, white: [0.3441, 0.3631] }));
   // The real editor, for a screenshot.
   const host = document.createElement('div');
   host.style.cssText = 'width:304px;padding:14px 18px;background:#201f1d';

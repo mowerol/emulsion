@@ -36,7 +36,7 @@ Each stage is one GLSL file in `src/engine/shaders/stages/`, included into `deve
 | --- | --- | --- | --- | --- |
 | Input | `input.glsl` | scene | Bring any source into scene-linear Rec.2020 | |
 | Sharpen | `optics.glsl` | scene | Scanner sharpness, a log-domain unsharp mask | |
-| Exposure | `exposure.glsl` | scene | Exposure, black level (Blacks below zero, as darktable's exposure module) and colour balance (stock balance, warmth, tint) | darktable colour calibration |
+| Exposure | `exposure.glsl` | scene | White balance (CAT16 from the as-shot white to the chosen one, **ported from darktable**), exposure, black level (Blacks below zero, as darktable's exposure module) and the stock's colour balance | |
 | Tone equalizer | `toneequalizer.glsl` | scene | Highlights and Shadows: exposure by brightness band through an edge-aware brightness map. **Ported from darktable tone equalizer** | |
 | Colour balance | `colorbalance.glsl` | scene | Contrast around middle grey, vibrance, saturation with gamut mapping. **Ported from darktable colour balance rgb** | |
 | Lens | `lens.glsl` | scene | Vignetting | |
@@ -82,6 +82,10 @@ LibRaw 0.22.3 is vendored in `src-tauri/vendor/libraw` and compiled into the app
 - **Thumbnails** come from the camera's embedded preview, so the grid shows the camera's rendering until a frame is developed.
 
 To update LibRaw, replace `src`, `libraw` and `internal` in the vendor folder from a release tarball, check its checksum, and rerun the RAW tests and calibration.
+
+## White balance
+
+Every source carries its as-shot white point (CIE xy): LibRaw's camera multipliers through the camera matrix for RAWs (`raw.rs`, sent in the decode header and read for the whole folder in the background by `white_points`), and D65 for everything else. A recipe's white balance is an absolute temperature and tint; `engine/whitebalance.ts` turns it into a white point (darktable's daylight and blackbody formulas, tint at right angles to the locus) and the exposure stage applies CAT16 from the as-shot white to it, which is the identity when nothing changes. Thumbnails and stock tiles use the same white point as the develop view, and the developed-thumbnail cache is keyed on it. The eyedropper averages a small patch of scene light before white balance (`Engine.sampleScene`) and solves for the white that makes it neutral.
 
 ## Recipes
 

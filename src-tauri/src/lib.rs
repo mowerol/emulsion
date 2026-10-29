@@ -32,6 +32,7 @@ pub fn run() {
             commands::scan_folder,
             commands::thumbnail,
             commands::load_image,
+            commands::white_points,
             commands::write_sidecar,
             commands::write_export,
             commands::startup_options,

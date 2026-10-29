@@ -36,9 +36,12 @@ export async function thumbnail(path: string, maxEdge = 512): Promise<Blob> {
   return new Blob([buf], { type: 'image/jpeg' });
 }
 
-export const HEADER_BYTES = 16;
+export const HEADER_BYTES = 24;
 
-/** Parse the decoder's payload: width, height, mode, reserved, then RGBA half floats. */
+/**
+ * Parse the decoder's payload: width, height, mode and flags (u32), the as-shot
+ * white point x and y (f32, when flag 1 is set), then RGBA half floats.
+ */
 export function parsePayload(buf: ArrayBuffer): HalfImage {
   if (buf.byteLength < HEADER_BYTES) throw new Error('Image payload is too short');
   const dv = new DataView(buf);
@@ -47,13 +50,17 @@ export function parsePayload(buf: ArrayBuffer): HalfImage {
   const mode = dv.getUint32(8, true) as InputMode;
   const expected = HEADER_BYTES + width * height * 8;
   if (buf.byteLength !== expected) throw new Error(`Image payload is ${buf.byteLength} bytes, expected ${expected}`);
-  return { width, height, mode, data: new Uint16Array(buf, HEADER_BYTES, width * height * 4) };
+  const white: [number, number] | null = dv.getUint32(12, true) & 1 ? [dv.getFloat32(16, true), dv.getFloat32(20, true)] : null;
+  return { width, height, mode, white, data: new Uint16Array(buf, HEADER_BYTES, width * height * 4) };
 }
 
 export async function loadImage(path: string, maxEdge?: number): Promise<HalfImage> {
   const buf = await invoke<ArrayBuffer>('load_image', { path, maxEdge: maxEdge ?? null });
   return parsePayload(buf);
 }
+
+/** As-shot white points (CIE xy) of `paths`; null for anything that is not a RAW. */
+export const whitePoints = (paths: string[]) => invoke<([number, number] | null)[]>('white_points', { paths });
 
 export const writeSidecar = (path: string, recipe: unknown | null) => invoke<void>('write_sidecar', { path, recipe });
 

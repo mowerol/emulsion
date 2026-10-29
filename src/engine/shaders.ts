@@ -13,6 +13,7 @@ import exposure from './shaders/stages/exposure.glsl?raw';
 import colorbalance from './shaders/stages/colorbalance.glsl?raw';
 import toneequalizer from './shaders/stages/toneequalizer.glsl?raw';
 import toneeqmask from './shaders/toneeqmask.frag.glsl?raw';
+import sample from './shaders/sample.frag.glsl?raw';
 import lens from './shaders/stages/lens.glsl?raw';
 import optics from './shaders/stages/optics.glsl?raw';
 import emulsion from './shaders/stages/emulsion.glsl?raw';
@@ -44,6 +45,7 @@ export const SHADERS = {
   develop: assemble(develop, SHADER_FILES),
   extract: assemble(extract, SHADER_FILES),
   toneeqmask: assemble(toneeqmask, SHADER_FILES),
+  sample: assemble(sample, SHADER_FILES),
   blur,
   down,
 };

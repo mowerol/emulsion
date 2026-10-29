@@ -13,17 +13,19 @@ describe('develop uniforms', () => {
     expect(needsPasses(developUniforms(null, ctx))).toEqual({ highlights: false, sharpen: false, toneEqualizer: false });
   });
 
-  it('keeps luminance when balancing colour', () => {
-    for (const warmth of [-100, 0, 60]) {
-      const wb = developUniforms({ ...defaultRecipe('gold200'), warmth, tint: 30 }, ctx).uWB as number[];
-      expect(wb[0] * LUMA_REC2020[0] + wb[1] * LUMA_REC2020[1] + wb[2] * LUMA_REC2020[2]).toBeCloseTo(1, 9);
-    }
+  it('keeps luminance in the stock balance', () => {
+    const wb = developUniforms(defaultRecipe('gold200'), ctx).uWB as number[];
+    expect(wb[0] * LUMA_REC2020[0] + wb[1] * LUMA_REC2020[1] + wb[2] * LUMA_REC2020[2]).toBeCloseTo(1, 9);
   });
 
-  it('warms when warmth goes up', () => {
-    const cool = developUniforms({ ...defaultRecipe(), warmth: -50 }, ctx).uWB as number[];
-    const warm = developUniforms({ ...defaultRecipe(), warmth: 50 }, ctx).uWB as number[];
-    expect(warm[0] / warm[2]).toBeGreaterThan(cool[0] / cool[2]);
+  it('leaves white balance alone until it is set, then adapts from the photo\'s as-shot white', () => {
+    expect(developUniforms(defaultRecipe(), ctx).uWbMat).toEqual([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+    const r = { ...defaultRecipe(), wb: { temperature: 3200, tint: 0 } };
+    const fromD65 = developUniforms(r, ctx).uWbMat as number[];
+    const fromWarm = developUniforms(r, { ...ctx, white: [0.42, 0.4] }).uWbMat as number[];
+    // Balancing for tungsten light makes a daylight photo blue: blue gain beats red.
+    expect(fromD65[8]).toBeGreaterThan(fromD65[0]);
+    expect(fromWarm).not.toEqual(fromD65);
   });
 
   it('sends contrast, vibrance and saturation to the colour balance stage, not the print', () => {

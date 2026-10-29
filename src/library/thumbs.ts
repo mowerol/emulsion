@@ -5,6 +5,7 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { thumbnail } from '../backend/api';
 import { recipeKey, type Recipe } from '../film/recipe';
+import type { Xy } from '../engine/whitebalance';
 import { Engine } from '../engine/engine';
 
 const THUMB_EDGE = 512;
@@ -34,7 +35,7 @@ class ThumbStore {
   private waiting: (() => void)[] = [];
   private running = 0;
   private developed = new Map<string, Developed>();
-  private wanted = new Map<string, { recipe: Recipe | null; seed: number }>();
+  private wanted = new Map<string, { recipe: Recipe | null; seed: number; white: Xy | null }>();
   private developing = false;
   private failed = new Set<string>();
   private listeners = new Set<() => void>();
@@ -91,10 +92,10 @@ class ThumbStore {
   }
 
   /** Ask for the thumbnails of a frame that is on screen. */
-  want(path: string, recipe: Recipe | null, seed: number) {
+  want(path: string, recipe: Recipe | null, seed: number, white: Xy | null) {
     if (!this.originals.has(path) && !this.failed.has(path)) this.original(path).catch(() => {});
-    if (recipe && this.developed.get(path)?.key !== recipeKey(recipe)) {
-      this.wanted.set(path, { recipe, seed });
+    if (recipe && this.developed.get(path)?.key !== thumbKey(recipe, white)) {
+      this.wanted.set(path, { recipe, seed, white });
       this.pump();
     }
   }
@@ -104,13 +105,13 @@ class ThumbStore {
     this.developing = true;
     try {
       while (this.wanted.size) {
-        const [path, job] = this.wanted.entries().next().value as [string, { recipe: Recipe | null; seed: number }];
+        const [path, job] = this.wanted.entries().next().value as [string, { recipe: Recipe | null; seed: number; white: Xy | null }];
         this.wanted.delete(path);
-        const key = recipeKey(job.recipe);
+        const key = thumbKey(job.recipe, job.white);
         if (this.developed.get(path)?.key === key) continue;
         try {
           const orig = await this.original(path);
-          const url = await developBlob(orig.blob, job.recipe, job.seed, DEVELOPED_EDGE);
+          const url = await developBlob(orig.blob, job.recipe, job.seed, DEVELOPED_EDGE, job.white);
           const prev = this.developed.get(path);
           if (prev) URL.revokeObjectURL(prev.url);
           this.developed.set(path, { key, url });
@@ -150,20 +151,23 @@ class ThumbStore {
 
 export const thumbs = new ThumbStore();
 
-/** Decode a thumbnail blob into an engine source. */
-export async function sourceFromBlob(eng: Engine, blob: Blob) {
+/** A developed thumbnail depends on the photo's white point only when the recipe changes white balance. */
+const thumbKey = (recipe: Recipe | null, white: Xy | null) => recipeKey(recipe) + (recipe?.wb && white ? `|${white[0]},${white[1]}` : '');
+
+/** Decode a thumbnail blob into an engine source; `white` is the photo's as-shot white point. */
+export async function sourceFromBlob(eng: Engine, blob: Blob, white: Xy | null = null) {
   const bmp = await createImageBitmap(blob);
   try {
-    return { src: eng.sourceFromImage(bmp, bmp.width, bmp.height), w: bmp.width, h: bmp.height };
+    return { src: eng.sourceFromImage(bmp, bmp.width, bmp.height, white), w: bmp.width, h: bmp.height };
   } finally {
     bmp.close();
   }
 }
 
-async function developBlob(blob: Blob, recipe: Recipe | null, seed: number, edge: number): Promise<string> {
+async function developBlob(blob: Blob, recipe: Recipe | null, seed: number, edge: number, white: Xy | null): Promise<string> {
   const eng = offscreenEngine();
   if (!eng) throw new Error('No GPU');
-  const { src, w, h } = await sourceFromBlob(eng, blob);
+  const { src, w, h } = await sourceFromBlob(eng, blob, white);
   try {
     const s = Math.min(1, edge / Math.max(w, h));
     const canvas = document.createElement('canvas');
@@ -179,10 +183,10 @@ async function developBlob(blob: Blob, recipe: Recipe | null, seed: number, edge
 }
 
 /** The best thumbnail URL for a frame; requests it while `visible`. */
-export function useThumb(path: string, recipe: Recipe | null, seed: number, visible: boolean) {
+export function useThumb(path: string, recipe: Recipe | null, seed: number, visible: boolean, white: Xy | null) {
   useSyncExternalStore(thumbs.subscribe, thumbs.snapshot);
   useEffect(() => {
-    if (visible) thumbs.want(path, recipe, seed);
-  }, [path, recipe, seed, visible]);
+    if (visible) thumbs.want(path, recipe, seed, white);
+  }, [path, recipe, seed, visible, white]);
   return { url: thumbs.url(path, recipe), failed: thumbs.hasFailed(path) };
 }

@@ -183,6 +183,14 @@ input[type='range']::-moz-range-track { height: 3px; background: var(--line); }
 input[type='range']::-moz-range-thumb { width: 14px; height: 14px; border-radius: 50%; background: var(--fg); border: 0; }
 input[type='range']:disabled { opacity: 0.35; cursor: default; }
 
+.wb { display: grid; gap: 4px; padding-bottom: 6px; }
+.wb-head { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-bottom: 4px; }
+.wb-head select { background: var(--raise); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font-size: 13px; min-width: 0; }
+.eyedropper[aria-pressed='true'] { border-color: var(--accent); color: var(--accent); }
+.wb-temp input[type='range']::-webkit-slider-runnable-track { background: linear-gradient(to right, #5d84d8, #d9d4c8 50%, #d9a64a); }
+.wb-tint input[type='range']::-webkit-slider-runnable-track { background: linear-gradient(to right, #5fae6a, #d9d4c8 50%, #c56bb8); }
+.view.picking { cursor: crosshair; }
+
 .curve { display: grid; gap: 8px; }
 .curve-graph { display: block; width: 100%; aspect-ratio: 1; touch-action: none; cursor: crosshair; --curve: var(--fg); }
 .curve-graph.ch-r { --curve: #e2685a; }

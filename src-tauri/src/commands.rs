@@ -7,7 +7,9 @@ use std::path::{Path, PathBuf};
 use tauri::ipc::{InvokeBody, Request, Response};
 use tauri::State;
 
-use crate::{decode, export, library, sidecar, thumbs, AppPaths};
+use rayon::prelude::*;
+
+use crate::{decode, export, library, raw, sidecar, thumbs, AppPaths};
 
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
     tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())?
@@ -29,6 +31,22 @@ pub async fn thumbnail(paths: State<'_, AppPaths>, path: String, max_edge: u32) 
 pub async fn load_image(path: String, max_edge: Option<u32>) -> Result<Response, String> {
     let bytes = blocking(move || decode::load_for_engine(Path::new(&path), max_edge)).await?;
     Ok(Response::new(bytes))
+}
+
+/// As-shot white points (CIE xy) of `paths`, in order: metadata only, read in
+/// parallel. `None` for anything that is not a RAW or records no white balance.
+#[tauri::command]
+pub async fn white_points(paths: Vec<String>) -> Result<Vec<Option<[f32; 2]>>, String> {
+    blocking(move || {
+        Ok(paths
+            .par_iter()
+            .map(|p| {
+                let path = Path::new(p);
+                if library::classify(path) == library::Kind::Raw { raw::as_shot_white(path).ok().flatten() } else { None }
+            })
+            .collect())
+    })
+    .await
 }
 
 #[tauri::command]

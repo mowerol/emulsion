@@ -45,6 +45,13 @@ Template:
 - Ported to: `src/film/curve.ts`
 - Changes: translated from C to TypeScript; only the monotone Hermite spline, sampled to floats rather than integers
 
+### Illuminants and chromatic adaptation, from darktable
+- Upstream: https://github.com/darktable-org/darktable, `src/common/illuminants.h` and `src/common/chromatic_adaptation.h`, commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release 5.6.2)
+- Licence: GPL-3.0-or-later
+- Copyright: Copyright (C) 2020-2024 darktable developers (illuminants). Copyright (C) 2020-2025 darktable developers (chromatic adaptation)
+- Ported to: `src/engine/whitebalance.ts`, and the as-shot white point in `src-tauri/src/raw.rs` (from `WB_coeffs_to_illuminant_xy`)
+- Changes: translated from C to TypeScript and Rust. CAT16 with full adaptation between two whites in Rec.2020 rather than to D65 or D50; the as-shot white is not adapted to D50, as Emulsion works in D65. Tint moves the white towards green for positive values so the image turns magenta, as in Lightroom (the opposite sign to `blackbody_xy_to_tinted_xy`). Added a numeric inverse from a white point to temperature and tint, and solving the white that makes a sample neutral
+
 ## Bundled libraries
 
 ### LibRaw 0.22.3

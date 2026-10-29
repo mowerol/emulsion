@@ -15,6 +15,8 @@ struct EmuRawInfo {
   int height;
   // Camera from XYZ (D65), as in DNG ColorMatrix2. All zero when LibRaw has no data for the camera.
   float cam_xyz[3][3];
+  // As-shot white balance multipliers for R, G, B. All zero when the file has none.
+  float cam_mul[3];
   char make[64];
   char model[64];
 };
@@ -37,6 +39,16 @@ static void set_error(char *err, size_t len, const char *what, int code) {
 static void copy_str(char *dst, const char *src, size_t len) {
   strncpy(dst, src, len - 1);
   dst[len - 1] = '\0';
+}
+
+// Colour metadata, read after open_file.
+static void fill_colour_info(LibRaw *raw, EmuRawInfo *info) {
+  for (int i = 0; i < 3; i++) {
+    for (int j = 0; j < 3; j++) info->cam_xyz[i][j] = raw->imgdata.color.cam_xyz[i][j];
+    info->cam_mul[i] = raw->imgdata.color.cam_mul[i];
+  }
+  copy_str(info->make, raw->imgdata.idata.normalized_make, sizeof info->make);
+  copy_str(info->model, raw->imgdata.idata.normalized_model, sizeof info->model);
 }
 
 // Decode to 16-bit linear camera RGB, white balanced as shot and oriented.
@@ -86,13 +98,27 @@ int emu_raw_decode(const char *path, int half, EmuRawInfo *info, void **out, con
 
   info->width = img->width;
   info->height = img->height;
-  for (int i = 0; i < 3; i++)
-    for (int j = 0; j < 3; j++) info->cam_xyz[i][j] = raw->imgdata.color.cam_xyz[i][j];
-  copy_str(info->make, raw->imgdata.idata.normalized_make, sizeof info->make);
-  copy_str(info->model, raw->imgdata.idata.normalized_model, sizeof info->model);
+  fill_colour_info(raw, info);
 
   *out = img;
   *pixels = reinterpret_cast<const unsigned short *>(img->data);
+  delete raw;
+  return LIBRAW_SUCCESS;
+}
+
+// Colour metadata only, without decoding: much faster than emu_raw_decode.
+int emu_raw_info(const char *path, EmuRawInfo *info, char *err, size_t errlen) {
+  LibRaw *raw = new (std::nothrow) LibRaw(0);
+  if (!raw) return LIBRAW_UNSUFFICIENT_MEMORY;
+  int rc = raw->open_file(path);
+  if (rc != LIBRAW_SUCCESS) {
+    set_error(err, errlen, "open", rc);
+    delete raw;
+    return rc;
+  }
+  info->width = raw->imgdata.sizes.iwidth;
+  info->height = raw->imgdata.sizes.iheight;
+  fill_colour_info(raw, info);
   delete raw;
   return LIBRAW_SUCCESS;
 }
