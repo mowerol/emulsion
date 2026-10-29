@@ -10,6 +10,7 @@ import {
 } from '../library/store';
 import { offscreenEngine, sourceFromBlob, thumbs } from '../library/thumbs';
 import { MOD, Segmented } from './common';
+import { Histogram } from './Histogram';
 
 function summary(r: Recipe | null) {
   if (!r) return 'Original, not developed';
@@ -145,6 +146,7 @@ export function Panel() {
 
   return (
     <aside className="panel" aria-label="Lab order">
+      {view === 'develop' && <Histogram />}
       <div className="order">
         <span className="order-frame">
           Frame {active + 1} of {total}, {photo.name}

@@ -10,6 +10,9 @@ import down from './shaders/down.frag.glsl?raw';
 import tone from './shaders/stages/tone.glsl?raw';
 import input from './shaders/stages/input.glsl?raw';
 import exposure from './shaders/stages/exposure.glsl?raw';
+import colorbalance from './shaders/stages/colorbalance.glsl?raw';
+import toneequalizer from './shaders/stages/toneequalizer.glsl?raw';
+import toneeqmask from './shaders/toneeqmask.frag.glsl?raw';
 import lens from './shaders/stages/lens.glsl?raw';
 import optics from './shaders/stages/optics.glsl?raw';
 import emulsion from './shaders/stages/emulsion.glsl?raw';
@@ -23,6 +26,8 @@ export const SHADER_FILES: Record<string, string> = {
   'stages/tone.glsl': tone,
   'stages/input.glsl': input,
   'stages/exposure.glsl': exposure,
+  'stages/colorbalance.glsl': colorbalance,
+  'stages/toneequalizer.glsl': toneequalizer,
   'stages/lens.glsl': lens,
   'stages/optics.glsl': optics,
   'stages/emulsion.glsl': emulsion,
@@ -36,6 +41,7 @@ export const SHADERS = {
   vertex: quadVert,
   develop: assemble(develop, SHADER_FILES),
   extract: assemble(extract, SHADER_FILES),
+  toneeqmask: assemble(toneeqmask, SHADER_FILES),
   blur,
   down,
 };

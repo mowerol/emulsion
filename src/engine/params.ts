@@ -4,8 +4,22 @@
 import { STOCK } from '../film/stocks';
 import { SCANNER } from '../film/scanners';
 import type { Recipe } from '../film/recipe';
+import type { Vec3 } from '../film/stocks';
 import { LUMA_REC2020, REC2020_TO_SRGB, SRGB_TO_REC2020, columnMajor } from './color';
-import { toneUniform } from './tone';
+import { NEUTRAL, curveFor, packCurve, sigmoidCurve, whiteTargetFor, type ToneLook } from './tone';
+import {
+  CONTRAST_FULCRUM,
+  GRADING_TO_LMS,
+  LMS_TO_GRADING,
+  LMS_TO_XYZ,
+  REC2020_TO_LMS,
+  WHITE_FULCRUM,
+  XYZ_TO_REC2020,
+  colorBalanceParams,
+  workingGamut,
+  yToLStar,
+} from './colorbalance';
+import { EXPOSURE_BOOST, FEATHERING, SMOOTHING, bandFactors, bandGains } from './toneequalizer';
 
 export type UniformValue = number | number[];
 export type Uniforms = Record<string, UniformValue>;
@@ -34,7 +48,35 @@ export interface RenderContext {
 }
 
 const WORKING = columnMajor(SRGB_TO_REC2020);
+const NEUTRAL_CURVE = packCurve(sigmoidCurve(NEUTRAL));
+
+/** Lowering Blacks to -100 cuts scene light below this, about 4.5 stops under middle grey. */
+export const MAX_BLACK_LEVEL = 0.008;
 const DISPLAY = columnMajor(REC2020_TO_SRGB);
+
+/** Colour balance constants: matrices, reference values and the gamut table. */
+let colorBalanceBase: Uniforms | null = null;
+const colorBalanceUniforms = () =>
+  (colorBalanceBase ??= {
+    uCbRgbToLms: columnMajor(REC2020_TO_LMS),
+    uCbLmsToXyz: columnMajor(LMS_TO_XYZ),
+    uCbXyzToRgb: columnMajor(XYZ_TO_REC2020),
+    uCbLmsToGrading: columnMajor(LMS_TO_GRADING),
+    uCbGradingToLms: columnMajor(GRADING_TO_LMS),
+    uCbRef: [CONTRAST_FULCRUM, yToLStar(WHITE_FULCRUM)],
+    uCbGamut: Array.from(workingGamut()),
+  });
+
+/** The tone stage's look: stock contrast with push, crossover, whites and blacks. */
+export function toneLookFor(recipe: Recipe): ToneLook {
+  const s = STOCK[recipe.stock];
+  return {
+    contrast: s.contrast * (1 + 0.09 * recipe.push),
+    channels: s.crossover.map((d) => Math.max(0.2, 1 + d)) as Vec3,
+    whites: recipe.whites,
+    blacks: recipe.blacks,
+  };
+}
 
 /** What the develop shader needs, shared with the extraction pass. */
 export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Uniforms {
@@ -42,14 +84,14 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uInputMode: ctx.inputMode,
     uToWorking: WORKING,
     uToDisplay: DISPLAY,
-    uTone: toneUniform(),
+    uSigN: NEUTRAL_CURVE,
     uOut: [ctx.width, ctx.height],
     uStore: ctx.store,
     uSeed: ctx.seed,
     uHalThreshold: HALATION_THRESHOLD,
   };
   if (!recipe || ctx.compare) {
-    return { ...base, uCompare: 1, uToneC: [1, 1, 1], uExposure: 0, uWB: [1, 1, 1], uBW: 0 };
+    return { ...base, uCompare: 1, uExposure: 0, uExpBlack: 0, uWB: [1, 1, 1], uBW: 0, uTeqOn: 0 };
   }
 
   const s = STOCK[recipe.stock];
@@ -61,13 +103,28 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
   const gains = [s.balance[0] * (1 + 0.22 * w), s.balance[1] * (1 - 0.1 * t), s.balance[2] * (1 - 0.22 * w)];
   const lum = gains[0] * LUMA_REC2020[0] + gains[1] * LUMA_REC2020[1] + gains[2] * LUMA_REC2020[2];
 
-  const contrast = s.contrast * (1 + (recipe.contrast / 100) * 0.6) * (1 + 0.09 * push);
+  const look = toneLookFor(recipe);
+  const teqOn = recipe.shadows !== 0 || recipe.highlights !== 0;
+  const teq = teqOn ? bandFactors(bandGains(recipe.shadows, recipe.highlights)) : [0, 0, 0, 0, 0, 0, 0, 0];
+  const cb = colorBalanceParams(recipe.contrast, recipe.vibrance, recipe.saturation);
   const grainMul = push > 0 ? 1 + 0.45 * push : 1 + 0.3 * push;
 
   return {
     ...base,
+    ...colorBalanceUniforms(),
+    uCbParams: [1 + cb.contrast, cb.vibrance, cb.saturation],
     uCompare: 0,
     uExposure: recipe.exposure,
+    uTeqOn: teqOn ? 1 : 0,
+    uTeqF0: teq.slice(0, 4),
+    uTeqF1: teq.slice(4, 8),
+    uTeqParams: [EXPOSURE_BOOST, FEATHERING, 2 * SMOOTHING * SMOOTHING],
+    uExpBlack: recipe.blacks < 0 ? (-recipe.blacks / 100) * MAX_BLACK_LEVEL : 0,
+    uSigS: packCurve(curveFor(look.contrast, look)),
+    uSigR: packCurve(curveFor(look.contrast * look.channels[0], look)),
+    uSigG: packCurve(curveFor(look.contrast * look.channels[1], look)),
+    uSigB: packCurve(curveFor(look.contrast * look.channels[2], look)),
+    uSigMag: whiteTargetFor(recipe.whites) / 100,
     uWB: gains.map((g) => g / lum),
     uVig: recipe.vignette / 100,
     uSharp: sc.sharpness,
@@ -77,8 +134,7 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uMat: columnMajor(s.matrix),
     uBW: s.bw ? 1 : 0,
     uBWw: s.bwWeights ?? LUMA_REC2020,
-    uToneC: s.crossover.map((d) => Math.max(0.2, contrast * (1 + d))),
-    uSat: Math.max(0, s.saturation * (1 + recipe.saturation / 100) * (1 + 0.04 * push)),
+    uSat: Math.max(0, s.saturation * (1 + 0.04 * push)),
     uStockFade: s.fade,
     uGrain: (recipe.grain / 100) * grainMul,
     uGrainSize: (recipe.grainSize / 100) * (push > 0 ? 1 + 0.12 * push : 1),
@@ -99,5 +155,6 @@ export function needsPasses(u: Uniforms) {
   return {
     highlights: u.uCompare !== 1 && ((u.uHal as number) > 0 || (u.uGlow as number) > 0),
     sharpen: u.uCompare !== 1 && (u.uSharp as number) !== 0,
+    toneEqualizer: u.uCompare !== 1 && u.uTeqOn === 1,
   };
 }

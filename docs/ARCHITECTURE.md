@@ -36,29 +36,34 @@ Each stage is one GLSL file in `src/engine/shaders/stages/`, included into `deve
 | --- | --- | --- | --- | --- |
 | Input | `input.glsl` | scene | Bring any source into scene-linear Rec.2020 | |
 | Sharpen | `optics.glsl` | scene | Scanner sharpness, a log-domain unsharp mask | |
-| Exposure | `exposure.glsl` | scene | Exposure and colour balance (stock balance, warmth, tint) | darktable colour calibration |
+| Exposure | `exposure.glsl` | scene | Exposure, black level (Blacks below zero, as darktable's exposure module) and colour balance (stock balance, warmth, tint) | darktable colour calibration |
+| Tone equalizer | `toneequalizer.glsl` | scene | Highlights and Shadows: exposure by brightness band through an edge-aware brightness map. **Ported from darktable tone equalizer** | |
+| Colour balance | `colorbalance.glsl` | scene | Contrast around middle grey, vibrance, saturation with gamut mapping. **Ported from darktable colour balance rgb** | |
 | Lens | `lens.glsl` | scene | Vignetting | |
 | Optics | `optics.glsl` | scene | Halation and glow, added back from blurred highlights | |
 | Emulsion | `emulsion.glsl` | scene | Dye crosstalk; black and white sensitivity | Measured stock data or CLUTs |
-| Tone | `tone.glsl` | scene to print | Print curve with per-channel contrast (crossover), saturation, stock black lift | **darktable sigmoid** |
+| Tone | `tone.glsl` | scene to print | **Ported from darktable sigmoid**: log-logistic curve with hue preservation; stock contrast and push scale its contrast, crossover is a per-channel ratio on top, Whites set the display white and Blacks above zero the display black. Then print saturation and stock black lift | |
 | Output | `output.glsl` | print to display | Rec.2020 to sRGB | Colour-managed output |
 | Grain | `grain.glsl` | display | Clumped, midtone-weighted grain sized to the frame | **darktable grain** |
 | Scanner | `scanner.glsl` | display | Levels, colour cast, contrast and saturation of the scan | |
 | Finish | `finish.glsl` | display | Matte fade and dither | |
 
-The tone curve's maths is mirrored in `engine/tone.ts` so it can be unit-tested; the shader receives its constants from there.
+The tone curve's maths is mirrored in `engine/tone.ts` so it can be unit-tested; the shader receives its constants from there. Emulsion's neutral curve uses sigmoid contrast 1.15 and skew 0.11 rather than darktable's 1.5 and 0, fitted to the curve the stocks were first tuned on, and a display black of 0 so the inverse is exact. The original (Compare, or no look) renders the neutral curve per channel without hue preservation, the exact inverse of the input stage.
 
 ### Passes
 
 `engine/engine.ts` runs these passes per render:
 
 ```
-source ─┬─ extract (1/4 res) ─ down ─ down ─ ...      highlight pyramid
+source ─┬─ tone eq map (1/4 res) ─ down ─ ... ─ blur ── tone equalizer ─┐   (only with Highlights or Shadows)
+        ├─ extract (1/4 res) ─ down ─ down ─ ...      highlight pyramid
         │        └─ blur at ≤256 px wide ──────────── halation ─┐
         │        └─ blur at ≤128 px wide ──────────── glow ─────┤
         ├─ down (1/2 res) ─ blur ───────────────────── sharpen ──┤
         └───────────────────────────────────────────────────── develop ─▶ screen or export
 ```
+
+The tone equalizer's map holds each pixel's brightness and its square, so the blur yields the local mean and variance its edge-aware filter needs. It is halved down to the halation level (at most 256 wide) and blurred there with a sigma of 2.5% of the long edge, darktable's default smoothing; it uses 32-bit float targets where the GPU can filter them, because the variance is a small difference of large numbers. Without float targets the stage falls back to a plain per-pixel correction, darktable's "no detail preservation" mode.
 
 Halation and glow are blurred on small, fixed-size levels of a downsample pyramid (`engine/pyramid.ts`), with taps no more than one texel apart. That keeps the halos smooth, cheap, and the same relative size in the preview and in a full-size export. Passes are skipped when their amounts are zero.
 
@@ -122,6 +127,6 @@ Writes are debounced in the webview and atomic in Rust (write to a temporary fil
 
 ## Testing
 
-- `npm test`: unit tests for the tone curve, colour matrices, uniforms, recipes, shader assembly, blur geometry and the image payload.
+- `npm test`: unit tests for the tone curve, colour balance, colour matrices, uniforms, recipes, shader assembly, blur geometry and the image payload.
 - `cargo test` in `src-tauri`: scanning, sidecars, decoding (8 and 16-bit), RAW colour conversion, thumbnail caching and export.
-- **Engine probe** (`tools/probe`): renders a synthetic frame through the real engine in any browser and reports pixel values for the original, a look with effects off, halation and glow. Build it with `npm run probe`, serve `tools/probe/dist` over HTTP and open it; results are on `window.result`. Use it to check that a ported module matches its reference numerically.
+- **Engine probe** (`tools/probe`): renders a synthetic frame through the real engine in any browser and reports pixel values for the original, a look with effects off, halation and glow. Build it with `npm run probe`, serve `tools/probe/dist` over HTTP and open it; results are on `window.result`. Use it to check that a ported module matches its reference numerically. It also runs single stages over test colours at 32-bit float precision and reports their largest relative error against the TypeScript references: colour balance (`result.colorBalance`, under 0.03% at the port), tone (`result.tone`, under 0.001%), tone equalizer per pixel and edge-aware (`result.toneEqualizer`) and the input-to-original round trip (`result.roundTrip`). Without a server, run `chrome --headless --allow-file-access-from-files --virtual-time-budget=20000 --dump-dom tools/probe/dist/index.html` and read the JSON in `<pre id="result">`.

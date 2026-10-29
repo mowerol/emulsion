@@ -10,7 +10,7 @@ describe('develop uniforms', () => {
   it('renders the original when there is no recipe or when comparing', () => {
     expect(developUniforms(null, ctx).uCompare).toBe(1);
     expect(developUniforms(defaultRecipe(), { ...ctx, compare: true }).uCompare).toBe(1);
-    expect(needsPasses(developUniforms(null, ctx))).toEqual({ highlights: false, sharpen: false });
+    expect(needsPasses(developUniforms(null, ctx))).toEqual({ highlights: false, sharpen: false, toneEqualizer: false });
   });
 
   it('keeps luminance when balancing colour', () => {
@@ -26,9 +26,20 @@ describe('develop uniforms', () => {
     expect(warm[0] / warm[2]).toBeGreaterThan(cool[0] / cool[2]);
   });
 
+  it('sends contrast, vibrance and saturation to the colour balance stage, not the print', () => {
+    const base = developUniforms(defaultRecipe(), ctx);
+    const u = developUniforms({ ...defaultRecipe(), contrast: 40, vibrance: -30, saturation: 25 }, ctx);
+    expect(u.uCbParams).toEqual([1.4, -0.3, 0.25]);
+    expect(base.uCbParams).toEqual([1, 0, 0]);
+    expect(u.uSigS).toEqual(base.uSigS);
+    expect(u.uSat).toEqual(base.uSat);
+    expect((u.uCbGamut as number[]).length).toBe(512);
+  });
+
   it('pushing adds contrast and grain, pulling removes them', () => {
     const at = (push: -1 | 0 | 1 | 2) => developUniforms({ ...defaultRecipe(), push }, ctx);
-    const c = (u: ReturnType<typeof at>) => (u.uToneC as number[])[0];
+    // Film power of the shared tone curve.
+    const c = (u: ReturnType<typeof at>) => (u.uSigS as number[])[2];
     expect(c(at(1))).toBeGreaterThan(c(at(0)));
     expect(c(at(2))).toBeGreaterThan(c(at(1)));
     expect(c(at(-1))).toBeLessThan(c(at(0)));
@@ -37,8 +48,27 @@ describe('develop uniforms', () => {
   });
 
   it('applies crossover per channel', () => {
-    const u = developUniforms(defaultRecipe('superia400'), ctx).uToneC as number[];
-    expect(u[1]).toBeLessThan(u[0]);
+    const u = developUniforms(defaultRecipe('superia400'), ctx);
+    const power = (k: string) => (u[k] as number[])[2];
+    expect(power('uSigG')).toBeLessThan(power('uSigR'));
+  });
+
+  it('runs the tone equalizer only when Shadows or Highlights is set', () => {
+    expect(needsPasses(developUniforms(defaultRecipe(), ctx)).toneEqualizer).toBe(false);
+    const u = developUniforms({ ...defaultRecipe(), shadows: 40 }, ctx);
+    expect(needsPasses(u).toneEqualizer).toBe(true);
+    expect((u.uTeqF0 as number[]).length).toBe(4);
+    expect(needsPasses(developUniforms({ ...defaultRecipe(), highlights: -10 }, { ...ctx, compare: true })).toneEqualizer).toBe(false);
+  });
+
+  it('maps whites to the display white and blacks to a lift or a cut', () => {
+    const at = (whites: number, blacks: number) => developUniforms({ ...defaultRecipe(), whites, blacks }, ctx);
+    expect(at(0, 0).uSigMag).toBe(1);
+    expect(at(100, 0).uSigMag).toBeCloseTo(Math.SQRT2, 9);
+    expect(at(0, 0).uExpBlack).toBe(0);
+    expect(at(0, 50).uExpBlack).toBe(0);
+    expect(at(0, -100).uExpBlack).toBeCloseTo(0.008, 9);
+    expect(at(0, 50).uSigS).not.toEqual(at(0, 0).uSigS);
   });
 
   it('turns off colour grain for black and white', () => {

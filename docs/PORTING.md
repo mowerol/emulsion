@@ -49,8 +49,9 @@ Paths are as of darktable 5.x; check the current tree before porting.
 
 | Emulsion stage | Upstream module | Why |
 | --- | --- | --- |
-| Tone | darktable `src/iop/sigmoid.c` | Smooth highlight roll-off past the white point, hue-preserving options; replaces the placeholder curve |
+| Tone | darktable `src/iop/sigmoid.c` | **Ported** (per-channel with hue preservation). Still to bring over: primaries inset and rotation, the RGB ratio mode |
+| Highlights and shadows | darktable `src/iop/toneequal.c` | **Ported** (EIGF, euclidean norm, one iteration). Still to bring over: more filter iterations, quantization, the other brightness estimators |
 | Grain | darktable `src/iop/grain.c` | Grain modelled on film, with a luminance response |
-| Exposure and colour | darktable `src/iop/colorbalancergb.c` | Perceptual saturation and colour grading |
+| Colour balance | darktable `src/iop/colorbalancergb.c` | **Ported** (contrast, vibrance, saturation). Still to bring over: the shadows, midtones and highlights wheels, brilliance and chroma |
 | Input (film scans) | darktable `src/iop/negadoctor.c` | Invert real colour negative scans |
 | Input (RAW) | LibRaw | Decoding, including Fuji X-Trans and OM System files |

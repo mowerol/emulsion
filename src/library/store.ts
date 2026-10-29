@@ -3,6 +3,7 @@
 // selection, and which view is showing.
 
 import { create } from 'zustand';
+import type { Histogram } from '../engine/histogram';
 import { scanFolder } from '../backend/api';
 import { normalizeRecipe, type Recipe } from '../film/recipe';
 import { seedFor } from '../engine/engine';
@@ -44,6 +45,8 @@ interface State {
   loading: boolean;
   toast: Toast | null;
   exportOpen: boolean;
+  /** Histogram of the developed frame in the develop view. */
+  histogram: { path: string; data: Histogram } | null;
 }
 
 export const useApp = create<State>(() => ({
@@ -58,6 +61,7 @@ export const useApp = create<State>(() => ({
   loading: false,
   toast: null,
   exportOpen: false,
+  histogram: null,
 }));
 
 const set = useApp.setState;

@@ -16,6 +16,11 @@ export interface Recipe {
   scanner: ScannerId;
   exposure: number;
   contrast: number;
+  highlights: number;
+  shadows: number;
+  whites: number;
+  blacks: number;
+  vibrance: number;
   saturation: number;
   warmth: number;
   tint: number;
@@ -48,6 +53,11 @@ export const formatEv = (v: number) => `${v > 0 ? '+' : v < 0 ? MINUS : ''}${Mat
 export const SLIDERS: SliderDef[] = [
   { key: 'exposure', label: 'Exposure', group: 'adjust', min: -3, max: 3, step: 0.05, format: formatEv },
   { key: 'contrast', label: 'Contrast', group: 'adjust', min: -50, max: 50, step: 1, format: formatSigned },
+  { key: 'highlights', label: 'Highlights', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
+  { key: 'shadows', label: 'Shadows', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
+  { key: 'whites', label: 'Whites', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
+  { key: 'blacks', label: 'Blacks', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
+  { key: 'vibrance', label: 'Vibrance', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'saturation', label: 'Saturation', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'warmth', label: 'Warmth', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'tint', label: 'Tint', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
@@ -81,6 +91,11 @@ export function defaultRecipe(stock: StockId = 'portra400', scanner: ScannerId =
     scanner,
     exposure: 0,
     contrast: 0,
+    highlights: 0,
+    shadows: 0,
+    whites: 0,
+    blacks: 0,
+    vibrance: 0,
     saturation: 0,
     warmth: 0,
     tint: 0,

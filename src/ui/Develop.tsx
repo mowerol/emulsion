@@ -2,12 +2,17 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { loadImage, logToTerminal } from '../backend/api';
 import { Engine, type Source } from '../engine/engine';
+import { histogram } from '../engine/histogram';
 import { activePhoto, showToast, useApp } from '../library/store';
 import { sourceFromBlob, thumbs } from '../library/thumbs';
 import { Filmstrip } from './Filmstrip';
 
 /** Long edge of the interactive preview. Exports always decode at full size. */
 const PREVIEW_EDGE = 2560;
+/** Long edge of the small render the histogram is counted from. */
+const HISTOGRAM_EDGE = 384;
+/** Wait this long after the last change before counting, so dragging stays smooth. */
+const HISTOGRAM_DELAY_MS = 120;
 
 interface Loaded {
   path: string;
@@ -141,6 +146,26 @@ export function Develop() {
     });
     return () => cancelAnimationFrame(id);
   }, [recipe, seed, compare, loadedVersion, size, path]);
+
+  // Count the histogram from a small render of the same frame, once changes settle.
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const engine = engineRef.current;
+      const loaded = loadedRef.current;
+      if (!engine || !loaded || loaded.path !== path) return;
+      const { w, h } = loaded.source;
+      const k = HISTOGRAM_EDGE / Math.max(w, h);
+      const hw = Math.max(1, Math.round(w * Math.min(1, k)));
+      const hh = Math.max(1, Math.round(h * Math.min(1, k)));
+      try {
+        const data = histogram(engine.readPixels(loaded.source, recipe, hw, hh, seed, compare));
+        useApp.setState({ histogram: { path: loaded.path, data } });
+      } catch {
+        /* the histogram is a convenience; a failed count leaves the last one */
+      }
+    }, HISTOGRAM_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [recipe, seed, compare, loadedVersion, path]);
 
   const loaded = loadedRef.current;
   const showing = loaded && loaded.path === path;

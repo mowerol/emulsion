@@ -59,6 +59,8 @@ export class Gpu {
   readonly gl: WebGL2RenderingContext;
   /** Float render targets available (EXT_color_buffer_float). */
   readonly hdr: boolean;
+  /** 32-bit float render targets that can also be filtered (OES_texture_float_linear). */
+  readonly float32: boolean;
   readonly maxTextureSize: number;
   private vao: WebGLVertexArrayObject;
   private black: WebGLTexture;
@@ -73,6 +75,11 @@ export class Gpu {
       try { this.free(this.target(4, 4, true)); } catch { hdr = false; }
     }
     this.hdr = hdr;
+    let float32 = hdr && !!gl.getExtension('OES_texture_float_linear');
+    if (float32) {
+      try { this.free(this.target(4, 4, true, true)); } catch { float32 = false; }
+    }
+    this.float32 = float32;
 
     this.vao = gl.createVertexArray()!;
     gl.bindVertexArray(this.vao);
@@ -123,11 +130,13 @@ export class Gpu {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   }
 
-  target(w: number, h: number, hdr: boolean): Target {
+  /** A render target; `precise` asks for 32-bit floats (only with `float32`). */
+  target(w: number, h: number, hdr: boolean, precise = false): Target {
     const gl = this.gl;
     const tex = gl.createTexture()!;
     gl.bindTexture(gl.TEXTURE_2D, tex);
-    if (hdr) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+    if (hdr && precise) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, w, h, 0, gl.RGBA, gl.FLOAT, null);
+    else if (hdr) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
     else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     this.params(false);
     const fbo = gl.createFramebuffer()!;

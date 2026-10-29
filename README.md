@@ -11,8 +11,9 @@ Version 0.1. Working today:
 - Open any folder, including its subfolders. Hidden files, macOS `._` files and the export folder are skipped.
 - Library grid with adjustable thumbnail size, multi-select (Shift and Cmd/Ctrl click, select all).
 - Develop view with filmstrip and a live preview, rendered on the GPU.
+- Live histogram of the developed frame (red, green, blue and luma) with clipping readouts.
 - Nine stocks (Portra 400 and 160, Gold 200, Ektar 100, Superia 400, Pro 400H, CineStill 800T, Tri-X 400, HP5 Plus), push and pull processing, four scanner profiles (Frontier, Noritsu, flatbed, straight).
-- Exposure, contrast, saturation, warmth, tint, fade, halation, glow, vignette, grain amount and size.
+- Exposure, contrast, highlights, shadows, whites, blacks, vibrance, saturation, warmth, tint, fade, halation, glow, vignette, grain amount and size. Contrast, vibrance and saturation are ported from darktable's colour balance rgb; the tone curve, whites and blacks from darktable's sigmoid; highlights and shadows from darktable's tone equalizer.
 - Stock tiles that preview the current photo through each stock.
 - Copy and paste settings, apply to the selection or the whole folder, hold `\` to compare with the original.
 - Camera RAW files through LibRaw 0.22.3, including Fujifilm X-Trans RAF and OM System/Olympus ORF. Thumbnails use the camera's embedded preview; the develop view decodes the RAW itself, white balanced as shot.
@@ -73,11 +74,10 @@ npm run probe     # build the engine probe (see docs/ARCHITECTURE.md, Testing)
 ## Roadmap
 
 1. RAW controls: white balance, highlight recovery, a per-camera exposure baseline.
-2. Port darktable's sigmoid tone mapper to replace the placeholder tone stage.
-3. Port darktable's grain and colour balance rgb modules.
-4. Real stock characterisations, starting with GPL-compatible Hald CLUT packs.
-5. Undo history, presets, 16-bit TIFF export, colour-managed input and output (Display P3).
-6. Move the pipeline to WebGPU (WGSL), so it can later be shared with a native Rust core.
+2. Port darktable's grain module.
+3. Real stock characterisations, starting with GPL-compatible Hald CLUT packs.
+4. Undo history, presets, 16-bit TIFF export, colour-managed input and output (Display P3).
+5. Move the pipeline to WebGPU (WGSL), so it can later be shared with a native Rust core.
 
 ## License
 

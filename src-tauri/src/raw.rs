@@ -55,9 +55,10 @@ const REC2020_TO_XYZ: Mat3 = [
 /// Gain from LibRaw's output, where sensor clipping is 1.0, to the engine's
 /// scene scale, where middle grey is 0.18. Set so a raw file and the camera's
 /// own JPEG of it land at about the same brightness through a neutral look:
-/// the median ratio over 33 OM-3 and X-T30 II files was 1.5 to 1.8 (see
-/// `calibrate_baseline_gain`). At 1.8, sensor clipping sits 3.3 stops over
-/// middle grey, just under the tone curve's white point.
+/// the median ratio over 33 OM-3 and X-T30 II files was 1.5 to 1.8 with the
+/// old tone curve and 1.9 with sigmoid (see `calibrate_baseline_gain`). At 1.8,
+/// sensor clipping sits 3.3 stops over middle grey, which sigmoid renders at
+/// about 87% of display white.
 pub const BASELINE_GAIN: f32 = 1.8;
 
 /// Cameras LibRaw reads but has no colour data for yet, mapped to a camera with
@@ -310,9 +311,14 @@ mod tests {
     #[test]
     #[ignore]
     fn calibrate_baseline_gain() {
-        // Mirrors src/engine/tone.ts.
-        let gamma = 0.46f32.ln() / (7.5f32 / 11.0).ln();
-        let tone_inverse = |e: f32| 0.18 * 2f32.powf(e.clamp(0.0, 1.0).powf(1.0 / gamma) * 11.0 - 7.5);
+        // Mirrors toneInverse in src/engine/tone.ts: the neutral sigmoid
+        // (paper exposure, film power, paper power; no fog), run backwards.
+        let (paper_exp, film_power, paper_power) = (0.735_28_f32, 1.291_181_f32, 0.837_748_f32);
+        let tone_inverse = |e: f32| {
+            let lin = crate::decode::srgb_to_linear(e.clamp(0.0, 1.0));
+            let r = lin.min(1.0 - 1e-7).powf(1.0 / paper_power);
+            (paper_exp * r / (1.0 - r)).powf(1.0 / film_power)
+        };
         let median = |mut v: Vec<f32>| {
             v.sort_by(f32::total_cmp);
             v[v.len() / 2]

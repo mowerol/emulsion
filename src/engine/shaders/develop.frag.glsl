@@ -7,6 +7,8 @@
 #include "stages/input.glsl"
 #include "stages/optics.glsl"
 #include "stages/exposure.glsl"
+#include "stages/toneequalizer.glsl"
+#include "stages/colorbalance.glsl"
 #include "stages/lens.glsl"
 #include "stages/emulsion.glsl"
 #include "stages/output.glsl"
@@ -21,17 +23,19 @@ uniform float uCompare;
 void main() {
   vec3 x = stageInput(texture(uSrc, vUv));
   if (uCompare > 0.5) {
-    outColor = vec4(stageOutput(stageTone(x, vec3(1.0))), 1.0);
+    outColor = vec4(stageOutput(stageToneNeutral(x)), 1.0);
     return;
   }
   // Scene light
   x = stageSharpen(x, vUv);
   x = stageExposure(x);
+  x = stageToneEqualizer(x, vUv);
+  x = stageColorBalance(x);
   x = stageLens(x, vUv);
   x = stageOptics(x, vUv);
   x = stageEmulsion(x);
   // Print
-  vec3 e = stagePrint(stageTone(x, uToneC));
+  vec3 e = stagePrint(stageTone(x));
   // Display
   vec3 d = stageOutput(e);
   d = stageGrain(d, vUv);

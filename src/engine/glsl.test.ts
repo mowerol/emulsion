@@ -24,7 +24,7 @@ describe('shader assembly', () => {
   });
 
   it('wires every develop stage', () => {
-    for (const fn of ['stageInput', 'stageSharpen', 'stageExposure', 'stageLens', 'stageOptics', 'stageEmulsion', 'stageTone', 'stagePrint', 'stageOutput', 'stageGrain', 'stageScanner', 'stageFinish']) {
+    for (const fn of ['stageInput', 'stageSharpen', 'stageExposure', 'stageToneEqualizer', 'stageColorBalance', 'stageLens', 'stageOptics', 'stageEmulsion', 'stageTone', 'stagePrint', 'stageOutput', 'stageGrain', 'stageScanner', 'stageFinish']) {
       expect(SHADERS.develop).toMatch(new RegExp(`\\b${fn}\\(`));
     }
   });
