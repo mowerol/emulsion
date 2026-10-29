@@ -8,6 +8,8 @@ use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 
 use crate::decode;
+use crate::library::{classify, Kind};
+use crate::raw;
 
 /// Bump when the thumbnail recipe changes, to invalidate old cache entries.
 const VERSION: u32 = 1;
@@ -36,7 +38,12 @@ pub fn get_or_create(cache_dir: &Path, path: &Path, max_edge: u32) -> Result<Vec
         return Ok(bytes);
     }
 
-    let img = decode::open_oriented(path)?;
+    // RAW thumbnails come from the camera's embedded preview, which is far
+    // quicker than developing the file.
+    let img = match classify(path) {
+        Kind::Raw => raw::embedded_preview(path)?,
+        _ => decode::open_oriented(path)?,
+    };
     let thumb = img.thumbnail(max_edge, max_edge).to_rgb8();
     let mut bytes = Vec::new();
     JpegEncoder::new_with_quality(&mut bytes, QUALITY)

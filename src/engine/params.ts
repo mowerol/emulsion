@@ -15,7 +15,7 @@ export enum InputMode {
   DisplayLinear = 0,
   /** sRGB-encoded, display-referred. 8-bit thumbnails. */
   DisplayEncoded = 1,
-  /** Scene-linear Rec.2020. RAW, once LibRaw lands. */
+  /** Scene-linear Rec.2020. RAW, decoded by LibRaw. */
   SceneLinear = 2,
 }
 

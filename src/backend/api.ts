@@ -18,7 +18,6 @@ export interface ScanResult {
   root: string;
   name: string;
   entries: Entry[];
-  rawSkipped: number;
   unreadable: number;
   focus: string | null;
 }

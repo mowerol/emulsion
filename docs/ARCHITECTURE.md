@@ -17,7 +17,7 @@ Emulsion has two halves. The Rust core (`src-tauri/`) owns the file system: it s
 ### Colour
 
 - **Working space:** scene-linear Rec.2020, the same choice darktable makes. Everything up to the tone stage happens in scene light, where light adds and multiplies physically.
-- **Input:** ordinary photos are display-referred, so the input stage expands them into scene light with the inverse of the neutral tone curve. This guarantees that a photo with no look applied (or with Compare held) renders back exactly as it came in. RAW files will arrive already scene-linear (input mode 2) and skip the expansion.
+- **Input:** ordinary photos are display-referred, so the input stage expands them into scene light with the inverse of the neutral tone curve. This guarantees that a photo with no look applied (or with Compare held) renders back exactly as it came in. RAW files arrive already scene-linear (input mode 2) and skip the expansion.
 - **Output:** the tone stage produces a display-encoded print in Rec.2020 primaries; the output stage converts it to sRGB. Grain and the scanner then work on the display image, like a real scan.
 
 Input modes (`engine/params.ts`, `InputMode`):
@@ -26,7 +26,7 @@ Input modes (`engine/params.ts`, `InputMode`):
 | --- | --- | --- |
 | 0 | Linear light, sRGB primaries, display-referred | Decoded JPEG, PNG, TIFF, WebP |
 | 1 | sRGB-encoded, display-referred | 8-bit thumbnails in the browser |
-| 2 | Scene-linear Rec.2020 | RAW (reserved) |
+| 2 | Scene-linear Rec.2020 | Decoded RAW |
 
 ### Stages
 
@@ -34,7 +34,7 @@ Each stage is one GLSL file in `src/engine/shaders/stages/`, included into `deve
 
 | Stage | File | Domain | What it does | Planned replacement |
 | --- | --- | --- | --- | --- |
-| Input | `input.glsl` | scene | Bring any source into scene-linear Rec.2020 | LibRaw for RAW |
+| Input | `input.glsl` | scene | Bring any source into scene-linear Rec.2020 | |
 | Sharpen | `optics.glsl` | scene | Scanner sharpness, a log-domain unsharp mask | |
 | Exposure | `exposure.glsl` | scene | Exposure and colour balance (stock balance, warmth, tint) | darktable colour calibration |
 | Lens | `lens.glsl` | scene | Vignetting | |
@@ -65,6 +65,17 @@ Halation and glow are blurred on small, fixed-size levels of a downsample pyrami
 ### Preview and export
 
 The develop view decodes a 2560 px preview; while it loads, the cached thumbnail is shown through the same pipeline. Export decodes at full size (up to the GPU's maximum texture size), develops into an offscreen target, reads the pixels back and hands them to Rust to encode. Grain and blur sizes are relative to the frame, so the export matches the preview.
+
+## RAW files
+
+LibRaw 0.22.3 is vendored in `src-tauri/vendor/libraw` and compiled into the app by `build.rs`, always optimised and without OpenMP, LCMS or libjpeg, so the app needs no extra libraries at run time. `native/raw_shim.cpp` is a small C interface over it; `raw.rs` calls it.
+
+- **Decoding:** LibRaw demosaics, applies the white balance as shot and returns 16-bit linear camera RGB, oriented. Previews (2560 px and under) use LibRaw's half-size mode, which skips the demosaic and is several times faster; export decodes at full size.
+- **Colour:** `raw.rs` converts camera RGB to Rec.2020 from the camera's XYZ matrix, the same way dcraw converts to sRGB (a test checks it reproduces LibRaw's sRGB matrix). Cameras LibRaw reads but has no colour data for can borrow a same-sensor camera's matrix from `SAME_SENSOR`; the OM-3 uses the OM-1's.
+- **Exposure:** LibRaw's output has sensor clipping at 1.0. `BASELINE_GAIN` (1.8) scales it so a RAW lands at about the brightness of the camera's own JPEG; the ignored test `calibrate_baseline_gain` measures this over sample files.
+- **Thumbnails** come from the camera's embedded preview, so the grid shows the camera's rendering until a frame is developed.
+
+To update LibRaw, replace `src`, `libraw` and `internal` in the vendor folder from a release tarball, check its checksum, and rerun the RAW tests and calibration.
 
 ## Recipes
 
@@ -112,5 +123,5 @@ Writes are debounced in the webview and atomic in Rust (write to a temporary fil
 ## Testing
 
 - `npm test`: unit tests for the tone curve, colour matrices, uniforms, recipes, shader assembly, blur geometry and the image payload.
-- `cargo test` in `src-tauri`: scanning, sidecars, decoding (8 and 16-bit), thumbnail caching and export.
+- `cargo test` in `src-tauri`: scanning, sidecars, decoding (8 and 16-bit), RAW colour conversion, thumbnail caching and export.
 - **Engine probe** (`tools/probe`): renders a synthetic frame through the real engine in any browser and reports pixel values for the original, a look with effects off, halation and glow. Build it with `npm run probe`, serve `tools/probe/dist` over HTTP and open it; results are on `window.result`. Use it to check that a ported module matches its reference numerically.

@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { loadImage } from '../backend/api';
+import { loadImage, logToTerminal } from '../backend/api';
 import { Engine, type Source } from '../engine/engine';
 import { activePhoto, showToast, useApp } from '../library/store';
 import { sourceFromBlob, thumbs } from '../library/thumbs';
@@ -61,11 +61,13 @@ export function Develop() {
       setLoadedVersion((v) => v + 1);
     };
     (async () => {
+      let previewShown = false;
       try {
         const orig = await thumbs.original(path);
         if (!cancelled && loadedRef.current?.path !== path) {
           const { src } = await sourceFromBlob(engine, orig.blob);
           swap(src, false);
+          previewShown = true;
         }
       } catch {
         /* fall through to the full decode */
@@ -74,7 +76,13 @@ export function Develop() {
         const img = await loadImage(path, Math.min(PREVIEW_EDGE, engine.maxTextureSize));
         if (!cancelled) swap(engine.sourceFromHalf(img), true);
       } catch (err) {
-        if (!cancelled) showToast(`Could not open this photo. ${String(err)}`);
+        if (cancelled) return;
+        // When only the decode failed, the preview stays on screen and edits apply
+        // to it, so say so, and leave the message up long enough to read.
+        const why = String(err);
+        logToTerminal('warn', why);
+        if (previewShown) showToast(`${why} You're editing the preview saved in the file, at lower quality.`, undefined, 9000);
+        else showToast(`Could not open this photo. ${why}`);
       }
     })();
     return () => {

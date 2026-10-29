@@ -17,7 +17,9 @@ name = "emulsion_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
+cc = { version = "1.10.0", features = ["parallel"] }
 tauri-build = { version = "2", features = [] }
+walkdir = "2.5.0"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

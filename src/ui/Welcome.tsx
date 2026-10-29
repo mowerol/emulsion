@@ -36,7 +36,7 @@ export function Welcome() {
             </ul>
           </section>
         )}
-        <p className="fine">Opens JPEG, PNG, TIFF (including 16-bit) and WebP. RAW support is next.</p>
+        <p className="fine">Opens camera RAW files (including Fujifilm and OM System), JPEG, PNG, TIFF and WebP.</p>
       </div>
     </main>
   );

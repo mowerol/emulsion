@@ -21,7 +21,6 @@ export interface Photo {
 export interface Folder {
   root: string;
   name: string;
-  rawSkipped: number;
   unreadable: number;
 }
 
@@ -109,7 +108,7 @@ export async function openFolder(path: string, view: View = 'library') {
     const focus = res.focus ? photos.findIndex((p) => p.path === res.focus) : -1;
     const active = photos.length ? Math.max(0, focus) : -1;
     set({
-      folder: { root: res.root, name: res.name, rawSkipped: res.rawSkipped, unreadable: res.unreadable },
+      folder: { root: res.root, name: res.name, unreadable: res.unreadable },
       photos,
       active,
       anchor: active,
@@ -119,7 +118,6 @@ export async function openFolder(path: string, view: View = 'library') {
     });
     rememberFolder({ root: res.root, name: res.name });
     const notes: string[] = [];
-    if (res.rawSkipped) notes.push(`${res.rawSkipped} RAW ${res.rawSkipped === 1 ? 'file' : 'files'} skipped until RAW support lands`);
     if (res.unreadable) notes.push(`${res.unreadable} ${res.unreadable === 1 ? 'item' : 'items'} could not be read`);
     if (!photos.length) showToast(`No photos Emulsion can open in ${res.name}.${notes.length ? ' ' + notes.join('. ') + '.' : ''}`);
     else if (notes.length) showToast(notes.join('. ') + '.');

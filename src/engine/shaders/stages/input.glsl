@@ -2,7 +2,7 @@
 // Input: bring any source into scene-linear Rec.2020.
 //   0  linear light, sRGB primaries, display-referred (decoded JPEG/PNG/TIFF)
 //   1  sRGB-encoded, display-referred (8-bit thumbnails)
-//   2  scene-linear Rec.2020 (RAW, reserved)
+//   2  scene-linear Rec.2020 (RAW)
 // Display-referred sources are expanded with the inverse of the neutral tone
 // curve, so a frame with no look applied renders back exactly as it came in.
 

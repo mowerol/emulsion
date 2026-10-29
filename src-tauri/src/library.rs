@@ -12,7 +12,7 @@ use crate::sidecar;
 /// Formats decoded by the `image` crate today.
 pub const RASTER_EXTS: &[&str] = &["jpg", "jpeg", "png", "tif", "tiff", "webp"];
 
-/// Camera RAW formats. Listed so a scan can report them; decoding comes with LibRaw.
+/// Camera RAW formats, decoded by LibRaw (raw.rs).
 pub const RAW_EXTS: &[&str] = &[
     "3fr", "arw", "cr2", "cr3", "crw", "dng", "erf", "iiq", "kdc", "mos", "mrw", "nef", "nrw",
     "orf", "ori", "pef", "raf", "rw2", "rwl", "sr2", "srf", "srw", "x3f",
@@ -62,8 +62,6 @@ pub struct ScanResult {
     pub root: String,
     pub name: String,
     pub entries: Vec<Entry>,
-    /// RAW files found but not opened yet.
-    pub raw_skipped: usize,
     /// Directory entries that could not be read (permissions, broken links).
     pub unreadable: usize,
     /// When a file rather than a folder was opened, that file.
@@ -107,7 +105,6 @@ pub fn scan(target: &Path, recursive: bool) -> std::io::Result<ScanResult> {
         .max_depth(if recursive { usize::MAX } else { 1 });
 
     let mut entries = Vec::new();
-    let mut raw_skipped = 0;
     let mut unreadable = 0;
 
     for item in walker.into_iter().filter_entry(|e| !skip(e)) {
@@ -121,13 +118,8 @@ pub fn scan(target: &Path, recursive: bool) -> std::io::Result<ScanResult> {
         if !item.file_type().is_file() {
             continue;
         }
-        match classify(item.path()) {
-            Kind::Raster => {}
-            Kind::Raw => {
-                raw_skipped += 1;
-                continue;
-            }
-            Kind::Other => continue,
+        if classify(item.path()) == Kind::Other {
+            continue;
         }
         let meta = match item.metadata() {
             Ok(m) => m,
@@ -171,7 +163,6 @@ pub fn scan(target: &Path, recursive: bool) -> std::io::Result<ScanResult> {
         root: root.to_string_lossy().into_owned(),
         name,
         entries,
-        raw_skipped,
         unreadable,
         focus,
     })
@@ -216,12 +207,11 @@ mod tests {
 
         let res = scan(r, true).unwrap();
         let rels: Vec<_> = res.entries.iter().map(|e| e.rel.as_str()).collect();
-        assert_eq!(rels, vec!["img_1.JPG", "IMG_2.jpg", "IMG_10.jpg", "roll b/frame.tif"]);
-        assert_eq!(res.raw_skipped, 1);
+        assert_eq!(rels, vec!["DSCF0001.RAF", "img_1.JPG", "IMG_2.jpg", "IMG_10.jpg", "roll b/frame.tif"]);
         assert!(res.focus.is_none());
 
         let flat = scan(r, false).unwrap();
-        assert_eq!(flat.entries.len(), 3);
+        assert_eq!(flat.entries.len(), 4);
     }
 
     #[test]

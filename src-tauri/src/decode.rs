@@ -3,14 +3,17 @@
 //!
 //! The engine receives RGBA half floats. For ordinary photos (JPEG, PNG, TIFF,
 //! WebP) the values are linear light in sRGB primaries, still display-referred;
-//! the GPU input stage expands them to scene-referred Rec.2020. RAW files will
-//! arrive already scene-referred (mode 2) once LibRaw is wired in.
+//! the GPU input stage expands them to scene-referred Rec.2020. RAW files arrive
+//! already scene-referred (mode 2), decoded by LibRaw in raw.rs.
 
 use half::f16;
 use image::{imageops::FilterType, DynamicImage, ImageDecoder, ImageReader};
 use rayon::prelude::*;
 use std::path::Path;
 use std::sync::OnceLock;
+
+use crate::library::{classify, Kind};
+use crate::raw;
 
 /// How the engine should interpret the pixels. Mirrors `InputMode` in the frontend.
 #[repr(u32)]
@@ -19,8 +22,13 @@ pub enum InputMode {
     /// Linear light, sRGB primaries, display-referred (decoded JPEG/PNG/TIFF).
     DisplayLinear = 0,
     // 1 = sRGB-encoded 8-bit, used only for in-browser thumbnails.
-    // 2 = scene-referred linear Rec.2020, reserved for RAW.
+    /// Scene-referred linear Rec.2020 (RAW).
+    SceneLinear = 2,
 }
+
+/// Previews at or below this size decode RAWs at half resolution, which is
+/// several times faster and still at least 2600 px wide for 20 MP sensors.
+const RAW_HALF_MAX_EDGE: u32 = 2560;
 
 pub const HEADER_BYTES: usize = 16;
 
@@ -143,6 +151,12 @@ pub fn payload(w: u32, h: u32, mode: InputMode, pixels: Vec<u8>) -> Vec<u8> {
 
 /// Decode `path` for the engine, scaled to `max_edge` when given.
 pub fn load_for_engine(path: &Path, max_edge: Option<u32>) -> Result<Vec<u8>, String> {
+    if classify(path) == Kind::Raw {
+        let half = max_edge.is_some_and(|m| m <= RAW_HALF_MAX_EDGE);
+        let img = resize_to(raw::decode(path, half)?, max_edge);
+        let (w, h) = (img.width(), img.height());
+        return Ok(payload(w, h, InputMode::SceneLinear, linear_f16_rgba(&img)));
+    }
     let img = resize_to(open_oriented(path)?, max_edge);
     let (w, h) = (img.width(), img.height());
     Ok(payload(w, h, InputMode::DisplayLinear, linear_f16_rgba(&img)))

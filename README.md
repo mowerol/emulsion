@@ -15,16 +15,17 @@ Version 0.1. Working today:
 - Exposure, contrast, saturation, warmth, tint, fade, halation, glow, vignette, grain amount and size.
 - Stock tiles that preview the current photo through each stock.
 - Copy and paste settings, apply to the selection or the whole folder, hold `\` to compare with the original.
+- Camera RAW files through LibRaw 0.22.3, including Fujifilm X-Trans RAF and OM System/Olympus ORF. Thumbnails use the camera's embedded preview; the develop view decodes the RAW itself, white balanced as shot.
 - JPEG, PNG, TIFF (8 and 16-bit) and WebP, with EXIF orientation.
 - Export to JPEG at full size or a set long edge, into `Emulsion exports` inside the folder or anywhere else. Existing files are never overwritten.
 
-Not yet: RAW files (they are counted and skipped), undo history, colour management beyond sRGB, presets. See [Roadmap](#roadmap).
+Not yet: RAW white balance and highlight recovery controls, undo history, colour management beyond sRGB, presets. See [Roadmap](#roadmap).
 
 The stock and scanner looks are approximations tuned by eye, not measured profiles. Film names are trademarks of their owners; Emulsion is not affiliated with them.
 
 ## Running it
 
-You need Node 20 or newer, a stable Rust toolchain, and Tauri's platform prerequisites (on macOS, the Xcode command line tools; on Linux, WebKitGTK 4.1 and friends). See <https://tauri.app/start/prerequisites/>.
+You need Node 20 or newer, Rust 1.85 or newer, a C++ compiler (LibRaw is built from `src-tauri/vendor/libraw` on first build), and Tauri's platform prerequisites (on macOS, the Xcode command line tools; on Linux, WebKitGTK 4.1 and friends). See <https://tauri.app/start/prerequisites/>.
 
 ```sh
 npm install
@@ -71,7 +72,7 @@ npm run probe     # build the engine probe (see docs/ARCHITECTURE.md, Testing)
 
 ## Roadmap
 
-1. RAW support through LibRaw (Fuji RAF and Olympus/OM System ORF first).
+1. RAW controls: white balance, highlight recovery, a per-camera exposure baseline.
 2. Port darktable's sigmoid tone mapper to replace the placeholder tone stage.
 3. Port darktable's grain and colour balance rgb modules.
 4. Real stock characterisations, starting with GPL-compatible Hald CLUT packs.

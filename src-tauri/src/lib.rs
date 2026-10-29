@@ -6,6 +6,7 @@ mod commands;
 mod decode;
 mod export;
 mod library;
+mod raw;
 mod sidecar;
 mod thumbs;
 
