@@ -1,6 +1,6 @@
 # Architecture
 
-Minilab has two halves. The Rust core (`src-tauri/`) owns the file system: it scans folders, decodes photos, caches thumbnails, reads and writes sidecars, and encodes exports. The webview (`src/`) owns the interface and the image pipeline, which runs on the GPU through WebGL2.
+Emulsion has two halves. The Rust core (`src-tauri/`) owns the file system: it scans folders, decodes photos, caches thumbnails, reads and writes sidecars, and encodes exports. The webview (`src/`) owns the interface and the image pipeline, which runs on the GPU through WebGL2.
 
 ```
  Rust core (src-tauri/src)                    Webview (src)
@@ -72,11 +72,11 @@ A recipe (`film/recipe.ts`) is everything about how one frame is developed: stoc
 
 ## Sidecars
 
-`<photo file name>.minilab.json`, next to the photo:
+`<photo file name>.emulsion.json`, next to the photo:
 
 ```json
 {
-  "format": "minilab",
+  "format": "emulsion",
   "version": 1,
   "updated": 1793302849059,
   "recipe": {

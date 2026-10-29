@@ -61,11 +61,11 @@ export const writeSidecar = (path: string, recipe: unknown | null) => invoke<voi
 export function writeExport(dir: string, stem: string, rgba: Uint8Array, width: number, height: number, quality: number) {
   return invoke<string>('write_export', rgba, {
     headers: {
-      'x-minilab-dir': encodeURIComponent(dir),
-      'x-minilab-stem': encodeURIComponent(stem),
-      'x-minilab-width': String(width),
-      'x-minilab-height': String(height),
-      'x-minilab-quality': String(quality),
+      'x-emulsion-dir': encodeURIComponent(dir),
+      'x-emulsion-stem': encodeURIComponent(stem),
+      'x-emulsion-width': String(width),
+      'x-emulsion-height': String(height),
+      'x-emulsion-quality': String(quality),
     },
   });
 }

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Minilab desktop core: folders, decoding, thumbnails, sidecars and export.
+//! Emulsion desktop core: folders, decoding, thumbnails, sidecars and export.
 //! Image processing itself runs on the GPU in the webview (see src/engine).
 
 mod commands;
@@ -37,5 +37,5 @@ pub fn run() {
             commands::log_message,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Minilab");
+        .expect("error while running Emulsion");
 }

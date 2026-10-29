@@ -19,7 +19,7 @@ export function Welcome() {
             <span className="muted">or drop a folder onto this window</span>
           </div>
         ) : (
-          <p className="notice">Minilab runs as a desktop app. Start it with <code>npm run tauri dev</code>.</p>
+          <p className="notice">Emulsion runs as a desktop app. Start it with <code>npm run tauri dev</code>.</p>
         )}
         {desktop && recents.length > 0 && (
           <section className="recents" aria-label="Recent folders">

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// A recipe is everything Minilab knows about how one frame is developed.
+// A recipe is everything Emulsion knows about how one frame is developed.
 // It is what gets saved to the photo's sidecar.
 
 import { STOCK, isStockId, type StockId } from './stocks';

@@ -1,8 +1,8 @@
-# Minilab
+# Emulsion
 
 Film looks for digital photos. Open a folder, pick a film stock, push or pull it, choose a scanner, and fine-tune halation, glow and grain. Edits are saved in small sidecar files next to each photo; originals are never touched.
 
-Minilab is a desktop app: a Rust core (folders, decoding, thumbnails, sidecars, export) with a React interface and a GPU film pipeline written in GLSL.
+Emulsion is a desktop app: a Rust core (folders, decoding, thumbnails, sidecars, export) with a React interface and a GPU film pipeline written in GLSL.
 
 ## Status
 
@@ -16,11 +16,11 @@ Version 0.1. Working today:
 - Stock tiles that preview the current photo through each stock.
 - Copy and paste settings, apply to the selection or the whole folder, hold `\` to compare with the original.
 - JPEG, PNG, TIFF (8 and 16-bit) and WebP, with EXIF orientation.
-- Export to JPEG at full size or a set long edge, into `Minilab exports` inside the folder or anywhere else. Existing files are never overwritten.
+- Export to JPEG at full size or a set long edge, into `Emulsion exports` inside the folder or anywhere else. Existing files are never overwritten.
 
 Not yet: RAW files (they are counted and skipped), undo history, colour management beyond sRGB, presets. See [Roadmap](#roadmap).
 
-The stock and scanner looks are approximations tuned by eye, not measured profiles. Film names are trademarks of their owners; Minilab is not affiliated with them.
+The stock and scanner looks are approximations tuned by eye, not measured profiles. Film names are trademarks of their owners; Emulsion is not affiliated with them.
 
 ## Running it
 
@@ -32,10 +32,10 @@ npm run tauri dev          # run in development
 npm run tauri build        # build an installable app
 ```
 
-To open a folder on launch, set `MINILAB_OPEN_FOLDER`:
+To open a folder on launch, set `EMULSION_OPEN_FOLDER`:
 
 ```sh
-MINILAB_OPEN_FOLDER="$HOME/Pictures/Lisbon" npm run tauri dev
+EMULSION_OPEN_FOLDER="$HOME/Pictures/Lisbon" npm run tauri dev
 ```
 
 A built app also opens a folder or photo passed as its first argument.
@@ -56,7 +56,7 @@ A built app also opens a folder or photo passed as its first argument.
 
 ## Edits and sidecars
 
-Each edited photo gets `<file name>.minilab.json` beside it, for example `DSCF0001.JPG.minilab.json`. Removing a look deletes the sidecar. The format is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#sidecars).
+Each edited photo gets `<file name>.emulsion.json` beside it, for example `DSCF0001.JPG.emulsion.json`. Removing a look deletes the sidecar. The format is described in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#sidecars).
 
 ## Development
 
@@ -80,4 +80,4 @@ npm run probe     # build the engine probe (see docs/ARCHITECTURE.md, Testing)
 
 ## License
 
-Minilab is free software under the GNU General Public License, version 3 or later. See [LICENSE](LICENSE). Third-party code and assets are listed in [NOTICE.md](NOTICE.md).
+Emulsion is free software under the GNU General Public License, version 3 or later. See [LICENSE](LICENSE). Third-party code and assets are listed in [NOTICE.md](NOTICE.md).

@@ -1,6 +1,6 @@
 # Notices
 
-Minilab is licensed under the GNU General Public License, version 3 or later (GPL-3.0-or-later). See [LICENSE](LICENSE).
+Emulsion is licensed under the GNU General Public License, version 3 or later (GPL-3.0-or-later). See [LICENSE](LICENSE).
 
 ## Code ported from other projects
 
@@ -13,8 +13,8 @@ Template:
 - Upstream: <repository URL>, <path>, commit <hash>
 - Licence: <SPDX id>
 - Copyright: <upstream copyright lines, verbatim>
-- Ported to: <path in Minilab>
-- Changes: <for example, "translated from C to GLSL; parameters mapped to Minilab's recipe">
+- Ported to: <path in Emulsion>
+- Changes: <for example, "translated from C to GLSL; parameters mapped to Emulsion's recipe">
 -->
 
 ## Bundled assets
@@ -40,4 +40,4 @@ These are used as libraries, not copied, and keep their own licences.
 
 ## Trademarks
 
-Film stock and scanner names (Kodak Portra, Gold, Ektar, Tri-X; Fujifilm Superia, Pro 400H, Frontier; CineStill; Ilford HP5; Noritsu; Epson) are trademarks of their owners. Minilab's looks are approximations inspired by these products and are not affiliated with or endorsed by their makers.
+Film stock and scanner names (Kodak Portra, Gold, Ektar, Tri-X; Fujifilm Superia, Pro 400H, Frontier; CineStill; Ilford HP5; Noritsu; Epson) are trademarks of their owners. Emulsion's looks are approximations inspired by these products and are not affiliated with or endorsed by their makers.

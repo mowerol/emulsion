@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Sidecars: each edited photo gets `<file name>.minilab.json` next to it.
+//! Sidecars: each edited photo gets `<file name>.emulsion.json` next to it.
 //! Edits are never written into the photo itself.
 
 use serde::{Deserialize, Serialize};
@@ -8,8 +8,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-pub const SUFFIX: &str = ".minilab.json";
-const FORMAT: &str = "minilab";
+pub const SUFFIX: &str = ".emulsion.json";
+const FORMAT: &str = "emulsion";
 const VERSION: u32 = 1;
 
 #[derive(Serialize, Deserialize)]
@@ -68,7 +68,7 @@ mod tests {
 
     #[test]
     fn sidecar_sits_next_to_the_photo() {
-        assert_eq!(path_for(Path::new("/a/DSCF0001.JPG")), PathBuf::from("/a/DSCF0001.JPG.minilab.json"));
+        assert_eq!(path_for(Path::new("/a/DSCF0001.JPG")), PathBuf::from("/a/DSCF0001.JPG.emulsion.json"));
     }
 
     #[test]
@@ -80,7 +80,7 @@ mod tests {
         let recipe = json!({ "stock": "gold200", "exposure": 0.5 });
         write(&img, &recipe).unwrap();
         assert_eq!(read(&img).unwrap(), recipe);
-        assert!(!dir.path().join("a.jpg.minilab.json.tmp").exists());
+        assert!(!dir.path().join("a.jpg.emulsion.json.tmp").exists());
 
         write(&img, &serde_json::Value::Null).unwrap();
         assert!(read(&img).is_none());

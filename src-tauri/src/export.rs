@@ -77,7 +77,7 @@ mod tests {
     fn writes_a_valid_jpeg() {
         let dir = tempfile::tempdir().unwrap();
         let rgba: Vec<u8> = (0..(8 * 4)).flat_map(|i| [(i * 7) as u8, 100, 200, 255]).collect();
-        let path = write_jpeg(&dir.path().join("Minilab exports"), "frame", &rgba, 8, 4, 90).unwrap();
+        let path = write_jpeg(&dir.path().join("Emulsion exports"), "frame", &rgba, 8, 4, 90).unwrap();
         let img = image::open(&path).unwrap();
         assert_eq!((img.width(), img.height()), (8, 4));
     }

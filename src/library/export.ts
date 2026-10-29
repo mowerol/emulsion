@@ -19,7 +19,7 @@ export interface ExportResult {
 }
 
 /** Default export folder, inside the opened folder. Matches the Rust scanner, which skips it. */
-export const EXPORT_DIR_NAME = 'Minilab exports';
+export const EXPORT_DIR_NAME = 'Emulsion exports';
 
 export const stemOf = (name: string) => name.replace(/\.[^.]+$/, '') || name;
 
@@ -30,7 +30,7 @@ export async function exportPhotos(
   signal: { canceled: boolean },
 ): Promise<ExportResult> {
   const engine = offscreenEngine();
-  if (!engine) throw new Error('Minilab could not start the GPU for exporting.');
+  if (!engine) throw new Error('Emulsion could not start the GPU for exporting.');
   const limit = Math.min(opts.longEdge ?? Infinity, engine.maxTextureSize);
   const result: ExportResult = { written: [], failed: [], canceled: false };
 

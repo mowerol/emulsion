@@ -7,7 +7,7 @@ import { Thumb, useVisible } from './common';
 /** Columns in the grid, for up/down arrow navigation. */
 export let gridColumns = 1;
 
-const SIZE_KEY = 'minilab.cellSize';
+const SIZE_KEY = 'emulsion.cellSize';
 const readSize = () => {
   try {
     const v = Number(localStorage.getItem(SIZE_KEY));

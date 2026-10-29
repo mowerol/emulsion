@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Folder scanning: find the photos in a folder (and its subfolders) that
-//! Minilab can open, with any saved edits from their sidecars.
+//! Emulsion can open, with any saved edits from their sidecars.
 
 use serde::Serialize;
 use std::path::{Path, PathBuf};
@@ -19,7 +19,7 @@ pub const RAW_EXTS: &[&str] = &[
 ];
 
 /// Exports land in this subfolder by default, so scans skip it.
-pub const EXPORT_DIR_NAME: &str = "Minilab exports";
+pub const EXPORT_DIR_NAME: &str = "Emulsion exports";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -196,7 +196,7 @@ mod tests {
         assert_eq!(classify(Path::new("a/DSCF0001.RAF")), Kind::Raw);
         assert_eq!(classify(Path::new("a/P1010001.ORF")), Kind::Raw);
         assert_eq!(classify(Path::new("a/notes.txt")), Kind::Other);
-        assert_eq!(classify(Path::new("a/IMG.JPG.minilab.json")), Kind::Other);
+        assert_eq!(classify(Path::new("a/IMG.JPG.emulsion.json")), Kind::Other);
         assert_eq!(classify(Path::new("a/noext")), Kind::Other);
     }
 
@@ -211,7 +211,7 @@ mod tests {
         touch(&r.join("DSCF0001.RAF"));
         touch(&r.join("._IMG_2.jpg"));
         touch(&r.join(".hidden/x.jpg"));
-        touch(&r.join("Minilab exports/IMG_2.jpg"));
+        touch(&r.join("Emulsion exports/IMG_2.jpg"));
         touch(&r.join("notes.txt"));
 
         let res = scan(r, true).unwrap();

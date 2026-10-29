@@ -16,7 +16,7 @@ export function TopBar() {
 
   return (
     <header className="topbar">
-      <div className="brand">Minilab</div>
+      <div className="brand">Emulsion</div>
       {folder && (
         <nav className="views" aria-label="View">
           <button type="button" aria-pressed={view === 'library'} onClick={() => setView('library')} title="Library (G)">

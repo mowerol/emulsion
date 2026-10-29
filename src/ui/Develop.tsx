@@ -33,7 +33,7 @@ export function Develop() {
     try {
       engineRef.current = new Engine(canvasRef.current!);
     } catch (err) {
-      setError(`Minilab could not start the GPU pipeline. ${String(err)}`);
+      setError(`Emulsion could not start the GPU pipeline. ${String(err)}`);
     }
     return () => {
       const e = engineRef.current;

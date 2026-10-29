@@ -74,7 +74,7 @@ export function showToast(message: string, action?: Toast['action'], ms = 3200) 
 }
 
 /* Recent folders, kept in local storage */
-const RECENT_KEY = 'minilab.recent';
+const RECENT_KEY = 'emulsion.recent';
 export interface Recent { root: string; name: string }
 export function recentFolders(): Recent[] {
   try {
@@ -121,7 +121,7 @@ export async function openFolder(path: string, view: View = 'library') {
     const notes: string[] = [];
     if (res.rawSkipped) notes.push(`${res.rawSkipped} RAW ${res.rawSkipped === 1 ? 'file' : 'files'} skipped until RAW support lands`);
     if (res.unreadable) notes.push(`${res.unreadable} ${res.unreadable === 1 ? 'item' : 'items'} could not be read`);
-    if (!photos.length) showToast(`No photos Minilab can open in ${res.name}.${notes.length ? ' ' + notes.join('. ') + '.' : ''}`);
+    if (!photos.length) showToast(`No photos Emulsion can open in ${res.name}.${notes.length ? ' ' + notes.join('. ') + '.' : ''}`);
     else if (notes.length) showToast(notes.join('. ') + '.');
   } catch (err) {
     showToast(`Could not open that folder. ${String(err)}`);

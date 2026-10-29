@@ -55,11 +55,11 @@ pub async fn write_export(request: Request<'_>) -> Result<String, String> {
     let InvokeBody::Raw(bytes) = request.body() else {
         return Err("Expected raw pixel data".into());
     };
-    let dir = PathBuf::from(header(&request, "x-minilab-dir")?);
-    let stem = header(&request, "x-minilab-stem")?;
-    let width: u32 = header(&request, "x-minilab-width")?.parse().map_err(|_| "Invalid width")?;
-    let height: u32 = header(&request, "x-minilab-height")?.parse().map_err(|_| "Invalid height")?;
-    let quality: u8 = header(&request, "x-minilab-quality")?.parse().map_err(|_| "Invalid quality")?;
+    let dir = PathBuf::from(header(&request, "x-emulsion-dir")?);
+    let stem = header(&request, "x-emulsion-stem")?;
+    let width: u32 = header(&request, "x-emulsion-width")?.parse().map_err(|_| "Invalid width")?;
+    let height: u32 = header(&request, "x-emulsion-height")?.parse().map_err(|_| "Invalid height")?;
+    let quality: u8 = header(&request, "x-emulsion-quality")?.parse().map_err(|_| "Invalid quality")?;
     let pixels = bytes.clone();
     let path = blocking(move || export::write_jpeg(&dir, &stem, &pixels, width, height, quality)).await?;
     Ok(path.to_string_lossy().into_owned())
@@ -69,17 +69,17 @@ pub async fn write_export(request: Request<'_>) -> Result<String, String> {
 #[serde(rename_all = "camelCase")]
 pub struct StartupOptions {
     /// A folder or file to open on launch: the first command-line argument that
-    /// exists on disk, or `MINILAB_OPEN_FOLDER`.
+    /// exists on disk, or `EMULSION_OPEN_FOLDER`.
     pub open_path: Option<String>,
-    /// `library` or `develop`, from `MINILAB_START_VIEW`.
+    /// `library` or `develop`, from `EMULSION_START_VIEW`.
     pub start_view: Option<String>,
 }
 
 #[tauri::command]
 pub fn startup_options() -> StartupOptions {
     let from_args = std::env::args().skip(1).find(|a| !a.starts_with('-') && Path::new(a).exists());
-    let open_path = from_args.or_else(|| std::env::var("MINILAB_OPEN_FOLDER").ok().filter(|p| Path::new(p).exists()));
-    StartupOptions { open_path, start_view: std::env::var("MINILAB_START_VIEW").ok() }
+    let open_path = from_args.or_else(|| std::env::var("EMULSION_OPEN_FOLDER").ok().filter(|p| Path::new(p).exists()));
+    StartupOptions { open_path, start_view: std::env::var("EMULSION_START_VIEW").ok() }
 }
 
 /// Lets the webview report errors to the terminal during development.
