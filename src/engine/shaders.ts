@@ -20,6 +20,7 @@ import output from './shaders/stages/output.glsl?raw';
 import grain from './shaders/stages/grain.glsl?raw';
 import scanner from './shaders/stages/scanner.glsl?raw';
 import finish from './shaders/stages/finish.glsl?raw';
+import curve from './shaders/stages/curve.glsl?raw';
 
 export const SHADER_FILES: Record<string, string> = {
   'common.glsl': common,
@@ -35,6 +36,7 @@ export const SHADER_FILES: Record<string, string> = {
   'stages/grain.glsl': grain,
   'stages/scanner.glsl': scanner,
   'stages/finish.glsl': finish,
+  'stages/curve.glsl': curve,
 };
 
 export const SHADERS = {

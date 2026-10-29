@@ -4,6 +4,7 @@
 
 import { STOCK, isStockId, type StockId } from './stocks';
 import { isScannerId, type ScannerId } from './scanners';
+import { normalizeCurve, type ToneCurve } from './curve';
 
 export const RECIPE_VERSION = 1;
 
@@ -30,9 +31,11 @@ export interface Recipe {
   vignette: number;
   grain: number;
   grainSize: number;
+  /** Point curve on the final display image; null is a straight line. */
+  curve: ToneCurve | null;
 }
 
-export type SliderKey = Exclude<keyof Recipe, 'v' | 'stock' | 'push' | 'scanner'>;
+export type SliderKey = Exclude<keyof Recipe, 'v' | 'stock' | 'push' | 'scanner' | 'curve'>;
 
 export interface SliderDef {
   key: SliderKey;
@@ -105,6 +108,7 @@ export function defaultRecipe(stock: StockId = 'portra400', scanner: ScannerId =
     vignette: 0,
     grain: s.grain,
     grainSize: s.grainSize,
+    curve: null,
   };
 }
 
@@ -134,7 +138,7 @@ export function normalizeRecipe(input: unknown): Recipe | null {
   const scanner: ScannerId = isScannerId(o.scanner) ? o.scanner : 'frontier';
   const base = defaultRecipe(stock, scanner);
   const push = typeof o.push === 'number' && [-1, 0, 1, 2].includes(o.push) ? (o.push as Push) : 0;
-  const out: Recipe = { ...base, push };
+  const out: Recipe = { ...base, push, curve: normalizeCurve(o.curve) };
   for (const def of SLIDERS) {
     const v = o[def.key];
     if (typeof v === 'number' && Number.isFinite(v)) out[def.key] = clamp(v, def.min, def.max);

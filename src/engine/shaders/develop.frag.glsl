@@ -14,6 +14,7 @@
 #include "stages/output.glsl"
 #include "stages/grain.glsl"
 #include "stages/scanner.glsl"
+#include "stages/curve.glsl"
 #include "stages/finish.glsl"
 
 uniform sampler2D uSrc;
@@ -40,5 +41,6 @@ void main() {
   vec3 d = stageOutput(e);
   d = stageGrain(d, vUv);
   d = stageScanner(d);
+  d = stageCurve(d);
   outColor = vec4(stageFinish(d), 1.0);
 }

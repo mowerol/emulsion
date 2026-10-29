@@ -11,6 +11,7 @@ Version 0.1. Working today:
 - Open any folder, including its subfolders. Hidden files, macOS `._` files and the export folder are skipped.
 - Library grid with adjustable thumbnail size, multi-select (Shift and Cmd/Ctrl click, select all).
 - Develop view with filmstrip and a live preview, rendered on the GPU.
+- Point tone curve, master and per channel, on the final image (darktable's monotone spline), with the frame's histogram behind it.
 - Live histogram of the developed frame (red, green, blue and luma) with clipping readouts.
 - Nine stocks (Portra 400 and 160, Gold 200, Ektar 100, Superia 400, Pro 400H, CineStill 800T, Tri-X 400, HP5 Plus), push and pull processing, four scanner profiles (Frontier, Noritsu, flatbed, straight).
 - Exposure, contrast, highlights, shadows, whites, blacks, vibrance, saturation, warmth, tint, fade, halation, glow, vignette, grain amount and size. Contrast, vibrance and saturation are ported from darktable's colour balance rgb; the tone curve, whites and blacks from darktable's sigmoid; highlights and shadows from darktable's tone equalizer.

@@ -46,6 +46,7 @@ Each stage is one GLSL file in `src/engine/shaders/stages/`, included into `deve
 | Output | `output.glsl` | print to display | Rec.2020 to sRGB | Colour-managed output |
 | Grain | `grain.glsl` | display | Clumped, midtone-weighted grain sized to the frame | **darktable grain** |
 | Scanner | `scanner.glsl` | display | Levels, colour cast, contrast and saturation of the scan | |
+| Curve | `curve.glsl` | display | Point curve: master, then red, green and blue, from a 256-step lookup table sampled in `film/curve.ts` (darktable's monotone spline) | |
 | Finish | `finish.glsl` | display | Matte fade and dither | |
 
 The tone curve's maths is mirrored in `engine/tone.ts` so it can be unit-tested; the shader receives its constants from there. Emulsion's neutral curve uses sigmoid contrast 1.15 and skew 0.11 rather than darktable's 1.5 and 0, fitted to the curve the stocks were first tuned on, and a display black of 0 so the inverse is exact. The original (Compare, or no look) renders the neutral curve per channel without hue preservation, the exact inverse of the input stage.

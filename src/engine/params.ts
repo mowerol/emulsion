@@ -19,6 +19,7 @@ import {
   workingGamut,
   yToLStar,
 } from './colorbalance';
+import { isIdentity } from '../film/curve';
 import { EXPOSURE_BOOST, FEATHERING, SMOOTHING, bandFactors, bandGains } from './toneequalizer';
 
 export type UniformValue = number | number[];
@@ -91,7 +92,7 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uHalThreshold: HALATION_THRESHOLD,
   };
   if (!recipe || ctx.compare) {
-    return { ...base, uCompare: 1, uExposure: 0, uExpBlack: 0, uWB: [1, 1, 1], uBW: 0, uTeqOn: 0 };
+    return { ...base, uCompare: 1, uExposure: 0, uExpBlack: 0, uWB: [1, 1, 1], uBW: 0, uTeqOn: 0, uCurveOn: 0 };
   }
 
   const s = STOCK[recipe.stock];
@@ -115,6 +116,7 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uCbParams: [1 + cb.contrast, cb.vibrance, cb.saturation],
     uCompare: 0,
     uExposure: recipe.exposure,
+    uCurveOn: isIdentity(recipe.curve) ? 0 : 1,
     uTeqOn: teqOn ? 1 : 0,
     uTeqF0: teq.slice(0, 4),
     uTeqF1: teq.slice(4, 8),

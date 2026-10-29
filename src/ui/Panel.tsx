@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The lab order: what this frame is developed with.
 
-import { memo, useEffect, useRef, useState } from 'react';
+import { Fragment, memo, useEffect, useRef, useState } from 'react';
 import { PUSHES, SLIDERS, defaultRecipe, resetAdjustments, sliderDefault, withStock, type Push, type Recipe, type SliderDef } from '../film/recipe';
 import { SCANNER, SCANNERS, type ScannerId } from '../film/scanners';
 import { STOCK, STOCKS, type StockId } from '../film/stocks';
@@ -11,6 +11,7 @@ import {
 import { offscreenEngine, sourceFromBlob, thumbs } from '../library/thumbs';
 import { MOD, Segmented } from './common';
 import { Histogram } from './Histogram';
+import { CurveEditor } from './CurveEditor';
 
 function summary(r: Recipe | null) {
   if (!r) return 'Original, not developed';
@@ -174,14 +175,22 @@ export function Panel() {
 
       {view === 'develop' ? (
         groups.map(([title, group]) => (
-          <section className="group" key={group}>
-            <h2>{title}</h2>
-            <div className="sliders">
-              {SLIDERS.filter((d) => d.group === group).map((d) => (
-                <SliderRow key={d.key} def={d} recipe={recipe} onChange={setSlider} />
-              ))}
-            </div>
-          </section>
+          <Fragment key={group}>
+            <section className="group">
+              <h2>{title}</h2>
+              <div className="sliders">
+                {SLIDERS.filter((d) => d.group === group).map((d) => (
+                  <SliderRow key={d.key} def={d} recipe={recipe} onChange={setSlider} />
+                ))}
+              </div>
+            </section>
+            {group === 'adjust' && (
+              <section className="group">
+                <h2>Tone curve</h2>
+                <CurveEditor curve={recipe?.curve ?? null} disabled={!recipe} onChange={(curve) => editActive((r) => (r ? { ...r, curve } : r))} />
+              </section>
+            )}
+          </Fragment>
         ))
       ) : (
         <p className="hint panel-note">Open Develop to fine-tune exposure, colour, halation and grain.</p>

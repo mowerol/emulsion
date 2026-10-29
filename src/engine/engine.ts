@@ -11,6 +11,7 @@ import { Gpu, GpuError, Lru, type Program, type Target } from './gpu';
 import { InputMode, developUniforms, needsPasses, type Uniforms } from './params';
 import { GLOW_SIGMA, HALATION_SIGMA, blurPlan, pyramidFor, type Pyramid } from './pyramid';
 import { MASK_SIGMA } from './toneequalizer';
+import { CURVE_RES, curveTable } from '../film/curve';
 import { SHADERS } from './shaders';
 
 export { GpuError, InputMode };
@@ -49,6 +50,9 @@ export class Engine {
   private develop: Program;
   private extract: Program;
   private teqMask: Program;
+  /** The point curve's lookup table, re-uploaded only when the curve changes. */
+  private curveTex: WebGLTexture | null = null;
+  private curveKey = '';
   private blurP: Program;
   private down: Program;
   private chains: Lru<Chain>;
@@ -154,6 +158,20 @@ export class Engine {
     return level.tex;
   }
 
+  /** Upload `recipe`'s point curve as a 256x1 float texture (master, red, green, blue). */
+  private curveTexture(recipe: Recipe): WebGLTexture {
+    const gl = this.gpu.gl;
+    const key = JSON.stringify(recipe.curve);
+    if (this.curveTex && key === this.curveKey) return this.curveTex;
+    if (!this.curveTex) this.curveTex = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, this.curveTex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, CURVE_RES, 1, 0, gl.RGBA, gl.FLOAT, curveTable(recipe.curve!));
+    this.gpu.params(false);
+    this.curveKey = key;
+    return this.curveTex;
+  }
+
   private blur(a: Target, b: Target, spread: number, iterations: number) {
     const g = this.gpu;
     for (let i = 0; i < iterations; i++) {
@@ -183,7 +201,8 @@ export class Engine {
     const teqLocal = passes.toneEqualizer && g.hdr;
     const teq = teqLocal ? this.toneEqualizerMap(src, u) : g.blackTexture;
     g.bind(4, teq);
-    const teqU = { uTeqTex: 4, uTeqLocal: teqLocal ? 1 : 0 };
+    g.bind(5, u.uCurveOn === 1 && recipe ? this.curveTexture(recipe) : g.blackTexture);
+    const teqU = { uTeqTex: 4, uTeqLocal: teqLocal ? 1 : 0, uCurveTex: 5 };
 
     if (passes.highlights || passes.sharpen) {
       const ch = this.chain(src.w, src.h);
@@ -242,6 +261,8 @@ export class Engine {
   }
 
   dispose() {
+    if (this.curveTex) this.gpu.gl.deleteTexture(this.curveTex);
+    this.curveTex = null;
     this.chains.clear();
     this.outs.clear();
   }

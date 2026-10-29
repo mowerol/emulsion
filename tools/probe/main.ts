@@ -12,6 +12,11 @@ import type { Vec3 } from '../../src/film/stocks';
 import { toneRgb } from '../../src/engine/tone';
 import { histogram } from '../../src/engine/histogram';
 import { drawHistogram } from '../../src/ui/Histogram';
+import { createElement } from 'react';
+import { createRoot } from 'react-dom/client';
+import { CurveEditor } from '../../src/ui/CurveEditor';
+import { CURVE_RES, curveTable, type ToneCurve } from '../../src/film/curve';
+import '../../src/styles.css';
 import { bandFactors, bandGains, correction, luminance, toneEqualize } from '../../src/engine/toneequalizer';
 import { toneLookFor } from '../../src/engine/params';
 
@@ -114,6 +119,32 @@ function probeTone(eng: Engine) {
   return { tone, roundTrip };
 }
 
+/** Point curve stage against its lookup table, interpolated as the GPU filters it. */
+function probeCurve(eng: Engine, curve: ToneCurve) {
+  const gl = eng.gpu.gl;
+  const table = curveTable(curve);
+  const tex = gl.createTexture()!;
+  gl.activeTexture(gl.TEXTURE5);
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, CURVE_RES, 1, 0, gl.RGBA, gl.FLOAT, table);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.activeTexture(gl.TEXTURE0);
+  const lookup = (v: number, k: number) => {
+    const x = Math.min(1, Math.max(0, v)) * (CURVE_RES - 1);
+    const i = Math.floor(x);
+    const j = Math.min(CURVE_RES - 1, i + 1);
+    return table[i * 4 + k] + (x - i) * (table[j * 4 + k] - table[i * 4 + k]);
+  };
+  const inputs: Vec3[] = Array.from({ length: 16 }, (_, i) => [i / 15, (i * 0.37) % 1, 1 - i / 15] as Vec3);
+  const res = probeStage(eng, ['stages/curve.glsl'], 'stageCurve(c)', inputs, {
+    curve: { uniforms: { uCurveOn: 1, uCurveTex: 5 }, ref: (c: Vec3) => c.map((v, k) => lookup(lookup(v, 0), k + 1)) as Vec3 },
+  });
+  gl.deleteTexture(tex);
+  return res;
+}
+
 /** Tone equalizer: per pixel, and edge-aware with a known local mean and mean square. */
 function probeToneEqualizer(eng: Engine) {
   const gl = eng.gpu.gl;
@@ -170,6 +201,13 @@ try {
   out.colorBalance = probeColorBalance(eng);
   Object.assign(out, probeTone(eng));
   out.toneEqualizer = probeToneEqualizer(eng);
+  const sCurve: ToneCurve = { rgb: [[0, 0.04], [0.25, 0.19], [0.75, 0.84], [1, 0.97]], r: [[0, 0], [0.5, 0.55], [1, 1]], g: [[0, 0], [1, 1]], b: [[0, 0.05], [1, 1]] };
+  out.curve = probeCurve(eng, sCurve);
+  // The real editor, for a screenshot.
+  const host = document.createElement('div');
+  host.style.cssText = 'width:304px;padding:14px 18px;background:#201f1d';
+  document.body.prepend(host);
+  createRoot(host).render(createElement(CurveEditor, { curve: sCurve, disabled: false, onChange: () => {} }));
   const neutral: Recipe = { ...defaultRecipe('portra400'), grain: 0, halation: 0, scanner: 'straight' };
   const plain = run(neutral);
   const eq = run({ ...neutral, shadows: 100, highlights: -100 });

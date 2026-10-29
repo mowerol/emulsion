@@ -38,6 +38,13 @@ Template:
 - Ported to: `src/engine/toneequalizer.ts` (reference and band solving), `src/engine/shaders/stages/toneequalizer.glsl` and `src/engine/shaders/toneeqmask.frag.glsl`
 - Changes: translated from C to TypeScript and GLSL. Only the euclidean RGB norm and the exposure-independent guided filter without quantization or contrast boost, with one iteration. The filter's local averages are computed on the GPU on a small fixed-size map with Emulsion's blur, and negative variance from rounding is clamped. Shadows and Highlights sliders drive the nine bands in the shape of darktable's "compress shadows/highlights" presets, with their exposure boost of -1.57 EV
 
+### Monotone curve interpolation, from darktable
+- Upstream: https://github.com/darktable-org/darktable, `src/common/curve_tools.c` (and node limits from `src/iop/rgbcurve.c`), commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release 5.6.2)
+- Licence: GPL-3.0-or-later
+- Copyright: Copyright (C) 2011-2022 darktable developers. Part of curve_tools.c is based on nikon_curve.c from UFRaw, Copyright 2004-2008 by Shawn Freeman, Udi Fuchs
+- Ported to: `src/film/curve.ts`
+- Changes: translated from C to TypeScript; only the monotone Hermite spline, sampled to floats rather than integers
+
 ## Bundled libraries
 
 ### LibRaw 0.22.3
