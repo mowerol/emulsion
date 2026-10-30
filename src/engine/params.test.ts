@@ -45,8 +45,10 @@ describe('develop uniforms', () => {
     expect(c(at(1))).toBeGreaterThan(c(at(0)));
     expect(c(at(2))).toBeGreaterThan(c(at(1)));
     expect(c(at(-1))).toBeLessThan(c(at(0)));
-    expect(at(2).uGrain as number).toBeGreaterThan(at(0).uGrain as number);
-    expect(at(-1).uGrain as number).toBeLessThan(at(0).uGrain as number);
+    // Grain strength (kappa) follows the effective film speed.
+    const k = (u: ReturnType<typeof at>) => (u.uGrainA as number[])[0];
+    expect(k(at(2))).toBeGreaterThan(k(at(0)));
+    expect(k(at(-1))).toBeLessThan(k(at(0)));
   });
 
   it('applies crossover per channel', () => {

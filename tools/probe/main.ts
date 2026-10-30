@@ -20,6 +20,8 @@ import { whiteBalanceMatrix, whiteXy, type Xy } from '../../src/engine/whitebala
 import { mulVec } from '../../src/engine/color';
 import { STOCK } from '../../src/film/stocks';
 import { toneInverse } from '../../src/engine/tone';
+import { grainPixel, grainShape, isoPreset } from '../../src/engine/grain';
+import { GRAIN_FULL } from '../../src/engine/params';
 import { CURVE_RES, curveTable, type ToneCurve } from '../../src/film/curve';
 import '../../src/styles.css';
 import { bandFactors, bandGains, correction, luminance, toneEqualize } from '../../src/engine/toneequalizer';
@@ -124,6 +126,31 @@ function probeTone(eng: Engine) {
   return { tone, roundTrip };
 }
 
+/** Grain stage against the reference, pixel for pixel; also the median error, as counts are whole numbers. */
+function probeGrain(eng: Engine) {
+  const n = 48;
+  const inputs: Vec3[] = Array.from({ length: n }, (_, i) => [i / (n - 1), Math.min(1, (i * 0.37) % 1), 0.02 + (i / (n - 1)) * 0.95] as Vec3);
+  const out: Record<string, unknown> = {};
+  for (const [name, stock, chroma] of [['bw', 'trix400', 0], ['colour', 'portra400', 0.3]] as const) {
+    const recipe = { ...defaultRecipe(stock), grain: 50 };
+    const u = developUniforms(recipe, { width: n, height: 1, seed: 7.31, inputMode: InputMode.SceneLinear, store: 1 });
+    const shape = grainShape(isoPreset(400).size, isoPreset(400).roughness, 0, n);
+    const errs: number[] = [];
+    const res = probeStage(eng, ['stages/tone.glsl', 'stages/grain.glsl'], 'stageGrain(c, vUv)', inputs, {
+      [name]: {
+        uniforms: { ...u, uOut: [n, 1], uSeed: 7.31, uChroma: chroma },
+        ref: (c: Vec3) => {
+          const i = inputs.indexOf(c);
+          return grainPixel(c, i + 0.5, 0.5, shape, recipe.grain / GRAIN_FULL, chroma, 7.31);
+        },
+      },
+    });
+    void errs;
+    out[name] = res;
+  }
+  return out;
+}
+
 /** Exposure stage with a white balance matrix, against the reference. */
 function probeWhiteBalance(eng: Engine) {
   const shot: Xy = [0.3441, 0.3631];
@@ -224,6 +251,50 @@ try {
   const sCurve: ToneCurve = { rgb: [[0, 0.04], [0.25, 0.19], [0.75, 0.84], [1, 0.97]], r: [[0, 0], [0.5, 0.55], [1, 1]], g: [[0, 0], [1, 1]], b: [[0, 0.05], [1, 1]] };
   out.curve = probeCurve(eng, sCurve);
   out.whiteBalance = probeWhiteBalance(eng);
+  out.grain = probeGrain(eng);
+  // Speed: a 2560-wide frame with grain on and off.
+  {
+    const PW = 2560, PH = 1707;
+    const big = document.createElement('canvas');
+    big.width = PW; big.height = PH;
+    const bg = big.getContext('2d')!;
+    const ramp = bg.createLinearGradient(0, 0, PW, 0);
+    ramp.addColorStop(0, '#000'); ramp.addColorStop(1, '#fff');
+    bg.fillStyle = ramp; bg.fillRect(0, 0, PW, PH);
+    const bsrc = eng.sourceFromImage(big, PW, PH);
+    const time = (r: Recipe) => {
+      eng.readPixels(bsrc, r, PW, PH, 1);
+      const t0 = performance.now();
+      for (let i = 0; i < 4; i++) eng.readPixels(bsrc, r, PW, PH, 1);
+      return (performance.now() - t0) / 4;
+    };
+    const look: Recipe = { ...defaultRecipe('portra400'), scanner: 'straight', grain: 30 };
+    out.timing = { grainOffMs: time({ ...look, grain: 0 }), grainOnMs: time({ ...look, grain: 50 }), bwMs: time({ ...defaultRecipe('trix400'), grain: 50 }) };
+    // A crop of the ramp with Portra 400 grain at 100%, for a look.
+    const px = eng.readPixels(bsrc, look, PW, PH, 1);
+    // Grain strength: standard deviation of the green channel, grain on minus off, in a midtone strip.
+    const flat = eng.readPixels(bsrc, { ...look, grain: 0 }, PW, PH, 1);
+    let s1 = 0, s2 = 0, cnt = 0;
+    for (let y = 600; y < 900; y++) for (let x = 1150; x < 1350; x++) {
+      const dlt = px[(y * PW + x) * 4 + 1] - flat[(y * PW + x) * 4 + 1];
+      s1 += dlt; s2 += dlt * dlt; cnt++;
+    }
+    (out as Record<string, unknown>).grainMidSdLevels = Math.sqrt(s2 / cnt - (s1 / cnt) ** 2);
+    const crop = document.createElement('canvas');
+    crop.width = 640; crop.height = 120;
+    const img = crop.getContext('2d')!.createImageData(640, 120);
+    for (let y = 0; y < 120; y++) for (let x = 0; x < 640; x++) {
+      const sx = 400 + x * 3; // three 1:1 strips: shadows, midtones, highlights
+      void sx;
+      const strip = Math.floor(x / 214);
+      const o = ((y + 800) * PW + [300, 1150, 2050][Math.min(2, strip)] + (x % 214)) * 4;
+      img.data.set(px.subarray(o, o + 4), (y * 640 + x) * 4);
+    }
+    crop.getContext('2d')!.putImageData(img, 0, 0);
+    crop.style.cssText = 'display:block;position:fixed;top:0;left:0;z-index:99';
+    document.body.prepend(crop);
+    eng.release(bsrc);
+  }
   // Eyedropper sampling: the grey square is near the top left, dark background below it.
   const greyScene = toneInverse(0.50196);
   out.sample = {

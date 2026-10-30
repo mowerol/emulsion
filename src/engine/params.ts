@@ -21,6 +21,7 @@ import {
 } from './colorbalance';
 import { isIdentity } from '../film/curve';
 import { D65_XY, whiteBalanceMatrix, whiteXy, type Xy } from './whitebalance';
+import { grainShape, type GrainShape } from './grain';
 import { EXPOSURE_BOOST, FEATHERING, SMOOTHING, bandFactors, bandGains } from './toneequalizer';
 
 export type UniformValue = number | number[];
@@ -72,6 +73,14 @@ const colorBalanceUniforms = () =>
     uCbGamut: Array.from(workingGamut()),
   });
 
+/** Grain amount at which the model shows its full physical strength; the slider goes to twice that. */
+export const GRAIN_FULL = 50;
+
+/** Grain for a recipe at an output long edge: its Size and Roughness sliders, with push or pull on top. */
+export function grainShapeFor(recipe: Recipe, longEdge: number): GrainShape {
+  return grainShape(recipe.grainSize, recipe.grainRough, recipe.push, longEdge);
+}
+
 /** The tone stage's look: stock contrast with push, crossover, whites and blacks. */
 export function toneLookFor(recipe: Recipe): ToneLook {
   const s = STOCK[recipe.stock];
@@ -112,7 +121,7 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
   const teqOn = recipe.shadows !== 0 || recipe.highlights !== 0;
   const teq = teqOn ? bandFactors(bandGains(recipe.shadows, recipe.highlights)) : [0, 0, 0, 0, 0, 0, 0, 0];
   const cb = colorBalanceParams(recipe.contrast, recipe.vibrance, recipe.saturation);
-  const grainMul = push > 0 ? 1 + 0.45 * push : 1 + 0.3 * push;
+  const grain = grainShapeFor(recipe, Math.max(ctx.width, ctx.height));
 
   return {
     ...base,
@@ -143,9 +152,9 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uBWw: s.bwWeights ?? LUMA_REC2020,
     uSat: Math.max(0, s.saturation * (1 + 0.04 * push)),
     uStockFade: s.fade,
-    uGrain: (recipe.grain / 100) * grainMul,
-    uGrainSize: (recipe.grainSize / 100) * (push > 0 ? 1 + 0.12 * push : 1),
-    uChroma: s.bw ? 0 : s.grainChroma,
+    uGrainA: [grain.kappa, grain.clump, grain.size, recipe.grain / GRAIN_FULL],
+    // Halved: dye-layer grain on colour negative film is muted, not like sensor colour noise.
+    uChroma: s.bw ? 0 : 0.5 * s.grainChroma,
     uScC: sc.contrast,
     uScSat: sc.saturation,
     uScBlack: sc.black,

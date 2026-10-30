@@ -44,7 +44,7 @@ Each stage is one GLSL file in `src/engine/shaders/stages/`, included into `deve
 | Emulsion | `emulsion.glsl` | scene | Dye crosstalk; black and white sensitivity | Measured stock data or CLUTs |
 | Tone | `tone.glsl` | scene to print | **Ported from darktable sigmoid**: log-logistic curve with hue preservation; stock contrast and push scale its contrast, crossover is a per-channel ratio on top, Whites set the display white and Blacks above zero the display black. Then print saturation and stock black lift | |
 | Output | `output.glsl` | print to display | Rec.2020 to sRGB | Colour-managed output |
-| Grain | `grain.glsl` | display | Clumped, midtone-weighted grain sized to the frame | **darktable grain** |
+| Grain | `grain.glsl` | display | Film grain from the Boolean model's statistics: each pixel draws its grain count (Poisson) from a smooth field and shows the share it covers. Size and Roughness sliders, ISO presets; see `engine/grain.ts` | |
 | Scanner | `scanner.glsl` | display | Levels, colour cast, contrast and saturation of the scan | |
 | Curve | `curve.glsl` | display | Point curve: master, then red, green and blue, from a 256-step lookup table sampled in `film/curve.ts` (darktable's monotone spline) | |
 | Finish | `finish.glsl` | display | Matte fade and dither | |

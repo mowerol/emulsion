@@ -191,6 +191,9 @@ input[type='range']:disabled { opacity: 0.35; cursor: default; }
 .wb-tint input[type='range']::-webkit-slider-runnable-track { background: linear-gradient(to right, #5fae6a, #d9d4c8 50%, #c56bb8); }
 .view.picking { cursor: crosshair; }
 
+.grain-speed { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; }
+.grain-speed label { font-size: 13px; }
+.grain-speed select, .wb-head select { background: var(--raise); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font-size: 13px; min-width: 0; }
 .curve { display: grid; gap: 8px; }
 .curve-graph { display: block; width: 100%; aspect-ratio: 1; touch-action: none; cursor: crosshair; --curve: var(--fg); }
 .curve-graph.ch-r { --curve: #e2685a; }

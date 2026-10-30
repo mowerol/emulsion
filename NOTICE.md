@@ -52,6 +52,19 @@ Template:
 - Ported to: `src/engine/whitebalance.ts`, and the as-shot white point in `src-tauri/src/raw.rs` (from `WB_coeffs_to_illuminant_xy`)
 - Changes: translated from C to TypeScript and Rust. CAT16 with full adaptation between two whites in Rec.2020 rather than to D65 or D50; the as-shot white is not adapted to D50, as Emulsion works in D65. Tint moves the white towards green for positive values so the image turns magenta, as in Lightroom (the opposite sign to `blackbody_xy_to_tinted_xy`). Added a numeric inverse from a white point to temperature and tint, and solving the white that makes a sample neutral
 
+## Methods from published work
+
+Implemented from the papers, not from code.
+
+### Film grain
+- A. Newson, N. Faraj, B. Galerne and J. Delon, "A Stochastic Film Grain Model for Resolution-Independent Rendering", Computer Graphics Forum 36(8), 2017
+- Used in: `src/engine/grain.ts` and `src/engine/shaders/stages/grain.glsl`
+- Emulsion uses the model's statistics (Poisson grain counts at the density that keeps the mean tone, and the resulting variance) rather than rendering each grain, and makes grains larger in thin areas
+
+### Random hash
+- M. Jarzynski and M. Olano, "Hash Functions for GPU Rendering", Journal of Computer Graphics Techniques 9(3), 2020 (the PCG 3D hash)
+- Used in: `src/engine/grain.ts` and `src/engine/shaders/stages/grain.glsl`
+
 ## Bundled libraries
 
 ### LibRaw 0.22.3

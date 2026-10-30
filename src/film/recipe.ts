@@ -29,7 +29,10 @@ export interface Recipe {
   glow: number;
   vignette: number;
   grain: number;
+  /** Grain clump size, percent; the stock's ISO preset by default. */
   grainSize: number;
+  /** Grain roughness, percent; the stock's ISO preset by default. */
+  grainRough: number;
   /** Point curve on the final display image; null is a straight line. */
   curve: ToneCurve | null;
   /** White balance; null keeps the as-shot white. */
@@ -46,7 +49,7 @@ export interface SliderDef {
   max: number;
   step: number;
   /** When set, the default comes from the stock rather than zero. */
-  stockKey?: 'halation' | 'grain' | 'grainSize';
+  stockKey?: 'halation' | 'grain' | 'grainSize' | 'grainRough';
   format?: (v: number) => string;
 }
 
@@ -68,7 +71,8 @@ export const SLIDERS: SliderDef[] = [
   { key: 'glow', label: 'Glow', group: 'optics', min: 0, max: 100, step: 1 },
   { key: 'vignette', label: 'Vignette', group: 'optics', min: 0, max: 100, step: 1 },
   { key: 'grain', label: 'Amount', group: 'grain', min: 0, max: 100, step: 1, stockKey: 'grain' },
-  { key: 'grainSize', label: 'Size', group: 'grain', min: 50, max: 200, step: 5, stockKey: 'grainSize', format: (v) => `${v}%` },
+  { key: 'grainSize', label: 'Size', group: 'grain', min: 50, max: 200, step: 1, stockKey: 'grainSize', format: (v) => `${v}%` },
+  { key: 'grainRough', label: 'Roughness', group: 'grain', min: 0, max: 100, step: 1, stockKey: 'grainRough' },
 ];
 
 export const SLIDER: Record<SliderKey, SliderDef> = Object.fromEntries(SLIDERS.map((s) => [s.key, s])) as Record<SliderKey, SliderDef>;
@@ -105,6 +109,7 @@ export function defaultRecipe(stock: StockId = 'portra400', scanner: ScannerId =
     vignette: 0,
     grain: s.grain,
     grainSize: s.grainSize,
+    grainRough: s.grainRough,
     curve: null,
     wb: null,
   };
@@ -114,7 +119,7 @@ export function defaultRecipe(stock: StockId = 'portra400', scanner: ScannerId =
 export function withStock(recipe: Recipe | null, stock: StockId): Recipe {
   if (!recipe) return defaultRecipe(stock);
   const s = STOCK[stock];
-  return { ...recipe, stock, halation: s.halation, grain: s.grain, grainSize: s.grainSize };
+  return { ...recipe, stock, halation: s.halation, grain: s.grain, grainSize: s.grainSize, grainRough: s.grainRough };
 }
 
 /** Reset the sliders, keeping stock, development and scanner. */

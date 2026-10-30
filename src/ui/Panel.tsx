@@ -12,6 +12,7 @@ import { offscreenEngine, sourceFromBlob, thumbs } from '../library/thumbs';
 import { MOD, Segmented } from './common';
 import { Histogram } from './Histogram';
 import { CurveEditor } from './CurveEditor';
+import { ISOS, isoPreset, matchingIso } from '../engine/grain';
 import { WhiteBalanceControls } from './WhiteBalanceControls';
 
 function summary(r: Recipe | null) {
@@ -91,6 +92,35 @@ function SliderRow({ def, recipe, onChange }: { def: SliderDef; recipe: Recipe |
         <input id={id} type="range" min={def.min} max={def.max} step={def.step} value={value} disabled={!recipe} onChange={(e) => onChange(def.key, Number(e.target.value))} />
         {tick !== null && <span className="tick" style={{ ['--t' as string]: tick }} />}
       </div>
+    </div>
+  );
+}
+
+/** Film speed presets: picking one sets the grain Size and Roughness sliders. */
+function GrainSpeed({ recipe }: { recipe: Recipe | null }) {
+  const stockIso = recipe ? STOCK[recipe.stock].iso : null;
+  const isos = stockIso && !(ISOS as readonly number[]).includes(stockIso) ? [...ISOS, stockIso].sort((a, b) => a - b) : [...ISOS];
+  const match = recipe ? matchingIso(recipe.grainSize, recipe.grainRough, isos) : null;
+  return (
+    <div className="grain-speed">
+      <label htmlFor="grain-iso">Film speed</label>
+      <select
+        id="grain-iso"
+        value={match ? String(match) : 'custom'}
+        disabled={!recipe}
+        onChange={(e) => {
+          const p = isoPreset(Number(e.target.value));
+          editActive((r) => (r ? { ...r, grainSize: p.size, grainRough: p.roughness } : r));
+        }}
+      >
+        {isos.map((iso) => (
+          <option key={iso} value={iso}>
+            ISO {iso}
+            {iso === stockIso ? ' (the stock)' : ''}
+          </option>
+        ))}
+        {!match && <option value="custom">Custom</option>}
+      </select>
     </div>
   );
 }
@@ -181,6 +211,7 @@ export function Panel() {
             <section className="group">
               <h2>{title}</h2>
               {group === 'adjust' && <WhiteBalanceControls recipe={recipe} white={photo.white} />}
+              {group === 'grain' && <GrainSpeed recipe={recipe} />}
               <div className="sliders">
                 {SLIDERS.filter((d) => d.group === group).map((d) => (
                   <SliderRow key={d.key} def={d} recipe={recipe} onChange={setSlider} />
