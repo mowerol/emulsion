@@ -18,9 +18,9 @@ This session, in order, all committed and pushed on `main`:
 - **Filmstrip filter**: All / Edited / Unedited with counts above the strip in Develop (`library/filter.ts`, tested). The active photo always stays shown; in Develop the arrow keys step through the shown photos only; the choice is remembered (localStorage).
 - **Filmstrip as film**: each frame is a length of film with rounded sprocket holes; developed frames (colour and B&W alike) on `#281f18` with the original amber edge print (Oli chose both after an orange and a grey try he rejected), unedited ones on the dark rebate; the active outline is warm white. Oli hasn't seen the final colour with real thumbnails yet.
 
-## In progress (uncommitted, `npm run check` passes)
+## Just committed (`970ceae`, not pushed)
 
-Done this session, waiting for Oli to try them and say "commit":
+Committed; Oli has not tried these in the app yet:
 
 - **Filmstrip all on film**: every frame sits on the `#281f18` base now (Oli: "just the brownish colour throughout"). Edited frames show the stock in amber edge print; unedited ones a dimmed "ORIGINAL", as in the Library grid.
 - **Workspace colour** on a right-click in Develop (Oli asked for right-click rather than swatches in the zoom bar): Black, Dark grey (the default), Mid grey (18%, sRGB 118), White, as Lightroom offers. `StageMenu.tsx`; remembered in localStorage (`stageColor` in the store); the colour around a straightened photo follows it; status lines get a scrim on light colours.
@@ -44,7 +44,7 @@ Done this session, waiting for Oli to try them and say "commit":
 
 ## Next
 
-1. Oli tries the uncommitted work above and the last commit (Sharpening at 100%, the filter's arrow keys, Clarity/Texture strength), then says "commit".
+1. Oli tries the work above and `685ad41` (Sharpening at 100%, the filter's arrow keys, Clarity/Texture strength), and says "push" when ready.
 2. **Batch 4, part 2:** filter the Library and the strip by stars, tag and heart (extend `library/filter.ts`; today it is All / Edited / Unedited).
 3. **Batch 3, part 2:** user presets (save and apply looks).
 4. UX ideas offered and not yet picked: hover a stock to preview it on the main image; slider edits applying to every selected frame; a `?` shortcut sheet.
