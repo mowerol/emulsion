@@ -4,7 +4,7 @@ Rewritten at the end of each session. Last updated 2026-10-30.
 
 ## Just finished
 
-Committed on `main`, **not yet pushed** (local is 5 commits ahead of `origin`):
+Committed and pushed on `main`:
 
 - `9b48663` Point tone curve (darktable monotone spline), master and per channel.
 - `a7f2e93` White balance: Temperature/Tint by CAT16 from the RAW's as-shot white, presets, eyedropper.
@@ -14,7 +14,7 @@ Committed on `main`, **not yet pushed** (local is 5 commits ahead of `origin`):
 
 ## In progress
 
-Nothing half-done. `CLAUDE.md` and this file are new and uncommitted.
+Nothing half-done.
 
 ## Known issues and open questions
 
