@@ -73,6 +73,8 @@ interface State {
   filter: Filter;
   /** The workspace colour behind the photo in Develop. */
   stageColor: StageColorId;
+  /** Develop shows Sharpening's contrast mask (while ⌥ is held on the Masking slider). */
+  sharpenMask: boolean;
 }
 
 /**
@@ -130,6 +132,7 @@ export const useApp = create<State>(() => ({
   developSize: null,
   filter: savedFilter(),
   stageColor: savedStageColor(),
+  sharpenMask: false,
 }));
 
 const set = useApp.setState;

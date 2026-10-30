@@ -102,4 +102,14 @@ describe('crop in recipes', () => {
     const other = { ...defaultRecipe(), crop: { ...crop, x: 0.2 } };
     expect(withSettingsFrom(from, other)).toEqual({ ...from, crop: other.crop });
   });
+
+  it('reads capture sharpening saved under its old name, and starts the unsharp mask at its defaults', () => {
+    const r = normalizeRecipe({ stock: 'neutral', sharpening: 60 })!;
+    expect(r.captureSharpening).toBe(60);
+    expect(r.sharpen).toBe(0);
+    expect(r.sharpenRadius).toBe(0.5);
+    expect(r.sharpenMasking).toBe(10);
+    expect(normalizeRecipe({ captureSharpening: 30, sharpening: 60 })!.captureSharpening).toBe(30);
+    expect(resetSection({ ...r, sharpen: 40, sharpenRadius: 1.2, clarity: 20 }, 'detail')).toEqual({ ...r, captureSharpening: 0 });
+  });
 });

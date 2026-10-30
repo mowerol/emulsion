@@ -86,14 +86,23 @@ function SliderRow({ def, recipe, onChange }: { def: SliderDef; recipe: Recipe |
   const tick = def.stockKey && recipe ? (sliderDefault(def, recipe.stock) - def.min) / (def.max - def.min) : null;
   const id = `slider-${def.key}`;
   const reset = () => recipe && onChange(def.key, sliderDefault(def, recipe.stock));
+  // Masking shows the mask in black and white while ⌥ is held on it, as in Lightroom.
+  const showsMask = def.key === 'sharpenMasking';
+  const mask = (on: boolean) => showsMask && useApp.setState({ sharpenMask: on });
   return (
     <div className="slider">
-      <label htmlFor={id} onDoubleClick={reset} title="Double-click the name or the handle to reset">
+      <label htmlFor={id} onDoubleClick={reset} title={showsMask ? 'Hold ⌥ while dragging to see where sharpening reaches (white). Double-click to reset' : 'Double-click the name or the handle to reset'}>
         {def.label}
       </label>
       <output htmlFor={id}>{fmt(value)}</output>
       <div className="track">
-        <input id={id} type="range" min={def.min} max={def.max} step={def.step} value={value} disabled={!recipe} onChange={(e) => onChange(def.key, Number(e.target.value))} onDoubleClick={reset} />
+        <input id={id} type="range" min={def.min} max={def.max} step={def.step} value={value} disabled={!recipe} onChange={(e) => onChange(def.key, Number(e.target.value))}
+          onDoubleClick={reset}
+          onPointerDown={(e) => mask(e.altKey)}
+          onPointerUp={() => mask(false)}
+          onPointerCancel={() => mask(false)}
+          onBlur={() => mask(false)}
+        />
         {tick !== null && <span className="tick" style={{ ['--t' as string]: tick }} />}
       </div>
     </div>
@@ -249,6 +258,7 @@ export function Panel() {
 
   const groups: [string, SliderDef['group']][] = [
     ['Adjustments', 'adjust'],
+    ['Detail', 'detail'],
     ['Optics', 'optics'],
     ['Grain', 'grain'],
   ];
@@ -296,6 +306,7 @@ export function Panel() {
                   <SliderRow key={d.key} def={d} recipe={base} onChange={setSlider} />
                 ))}
               </div>
+              {group === 'detail' && <p className="hint">Sharpening shows best at 100%; hold ⌥ on Masking to see where it reaches. Capture undoes the lens and sensor blur of RAW files, at the pixel level.</p>}
             </Section>
             {group === 'adjust' && (
               <Section id="curve" title="Tone curve" summary={recipe?.curve ? 'Edited' : 'Straight'} onReset={resetFor('curve', 'Tone curve')}>

@@ -25,6 +25,8 @@ import curve from './shaders/stages/curve.glsl?raw';
 import clarity from './shaders/stages/clarity.glsl?raw';
 import lab from './shaders/stages/lab.glsl?raw';
 import texture from './shaders/stages/texture.glsl?raw';
+import usmStage from './shaders/stages/usm.glsl?raw';
+import usm from './shaders/usm.frag.glsl?raw';
 import eq from './shaders/eq.frag.glsl?raw';
 import cs from './shaders/cs.frag.glsl?raw';
 import llcurve from './shaders/llcurve.frag.glsl?raw';
@@ -49,6 +51,7 @@ export const SHADER_FILES: Record<string, string> = {
   'stages/clarity.glsl': clarity,
   'stages/lab.glsl': lab,
   'stages/texture.glsl': texture,
+  'stages/usm.glsl': usmStage,
 };
 
 export const SHADERS = {
@@ -64,4 +67,5 @@ export const SHADERS = {
   llcollapse,
   eq,
   cs,
+  usm,
 };

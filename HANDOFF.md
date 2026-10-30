@@ -26,13 +26,17 @@ Committed; Oli has not tried these in the app yet:
 - **Workspace colour** on a right-click in Develop (Oli asked for right-click rather than swatches in the zoom bar): Black, Dark grey (the default), Mid grey (18%, sRGB 118), White, as Lightroom offers. `StageMenu.tsx`; remembered in localStorage (`stageColor` in the store); the colour around a straightened photo follows it; status lines get a scrim on light colours.
 - **Ratings, colour tags and hearts** (Batch 4, part 1). Oli chose to keep them in the Emulsion sidecar (no XMP). `library/marks.ts` (tested): 0-5 set stars, 6-9 toggle red/yellow/green/blue (Lightroom's keys), H toggles the heart (Oli's addition: a favourite, independent of stars and tag). They apply to the selection, are undoable, and a toggle on a mixed selection gives the mark to all first. The sidecar gains `rating`, `label`, `heart` (skipped when empty; `recipe` may be `null`; old sidecars still read; removed when nothing is left). Shown on Library cells, on the strip's bottom edge, and clickable in the panel under the lab order line (clicking the current star clears it).
 
-## Committed, not pushed
+## Pushed (`1f5965e`)
 
 - **Filter by stars, heart and colour tags** (Batch 4, part 2). One filter (`library/filter.ts`, tested) for the Library grid and the filmstrip, in a shared `FilterBar`: All / Edited / Unedited, at least N stars (click the chosen star again to turn it off), hearted only, any of the chosen tags; criteria combine. Shows "N of M" and Clear when on. The active photo always stays shown. Arrows (and a grid row down), Home/End, shift-click ranges and Select All work within the shown photos. Remembered as `emulsion.filter` (the old strip choice carries over). Export and "Apply to all" still mean every photo.
 
+## Pushed with this handoff
+
+- **Sharpening** (Oli tried it: "works great") (Oli: capture sharpening was too subtle; keep it, rename it, add a traditional tool). RawTherapee's Sharpening module, unsharp mask (RawTherapee is the stronger tool here; darktable's sharpen is a plain USM). Detail section, new: Texture, Clarity, Sharpening (amount 0-100 = RT amount / 10, its default 200 at 20), Radius (RT's, 0.3-3, default 0.5), Masking (0-100 = RT contrast threshold / 2, default 10), Capture (the old Sharpening slider, now `captureSharpening`; `sharpening` in old sidecars is read as it). Hold ⌥ on Masking to see the mask. `usm.ts` reference (tested), `usm.frag.glsl` (3 passes, 32-bit), `stages/usm.glsl` after Tone and print, before grain. Probe: GPU within 1e-6 of the reference (`out.usm`). Probe photo mode now takes `slider=sharpen` (0 / 20 / 60 at 1:1; at 20 it is clearly crisper on a 3000 px camera JPEG, 60 is crunchy). Needs `--virtual-time-budget` for the photo mode to finish. Deviations recorded in the header and NOTICE: exact Gaussian above sigma 0.6, clamped borders. As in RawTherapee, a radius under 0.25 px at the source's scale does nothing, so the fitted preview shows little; 100% and exports show it all.
+
 ## Known issues and open questions
 
-- **Untested by Claude** (needs the real app): the filter bar's clicks in Library and Develop, arrow keys and shift-click ranges with a filter on; the right-click workspace menu (and that macOS shows no native menu over it); the 0-9 and H keys in both views and with several frames selected; that a rating on an unedited photo writes a sidecar and survives reopening the folder; Sharpening on a real RAW at 100% and in an export; the filter's buttons and arrow keys with a filter on; the strip with real thumbnails; double-click reset; the crop overlay's drags, keys and Undo while cropping; zoom/pan/pinch; the custom menu's Undo/Redo/Select All.
+- **Untested by Claude** (needs the real app): Sharpening at 100% on real photos and in an export, ⌥ on Masking (does macOS Option on a range input behave?), and full-size speed of the sharpening passes; the filter bar's clicks in Library and Develop, arrow keys and shift-click ranges with a filter on; the right-click workspace menu (and that macOS shows no native menu over it); the 0-9 and H keys in both views and with several frames selected; that a rating on an unedited photo writes a sidecar and survives reopening the folder; Sharpening on a real RAW at 100% and in an export; the filter's buttons and arrow keys with a filter on; the strip with real thumbnails; double-click reset; the crop overlay's drags, keys and Undo while cropping; zoom/pan/pinch; the custom menu's Undo/Redo/Select All.
 - **Strength to judge on real photos**: Clarity (+100 = darktable's preset), Texture (+100 doubles the finest detail, probably wants +20 to +50), Sharpening.
 - **Full-resolution speed while zoomed**: Clarity and Texture rerun on edits at full size (Clarity about 5x the preview's 70 ms).
 - **Deviations from darktable from before the rule** (Oli to decide): the neutral sigmoid uses contrast 1.15, skew 0.11 and black target 0 (darktable: 1.5, 0, 0.0152%); colour balance contrast pivots on 0.18 rather than 0.1845.
@@ -48,7 +52,8 @@ Committed; Oli has not tried these in the app yet:
 
 ## Next
 
-1. Oli tries the work above and `685ad41` (Sharpening at 100%, Clarity/Texture strength) and says "push".
+1. **HSL colour editor** (Oli: "first things first"). Port per the rule: candidates are darktable's color equalizer (hue-based saturation, hue and brightness, the community's current pick) or RawTherapee's HSV equalizer; check with Oli which.
 2. **Batch 3, part 2:** user presets (save and apply looks).
-3. UX ideas offered and not yet picked: hover a stock to preview it on the main image; slider edits applying to every selected frame; a `?` shortcut sheet.
-4. Later: an EXIF info overlay.
+3. Oli's roadmap ideas: export with borders; export several photos on one canvas separated by borders (social media posts); more film stocks; Fuji film simulations and recipes.
+4. UX ideas offered and not yet picked: hover a stock to preview it on the main image; slider edits applying to every selected frame; a `?` shortcut sheet.
+5. Later: an EXIF info overlay.

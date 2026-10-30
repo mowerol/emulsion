@@ -32,6 +32,7 @@ import { Panel } from '../../src/ui/Panel';
 import { useApp } from '../../src/library/store';
 import { bandFactors, bandGains, correction, luminance, toneEqualize } from '../../src/engine/toneequalizer';
 import { clarityParams, lightness, localLaplacian, withLightness } from '../../src/engine/locallaplacian';
+import { unsharpMask, usmParams } from '../../src/engine/usm';
 import { equalize, scales } from '../../src/engine/equalizer';
 import { autoContrast, blendMask, deconvolve } from '../../src/engine/capture';
 import { labL, labShiftL } from '../../src/engine/lab';
@@ -312,6 +313,34 @@ function probeClarity(eng: Engine) {
   return { worstLightnessError: filter, shift: stage, lightness: lum };
 }
 
+/** Sharpening: RawTherapee's unsharp mask on the GPU against the reference, change in lightness and mask. */
+function probeUsm(eng: Engine) {
+  const w = 97, h = 61;
+  const plane = { w, h, data: new Float64Array(w * h) };
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+    // Faint texture on one side, stronger detail and a hard edge on the other.
+    plane.data[j * w + i] = 0.3 + 0.3 * (i / w) + (i < w / 2 ? 0.003 : 0.04) * Math.sin(i * 1.7) * Math.sin(j * 1.1) + (j > h / 2 ? 0.2 : 0);
+  }
+  const cases: Record<string, { delta: number; mask: number; largestDelta: number }> = {};
+  for (const [name, p, scale] of [
+    ['default', usmParams(20, 0.5, 10), 1],
+    ['wide', usmParams(60, 1.6, 30), 1],
+    ['unmasked', usmParams(40, 0.8, 0), 1],
+    ['preview', usmParams(40, 1.2, 10), 0.5],
+  ] as const) {
+    const got = eng.probeUsm(Float32Array.from(plane.data), w, h, p, scale);
+    const ref = unsharpMask(plane, p, scale);
+    let dw = 0, mw = 0, big = 0;
+    for (let k = 0; k < w * h; k++) {
+      dw = Math.max(dw, Math.abs(got.delta[k] - ref.delta.data[k]));
+      mw = Math.max(mw, Math.abs(got.mask[k] - ref.mask.data[k]));
+      big = Math.max(big, Math.abs(ref.delta.data[k]));
+    }
+    cases[name] = { delta: dw, mask: mw, largestDelta: big };
+  }
+  return cases;
+}
+
 /** Tone equalizer: per pixel, and edge-aware with a known local mean and mean square. */
 function probeToneEqualizer(eng: Engine) {
   const gl = eng.gpu.gl;
@@ -494,6 +523,7 @@ try {
     eng.release(gsrc);
   }
   out.clarity = probeClarity(eng);
+  out.usm = probeUsm(eng);
   out.texture = probeTexture(eng);
   out.capture = probeCapture(eng);
   out.grain = probeGrain(eng);
@@ -679,7 +709,9 @@ document.body.append(pre);
 // A real photo through Clarity (or ?slider=texture), for a screenshot: open with
 // ?img=<file URL of a JPEG>. Shows 1:1 crops from the middle at -100, 0 and +100.
 const photoArg = new URLSearchParams(location.search).get('img');
-const photoSlider = (new URLSearchParams(location.search).get('slider') ?? 'clarity') as 'clarity' | 'texture';
+const photoSlider = (new URLSearchParams(location.search).get('slider') ?? 'clarity') as 'clarity' | 'texture' | 'sharpen';
+// Sharpening has no negative side: show none, RawTherapee's default amount, and three times it.
+const photoValues = photoSlider === 'sharpen' ? [0, 20, 60] : [-100, 0, 100];
 if (photoArg) {
   (async () => {
     const res: Record<string, unknown> = {};
@@ -707,7 +739,7 @@ if (photoArg) {
       board.width = cw * 3 + 20; board.height = chh;
       board.style.cssText = 'position:fixed;left:0;top:0;z-index:99999;background:#000';
       const bx = board.getContext('2d')!;
-      [-100, 0, 100].forEach((clarity, n) => {
+      photoValues.forEach((clarity, n) => {
         const px = peng.readPixels(psrc, look(clarity), pw, ph, 1);
         const full = new ImageData(new Uint8ClampedArray(px.buffer), pw, ph);
         const tmp = document.createElement('canvas');

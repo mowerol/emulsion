@@ -62,6 +62,7 @@ export function Develop() {
   const split = before === 'split' && !held && !cropping ? splitAt : undefined;
   const picking = useApp((s) => s.picking);
   const clipping = useApp((s) => s.clipping);
+  const sharpenMask = useApp((s) => s.sharpenMask);
   const stageId = useApp((s) => s.stageColor);
   const stage = STAGE_COLORS.find((c) => c.id === stageId)!;
   const path = photo?.path;
@@ -157,7 +158,7 @@ export function Develop() {
     src && box.w > 2 && box.h > 2 ? layout(cropping ? FIT : zoom, box.w, box.h, dpr(), src.fullW * frame.w, src.fullH * frame.h) : null;
 
   // Capture sharpening needs the RAW's sensor data, read once per loaded source.
-  const sharpening = recipe?.sharpening ?? 0;
+  const sharpening = recipe?.captureSharpening ?? 0;
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine || !path || !src || sharpening <= 0 || src.capture) return;
@@ -221,14 +222,14 @@ export function Develop() {
       const canvas = canvasRef.current;
       if (!engine || !l || !canvas || l.path !== path || !canvas.width || !current) return;
       try {
-        engine.render(l.source, recipe, { target: 'screen', width: canvas.width, height: canvas.height, seed, compare, view: current.view, clipping, split, frame, outside: rgb(stage.hex) });
+        engine.render(l.source, recipe, { target: 'screen', width: canvas.width, height: canvas.height, seed, compare, view: current.view, clipping, split, frame, outside: rgb(stage.hex), sharpenMask });
       } catch (err) {
         setError(`Rendering failed. ${String(err)}`);
       }
     });
     return () => cancelAnimationFrame(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recipe, seed, compare, loadedVersion, viewKey, path, clipping, split, JSON.stringify(frame), stage]);
+  }, [recipe, seed, compare, loadedVersion, viewKey, path, clipping, split, JSON.stringify(frame), stage, sharpenMask]);
 
   // Count the histogram from a small render of the whole frame, once changes settle.
   useEffect(() => {

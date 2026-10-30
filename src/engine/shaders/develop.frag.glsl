@@ -5,6 +5,7 @@
 #include "common.glsl"
 #include "stages/tone.glsl"
 #include "stages/clarity.glsl"
+#include "stages/usm.glsl"
 #include "stages/input.glsl"
 #include "stages/optics.glsl"
 #include "stages/exposure.glsl"
@@ -34,8 +35,11 @@ uniform vec3 uGeoV;
 // Display colour for frame pixels off the photo (only while cropping).
 uniform vec3 uOutside;
 // Renders a multi-scale filter's input instead, over the whole source: 1, the print's
-// lightness for clarity (0 to 1); 2, the scene's L* for texture.
+// lightness for clarity (0 to 1); 2, the scene's L* for texture; 3, the print's lightness
+// after clarity and print, for sharpening (0 to 1).
 uniform float uTap;
+// 1 shows Sharpening's contrast mask as grey instead of the photo.
+uniform float uUsmShowMask;
 
 void main() {
   vec3 f = vec3(uView.xy + vUv * uView.zw, 1.0);
@@ -46,6 +50,10 @@ void main() {
     return;
   }
   uv = clamp(uv, 0.0, 1.0);
+  if (uUsmShowMask > 0.5) {
+    outColor = vec4(vec3(usmMask(uv)), 1.0);
+    return;
+  }
   vec3 x = stageInput(texture(uSrc, uv));
   if (uCompare > 0.5 || vUv.x < uSplit) {
     outColor = vec4(stageOutput(stageToneNeutral(x)), 1.0);
@@ -55,7 +63,7 @@ void main() {
   x = stageSharpen(x, uv);
   x = stageExposure(x);
   x = stageToneEqualizer(x, uv);
-  if (uTap > 1.5) {
+  if (uTap > 1.5 && uTap < 2.5) {
     outColor = vec4(labL(x), 0.0, 0.0, 1.0);
     return;
   }
@@ -66,11 +74,16 @@ void main() {
   x = stageEmulsion(x);
   // Print
   vec3 e = stageTone(x);
-  if (uTap > 0.5) {
+  if (uTap > 0.5 && uTap < 1.5) {
     outColor = vec4(clarityLightness(e), 0.0, 0.0, 1.0);
     return;
   }
   e = stagePrint(stageClarity(e, uv));
+  if (uTap > 2.5) {
+    outColor = vec4(clarityLightness(e), 0.0, 0.0, 1.0);
+    return;
+  }
+  e = stageUnsharpMask(e, uv);
   // Display
   vec3 d = stageOutput(e);
   d = stageGrain(d, uv);

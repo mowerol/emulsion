@@ -10,7 +10,7 @@ describe('develop uniforms', () => {
   it('renders the original when there is no recipe or when comparing', () => {
     expect(developUniforms(null, ctx).uCompare).toBe(1);
     expect(developUniforms(defaultRecipe(), { ...ctx, compare: true }).uCompare).toBe(1);
-    expect(needsPasses(developUniforms(null, ctx))).toEqual({ highlights: false, sharpen: false, toneEqualizer: false, clarity: false, texture: false });
+    expect(needsPasses(developUniforms(null, ctx))).toEqual({ highlights: false, sharpen: false, toneEqualizer: false, clarity: false, texture: false, usm: false });
   });
 
   it('keeps luminance in the stock balance', () => {

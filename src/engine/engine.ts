@@ -14,6 +14,7 @@ import { GLOW_SIGMA, HALATION_SIGMA, blurPlan, pyramidFor, type Pyramid } from '
 import { MASK_SIGMA } from './toneequalizer';
 import { GAMMAS, levelSize, numLevels } from './locallaplacian';
 import { scales } from './equalizer';
+import { usmKernel, usmParams, type UsmParams } from './usm';
 import { autoContrast, borderFor, gaussian1d, iterationsFor, kernelFor, TILE } from './capture';
 import { columnMajor } from './color';
 import type { Mat3 } from '../film/stocks';
@@ -119,6 +120,10 @@ export class Engine {
   /** The texture map's ping-pong targets for the latest source size, and what it was made from. */
   private eq: { w: number; h: number; a: Target; b: Target } | null = null;
   private eqMade: { tex: WebGLTexture; key: string; out: Target } | null = null;
+  private usmP: Program;
+  /** Sharpening's ping-pong targets for the latest source size, and what its map was made from. */
+  private usm: { w: number; h: number; a: Target; b: Target } | null = null;
+  private usmMade: { tex: WebGLTexture; key: string; out: Target } | null = null;
   private outs: Lru<Target>;
   private store: number;
 
@@ -138,6 +143,7 @@ export class Engine {
     this.llCollapse = this.gpu.program(SHADERS.vertex, SHADERS.llcollapse);
     this.eqP = this.gpu.program(SHADERS.vertex, SHADERS.eq);
     this.csP = this.gpu.program(SHADERS.vertex, SHADERS.cs);
+    this.usmP = this.gpu.program(SHADERS.vertex, SHADERS.usm);
     // Full-size pyramids are large: keep only the latest two sizes (preview and full resolution).
     this.lls = new Lru<Ll>(2, (l) => [...l.A, ...l.B, ...l.O].forEach((t) => this.gpu.free(t)));
   }
@@ -410,6 +416,60 @@ export class Engine {
     return this.eq;
   }
 
+  /** Sharpening's two 32-bit targets for a w × h source, made on first use (one size at a time). */
+  private usmTargets(w: number, h: number) {
+    if (!this.usm || this.usm.w !== w || this.usm.h !== h) {
+      if (this.usm) {
+        this.gpu.free(this.usm.a);
+        this.gpu.free(this.usm.b);
+      }
+      this.usm = { w, h, a: this.gpu.target(w, h, true, true), b: this.gpu.target(w, h, true, true) };
+      this.usmMade = null;
+    }
+    return this.usm;
+  }
+
+  /**
+   * RawTherapee's unsharp mask over the whole photo, on the print's lightness:
+   * returns the target holding the change in lightness (.r) and the contrast
+   * mask (.g). `kernel` is the lightness blur for this source size.
+   */
+  private usmMap(w: number, h: number, p: UsmParams, kernel: number[], drawInput: (t: Target) => void): Target {
+    const g = this.gpu;
+    const { a, b } = this.usmTargets(w, h);
+    const m = gaussian1d(2);
+    const pad = (k: number[], n: number) => [...k, ...new Array(n - k.length).fill(0)];
+    const common = {
+      uIn: 0, uThreshold: p.contrast / 100, uAmount: p.amount / 100,
+      uG: pad(kernel, 25), uGHalf: (kernel.length - 1) / 2, uM: pad(m, 13), uMHalf: (m.length - 1) / 2,
+    };
+    drawInput(a);
+    [a, b, a].forEach((from, mode) => {
+      const to = from === a ? b : a;
+      g.bind(0, from.tex);
+      this.usmP.set({ ...common, uMode: mode });
+      g.draw(this.usmP, to, to.w, to.h);
+    });
+    return b;
+  }
+
+  /** Sharpening alone on a lightness plane (0 to 1), for the probe: change in lightness and mask per pixel. */
+  probeUsm(L: Float32Array, w: number, h: number, p: UsmParams, scale = 1): { delta: Float32Array; mask: Float32Array } {
+    const gl = this.gpu.gl;
+    this.usmMade = null;
+    const out = this.usmMap(w, h, p, usmKernel(p.radius * scale), (t) => {
+      const rgba = new Float32Array(w * h * 4);
+      L.forEach((v, k) => (rgba[4 * k] = v));
+      this.gpu.scratch();
+      gl.bindTexture(gl.TEXTURE_2D, t.tex);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RGBA, gl.FLOAT, rgba);
+    });
+    const px = new Float32Array(w * h * 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, out.fbo);
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.FLOAT, px);
+    return { delta: px.filter((_, k) => k % 4 === 0), mask: px.filter((_, k) => k % 4 === 1) };
+  }
+
   /**
    * darktable's contrast equalizer over the whole photo, on the scene's L*:
    * returns the target holding residue, boosted detail and the starting
@@ -532,11 +592,13 @@ export class Engine {
       frame?: Rect & { angle: number };
       /** Display colour for parts of the frame off the photo. */
       outside?: [number, number, number];
+      /** Show Sharpening's contrast mask instead of the photo. */
+      sharpenMask?: boolean;
     },
   ) {
     const g = this.gpu;
     // Capture sharpening replaces the source for everything after it.
-    const iterations = recipe && !opts.compare && src.capture && g.hdr && g.float32 ? iterationsFor(recipe.sharpening) : 0;
+    const iterations = recipe && !opts.compare && src.capture && g.hdr && g.float32 ? iterationsFor(recipe.captureSharpening) : 0;
     if (iterations > 0) src = { ...src, tex: this.captureSharpened(src, iterations) };
     const view = opts.view ?? FULL_VIEW;
     const frame = opts.frame ?? recipe?.crop ?? FULL;
@@ -567,6 +629,11 @@ export class Engine {
     // Texture needs float targets and at least one wavelet scale.
     const eqOn = passes.texture && g.hdr && scales(src.w, src.h, src.fullW, src.fullH, 1).length > 0;
     if (eqOn) this.eqTargets(src.w, src.h);
+    // Sharpening needs 32-bit targets, and a radius RawTherapee would blur at this size.
+    const usmP = usmParams(recipe?.sharpen ?? 0, recipe?.sharpenRadius ?? 0.5, recipe?.sharpenMasking ?? 0);
+    const usmKern = usmKernel(usmP.radius * (src.w / src.fullW));
+    const usmOn = passes.usm && g.hdr && g.float32 && usmKern.length > 1;
+    if (usmOn) this.usmTargets(src.w, src.h);
     if (passes.highlights || passes.sharpen) this.chain(src.w, src.h);
     const teqU = { uTeqTex: 4, uTeqLocal: teqLocal ? 1 : 0, uCurveTex: 5 };
 
@@ -597,6 +664,7 @@ export class Engine {
       }
     }
 
+    let usm: WebGLTexture = g.blackTexture;
     const bindDevelop = (clarity: WebGLTexture) => {
       g.bind(0, src.tex);
       g.bind(1, sharp);
@@ -606,12 +674,13 @@ export class Engine {
       g.bind(5, curve);
       g.bind(6, clarity);
       g.bind(8, texture);
+      g.bind(9, usm);
     };
     // A pass over the whole source that stops at a filter's input (see uTap in develop.frag).
     const tap = (t: Target, uTap: number, extra: Uniforms) => {
       this.develop.set({
-        ...u, ...teqU, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3, uClarityTex: 6, uTextureTex: 8,
-        uView: [0, 0, 1, 1], uGeoU: [1, 0, 0], uGeoV: [0, 1, 0], uSplit: -1, uClipShow: 0, uTap, ...extra,
+        ...u, ...teqU, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3, uClarityTex: 6, uTextureTex: 8, uUsmTex: 9,
+        uView: [0, 0, 1, 1], uGeoU: [1, 0, 0], uGeoV: [0, 1, 0], uSplit: -1, uClipShow: 0, uUsmOn: 0, uUsmShowMask: 0, uTap, ...extra,
       });
       g.draw(this.develop, t, t.w, t.h);
     };
@@ -638,9 +707,20 @@ export class Engine {
       });
       this.llMade = { tex: src.tex, key: llKey };
     }
+    if (usmOn && this.usmMade?.tex === src.tex && this.usmMade.key === pipeKey) usm = this.usmMade.out.tex;
+    else if (usmOn) {
+      // The mask's input: the finished print's lightness at every source pixel, uncropped.
+      const out = this.usmMap(src.w, src.h, usmP, usmKern, (t) => {
+        bindDevelop(clarity);
+        tap(t, 3, { uTextureOn: eqOn ? 1 : 0, uClarityOn: ll ? 1 : 0 });
+      });
+      this.usmMade = { tex: src.tex, key: pipeKey, out };
+      usm = out.tex;
+    }
     bindDevelop(clarity);
     this.develop.set({
-      ...u, ...teqU, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3, uClarityTex: 6, uTextureTex: 8, uTap: 0, uClarityOn: ll ? 1 : 0, uTextureOn: eqOn ? 1 : 0,
+      ...u, ...teqU, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3, uClarityTex: 6, uTextureTex: 8, uUsmTex: 9, uTap: 0, uClarityOn: ll ? 1 : 0, uTextureOn: eqOn ? 1 : 0,
+      uUsmOn: usmOn ? 1 : 0, uUsmShowMask: usmOn && opts.sharpenMask ? 1 : 0,
     });
     if (opts.target === 'screen') g.draw(this.develop, null, opts.width, opts.height, true);
     else g.draw(this.develop, opts.target, opts.width, opts.height, false);

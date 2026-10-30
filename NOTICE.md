@@ -121,3 +121,10 @@ These are used as libraries, not copied, and keep their own licences.
 ## Trademarks
 
 Film stock and scanner names (Kodak Portra, Gold, Ektar, Tri-X; Fujifilm Superia, Pro 400H, Frontier; CineStill; Ilford HP5; Noritsu; Epson) are trademarks of their owners. Emulsion's looks are approximations inspired by these products and are not affiliated with or endorsed by their makers.
+
+### Sharpening (unsharp mask), from RawTherapee
+- Upstream: https://github.com/Beep6581/RawTherapee, `rtengine/ipsharpen.cc` (ImProcFunctions::sharpening), `rtengine/params/threshold.h` (Threshold::multiply), `rtengine/gauss.cc` (gaussianBlur's small-sigma rules) and `rtengine/rt_algo.cc` (buildBlendMask), commit b2ee504c47e5e6d5e054395aa12bf1fe43bd1c3c
+- Licence: GPL-3.0-or-later
+- Copyright: Copyright (c) 2004-2010 Gabor Horvath <hgabor@rawtherapee.com>
+- Ported to: `src/engine/usm.ts` (reference), `src/engine/shaders/usm.frag.glsl` and `src/engine/shaders/stages/usm.glsl`
+- Changes: translated from C++ to TypeScript and GLSL. The unsharp mask only, with RawTherapee's defaults for what is not exposed: threshold (20, 80, 2000, 1200), no edges-only, no halo control, no blur of flat areas. Gaussians from sigma 0.6 up are exact rather than recursive, and borders clamp. Runs on CIE lightness (relative to D65) of the finished print, before grain. Sliders: Sharpening 0-100 is RawTherapee's amount / 10, Radius is its radius, Masking 0-100 is its contrast threshold / 2

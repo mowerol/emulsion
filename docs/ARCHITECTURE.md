@@ -34,7 +34,7 @@ Each stage is one GLSL file in `src/engine/shaders/stages/`, included into `deve
 
 | Stage | File | Domain | What it does | Planned replacement |
 | --- | --- | --- | --- | --- |
-| Capture sharpening | `cs.frag.glsl` (own passes) | scene | Sharpening (RAWs only): RawTherapee's capture sharpening deconvolves the source's luminance before anything else; the result replaces the source for every later pass. **Ported from RawTherapee** | |
+| Capture sharpening | `cs.frag.glsl` (own passes) | scene | Capture (RAWs only): RawTherapee's capture sharpening deconvolves the source's luminance before anything else; the result replaces the source for every later pass. **Ported from RawTherapee** | |
 | Input | `input.glsl` | scene | Bring any source into scene-linear Rec.2020 | |
 | Sharpen | `optics.glsl` | scene | Scanner sharpness, a log-domain unsharp mask | |
 | Exposure | `exposure.glsl` | scene | White balance (CAT16 from the as-shot white to the chosen one, **ported from darktable**), exposure, black level (Blacks below zero, as darktable's exposure module) and the stock's colour balance | |
@@ -45,6 +45,7 @@ Each stage is one GLSL file in `src/engine/shaders/stages/`, included into `deve
 | Optics | `optics.glsl` | scene | Halation and glow, added back from blurred highlights | |
 | Emulsion | `emulsion.glsl` | scene | Dye crosstalk; black and white sensitivity | Measured stock data or CLUTs |
 | Clarity | `clarity.glsl` | print | Clarity: darktable's local laplacian filter (its local contrast module's clarity preset) on CIE lightness, from a map the `ll*` passes make over the whole photo; keeps Lab a and b. **Ported from darktable local contrast** | |
+| Sharpening | `usm.glsl` | print | Sharpening, Radius, Masking: RawTherapee's unsharp mask on CIE lightness of the finished print, from a map the `usm` passes make over the whole photo; keeps Lab a and b. Runs after Tone and the print step, before grain. **Ported from RawTherapee sharpening** | |
 | Tone | `tone.glsl` | scene to print | **Ported from darktable sigmoid**: log-logistic curve with hue preservation; stock contrast and push scale its contrast, crossover is a per-channel ratio on top, Whites set the display white and Blacks above zero the display black. Then print saturation and stock black lift | |
 | Output | `output.glsl` | print to display | Rec.2020 to sRGB | Colour-managed output |
 | Grain | `grain.glsl` | display | Film grain from the Boolean model's statistics: each pixel draws its grain count (Poisson) from a smooth field and shows the share it covers. Size and Roughness sliders, ISO presets; see `engine/grain.ts` | |
@@ -62,6 +63,7 @@ The tone curve's maths is mirrored in `engine/tone.ts` so it can be unit-tested;
 source ─┬─ tone eq map (1/4 res) ─ down ─ ... ─ blur ── tone equalizer ─┐   (only with Highlights)
         ├─ (develop to the scene's L*) ─ wavelet scales ─ texture ─┤   (only with Texture)
         ├─ (develop to the print's lightness) ─ local laplacian pyramids ─ clarity ─┤   (only with Clarity)
+        ├─ (develop to the finished print's lightness) ─ usm ×3 ─ sharpening ─┤   (only with Sharpening)
         ├─ extract (1/4 res) ─ down ─ down ─ ...      highlight pyramid
         │        └─ blur at ≤256 px wide ──────────── halation ─┐
         │        └─ blur at ≤128 px wide ──────────── glow ─────┤
@@ -74,6 +76,8 @@ The tone equalizer's map holds each pixel's brightness and its square, so the bl
 Clarity runs the develop pass once more over the whole source, stopping at the tone curve to write CIE lightness, then darktable's local laplacian filter: six remapped images in two RGBA pyramids (the second also carries the lightness's own Gaussian pyramid), collapsed coarse to fine into a map of the change in lightness per source pixel, which the develop pass adds after the tone stage. The map is kept until the recipe or the photo changes, so panning, zooming and the split view reuse it. It costs about 70 ms at preview size. Like darktable's, its finest levels are in pixels, so at full resolution (zoomed in, or in an export) clarity reaches finer detail than in the fitted preview.
 
 Texture works the same way one stage earlier: the develop pass writes the scene's L* after the tone equalizer, and darktable's contrast equalizer runs one edge-avoiding à-trous pass per detail size (up to eight, from 5 px at full resolution to about 20% of the frame) in two 32-bit targets, keeping the coarse residue, the boosted detail and the starting L* in one texture. Its sizes are tied to the photo, not to pixels, so the preview shows the same bands as full resolution minus the finest. Its map is kept like clarity's; an edit costs about 50 ms at preview size. The clarity pass's input includes texture.
+
+Sharpening (RawTherapee's unsharp mask) taps the develop pass after Clarity and the print step for the print's lightness at every source pixel, then three passes on two 32-bit targets make RawTherapee's contrast mask (blurred by 2 px) and the lightness blurred by the radius, and write the change in lightness and the mask. The develop pass adds the change before output and grain, so grain is never sharpened. The radius is in full-resolution pixels and follows RawTherapee's gaussianBlur: under 0.25 px at the source's scale there is no blur and so no sharpening, which means the fitted preview shows little and 100% and exports show it all, as in RawTherapee. Holding ⌥ on the Masking slider makes the develop pass draw the mask instead (white is sharpened). The map is kept like clarity's.
 
 Capture sharpening runs before everything, and only for RAWs. Rust reads the raw mosaic once per photo (`capture_info`, cached for the last photo) for RawTherapee's auto radius and its clip mask, which comes to the webview oriented and resampled to the decoded size, with the matrix back to camera RGB. On the GPU, `cs.frag` makes luminance and lightness, the contrast mask (its threshold measured once per source from a read-back of the lightness), and runs the Richardson-Lucy iterations on one-channel 32-bit images, with the early stop checked per 32 px tile in two passes. The sharpened source (half floats, with mipmaps) is kept until the photo or the Sharpening value changes. The radius is in sensor pixels, so the half-size preview sees half of it and the effect shows at 100% and in exports. About 0.2 s at preview size and 0.65 s at 20 MP when it has to be redone.
 

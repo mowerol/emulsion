@@ -25,7 +25,12 @@ export interface Recipe {
   blacks: number;
   texture: number;
   clarity: number;
-  sharpening: number;
+  /** RawTherapee's capture sharpening (RAWs only): 0 to 100, the deconvolution's iterations. */
+  captureSharpening: number;
+  /** RawTherapee's unsharp mask: amount 0 to 100 (its amount / 10), radius in pixels, masking 0 to 100. */
+  sharpen: number;
+  sharpenRadius: number;
+  sharpenMasking: number;
   vibrance: number;
   saturation: number;
   fade: number;
@@ -50,12 +55,14 @@ export type SliderKey = Exclude<keyof Recipe, 'v' | 'stock' | 'push' | 'scanner'
 export interface SliderDef {
   key: SliderKey;
   label: string;
-  group: 'adjust' | 'optics' | 'grain';
+  group: 'adjust' | 'detail' | 'optics' | 'grain';
   min: number;
   max: number;
   step: number;
   /** When set, the default comes from the stock rather than zero. */
   stockKey?: 'halation' | 'grain' | 'grainSize' | 'grainRough';
+  /** The default when it is not zero and not the stock's. */
+  default?: number;
   format?: (v: number) => string;
 }
 
@@ -70,12 +77,15 @@ export const SLIDERS: SliderDef[] = [
   { key: 'shadows', label: 'Shadows', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'whites', label: 'Whites', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'blacks', label: 'Blacks', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
-  { key: 'texture', label: 'Texture', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
-  { key: 'clarity', label: 'Clarity', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
-  { key: 'sharpening', label: 'Sharpening', group: 'adjust', min: 0, max: 100, step: 1 },
   { key: 'vibrance', label: 'Vibrance', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'saturation', label: 'Saturation', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'fade', label: 'Fade', group: 'adjust', min: 0, max: 100, step: 1 },
+  { key: 'texture', label: 'Texture', group: 'detail', min: -100, max: 100, step: 1, format: formatSigned },
+  { key: 'clarity', label: 'Clarity', group: 'detail', min: -100, max: 100, step: 1, format: formatSigned },
+  { key: 'sharpen', label: 'Sharpening', group: 'detail', min: 0, max: 100, step: 1 },
+  { key: 'sharpenRadius', label: 'Radius', group: 'detail', min: 0.3, max: 3, step: 0.05, default: 0.5, format: (v) => `${v.toFixed(2)} px` },
+  { key: 'sharpenMasking', label: 'Masking', group: 'detail', min: 0, max: 100, step: 1, default: 10 },
+  { key: 'captureSharpening', label: 'Capture', group: 'detail', min: 0, max: 100, step: 1 },
   { key: 'halation', label: 'Halation', group: 'optics', min: 0, max: 100, step: 1, stockKey: 'halation' },
   { key: 'glow', label: 'Glow', group: 'optics', min: 0, max: 100, step: 1 },
   { key: 'vignette', label: 'Vignette', group: 'optics', min: 0, max: 100, step: 1 },
@@ -94,7 +104,7 @@ export const PUSHES: { value: Push; label: string; hint: string; phrase: string 
 ];
 
 export function sliderDefault(def: SliderDef, stock: StockId): number {
-  return def.stockKey ? STOCK[stock][def.stockKey] : 0;
+  return def.stockKey ? STOCK[stock][def.stockKey] : (def.default ?? 0);
 }
 
 /** The stock new edits start from. */
@@ -115,7 +125,10 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
     blacks: 0,
     texture: 0,
     clarity: 0,
-    sharpening: 0,
+    captureSharpening: 0,
+    sharpen: 0,
+    sharpenRadius: 0.5,
+    sharpenMasking: 10,
     vibrance: 0,
     saturation: 0,
     fade: 0,
@@ -150,7 +163,7 @@ export function resetAdjustments(recipe: Recipe): Recipe {
 export const withSettingsFrom = (from: Recipe, target: Recipe | null): Recipe => ({ ...from, crop: target?.crop ?? null });
 
 /** Panel sections that can be reset on their own. */
-export type SectionId = 'development' | 'scanner' | 'crop' | 'adjust' | 'curve' | 'optics' | 'grain';
+export type SectionId = 'development' | 'scanner' | 'crop' | 'adjust' | 'curve' | 'detail' | 'optics' | 'grain';
 
 const SECTION_FIELDS: Record<SectionId, (keyof Recipe)[]> = {
   development: ['push'],
@@ -158,6 +171,7 @@ const SECTION_FIELDS: Record<SectionId, (keyof Recipe)[]> = {
   crop: ['crop'],
   adjust: ['wb', ...SLIDERS.filter((d) => d.group === 'adjust').map((d) => d.key)],
   curve: ['curve'],
+  detail: SLIDERS.filter((d) => d.group === 'detail').map((d) => d.key),
   optics: SLIDERS.filter((d) => d.group === 'optics').map((d) => d.key),
   grain: SLIDERS.filter((d) => d.group === 'grain').map((d) => d.key),
 };
@@ -196,8 +210,10 @@ export function normalizeRecipe(input: unknown): Recipe | null {
   const base = defaultRecipe(stock, scanner);
   const push = typeof o.push === 'number' && [-1, 0, 1, 2].includes(o.push) ? (o.push as Push) : 0;
   const out: Recipe = { ...base, push, curve: normalizeCurve(o.curve), wb: normalizeWhiteBalance(o.wb), crop: normalizeCrop(o.crop) };
+  // Capture sharpening was saved as `sharpening` before the unsharp mask came.
+  const read = (key: string) => (key === 'captureSharpening' && o.captureSharpening === undefined ? o.sharpening : o[key]);
   for (const def of SLIDERS) {
-    const v = o[def.key];
+    const v = read(def.key);
     if (typeof v === 'number' && Number.isFinite(v)) out[def.key] = clamp(v, def.min, def.max);
   }
   return out;
