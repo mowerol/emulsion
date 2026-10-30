@@ -8,7 +8,7 @@ import { D65_XY, clampWhiteBalance, neutralizingWhite, temperatureTint } from '.
 import { activePhoto, editActive, finishCrop, setCropDraft, setPhotoWhite, showToast, startCrop, useApp } from '../library/store';
 import { FULL, bounds, framePixels, rotateFrame, sourcePoint } from '../film/crop';
 import { CropOverlay } from './CropOverlay';
-import { sourceFromBlob, thumbs } from '../library/thumbs';
+import { ensureCapture, sourceFromBlob, thumbs } from '../library/thumbs';
 import { Filmstrip } from './Filmstrip';
 import { FIT, imagePoint, label, layout, pan, step, zoomAt, type Layout, type Zoom } from './zoom';
 
@@ -149,6 +149,20 @@ export function Develop() {
   const frame = cropEdit ? { ...bounds(cropEdit.draft.angle, cropEdit.W, cropEdit.H), angle: cropEdit.draft.angle } : (recipe?.crop ?? FULL);
   const current: Layout | null =
     src && box.w > 2 && box.h > 2 ? layout(cropping ? FIT : zoom, box.w, box.h, dpr(), src.fullW * frame.w, src.fullH * frame.h) : null;
+
+  // Capture sharpening needs the RAW's sensor data, read once per loaded source.
+  const sharpening = recipe?.sharpening ?? 0;
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine || !path || !src || sharpening <= 0 || src.capture) return;
+    let cancelled = false;
+    ensureCapture(engine, src, path).then((ok) => {
+      if (ok && !cancelled && loadedRef.current?.source === src) setLoadedVersion((v) => v + 1);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [path, src, sharpening > 0]);
 
   // Tell the store the photo's size, so cropping can start from the panel.
   useEffect(() => {

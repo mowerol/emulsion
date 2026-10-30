@@ -188,6 +188,24 @@ pub fn as_shot_white(path: &Path) -> Result<Option<[f32; 2]>, String> {
     Ok(white_for(&info))
 }
 
+/// The matrix from the engine's scene-linear Rec.2020 back to the 16-bit
+/// white-balanced camera RGB LibRaw decodes to (0 to 65535 at sensor
+/// clipping), undoing `decode`'s conversion and `BASELINE_GAIN`.
+pub fn working_to_camera(path: &Path) -> Result<Mat3, String> {
+    let cpath = c_path(path)?;
+    let mut info = EmuRawInfo::empty();
+    let mut err = [0 as c_char; 256];
+    let rc = unsafe { emu_raw_info(cpath.as_ptr(), &mut info, err.as_mut_ptr(), err.len()) };
+    if rc != 0 {
+        return Err(format!("Could not read {}: {}", file_name(path), error_text(&err)));
+    }
+    let (matrix, _) = colour_matrix(&error_text(&info.model), &info.cam_xyz);
+    let m = matrix.and_then(|cx| camera_to(&cx, &REC2020_TO_XYZ)).unwrap_or([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]);
+    let inv = invert(&m).ok_or("singular camera matrix")?;
+    let k = 65535.0 / BASELINE_GAIN;
+    Ok(inv.map(|row| row.map(|v| v * k)))
+}
+
 /// Decode `path`. With `half`, LibRaw skips the demosaic and returns half
 /// size, which is several times faster and plenty for a preview.
 pub fn decode(path: &Path, half: bool) -> Result<Decoded, String> {

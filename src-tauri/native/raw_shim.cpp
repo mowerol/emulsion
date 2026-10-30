@@ -3,6 +3,7 @@
 // balances; the colour conversion is left to Rust so it can be tested there.
 
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <new>
 
@@ -33,6 +34,24 @@ struct EmuRawThumb {
   int flip;
   const unsigned char *data;
   size_t len;
+};
+
+// The undemosaiced sensor data of a Bayer or X-Trans file, for capture sharpening.
+struct EmuRawMosaic {
+  // Visible area, in sensor orientation (before `flip`).
+  int width;
+  int height;
+  // LibRaw's flip code, as in EmuRawThumb.
+  int flip;
+  // Size of the colour pattern: 2 for Bayer, 6 for X-Trans, 0 for anything else.
+  int pattern_size;
+  // Colour of each pattern cell from the visible area's top left: 0 red, 1 green, 2 blue.
+  unsigned char pattern[6][6];
+  // Black level per colour (red, green, blue) and the white level.
+  float black[3];
+  float white;
+  // LibRaw's daylight multipliers (pre_mul) for red, green, blue.
+  float pre_mul[3];
 };
 
 static void set_error(char *err, size_t len, const char *what, int code) {
@@ -161,6 +180,60 @@ int emu_raw_thumb(const char *path, EmuRawThumb *thumb, void **out, char *err, s
   delete raw;
   return LIBRAW_SUCCESS;
 }
+
+// The visible sensor data, unprocessed. On success `*data` is width × height
+// values from malloc, for emu_raw_free_mosaic.
+int emu_raw_mosaic(const char *path, EmuRawMosaic *m, unsigned short **data, char *err, size_t errlen) {
+  LibRaw *raw = new (std::nothrow) LibRaw(0);
+  if (!raw) return LIBRAW_UNSUFFICIENT_MEMORY;
+  int rc = raw->open_file(path);
+  if (rc != LIBRAW_SUCCESS) {
+    set_error(err, errlen, "open", rc);
+    delete raw;
+    return rc;
+  }
+  if ((rc = raw->unpack()) != LIBRAW_SUCCESS) {
+    set_error(err, errlen, "unpack", rc);
+    delete raw;
+    return rc;
+  }
+  const libraw_image_sizes_t &s = raw->imgdata.sizes;
+  const libraw_colordata_t &c = raw->imgdata.color;
+  const unsigned short *src = raw->imgdata.rawdata.raw_image;
+  const bool xtrans = raw->imgdata.idata.filters == 9;
+  const bool bayer = raw->imgdata.idata.filters > 1000 && raw->imgdata.idata.colors == 3;
+  if (!src || !(xtrans || bayer)) {
+    if (err && errlen) snprintf(err, errlen, "not a Bayer or X-Trans file");
+    delete raw;
+    return LIBRAW_UNSPECIFIED_ERROR;
+  }
+  m->width = s.width;
+  m->height = s.height;
+  m->flip = s.flip;
+  m->pattern_size = xtrans ? 6 : 2;
+  for (int i = 0; i < 6; i++)
+    for (int j = 0; j < 6; j++) {
+      int col = raw->COLOR(i, j);
+      m->pattern[i][j] = (unsigned char)(col == 3 ? 1 : col);
+    }
+  for (int k = 0; k < 3; k++) {
+    m->black[k] = (float)(c.black + c.cblack[k]);
+    m->pre_mul[k] = c.pre_mul[k];
+  }
+  m->white = (float)c.maximum;
+  unsigned short *out = static_cast<unsigned short *>(malloc(sizeof(unsigned short) * s.width * s.height));
+  if (!out) {
+    delete raw;
+    return LIBRAW_UNSUFFICIENT_MEMORY;
+  }
+  for (int row = 0; row < s.height; row++)
+    memcpy(out + (size_t)row * s.width, src + (size_t)(row + s.top_margin) * s.raw_pitch / 2 + s.left_margin, sizeof(unsigned short) * s.width);
+  *data = out;
+  delete raw;
+  return LIBRAW_SUCCESS;
+}
+
+void emu_raw_free_mosaic(unsigned short *data) { free(data); }
 
 void emu_raw_free(void *img) { LibRaw::dcraw_clear_mem(static_cast<libraw_processed_image_t *>(img)); }
 

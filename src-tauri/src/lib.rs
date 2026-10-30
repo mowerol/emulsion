@@ -2,6 +2,7 @@
 //! Emulsion desktop core: folders, decoding, thumbnails, sidecars and export.
 //! Image processing itself runs on the GPU in the webview (see src/engine).
 
+mod capture;
 mod commands;
 mod decode;
 mod export;
@@ -91,6 +92,7 @@ pub fn run() {
             commands::thumbnail,
             commands::load_image,
             commands::white_points,
+            commands::capture_info,
             commands::write_sidecar,
             commands::write_export,
             commands::startup_options,

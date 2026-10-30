@@ -62,6 +62,22 @@ export async function loadImage(path: string, maxEdge?: number): Promise<HalfIma
   return parsePayload(buf);
 }
 
+export interface CaptureInfo {
+  radius: number;
+  /** Working Rec.2020 to 16-bit camera RGB, row major. */
+  toCam: number[];
+  /** One byte per pixel at the requested size: 0 near clipped sensor pixels. */
+  mask: Uint8Array;
+}
+
+/** Capture sharpening data read from a RAW's sensor data, with the clip mask at width × height. */
+export async function captureInfo(path: string, width: number, height: number): Promise<CaptureInfo> {
+  const buf = await invoke<ArrayBuffer>('capture_info', { path, width, height });
+  const dv = new DataView(buf);
+  const toCam = Array.from({ length: 9 }, (_, i) => dv.getFloat32(12 + 4 * i, true));
+  return { radius: dv.getFloat32(0, true), toCam, mask: new Uint8Array(buf, 48, width * height) };
+}
+
 /** As-shot white points (CIE xy) of `paths`; null for anything that is not a RAW. */
 export const whitePoints = (paths: string[]) => invoke<([number, number] | null)[]>('white_points', { paths });
 

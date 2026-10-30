@@ -43,7 +43,8 @@ export class Program {
 function setUniform(gl: WebGL2RenderingContext, type: number, loc: WebGLUniformLocation, v: UniformValue) {
   const arr = typeof v === 'number' ? [v] : v;
   switch (type) {
-    case gl.FLOAT: gl.uniform1f(loc, arr[0]); break;
+    // 1fv sets a whole float array, or a single float.
+    case gl.FLOAT: gl.uniform1fv(loc, arr); break;
     case gl.FLOAT_VEC2: gl.uniform2fv(loc, arr); break;
     case gl.FLOAT_VEC3: gl.uniform3fv(loc, arr); break;
     case gl.FLOAT_VEC4: gl.uniform4fv(loc, arr); break;
@@ -51,6 +52,7 @@ function setUniform(gl: WebGL2RenderingContext, type: number, loc: WebGLUniformL
     case gl.INT:
     case gl.BOOL:
     case gl.SAMPLER_2D: gl.uniform1i(loc, arr[0]); break;
+    case gl.INT_VEC2: gl.uniform2iv(loc, arr); break;
     default: throw new GpuError(`Unsupported uniform type ${type}`);
   }
 }
@@ -143,13 +145,17 @@ export class Gpu {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
   }
 
-  /** A render target; `precise` asks for 32-bit floats (only with `float32`). */
-  target(w: number, h: number, hdr: boolean, precise = false): Target {
+  /**
+   * A render target; `precise` asks for 32-bit floats (only with `float32`), and
+   * `single` for one channel (red), for large working images read with texelFetch.
+   */
+  target(w: number, h: number, hdr: boolean, precise = false, single = false): Target {
     const gl = this.gl;
     const tex = gl.createTexture()!;
     this.scratch();
     gl.bindTexture(gl.TEXTURE_2D, tex);
-    if (hdr && precise) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, w, h, 0, gl.RGBA, gl.FLOAT, null);
+    if (hdr && single) gl.texImage2D(gl.TEXTURE_2D, 0, precise ? gl.R32F : gl.R16F, w, h, 0, gl.RED, precise ? gl.FLOAT : gl.HALF_FLOAT, null);
+    else if (hdr && precise) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, w, h, 0, gl.RGBA, gl.FLOAT, null);
     else if (hdr) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
     else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     this.params(false);

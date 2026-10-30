@@ -26,6 +26,7 @@ import clarity from './shaders/stages/clarity.glsl?raw';
 import lab from './shaders/stages/lab.glsl?raw';
 import texture from './shaders/stages/texture.glsl?raw';
 import eq from './shaders/eq.frag.glsl?raw';
+import cs from './shaders/cs.frag.glsl?raw';
 import llcurve from './shaders/llcurve.frag.glsl?raw';
 import llreduce from './shaders/llreduce.frag.glsl?raw';
 import llcollapse from './shaders/llcollapse.frag.glsl?raw';
@@ -62,4 +63,5 @@ export const SHADERS = {
   llreduce,
   llcollapse,
   eq,
+  cs,
 };

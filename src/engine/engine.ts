@@ -14,6 +14,9 @@ import { GLOW_SIGMA, HALATION_SIGMA, blurPlan, pyramidFor, type Pyramid } from '
 import { MASK_SIGMA } from './toneequalizer';
 import { GAMMAS, levelSize, numLevels } from './locallaplacian';
 import { scales } from './equalizer';
+import { autoContrast, borderFor, gaussian1d, iterationsFor, kernelFor, TILE } from './capture';
+import { columnMajor } from './color';
+import type { Mat3 } from '../film/stocks';
 import { CURVE_RES, curveTable } from '../film/curve';
 import type { Xy } from './whitebalance';
 import { SHADERS } from './shaders';
@@ -53,6 +56,20 @@ export interface Source {
   /** Size of the full-resolution image; the texture may be smaller. */
   fullW: number;
   fullH: number;
+  /** A RAW's capture sharpening data, once attached (see attachCapture). */
+  capture?: Capture;
+}
+
+/** What capture sharpening reads from a RAW's sensor data (src-tauri/src/capture.rs). */
+export interface Capture {
+  /** RawTherapee's auto radius, in sensor pixels. */
+  radius: number;
+  /** Working Rec.2020 to 16-bit camera RGB, row major. */
+  toCam: number[];
+  /** The clip mask at the texture's size: 0 near clipped sensor pixels. */
+  clip: WebGLTexture;
+  /** RawTherapee's auto contrast threshold, once measured. */
+  threshold?: number;
 }
 
 interface Chain {
@@ -95,6 +112,10 @@ export class Engine {
   /** What the clarity map in `lls` was last made from, so panning and zooming reuse it. */
   private llMade: { tex: WebGLTexture; key: string } | null = null;
   private eqP: Program;
+  private csP: Program;
+  /** The capture-sharpened source for the latest size, and what it was made from. */
+  private csOut: Target | null = null;
+  private csMade: { tex: WebGLTexture; iterations: number } | null = null;
   /** The texture map's ping-pong targets for the latest source size, and what it was made from. */
   private eq: { w: number; h: number; a: Target; b: Target } | null = null;
   private eqMade: { tex: WebGLTexture; key: string; out: Target } | null = null;
@@ -116,6 +137,7 @@ export class Engine {
     this.llReduce = this.gpu.program(SHADERS.vertex, SHADERS.llreduce);
     this.llCollapse = this.gpu.program(SHADERS.vertex, SHADERS.llcollapse);
     this.eqP = this.gpu.program(SHADERS.vertex, SHADERS.eq);
+    this.csP = this.gpu.program(SHADERS.vertex, SHADERS.cs);
     // Full-size pyramids are large: keep only the latest two sizes (preview and full resolution).
     this.lls = new Lru<Ll>(2, (l) => [...l.A, ...l.B, ...l.O].forEach((t) => this.gpu.free(t)));
   }
@@ -151,11 +173,125 @@ export class Engine {
   }
 
   release(src: Source | null | undefined) {
-    if (src) this.gpu.gl.deleteTexture(src.tex);
+    if (!src) return;
+    this.gpu.gl.deleteTexture(src.tex);
+    if (src.capture) this.gpu.gl.deleteTexture(src.capture.clip);
+  }
+
+  /** Give a RAW source its capture sharpening data: the radius, the camera matrix and the clip mask at the source's size. */
+  attachCapture(src: Source, radius: number, toCam: number[], mask: Uint8Array) {
+    const gl = this.gpu.gl;
+    const clip = gl.createTexture()!;
+    this.gpu.scratch();
+    gl.bindTexture(gl.TEXTURE_2D, clip);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, src.w, src.h, 0, gl.RED, gl.UNSIGNED_BYTE, Uint8Array.from(mask, (v) => (v ? 255 : 0)));
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+    this.gpu.params(false);
+    if (src.capture) gl.deleteTexture(src.capture.clip);
+    src.capture = { radius, toCam, clip };
+  }
+
+  /**
+   * RawTherapee's capture sharpening of a RAW source: a texture of the source
+   * with its luminance deconvolved, kept until the source or iterations change.
+   */
+  private captureSharpened(src: Source, iterations: number): WebGLTexture {
+    const g = this.gpu;
+    const gl = g.gl;
+    const cap = src.capture!;
+    if (this.csOut && this.csMade?.tex === src.tex && this.csMade.iterations === iterations && this.csOut.w === src.w && this.csOut.h === src.h) return this.csOut.tex;
+    const { w, h } = src;
+    // The radius is in sensor pixels; a smaller texture (a preview) sees it smaller.
+    const sigma = cap.radius * (w / src.fullW);
+    const kernel = kernelFor(sigma);
+    const border = borderFor(sigma, iterations);
+    const tiles = [Math.max(1, Math.ceil((w - 2 * border) / TILE)), Math.max(1, Math.ceil((h - 2 * border) / TILE))];
+    const one = () => g.target(w, h, true, true, true);
+    if (this.csOut && (this.csOut.w !== w || this.csOut.h !== h)) {
+      g.free(this.csOut);
+      this.csOut = null;
+    }
+    const out = (this.csOut ??= g.target(w, h, true));
+    const [Y, L, blend, estA, estB] = [one(), one(), one(), one(), one()];
+    const flags = [g.target(tiles[0], tiles[1], true), g.target(tiles[0], tiles[1], true)];
+    const rows = g.target(tiles[0], h, true, false, true);
+    const base = {
+      uS: 0, uY: 1, uL: 2, uClip: 3, uEst: 4, uR: 5, uBl: 6, uF: 8,
+      uToCam: columnMajor([cap.toCam.slice(0, 3), cap.toCam.slice(3, 6), cap.toCam.slice(6, 9)] as Mat3), uK: kernel.weights.flat(), uKHalf: kernel.half, uBorder: border, uTiles: tiles,
+    };
+    const step = (mode: number, to: Target, tex: Partial<Record<'S' | 'Y' | 'L' | 'Clip' | 'Est' | 'R' | 'Bl' | 'F', WebGLTexture>>, extra = {}) => {
+      // Every unit the program reads gets bound, the unused ones to black: a target
+      // still bound from an earlier step would be a feedback loop.
+      const units = { S: 0, Y: 1, L: 2, Clip: 3, Est: 4, R: 5, Bl: 6, F: 8 } as const;
+      // The source is always bound: the shader takes the working images' size from it.
+      const all = { S: src.tex, ...tex };
+      for (const [k, unit] of Object.entries(units)) g.bind(unit, all[k as keyof typeof units] ?? g.blackTexture);
+      this.csP.set({ ...base, ...extra, uMode: mode });
+      g.draw(this.csP, to, to.w, to.h);
+    };
+    step(0, Y, { S: src.tex });
+    step(1, L, { S: src.tex });
+    if (cap.threshold === undefined) cap.threshold = this.measureContrast(L);
+    // The blend mask, then its 2 px blur: across into estA, down into blend.
+    const gk = gaussian1d(2);
+    step(2, blend, { L: L.tex, Clip: cap.clip }, { uThreshold: cap.threshold });
+    step(3, estA, { R: blend.tex }, { uG: gk, uGHalf: (gk.length - 1) / 2, uDir: [1, 0] });
+    step(3, blend, { R: estA.tex }, { uG: gk, uGHalf: (gk.length - 1) / 2, uDir: [0, 1] });
+    step(4, flags[0], { Bl: blend.tex });
+    // Richardson-Lucy: the estimate starts as Y; L's target holds the ratio.
+    let est = Y;
+    let next = estA;
+    let f = 0;
+    for (let n = 0; n < iterations; n++) {
+      step(5, L, { Y: Y.tex, Est: est.tex });
+      step(6, next, { Est: est.tex, R: L.tex, F: flags[f].tex });
+      if (n < iterations - 1) {
+        // The early stop, in two steps so no pixel scans a whole tile: rows, then tiles.
+        step(7, rows, { Y: Y.tex, Est: next.tex, Bl: blend.tex });
+        step(10, flags[1 - f], { R: rows.tex, F: flags[f].tex });
+        f = 1 - f;
+      }
+      est = next;
+      next = next === estA ? estB : estA;
+    }
+    step(8, out, { S: src.tex, Y: Y.tex, Est: est.tex, Bl: blend.tex });
+    for (const t of [Y, L, blend, estA, estB, rows, ...flags]) g.free(t);
+    // Mipmaps, as the source has them, for views smaller than the texture.
+    g.scratch();
+    gl.bindTexture(gl.TEXTURE_2D, out.tex);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    g.params(true);
+    this.csMade = { tex: src.tex, iterations };
+    return out.tex;
+  }
+
+  /** RawTherapee's auto contrast threshold from the lightness image, read back four values per texel. */
+  private measureContrast(L: Target): number {
+    const g = this.gpu;
+    const gl = g.gl;
+    const pw = Math.ceil(L.w / 4);
+    const packed = g.target(pw, L.h, true, true);
+    for (const unit of [0, 1, 3, 4, 5, 6, 8]) g.bind(unit, g.blackTexture);
+    g.bind(2, L.tex);
+    this.csP.set({ uMode: 9, uS: 0, uY: 1, uL: 2, uClip: 3, uEst: 4, uR: 5, uBl: 6, uF: 8 });
+    g.draw(this.csP, packed, pw, L.h);
+    const px = new Float32Array(pw * L.h * 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, packed.fbo);
+    gl.readPixels(0, 0, pw, L.h, gl.RGBA, gl.FLOAT, px);
+    g.free(packed);
+    const data = new Float64Array(L.w * L.h);
+    for (let y = 0; y < L.h; y++) for (let x = 0; x < L.w; x++) data[y * L.w + x] = px[y * pw * 4 + x];
+    return autoContrast({ w: L.w, h: L.h, data });
   }
 
   /** Free the intermediate buffers for one source size (after a large export). */
   dropBuffers(w: number, h: number) {
+    if (this.csOut && this.csOut.w === w && this.csOut.h === h) {
+      this.gpu.free(this.csOut);
+      this.csOut = null;
+      this.csMade = null;
+    }
     this.chains.delete(`${w}x${h}`);
     this.outs.delete(`${w}x${h}`);
     this.lls.delete(`${w}x${h}`);
@@ -295,6 +431,23 @@ export class Engine {
     return from;
   }
 
+  /** Capture sharpening alone, for the probe: the sharpened source's red channel, and the threshold it used. */
+  probeCapture(src: Source, iterations: number, read = true): { red: Float32Array; threshold: number } {
+    const gl = this.gpu.gl;
+    this.csMade = null;
+    this.captureSharpened(src, iterations);
+    if (!read) {
+      // Wait for the GPU, for timing, with a one-pixel read.
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.csOut!.fbo);
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.FLOAT, new Float32Array(4));
+      return { red: new Float32Array(0), threshold: src.capture!.threshold! };
+    }
+    const px = new Float32Array(src.w * src.h * 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.csOut!.fbo);
+    gl.readPixels(0, 0, src.w, src.h, gl.RGBA, gl.FLOAT, px);
+    return { red: px.filter((_, k) => k % 4 === 0), threshold: src.capture!.threshold! };
+  }
+
   /** The texture equalizer alone on an L* plane, for the probe: the change in L* per pixel. */
   probeEqualizer(L: Float32Array, w: number, h: number, fullW: number, fullH: number, mix: number): Float32Array {
     const gl = this.gpu.gl;
@@ -382,6 +535,9 @@ export class Engine {
     },
   ) {
     const g = this.gpu;
+    // Capture sharpening replaces the source for everything after it.
+    const iterations = recipe && !opts.compare && src.capture && g.hdr && g.float32 ? iterationsFor(recipe.sharpening) : 0;
+    if (iterations > 0) src = { ...src, tex: this.captureSharpened(src, iterations) };
     const view = opts.view ?? FULL_VIEW;
     const frame = opts.frame ?? recipe?.crop ?? FULL;
     // Effects that belong to the film (grain, vignette) see the whole uncropped

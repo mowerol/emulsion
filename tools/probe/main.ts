@@ -2,7 +2,7 @@
 // Engine probe: renders a synthetic frame through the real engine in any
 // browser and reports pixel values, so stage changes and ports can be checked
 // numerically. See docs/ARCHITECTURE.md, "Testing".
-import { Engine } from '../../src/engine/engine';
+import { Engine, type Source } from '../../src/engine/engine';
 import { defaultRecipe, type Recipe } from '../../src/film/recipe';
 import { assemble } from '../../src/engine/glsl';
 import { SHADERS, SHADER_FILES } from '../../src/engine/shaders';
@@ -26,11 +26,13 @@ import { grainPixel, grainShape, isoPreset } from '../../src/engine/grain';
 import { GRAIN_FULL } from '../../src/engine/params';
 import { CURVE_RES, curveTable, type ToneCurve } from '../../src/film/curve';
 import '../../src/styles.css';
+import { Filmstrip } from '../../src/ui/Filmstrip';
 import { Panel } from '../../src/ui/Panel';
 import { useApp } from '../../src/library/store';
 import { bandFactors, bandGains, correction, luminance, toneEqualize } from '../../src/engine/toneequalizer';
 import { clarityParams, lightness, localLaplacian, withLightness } from '../../src/engine/locallaplacian';
 import { equalize, scales } from '../../src/engine/equalizer';
+import { autoContrast, blendMask, deconvolve } from '../../src/engine/capture';
 import { labL, labShiftL } from '../../src/engine/lab';
 import { toneLookFor } from '../../src/engine/params';
 
@@ -198,6 +200,59 @@ function probeCurve(eng: Engine, curve: ToneCurve) {
     curve: { uniforms: { uCurveOn: 1, uCurveTex: 5 }, ref: (c: Vec3) => c.map((v, k) => lookup(lookup(v, 0), k + 1)) as Vec3 },
   });
   gl.deleteTexture(tex);
+  return res;
+}
+
+/** Capture sharpening: RawTherapee's deconvolution on the GPU against the reference. */
+function probeCapture(eng: Engine) {
+  const gl = eng.gpu.gl;
+  const w = 200, h = 150;
+  // Grey scene light (camera scale = value × 65535 / 1.8): a soft-edged disc and bars over a noisy mid-tone, a clipped corner.
+  let seed = 11;
+  const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+  const v = new Float32Array(w * h);
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+    const d = Math.hypot(i - 120, j - 70);
+    const disc = 0.5 / (1 + Math.exp((d - 30) / 0.9));
+    const bars = i < 60 && j > 90 ? 0.25 * (Math.sin(i * 0.8) > 0 ? 1 : 0) : 0;
+    v[j * w + i] = i > 185 && j < 15 ? 1.8 : 0.15 + disc + bars + (rnd() - 0.5) * 0.004;
+  }
+  const rgba = new Float32Array(w * h * 4);
+  v.forEach((x, k) => rgba.set([x, x, x, 1], 4 * k));
+  const tex = gl.createTexture()!;
+  eng.gpu.scratch();
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, w, h, 0, gl.RGBA, gl.FLOAT, rgba);
+  eng.gpu.params(false);
+  const src = { tex, w, h, mode: InputMode.SceneLinear, white: null, fullW: w, fullH: h } as Source;
+  const k = 65535 / 1.8;
+  const toCam = [k, 0, 0, 0, k, 0, 0, 0, k];
+  const mask = Uint8Array.from({ length: w * h }, (_, q) => (q % w > 180 && Math.floor(q / w) < 20 ? 0 : 1));
+  const res: Record<string, number> = {};
+  for (const [radius, iters] of [[0.7, 20], [1.3, 10]] as const) {
+    eng.attachCapture(src, radius, toCam, mask);
+    const got = eng.probeCapture(src, iters);
+    // The reference, from the same numbers.
+    const Y = { w, h, data: Float64Array.from(v, (x) => (0.2627 + 0.678 + 0.0593) * x * k) };
+    const labY = (y: number) => { const f = y / 65535; return f > 216 / 24389 ? 327.68 * (116 * Math.cbrt(f) - 16) : 327.68 * (24389 / 27) * f; };
+    const L = { w, h, data: Float64Array.from(v, (x) => labY((0.212671 + 0.71516 + 0.072169) * x * k)) };
+    const clip = { w, h, data: Float64Array.from(mask) };
+    const threshold = autoContrast(L);
+    const blend = blendMask(L, clip, threshold);
+    const out = deconvolve(Y, blend, radius, iters);
+    let worst = 0;
+    let moved = 0;
+    for (let q = 0; q < w * h; q++) {
+      const want = v[q] * (out.data[q] / Math.max(Y.data[q], 0.00001));
+      worst = Math.max(worst, Math.abs(got.red[q] - want) / Math.max(want, 1e-3));
+      moved = Math.max(moved, Math.abs(want - v[q]) / v[q]);
+    }
+    res[`r${radius}worstRelative`] = worst;
+    res[`r${radius}largestChange`] = moved;
+    res[`r${radius}threshold`] = got.threshold;
+    res[`r${radius}refThreshold`] = threshold;
+  }
+  eng.release(src);
   return res;
 }
 
@@ -439,6 +494,7 @@ try {
   }
   out.clarity = probeClarity(eng);
   out.texture = probeTexture(eng);
+  out.capture = probeCapture(eng);
   out.grain = probeGrain(eng);
   // Speed: a 2560-wide frame with grain on and off.
   {
@@ -464,7 +520,28 @@ try {
       for (let i = 0; i < 4; i++) eng.readPixels(bsrc, { ...look, grain: 0, [key]: key === 'exposure' ? 0.2 + i * 0.1 : 50 + i * 10 }, PW, PH, 1);
       return (performance.now() - t0) / 4;
     };
-    out.timing = { grainOffMs: time({ ...look, grain: 0 }), grainOnMs: time({ ...look, grain: 50 }), bwMs: time({ ...defaultRecipe('trix400'), grain: 50 }), clarityMs: time({ ...look, grain: 0, clarity: 100 }), textureMs: time({ ...look, grain: 0, texture: 100 }), dragExposureMs: timeDrag('exposure'), dragClarityMs: timeDrag('clarity'), dragTextureMs: timeDrag('texture') };
+    // Capture sharpening on float sources of preview and full OM-3 size, 20 iterations, radius 0.67.
+    const timeCapture = (cw: number, ch: number, iters = 20) => {
+      const gl = eng.gpu.gl;
+      const data = new Float32Array(cw * ch * 4);
+      for (let q = 0; q < cw * ch; q++) data.set([0.2 + 0.1 * Math.sin(q * 0.37), 0.2 + 0.1 * Math.sin(q * 0.31), 0.2, 1], 4 * q);
+      const t = gl.createTexture()!;
+      eng.gpu.scratch();
+      gl.bindTexture(gl.TEXTURE_2D, t);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, cw, ch, 0, gl.RGBA, gl.FLOAT, data);
+      eng.gpu.params(false);
+      const s = { tex: t, w: cw, h: ch, mode: InputMode.SceneLinear, white: null, fullW: cw, fullH: ch } as Source;
+      const k = 65535 / 1.8;
+      eng.attachCapture(s, 0.67, [k, 0, 0, 0, k, 0, 0, 0, k], new Uint8Array(cw * ch).fill(1));
+      s.capture!.threshold = 0.1;
+      const t0 = performance.now();
+      eng.probeCapture(s, iters, false);
+      const ms = performance.now() - t0;
+      eng.release(s);
+      eng.dropBuffers(cw, ch);
+      return ms;
+    };
+    out.timing = { captureFull1Ms: timeCapture(5184, 3888, 1), captureFullMs: timeCapture(5184, 3888), capturePreviewMs: timeCapture(2592, 1944), grainOffMs: time({ ...look, grain: 0 }), grainOnMs: time({ ...look, grain: 50 }), bwMs: time({ ...defaultRecipe('trix400'), grain: 50 }), clarityMs: time({ ...look, grain: 0, clarity: 100 }), textureMs: time({ ...look, grain: 0, texture: 100 }), dragExposureMs: timeDrag('exposure'), dragClarityMs: timeDrag('clarity'), dragTextureMs: timeDrag('texture') };
     // A crop of the ramp with Portra 400 grain at 100%, for a look.
     const px = eng.readPixels(bsrc, look, PW, PH, 1);
     // Grain strength: standard deviation of the green channel, grain on minus off, in a midtone strip.
@@ -561,6 +638,15 @@ try {
       /* ignore */
     }
     createRoot(host).render(createElement(Panel));
+    // The filmstrip with its filter, for a screenshot (thumbnails can't load here, so frames are empty).
+    const stripPhotos = Array.from({ length: 7 }, (_, i) => ({
+      path: `/probe/f${i}.jpg`, rel: `f${i}.jpg`, name: `f${i}.jpg`, size: 1, modified: 0, recipe: i === 4 || i === 5 ? defaultRecipe('trix400') : i < 4 && i > 0 ? defaultRecipe('portra400') : null, seed: i, white: null,
+    }));
+    const stripHost = document.createElement('div');
+    stripHost.style.cssText = 'position:fixed;top:660px;left:0;width:900px;z-index:100';
+    document.body.append(stripHost);
+    useApp.setState({ photos: [...useApp.getState().photos, ...stripPhotos], stripFilter: 'all', active: 2 });
+    createRoot(stripHost).render(createElement(Filmstrip));
     setTimeout(() => {
       const panel = host.querySelector('.panel') as HTMLElement | null;
       if (panel) panel.scrollTop = Number(new URLSearchParams(location.search).get('scroll') ?? 900);

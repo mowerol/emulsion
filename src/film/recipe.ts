@@ -25,6 +25,7 @@ export interface Recipe {
   blacks: number;
   texture: number;
   clarity: number;
+  sharpening: number;
   vibrance: number;
   saturation: number;
   fade: number;
@@ -71,6 +72,7 @@ export const SLIDERS: SliderDef[] = [
   { key: 'blacks', label: 'Blacks', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'texture', label: 'Texture', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'clarity', label: 'Clarity', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
+  { key: 'sharpening', label: 'Sharpening', group: 'adjust', min: 0, max: 100, step: 1 },
   { key: 'vibrance', label: 'Vibrance', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'saturation', label: 'Saturation', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'fade', label: 'Fade', group: 'adjust', min: 0, max: 100, step: 1 },
@@ -113,6 +115,7 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
     blacks: 0,
     texture: 0,
     clarity: 0,
+    sharpening: 0,
     vibrance: 0,
     saturation: 0,
     fade: 0,

@@ -52,6 +52,13 @@ Template:
 - Ported to: `src/engine/equalizer.ts` (reference and scales), `src/engine/lab.ts`, `src/engine/shaders/eq.frag.glsl`, `src/engine/shaders/stages/texture.glsl` and `src/engine/shaders/stages/lab.glsl`
 - Changes: translated from C to TypeScript and GLSL. Lightness only, as the "sharpen" preset it uses leaves colour alone, and without noise thresholds, which the preset sets to zero; Lab relative to D65. The Texture slider is darktable's mix control on the "sharpen" preset (slider / 100: no change at 0, the preset at +100, its mirror at -100). The highlight extraction for halation and glow does not see it
 
+### Capture sharpening, from RawTherapee
+- Upstream: https://github.com/Beep6581/RawTherapee, `rtengine/capturesharpening.cc` (CaptureDeconvSharpening, calcRadiusBayer, calcRadiusXtrans, buildClipMaskBayer, buildClipMaskXtrans), `rtengine/rt_algo.cc` (buildBlendMask, calcContrastThreshold), `rtengine/boxblur.cc` (the deconvolution kernels) and `rtengine/rawimagesource.cc` (calculate_scale_mul), commit b2ee504c47e5e6d5e054395aa12bf1fe43bd1c3c
+- Licence: GPL-3.0-or-later
+- Copyright: Copyright (c) 2019 Ingo Weyrich (heckflosse67@gmx.de). Copyright (C) 2010 Emil Martinec <ejmartin@uchicago.edu> (blur kernels)
+- Ported to: `src-tauri/src/capture.rs` (auto radius and clip mask from the raw mosaic, read through `native/raw_shim.cpp`), `src/engine/capture.ts` (reference: kernels, blend mask, auto contrast, deconvolution) and `src/engine/shaders/cs.frag.glsl`
+- Changes: translated from C++ to Rust, TypeScript and GLSL. One Richardson-Lucy deconvolution over the whole photo on the GPU, with RawTherapee's per-tile early stop applied to 32 px tiles, instead of each tile deconvolved separately; the blend mask's blur is an exact Gaussian rather than RawTherapee's recursive one; luminance and lightness come from the as-shot white-balanced camera RGB LibRaw decodes to, rebuilt on the GPU from the working space with the camera matrix; LibRaw's daylight multipliers stand in for RawTherapee's pre_mul. The Sharpening slider sets the iteration count (20, RawTherapee's default, at 100). The pre- and post-sharpening denoise options are not ported
+
 ### Monotone curve interpolation, from darktable
 - Upstream: https://github.com/darktable-org/darktable, `src/common/curve_tools.c` (and node limits from `src/iop/rgbcurve.c`), commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release 5.6.2)
 - Licence: GPL-3.0-or-later

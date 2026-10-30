@@ -4,7 +4,7 @@
 import { loadImage, writeExport } from '../backend/api';
 import type { Photo } from './store';
 import { framePixels } from '../film/crop';
-import { offscreenEngine } from './thumbs';
+import { ensureCapture, offscreenEngine } from './thumbs';
 
 export interface ExportOptions {
   dir: string;
@@ -45,6 +45,7 @@ export async function exportPhotos(
     try {
       const img = await loadImage(p.path, limit);
       const src = engine.sourceFromHalf(img);
+      if ((p.recipe?.sharpening ?? 0) > 0) await ensureCapture(engine, src, p.path);
       const [w, h] = framePixels(p.recipe?.crop ?? null, img.width, img.height);
       let px: Uint8Array;
       try {

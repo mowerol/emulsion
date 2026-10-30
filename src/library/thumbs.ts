@@ -3,11 +3,11 @@
 // rendered on the GPU from those originals, only for frames that are on screen.
 
 import { useEffect, useSyncExternalStore } from 'react';
-import { thumbnail } from '../backend/api';
+import { captureInfo, logToTerminal, thumbnail } from '../backend/api';
 import { recipeKey, type Recipe } from '../film/recipe';
 import { framePixels } from '../film/crop';
 import type { Xy } from '../engine/whitebalance';
-import { Engine } from '../engine/engine';
+import { Engine, InputMode, type Source } from '../engine/engine';
 
 const THUMB_EDGE = 512;
 const DEVELOPED_EDGE = 384;
@@ -151,6 +151,23 @@ class ThumbStore {
 }
 
 export const thumbs = new ThumbStore();
+
+/**
+ * Read a RAW source's capture sharpening data from Rust and attach it, unless
+ * it has it already or is not a RAW. Resolves to whether the source has it.
+ */
+export async function ensureCapture(eng: Engine, src: Source, path: string): Promise<boolean> {
+  if (src.capture) return true;
+  if (src.mode !== InputMode.SceneLinear) return false;
+  try {
+    const info = await captureInfo(path, src.w, src.h);
+    eng.attachCapture(src, info.radius, info.toCam, info.mask);
+    return true;
+  } catch (err) {
+    logToTerminal('warn', `Capture sharpening unavailable for ${path}: ${String(err)}`);
+    return false;
+  }
+}
 
 /** A developed thumbnail depends on the photo's white point only when the recipe changes white balance. */
 const thumbKey = (recipe: Recipe | null, white: Xy | null) => recipeKey(recipe) + (recipe?.wb && white ? `|${white[0]},${white[1]}` : '');

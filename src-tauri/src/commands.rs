@@ -35,6 +35,41 @@ pub async fn load_image(path: String, max_edge: Option<u32>) -> Result<Response,
 
 /// As-shot white points (CIE xy) of `paths`, in order: metadata only, read in
 /// parallel. `None` for anything that is not a RAW or records no white balance.
+/// The last photo's capture sharpening data; reading the raw data takes up to a second or two.
+static CAPTURE: std::sync::Mutex<Option<(String, std::sync::Arc<crate::capture::Info>)>> = std::sync::Mutex::new(None);
+
+/// Capture sharpening data for a RAW decoded at width × height: RawTherapee's
+/// auto radius (in sensor pixels), the matrix from working Rec.2020 to camera
+/// RGB, then the clip mask, one byte per pixel. Little-endian: f32 radius,
+/// u32 width, u32 height, 9 f32 matrix (row major), then the mask.
+#[tauri::command]
+pub async fn capture_info(path: String, width: u32, height: u32) -> Result<Response, String> {
+    let bytes = blocking(move || {
+        let cached = CAPTURE.lock().unwrap().as_ref().filter(|(p, _)| *p == path).map(|(_, i)| i.clone());
+        let info = match cached {
+            Some(i) => i,
+            None => {
+                let i = std::sync::Arc::new(crate::capture::Info::read(Path::new(&path))?);
+                *CAPTURE.lock().unwrap() = Some((path.clone(), i.clone()));
+                i
+            }
+        };
+        let matrix = crate::raw::working_to_camera(Path::new(&path))?;
+        let mask = info.mask_at(width as usize, height as usize);
+        let mut out = Vec::with_capacity(48 + mask.len());
+        out.extend(info.radius.to_le_bytes());
+        out.extend(width.to_le_bytes());
+        out.extend(height.to_le_bytes());
+        for v in matrix.iter().flatten() {
+            out.extend(v.to_le_bytes());
+        }
+        out.extend(mask);
+        Ok(out)
+    })
+    .await?;
+    Ok(Response::new(bytes))
+}
+
 #[tauri::command]
 pub async fn white_points(paths: Vec<String>) -> Result<Vec<Option<[f32; 2]>>, String> {
     blocking(move || {

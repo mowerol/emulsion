@@ -8,6 +8,7 @@ import type { Xy } from '../engine/whitebalance';
 import { scanFolder, whitePoints } from '../backend/api';
 import { defaultRecipe, normalizeRecipe, withSettingsFrom, type Recipe } from '../film/recipe';
 import { FULL, isFull, type Crop } from '../film/crop';
+import { stepWithin, stripIndices, type StripFilter } from './filter';
 import { seedFor } from '../engine/engine';
 import { saveRecipe } from './sidecars';
 import { History, describe, type Change, type Step } from './history';
@@ -62,6 +63,19 @@ interface State {
   cropEdit: { path: string; draft: Crop; W: number; H: number } | null;
   /** Size of the photo open in the develop view. */
   developSize: { path: string; W: number; H: number } | null;
+  /** Which photos the develop view's filmstrip shows. */
+  stripFilter: StripFilter;
+}
+
+const STRIP_FILTER_KEY = 'emulsion.stripFilter';
+/** The filmstrip filter last chosen on this computer. */
+function savedStripFilter(): StripFilter {
+  try {
+    const v = localStorage.getItem(STRIP_FILTER_KEY);
+    return v === 'edited' || v === 'unedited' ? v : 'all';
+  } catch {
+    return 'all';
+  }
 }
 
 export const useApp = create<State>(() => ({
@@ -82,6 +96,7 @@ export const useApp = create<State>(() => ({
   history: { undo: null, redo: null },
   cropEdit: null,
   developSize: null,
+  stripFilter: savedStripFilter(),
 }));
 
 const set = useApp.setState;
@@ -189,9 +204,20 @@ export function setActive(index: number, mode: 'single' | 'toggle' | 'range' | '
 }
 
 export function step(delta: number) {
-  const { active, photos } = get();
+  const { active, photos, view, stripFilter } = get();
   if (!photos.length) return;
-  setActive(Math.min(photos.length - 1, Math.max(0, active + delta)));
+  // In Develop the arrows walk the filmstrip as filtered; the library grid shows everything.
+  if (view === 'develop' && stripFilter !== 'all') setActive(stepWithin(stripIndices(photos, stripFilter, active), active, delta));
+  else setActive(Math.min(photos.length - 1, Math.max(0, active + delta)));
+}
+
+export function setStripFilter(stripFilter: StripFilter) {
+  set({ stripFilter });
+  try {
+    localStorage.setItem(STRIP_FILTER_KEY, stripFilter);
+  } catch {
+    /* remembering it is a convenience */
+  }
 }
 
 export function selectAll() {
