@@ -26,6 +26,7 @@ import { effectiveIso, grainL } from '../../src/engine/grain';
 import { CURVE_RES, curveTable, type ToneCurve } from '../../src/film/curve';
 import '../../src/styles.css';
 import { Filmstrip } from '../../src/ui/Filmstrip';
+import { Library } from '../../src/ui/Library';
 import { StageMenu } from '../../src/ui/StageMenu';
 import { Panel } from '../../src/ui/Panel';
 import { useApp } from '../../src/library/store';
@@ -748,7 +749,7 @@ try {
   // The real panel, scrolled, to check the histogram stays pinned and sections fold.
   {
     useApp.setState({
-      photos: [{ path: '/probe/frame.jpg', rel: 'frame.jpg', name: 'frame.jpg', size: 1, modified: 0, recipe: { ...defaultRecipe('portra400'), grain: 30 }, seed: 1, white: null, rating: 3, label: 'green' as const, heart: true }],
+      photos: [{ path: '/probe/frame.jpg', rel: 'frame.jpg', name: 'frame.jpg', size: 1, modified: 0, recipe: { ...defaultRecipe('portra400'), grain: 30 }, seed: 1, white: null, rating: 3, label: 'green' as const, heart: true, raw: true, pair: '/probe/frame.jpg' }],
       active: 0,
       view: 'develop',
       histogram: { path: '/probe/frame.jpg', data: counted },
@@ -767,7 +768,7 @@ try {
     createRoot(host).render(createElement(Panel));
     // The filmstrip with its filter, for a screenshot (thumbnails can't load here, so frames are empty).
     const stripPhotos = Array.from({ length: 7 }, (_, i) => ({
-      path: `/probe/f${i}.jpg`, rel: `f${i}.jpg`, name: `f${i}.jpg`, size: 1, modified: 0, recipe: i === 4 || i === 5 ? defaultRecipe('trix400') : i < 4 && i > 0 ? defaultRecipe('portra400') : null, seed: i, white: null,
+      path: `/probe/f${i}.jpg`, rel: `f${i}.jpg`, name: `f${i}.jpg`, size: 1, modified: 0, recipe: i === 4 || i === 5 ? defaultRecipe('trix400') : i < 4 && i > 0 ? defaultRecipe('portra400') : null, seed: i, white: null, raw: false, pair: null,
       rating: [0, 5, 3, 0, 1, 0, 2][i], label: ([null, 'red', null, 'blue', null, 'yellow', 'green'] as const)[i], heart: i === 1 || i === 3,
     }));
     const stripHost = document.createElement('div');
@@ -775,6 +776,14 @@ try {
     document.body.append(stripHost);
     useApp.setState({ photos: [...useApp.getState().photos, ...stripPhotos], filter: { edit: 'all', minRating: 2, heart: false, labels: [] }, active: 2 });
     createRoot(stripHost).render(createElement(Filmstrip));
+    // The Library grid, with a folded RAW+JPEG pair, when asked (?library).
+    if (new URLSearchParams(location.search).has('library')) {
+      useApp.setState({ pairCount: 1, foldJpegs: true });
+      const libHost = document.createElement('div');
+      libHost.style.cssText = 'position:fixed;inset:0;z-index:300;display:flex;background:#1c1b19';
+      document.body.append(libHost);
+      createRoot(libHost).render(createElement(Library));
+    }
     // The workspace's right-click menu, open over a mid-grey stage.
     useApp.setState({ stageColor: 'grey' });
     const menuHost = document.createElement('div');

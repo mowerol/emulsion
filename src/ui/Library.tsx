@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { memo, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
-import { setActive, setView, useApp, type Photo } from '../library/store';
+import { setActive, setFoldJpegs, setView, useApp, type Photo } from '../library/store';
 import { shownIndices } from '../library/filter';
 import { FilterBar } from './FilterBar';
 import { STOCK } from '../film/stocks';
@@ -43,7 +43,14 @@ const Cell = memo(function Cell({ photo, index, active, selected }: { photo: Pho
         <Thumb photo={photo} visible={visible} />
       </div>
       <div className="cell-meta">
-        <span className="cell-name">{photo.name}</span>
+        <span className="cell-name">
+          {photo.name}
+          {photo.pair && (
+            <span className="pair-tag" title="The camera's JPEG of this RAW is folded into it">
+              RAW+JPG
+            </span>
+          )}
+        </span>
         <span className={`cell-stock${photo.recipe ? ' on' : ''}`}>{photo.recipe ? STOCK[photo.recipe.stock].name : 'Original'}</span>
       </div>
       <div className="cell-marks">
@@ -58,6 +65,8 @@ export function Library() {
   const active = useApp((s) => s.active);
   const selected = useApp((s) => s.selected);
   const filter = useApp((s) => s.filter);
+  const pairCount = useApp((s) => s.pairCount);
+  const foldJpegs = useApp((s) => s.foldJpegs);
   const shown = useMemo(() => shownIndices(photos, filter, active), [photos, filter, active]);
   const [size, setSize] = useState(readSize);
   const gridRef = useRef<HTMLDivElement>(null);
@@ -87,6 +96,17 @@ export function Library() {
         <span className="muted library-hint">
           {selected.size > 1 ? `${selected.size} selected. ` : ''}Double-click a frame or press D to develop it.
         </span>
+        {pairCount > 0 && (
+          <button
+            type="button"
+            className="fold-toggle"
+            aria-pressed={foldJpegs}
+            onClick={() => setFoldJpegs(!foldJpegs)}
+            title={foldJpegs ? `Show the camera's JPEGs of ${pairCount} RAWs as frames of their own` : `Fold the camera's JPEGs of ${pairCount} RAWs into them`}
+          >
+            Fold JPEGs
+          </button>
+        )}
         <label className="size-control">
           <span>Thumbnail size</span>
           <input type="range" min={140} max={400} step={10} value={size} onChange={(e) => setSize(Number(e.target.value))} />

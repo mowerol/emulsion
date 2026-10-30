@@ -15,6 +15,8 @@ export interface Entry {
   rating: number;
   label: string | null;
   heart: boolean;
+  /** A camera RAW. */
+  raw: boolean;
 }
 
 export interface ScanResult {

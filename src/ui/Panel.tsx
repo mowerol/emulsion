@@ -363,6 +363,7 @@ export function Panel() {
       <div className="order">
         <span className="order-frame">
           Frame {active + 1} of {total}, {photo.name}
+          {photo.pair ? ' (with its JPEG)' : ''}
         </span>
         <span className="order-line">{summary(recipe)}</span>
         <MarkControls photo={photo} />

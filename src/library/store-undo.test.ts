@@ -10,12 +10,12 @@ vi.mock('../backend/api', () => ({
   logToTerminal: () => {},
 }));
 
-const { editRecipes, markPhotos, setFilter, undo, redo, useApp } = await import('./store');
+const { editRecipes, markPhotos, setFilter, setFoldJpegs, undo, redo, useApp } = await import('./store');
 const { NO_FILTER } = await import('./filter');
 const { writeSidecar } = await import('../backend/api');
 const { withStock, defaultRecipe } = await import('../film/recipe');
 
-const photo = (path: string) => ({ path, rel: path, name: path, size: 1, modified: 0, recipe: null, seed: 1, white: null, rating: 0, label: null, heart: false });
+const photo = (path: string) => ({ path, rel: path, name: path, size: 1, modified: 0, recipe: null, seed: 1, white: null, rating: 0, label: null, heart: false, raw: false, pair: null });
 
 describe('undo in the store', () => {
   beforeEach(() => {
@@ -77,5 +77,24 @@ describe('undo in the store', () => {
     setFilter({ heart: false, minRating: 5 });
     expect(useApp.getState().active).toBe(1);
     setFilter(NO_FILTER);
+  });
+
+  it('unfolds and refolds RAW+JPEG pairs, keeping the active photo', () => {
+    const raw = { ...photo('/r/A.RAF'), rel: 'A.RAF', raw: true, pair: '/r/A.JPG' };
+    const jpg = { ...photo('/r/A.JPG'), rel: 'A.JPG' };
+    const other = { ...photo('/r/B.JPG'), rel: 'B.JPG' };
+    useApp.setState({ photos: [raw, other], hidden: [jpg], active: 0, selected: new Set([raw.path]), filter: NO_FILTER });
+    setFoldJpegs(false);
+    expect(useApp.getState().photos.map((p) => p.rel).sort()).toEqual(['A.JPG', 'A.RAF', 'B.JPG']);
+    expect(useApp.getState().hidden).toHaveLength(0);
+    // Make the JPEG active, then fold: it hands the active place to its RAW.
+    const iJpg = useApp.getState().photos.findIndex((p) => p.rel === 'A.JPG');
+    useApp.setState({ active: iJpg, selected: new Set([jpg.path]) });
+    setFoldJpegs(true);
+    const st = useApp.getState();
+    expect(st.photos.map((p) => p.rel)).toEqual(expect.arrayContaining(['A.RAF', 'B.JPG']));
+    expect(st.photos).toHaveLength(2);
+    expect(st.photos[st.active].rel).toBe('A.RAF');
+    expect([...st.selected]).toEqual([raw.path]);
   });
 });

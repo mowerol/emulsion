@@ -58,6 +58,8 @@ pub struct Entry {
     pub rating: u8,
     pub label: Option<String>,
     pub heart: bool,
+    /// A camera RAW, as opposed to an ordinary image.
+    pub raw: bool,
 }
 
 #[derive(Serialize, Debug)]
@@ -122,7 +124,8 @@ pub fn scan(target: &Path, recursive: bool) -> std::io::Result<ScanResult> {
         if !item.file_type().is_file() {
             continue;
         }
-        if classify(item.path()) == Kind::Other {
+        let kind = classify(item.path());
+        if kind == Kind::Other {
             continue;
         }
         let meta = match item.metadata() {
@@ -157,6 +160,7 @@ pub fn scan(target: &Path, recursive: bool) -> std::io::Result<ScanResult> {
             rating: saved.rating,
             label: saved.label,
             heart: saved.heart,
+            raw: kind == Kind::Raw,
         });
     }
 
@@ -243,6 +247,7 @@ mod tests {
         assert_eq!(res.entries.len(), 1, "sidecar must not appear as a photo");
         assert_eq!(res.entries[0].recipe.as_ref().unwrap()["stock"], "portra400");
         assert_eq!(res.entries[0].rating, 3);
+        assert!(!res.entries[0].raw);
     }
 
     #[test]

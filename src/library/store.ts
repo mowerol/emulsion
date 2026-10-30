@@ -11,6 +11,7 @@ import { FULL, isFull, type Crop } from '../film/crop';
 import { NO_FILTER, normalizeFilter, passes, rangeWithin, shownIndices, stepWithin, type Filter } from './filter';
 import { seedFor } from '../engine/engine';
 import { savePhoto } from './sidecars';
+import { findPairs, foldPairs } from './pairs';
 import { applyMark, describeMark, hasMark, normalizeMarks, type Label, type MarkKey, type Marks } from './marks';
 import { History, describe, type Change, type Step } from './history';
 
@@ -29,6 +30,10 @@ export interface Photo {
   label: Label | null;
   /** A favourite. */
   heart: boolean;
+  /** A camera RAW. */
+  raw: boolean;
+  /** The JPEG folded into this RAW (same name, same folder), when JPEGs are folded. */
+  pair: string | null;
 }
 
 export interface Folder {
@@ -75,6 +80,12 @@ interface State {
   stageColor: StageColorId;
   /** Develop shows Sharpening's contrast mask (while ⌥ is held on the Masking slider). */
   sharpenMask: boolean;
+  /** RAW+JPEG pairs show as one frame, the RAW. */
+  foldJpegs: boolean;
+  /** JPEGs folded into their RAWs, kept to unfold them again. */
+  hidden: Photo[];
+  /** How many RAWs in the folder have a JPEG twin, folded or not. */
+  pairCount: number;
 }
 
 /**
@@ -97,6 +108,53 @@ function savedStageColor(): StageColorId {
     return STAGE_COLORS.find((c) => c.id === v)?.id ?? 'dark';
   } catch {
     return 'dark';
+  }
+}
+
+const FOLD_KEY = 'emulsion.foldJpegs';
+/** Whether to fold JPEGs into their RAWs, as last chosen on this computer (on unless turned off). */
+function savedFoldJpegs(): boolean {
+  try {
+    return localStorage.getItem(FOLD_KEY) !== 'false';
+  } catch {
+    return true;
+  }
+}
+
+/** Each photo's place in the folder's scan, to put folded JPEGs back where they were. */
+const scanOrder = new Map<string, number>();
+
+/** The photos to show and the JPEGs folded away, for all of a folder's photos. */
+function arrange(all: Photo[], fold: boolean): { shown: Photo[]; hidden: Photo[] } {
+  if (!fold) return { shown: all.map((p) => ({ ...p, pair: null })), hidden: [] };
+  return foldPairs(all);
+}
+
+/**
+ * Fold JPEGs into their RAWs, or show them as frames of their own. The active
+ * photo and the selection stay put; a JPEG folded away hands them to its RAW.
+ */
+export function setFoldJpegs(fold: boolean) {
+  const { photos, hidden, active, selected } = get();
+  const all = [...photos, ...hidden].sort((a, b) => (scanOrder.get(a.path) ?? 0) - (scanOrder.get(b.path) ?? 0));
+  const { shown, hidden: nextHidden } = arrange(all, fold);
+  const rawOf = new Map(shown.filter((p) => p.pair).map((p) => [p.pair!, p.path]));
+  const keep = (path: string) => rawOf.get(path) ?? path;
+  const activePath = photos[active] ? keep(photos[active].path) : null;
+  const index = activePath ? shown.findIndex((p) => p.path === activePath) : -1;
+  const visible = new Set(shown.map((p) => p.path));
+  set({
+    foldJpegs: fold,
+    photos: shown,
+    hidden: nextHidden,
+    active: index >= 0 ? index : shown.length ? 0 : -1,
+    anchor: index >= 0 ? index : 0,
+    selected: new Set([...selected].map(keep).filter((p) => visible.has(p))),
+  });
+  try {
+    localStorage.setItem(FOLD_KEY, String(fold));
+  } catch {
+    /* remembering it is a convenience */
   }
 }
 
@@ -133,6 +191,9 @@ export const useApp = create<State>(() => ({
   filter: savedFilter(),
   stageColor: savedStageColor(),
   sharpenMask: false,
+  foldJpegs: savedFoldJpegs(),
+  hidden: [],
+  pairCount: 0,
 }));
 
 const set = useApp.setState;
@@ -174,7 +235,7 @@ export async function openFolder(path: string, view: View = 'library') {
   set(historyState());
   try {
     const res = await scanFolder(path, true);
-    const photos: Photo[] = res.entries.map((e) => ({
+    const all: Photo[] = res.entries.map((e) => ({
       path: e.path,
       rel: e.rel,
       name: e.name,
@@ -184,14 +245,23 @@ export async function openFolder(path: string, view: View = 'library') {
       seed: seedFor(e.path),
       white: null,
       ...normalizeMarks(e.rating, e.label, e.heart),
+      raw: e.raw,
+      pair: null,
     }));
-    const focus = res.focus ? photos.findIndex((p) => p.path === res.focus) : -1;
+    scanOrder.clear();
+    all.forEach((p, i) => scanOrder.set(p.path, i));
+    const { shown: photos, hidden } = arrange(all, get().foldJpegs);
+    const pairCount = findPairs(all).size;
+    // A JPEG opened directly but folded away opens on its RAW.
+    const focus = res.focus ? photos.findIndex((p) => p.path === res.focus || p.pair === res.focus) : -1;
     // Without a file to open on, start on the first photo the remembered filter shows.
     const firstShown = photos.findIndex((p) => passes(p, get().filter));
     const active = !photos.length ? -1 : focus >= 0 ? focus : Math.max(0, firstShown);
     set({
       folder: { root: res.root, name: res.name, unreadable: res.unreadable },
       photos,
+      hidden,
+      pairCount,
       active,
       anchor: active,
       selected: active >= 0 ? new Set([photos[active].path]) : new Set(),

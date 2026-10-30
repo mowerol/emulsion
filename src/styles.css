@@ -109,6 +109,9 @@ code { font-size: 12.5px; background: var(--raise); padding: 1px 5px; border-rad
 .cell-meta { display: flex; justify-content: space-between; gap: 8px; font-size: 12px; min-width: 0; }
 .cell-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cell-stock { color: var(--faint); white-space: nowrap; }
+.pair-tag { margin-left: 6px; padding: 0 4px; border: 1px solid var(--line); border-radius: 3px; font-size: 9px; font-weight: 700; letter-spacing: 0.04em; color: var(--muted); vertical-align: 1px; }
+.fold-toggle { background: none; border: 1px solid var(--line); border-radius: 4px; padding: 2px 8px; font: inherit; font-size: 12px; color: var(--muted); cursor: pointer; white-space: nowrap; }
+.fold-toggle[aria-pressed='true'] { background: var(--line); color: var(--fg); }
 .cell-stock.on { color: var(--edge); }
 .cell-marks { height: 14px; display: flex; align-items: center; font-size: 12px; }
 
