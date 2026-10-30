@@ -52,6 +52,8 @@ interface State {
   histogram: { path: string; data: Histogram } | null;
   /** The white balance eyedropper is waiting for a click on the photo. */
   picking: boolean;
+  /** Clipped pixels are marked on the photo. */
+  clipping: boolean;
 }
 
 export const useApp = create<State>(() => ({
@@ -68,6 +70,7 @@ export const useApp = create<State>(() => ({
   exportOpen: false,
   histogram: null,
   picking: false,
+  clipping: false,
 }));
 
 const set = useApp.setState;

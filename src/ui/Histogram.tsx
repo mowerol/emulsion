@@ -53,6 +53,8 @@ export function Histogram() {
   const photo = useApp(activePhoto);
   const hist = useApp((s) => s.histogram);
   const data = hist && photo && hist.path === photo.path ? hist.data : null;
+  const clipping = useApp((s) => s.clipping);
+  const toggleClipping = () => useApp.setState((s) => ({ clipping: !s.clipping }));
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -72,13 +74,25 @@ export function Histogram() {
   return (
     <div className="histogram">
       <canvas ref={canvasRef} role="img" aria-label={label} style={{ height: HEIGHT }} />
-      <div className="histogram-clip" aria-hidden="true">
-        <span className={low >= CLIP_NOTICE ? 'on' : ''} title={`Clipped to black: ${percent(low)}`}>
+      <div className="histogram-clip">
+        <button
+          type="button"
+          className={low >= CLIP_NOTICE ? 'on' : ''}
+          aria-pressed={clipping}
+          title={`Clipped to black: ${percent(low)}. Click to show clipping on the photo (J).`}
+          onClick={toggleClipping}
+        >
           ◢ {low >= CLIP_NOTICE ? percent(low) : ''}
-        </span>
-        <span className={high >= CLIP_NOTICE ? 'on' : ''} title={`Clipped to white: ${percent(high)}`}>
+        </button>
+        <button
+          type="button"
+          className={high >= CLIP_NOTICE ? 'on' : ''}
+          aria-pressed={clipping}
+          title={`Clipped to white: ${percent(high)}. Click to show clipping on the photo (J).`}
+          onClick={toggleClipping}
+        >
           {high >= CLIP_NOTICE ? percent(high) : ''} ◣
-        </span>
+        </button>
       </div>
     </div>
   );

@@ -18,13 +18,15 @@ struct EmuRawInfo {
     height: c_int,
     cam_xyz: Mat3,
     cam_mul: [f32; 3],
+    full_width: c_int,
+    full_height: c_int,
     make: [c_char; 64],
     model: [c_char; 64],
 }
 
 impl EmuRawInfo {
     fn empty() -> Self {
-        EmuRawInfo { width: 0, height: 0, cam_xyz: [[0.0; 3]; 3], cam_mul: [0.0; 3], make: [0; 64], model: [0; 64] }
+        EmuRawInfo { width: 0, height: 0, cam_xyz: [[0.0; 3]; 3], cam_mul: [0.0; 3], full_width: 0, full_height: 0, make: [0; 64], model: [0; 64] }
     }
 }
 
@@ -149,6 +151,8 @@ pub struct Decoded {
     pub image: DynamicImage,
     /// The as-shot white point, CIE 1931 xy, when the file records one.
     pub white: Option<[f32; 2]>,
+    /// Size of a full-resolution decode, oriented.
+    pub full_size: (u32, u32),
 }
 
 /// Chromaticity of the light the camera balanced for: a surface recorded as
@@ -228,7 +232,8 @@ pub fn decode(path: &Path, half: bool) -> Result<Decoded, String> {
     unsafe { emu_raw_free(img) };
 
     let buf = ImageBuffer::<Rgb<f32>, _>::from_raw(w, h, out).ok_or("RAW image has the wrong size")?;
-    Ok(Decoded { image: DynamicImage::ImageRgb32F(buf), white: white_for(&info) })
+    let full_size = if info.full_width > 0 && info.full_height > 0 { (info.full_width as u32, info.full_height as u32) } else { (w, h) };
+    Ok(Decoded { image: DynamicImage::ImageRgb32F(buf), white: white_for(&info), full_size })
 }
 
 fn file_name(path: &Path) -> String {

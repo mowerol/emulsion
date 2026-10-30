@@ -24,6 +24,8 @@ import { grainPixel, grainShape, isoPreset } from '../../src/engine/grain';
 import { GRAIN_FULL } from '../../src/engine/params';
 import { CURVE_RES, curveTable, type ToneCurve } from '../../src/film/curve';
 import '../../src/styles.css';
+import { Panel } from '../../src/ui/Panel';
+import { useApp } from '../../src/library/store';
 import { bandFactors, bandGains, correction, luminance, toneEqualize } from '../../src/engine/toneequalizer';
 import { toneLookFor } from '../../src/engine/params';
 
@@ -251,6 +253,64 @@ try {
   const sCurve: ToneCurve = { rgb: [[0, 0.04], [0.25, 0.19], [0.75, 0.84], [1, 0.97]], r: [[0, 0], [0.5, 0.55], [1, 1]], g: [[0, 0], [1, 1]], b: [[0, 0.05], [1, 1]] };
   out.curve = probeCurve(eng, sCurve);
   out.whiteBalance = probeWhiteBalance(eng);
+  // Tone curve through the whole engine: a fresh engine and a fresh source, so
+  // buffers are created during the render, as when a photo first opens.
+  {
+    const CW = 600, CH = 200;
+    const gc = document.createElement('canvas');
+    gc.width = CW; gc.height = CH;
+    const gx = gc.getContext('2d')!;
+    const grad = gx.createLinearGradient(0, 0, CW, 0);
+    grad.addColorStop(0, '#000'); grad.addColorStop(1, '#fff');
+    gx.fillStyle = grad; gx.fillRect(0, 0, CW, CH);
+    const fresh = new Engine(document.createElement('canvas'));
+    const gsrc = fresh.sourceFromImage(gc, CW, CH);
+    const base: Recipe = { ...defaultRecipe('portra400'), scanner: 'frontier', grain: 0 };
+    const lift: ToneCurve = { rgb: [[0, 0], [0.75, 0.9], [1, 1]], r: [[0, 0], [1, 1]], g: [[0, 0], [1, 1]], b: [[0, 0], [1, 1]] };
+    const curved = fresh.readPixels(gsrc, { ...base, curve: lift }, CW, CH, 1);
+    const plain = fresh.readPixels(gsrc, base, CW, CH, 1);
+    const curvedAgain = fresh.readPixels(gsrc, { ...base, curve: lift }, CW, CH, 1);
+    // Change the curve between renders, as when dragging a point, then check the lift again.
+    fresh.readPixels(gsrc, { ...base, curve: { ...lift, rgb: [[0, 0], [0.6, 0.7], [1, 1]] } }, CW, CH, 1);
+    const curvedChanged = fresh.readPixels(gsrc, { ...base, curve: lift, shadows: 30 }, CW, CH, 1);
+    const plainTeq = fresh.readPixels(gsrc, { ...base, shadows: 30 }, CW, CH, 1);
+    const table = curveTable(lift);
+    const expect = (v: number) => {
+      const x = (v / 255) * 255;
+      const i = Math.floor(x), j = Math.min(255, i + 1);
+      const m = table[i * 4] + (x - i) * (table[j * 4] - table[i * 4]);
+      return m * 255;
+    };
+    const worst = (px: Uint8Array) => {
+      let w = 0, at = -1;
+      for (let x = 0; x < CW; x++) {
+        const o = (100 * CW + x) * 4 + 1;
+        const d = Math.abs(px[o] - expect(plain[o]));
+        if (d > w) { w = d; at = x; }
+      }
+      return { worstLevels: w, atColumn: at };
+    };
+    const worstAgainst = (px: Uint8Array, ref: Uint8Array) => {
+      let w = 0;
+      for (let x = 0; x < CW; x++) {
+        const o = (100 * CW + x) * 4 + 1;
+        w = Math.max(w, Math.abs(px[o] - expect(ref[o])));
+      }
+      return w;
+    };
+    out.curveEngine = { firstRender: worst(curved), laterRender: worst(curvedAgain), changedWithToneEq: worstAgainst(curvedChanged, plainTeq) };
+    fresh.release(gsrc);
+    fresh.dispose();
+  }
+  // Zoom: a window 1/8 of the frame wide, centred on the grey square (100..200, 100..200).
+  {
+    const view = { x: 150 / W - 1 / 16, y: 150 / H - 1 / 16, w: 1 / 8, h: 1 / 8 };
+    const zw = 150, zh = 100;
+    const z = eng.readPixels(src, null, zw, zh, 1, false, view);
+    const mid = Array.from(z.slice(((zh / 2) * zw + zw / 2) * 4, ((zh / 2) * zw + zw / 2) * 4 + 3));
+    const corner = Array.from(z.slice(0, 3));
+    out.zoom = { centre: mid, corner };
+  }
   out.grain = probeGrain(eng);
   // Speed: a 2560-wide frame with grain on and off.
   {
@@ -336,6 +396,29 @@ try {
   document.body.prepend(panel);
   drawHistogram(hcv, counted);
   out.histogram = { pixels: counted.pixels, shadowClip: counted.shadowClip, highlightClip: counted.highlightClip };
+  // The real panel, scrolled, to check the histogram stays pinned and sections fold.
+  {
+    useApp.setState({
+      photos: [{ path: '/probe/frame.jpg', rel: 'frame.jpg', name: 'frame.jpg', size: 1, modified: 0, recipe: { ...defaultRecipe('portra400'), grain: 30 }, seed: 1, white: null }],
+      active: 0,
+      view: 'develop',
+      histogram: { path: '/probe/frame.jpg', data: counted },
+    });
+    const host = document.createElement('div');
+    host.id = 'panel-host';
+    host.style.cssText = 'position:fixed;top:0;left:0;width:340px;height:640px;display:grid;z-index:100';
+    document.body.append(host);
+    try {
+      localStorage.setItem('emulsion.folded', JSON.stringify(['development']));
+    } catch {
+      /* ignore */
+    }
+    createRoot(host).render(createElement(Panel));
+    setTimeout(() => {
+      const panel = host.querySelector('.panel') as HTMLElement | null;
+      if (panel) panel.scrollTop = Number(new URLSearchParams(location.search).get('scroll') ?? 900);
+    }, 300);
+  }
   const gl = eng.gpu.gl;
   out.err = gl.getError();
   out.ext = gl.getSupportedExtensions();

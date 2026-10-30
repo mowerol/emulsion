@@ -17,6 +17,9 @@ struct EmuRawInfo {
   float cam_xyz[3][3];
   // As-shot white balance multipliers for R, G, B. All zero when the file has none.
   float cam_mul[3];
+  // Size of a full decode, oriented.
+  int full_width;
+  int full_height;
   char make[64];
   char model[64];
 };
@@ -47,6 +50,10 @@ static void fill_colour_info(LibRaw *raw, EmuRawInfo *info) {
     for (int j = 0; j < 3; j++) info->cam_xyz[i][j] = raw->imgdata.color.cam_xyz[i][j];
     info->cam_mul[i] = raw->imgdata.color.cam_mul[i];
   }
+  const libraw_image_sizes_t &s = raw->imgdata.sizes;
+  const bool turned = s.flip & 4;
+  info->full_width = turned ? s.height : s.width;
+  info->full_height = turned ? s.width : s.height;
   copy_str(info->make, raw->imgdata.idata.normalized_make, sizeof info->make);
   copy_str(info->model, raw->imgdata.idata.normalized_model, sizeof info->model);
 }

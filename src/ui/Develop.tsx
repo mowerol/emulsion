@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { loadImage, logToTerminal } from '../backend/api';
 import { Engine, type Source } from '../engine/engine';
 import { histogram } from '../engine/histogram';
@@ -7,19 +7,26 @@ import { D65_XY, clampWhiteBalance, neutralizingWhite, temperatureTint } from '.
 import { activePhoto, editActive, setPhotoWhite, showToast, useApp } from '../library/store';
 import { sourceFromBlob, thumbs } from '../library/thumbs';
 import { Filmstrip } from './Filmstrip';
+import { FIT, imagePoint, label, layout, pan, step, zoomAt, type Layout, type Zoom } from './zoom';
 
-/** Long edge of the interactive preview. Exports always decode at full size. */
+/** Long edge of the interactive preview. Zooming past it loads the full resolution. */
 const PREVIEW_EDGE = 2560;
 /** Long edge of the small render the histogram is counted from. */
 const HISTOGRAM_EDGE = 384;
 /** Wait this long after the last change before counting, so dragging stays smooth. */
 const HISTOGRAM_DELAY_MS = 120;
+/** A pointer that moves less than this many CSS pixels is a click, not a drag. */
+const CLICK_SLOP = 4;
+
+type Res = 'thumb' | 'preview' | 'full';
 
 interface Loaded {
   path: string;
   source: Source;
-  full: boolean;
+  res: Res;
 }
+
+const dpr = () => Math.min(window.devicePixelRatio || 1, 2);
 
 export function Develop() {
   const boxRef = useRef<HTMLDivElement>(null);
@@ -28,11 +35,17 @@ export function Develop() {
   const loadedRef = useRef<Loaded | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadedVersion, setLoadedVersion] = useState(0);
-  const [size, setSize] = useState({ w: 0, h: 0 });
+  const [box, setBox] = useState({ w: 0, h: 0 });
+  const [zoom, setZoom] = useState<Zoom>(FIT);
+  const [loadingFull, setLoadingFull] = useState(false);
+  const [panning, setPanning] = useState(false);
+  const pointer = useRef<{ x: number; y: number; moved: boolean; id: number } | null>(null);
+  const lastCursor = useRef<[number, number]>([0.5, 0.5]);
 
   const photo = useApp(activePhoto);
   const compare = useApp((s) => s.compare);
   const picking = useApp((s) => s.picking);
+  const clipping = useApp((s) => s.clipping);
   const path = photo?.path;
 
   // Start the GPU engine for this canvas.
@@ -53,19 +66,23 @@ export function Develop() {
     };
   }, []);
 
-  // Load the active photo: the cached thumbnail first, then the full preview.
+  const swapSource = useCallback((p: string, source: Source, res: Res) => {
+    const engine = engineRef.current!;
+    engine.release(loadedRef.current?.source);
+    loadedRef.current = { path: p, source, res };
+    setLoadedVersion((v) => v + 1);
+  }, []);
+
+  // Load the active photo: the cached thumbnail first, then the preview.
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine || !path) return;
     let cancelled = false;
-    const swap = (source: Source, full: boolean) => {
-      if (cancelled) {
-        engine.release(source);
-        return;
-      }
-      engine.release(loadedRef.current?.source);
-      loadedRef.current = { path, source, full };
-      setLoadedVersion((v) => v + 1);
+    setZoom(FIT);
+    setLoadingFull(false);
+    const swap = (source: Source, res: Res) => {
+      if (cancelled) engine.release(source);
+      else swapSource(path, source, res);
     };
     (async () => {
       let previewShown = false;
@@ -73,16 +90,16 @@ export function Develop() {
         const orig = await thumbs.original(path);
         if (!cancelled && loadedRef.current?.path !== path) {
           const { src } = await sourceFromBlob(engine, orig.blob, useApp.getState().photos.find((p) => p.path === path)?.white ?? null);
-          swap(src, false);
+          swap(src, 'thumb');
           previewShown = true;
         }
       } catch {
-        /* fall through to the full decode */
+        /* fall through to the decode */
       }
       try {
         const img = await loadImage(path, Math.min(PREVIEW_EDGE, engine.maxTextureSize));
         if (img.white) setPhotoWhite(path, img.white);
-        if (!cancelled) swap(engine.sourceFromHalf(img), true);
+        swap(engine.sourceFromHalf(img), 'preview');
       } catch (err) {
         if (cancelled) return;
         // When only the decode failed, the preview stays on screen and edits apply
@@ -96,73 +113,92 @@ export function Develop() {
     return () => {
       cancelled = true;
     };
-  }, [path]);
+  }, [path, swapSource]);
 
-  // Fit the canvas to the stage at the photo's aspect ratio.
+  // Track the stage size.
   useEffect(() => {
-    const box = boxRef.current;
-    const canvas = canvasRef.current;
-    if (!box || !canvas) return;
-    const fit = () => {
-      const src = loadedRef.current?.source;
-      const rect = box.getBoundingClientRect();
-      if (!src || rect.width < 2 || rect.height < 2) return;
-      const ar = src.w / src.h;
-      let w = rect.width;
-      let h = w / ar;
-      if (h > rect.height) {
-        h = rect.height;
-        w = h * ar;
-      }
-      canvas.style.width = `${Math.floor(w)}px`;
-      canvas.style.height = `${Math.floor(h)}px`;
-      const dpr = Math.min(window.devicePixelRatio || 1, 2);
-      const scale = Math.min(1, 4096 / Math.max(w * dpr, h * dpr));
-      const bw = Math.max(1, Math.round(w * dpr * scale));
-      const bh = Math.max(1, Math.round(h * dpr * scale));
-      if (canvas.width !== bw || canvas.height !== bh) {
-        canvas.width = bw;
-        canvas.height = bh;
-      }
-      setSize((s) => (s.w === bw && s.h === bh ? s : { w: bw, h: bh }));
+    const el = boxRef.current;
+    if (!el) return;
+    const measure = () => {
+      const r = el.getBoundingClientRect();
+      setBox((b) => (b.w === r.width && b.h === r.height ? b : { w: r.width, h: r.height }));
     };
-    fit();
-    const ro = new ResizeObserver(fit);
-    ro.observe(box);
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
     return () => ro.disconnect();
-  }, [loadedVersion]);
+  }, []);
+
+  const loaded = loadedRef.current;
+  const showing = !!loaded && loaded.path === path;
+  const src = showing ? loaded!.source : null;
+  const current: Layout | null = src && box.w > 2 && box.h > 2 ? layout(zoom, box.w, box.h, dpr(), src.fullW, src.fullH) : null;
+
+  // Size the canvas to the layout.
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || !current) return;
+    canvas.style.width = `${current.cssW}px`;
+    canvas.style.height = `${current.cssH}px`;
+    if (canvas.width !== current.pxW || canvas.height !== current.pxH) {
+      canvas.width = current.pxW;
+      canvas.height = current.pxH;
+    }
+  });
+
+  // Zoomed past what the preview holds: load the full resolution once.
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine || !path || !src || !current || loadingFull || loaded?.res === 'full') return;
+    if (current.scale <= (src.w / src.fullW) * 1.05) return;
+    setLoadingFull(true);
+    let cancelled = false;
+    loadImage(path, engine.maxTextureSize)
+      .then((img) => {
+        if (cancelled || loadedRef.current?.path !== path) return;
+        swapSource(path, engine.sourceFromHalf(img), 'full');
+      })
+      .catch((err) => showToast(`Could not load the full resolution. ${String(err)}`))
+      .finally(() => !cancelled && setLoadingFull(false));
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [current?.scale, path, loadedVersion]);
 
   // Render whenever anything that affects the frame changes.
   const recipe = photo?.recipe ?? null;
   const seed = photo?.seed ?? 0;
+  const viewKey = current ? `${current.pxW}x${current.pxH}:${current.view.x},${current.view.y},${current.view.w},${current.view.h}` : '';
   useEffect(() => {
     const id = requestAnimationFrame(() => {
       const engine = engineRef.current;
-      const loaded = loadedRef.current;
+      const l = loadedRef.current;
       const canvas = canvasRef.current;
-      if (!engine || !loaded || !canvas || loaded.path !== path || !canvas.width) return;
+      if (!engine || !l || !canvas || l.path !== path || !canvas.width || !current) return;
       try {
-        engine.render(loaded.source, recipe, { target: 'screen', width: canvas.width, height: canvas.height, seed, compare });
+        engine.render(l.source, recipe, { target: 'screen', width: canvas.width, height: canvas.height, seed, compare, view: current.view, clipping });
       } catch (err) {
         setError(`Rendering failed. ${String(err)}`);
       }
     });
     return () => cancelAnimationFrame(id);
-  }, [recipe, seed, compare, loadedVersion, size, path]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recipe, seed, compare, loadedVersion, viewKey, path, clipping]);
 
-  // Count the histogram from a small render of the same frame, once changes settle.
+  // Count the histogram from a small render of the whole frame, once changes settle.
   useEffect(() => {
     const timer = setTimeout(() => {
       const engine = engineRef.current;
-      const loaded = loadedRef.current;
-      if (!engine || !loaded || loaded.path !== path) return;
-      const { w, h } = loaded.source;
+      const l = loadedRef.current;
+      if (!engine || !l || l.path !== path) return;
+      const { w, h } = l.source;
       const k = HISTOGRAM_EDGE / Math.max(w, h);
       const hw = Math.max(1, Math.round(w * Math.min(1, k)));
       const hh = Math.max(1, Math.round(h * Math.min(1, k)));
       try {
-        const data = histogram(engine.readPixels(loaded.source, recipe, hw, hh, seed, compare));
-        useApp.setState({ histogram: { path: loaded.path, data } });
+        const data = histogram(engine.readPixels(l.source, recipe, hw, hh, seed, compare));
+        useApp.setState({ histogram: { path: l.path, data } });
       } catch {
         /* the histogram is a convenience; a failed count leaves the last one */
       }
@@ -170,26 +206,81 @@ export function Develop() {
     return () => clearTimeout(timer);
   }, [recipe, seed, compare, loadedVersion, path]);
 
-  // Eyedropper: Escape cancels; leaving the photo stops it.
+  // ---------- Zoom and pan ----------
+
+  const zoomTo = useCallback(
+    (scale: number | null, fx = lastCursor.current[0], fy = lastCursor.current[1]) => {
+      if (!current || !src) return;
+      if (scale === null) setZoom(FIT);
+      else setZoom(zoomAt(current, scale, fx, fy, box.w, box.h, dpr(), src.fullW, src.fullH));
+    },
+    [current, src, box.w, box.h],
+  );
+
+  const fraction = (e: { clientX: number; clientY: number }): [number, number] => {
+    const r = canvasRef.current!.getBoundingClientRect();
+    return [(e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height];
+  };
+
+  // Pinch or Ctrl+scroll zooms at the cursor; scrolling pans when zoomed in.
   useEffect(() => {
-    if (!picking) return;
+    const el = boxRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!current || !src) return;
+      e.preventDefault();
+      if (e.ctrlKey || e.metaKey) {
+        const [fx, fy] = fraction(e);
+        zoomTo(current.scale * Math.exp(-e.deltaY * 0.01), fx, fy);
+      } else if (zoom.scale !== null) {
+        setZoom(pan(zoom, current, -e.deltaX, -e.deltaY, dpr(), src.fullW, src.fullH));
+      }
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [current, src, zoom, zoomTo]);
+
+  // Keys: Z toggles fit and 100%, Cmd/Ctrl with = - 0 zoom, J shows clipping.
+  useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') useApp.setState({ picking: false });
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA') && (t as HTMLInputElement).type !== 'range') return;
+      if (picking && e.key === 'Escape') {
+        useApp.setState({ picking: false });
+        return;
+      }
+      if (!current) return;
+      const mod = e.metaKey || e.ctrlKey;
+      const fit = layout(FIT, box.w, box.h, dpr(), src!.fullW, src!.fullH).scale;
+      if (mod && (e.key === '=' || e.key === '+')) {
+        e.preventDefault();
+        zoomTo(step(current.scale, fit, 1), 0.5, 0.5);
+      } else if (mod && e.key === '-') {
+        e.preventDefault();
+        zoomTo(step(current.scale, fit, -1), 0.5, 0.5);
+      } else if (mod && e.key === '0') {
+        e.preventDefault();
+        setZoom(FIT);
+      } else if (!mod && !e.altKey && e.key.toLowerCase() === 'z') {
+        zoomTo(zoom.scale === null ? 1 : null);
+      } else if (!mod && !e.altKey && e.key.toLowerCase() === 'j') {
+        useApp.setState((s) => ({ clipping: !s.clipping }));
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [picking]);
+  }, [current, src, box.w, box.h, zoom.scale, zoomTo, picking]);
+
   useEffect(() => () => useApp.setState({ picking: false }), [path]);
 
   /** Set white balance so the clicked spot becomes neutral. */
-  const pickNeutral = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!picking) return;
+  const pickNeutral = (fx: number, fy: number) => {
     const engine = engineRef.current;
-    const loaded = loadedRef.current;
-    if (!engine || !loaded || loaded.path !== path) return;
-    const r = e.currentTarget.getBoundingClientRect();
-    const sample = engine.sampleScene(loaded.source, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
-    const w = neutralizingWhite(sample, loaded.source.white ?? D65_XY);
+    const l = loadedRef.current;
+    if (!engine || !l || l.path !== path || !current) return;
+    const [u, v] = imagePoint(current.view, fx, fy);
+    const sample = engine.sampleScene(l.source, u, v);
+    const w = neutralizingWhite(sample, l.source.white ?? D65_XY);
     useApp.setState({ picking: false });
     if (!w) {
       showToast('That spot is too dark to judge white balance from. Try a lighter neutral area.');
@@ -199,20 +290,77 @@ export function Develop() {
     editActive((rec) => (rec ? { ...rec, wb: clampWhiteBalance({ temperature, tint: Math.round(tint) }) } : rec));
   };
 
-  const loaded = loadedRef.current;
-  const showing = loaded && loaded.path === path;
+  const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (e.button !== 0) return;
+    pointer.current = { x: e.clientX, y: e.clientY, moved: false, id: e.pointerId };
+    e.currentTarget.setPointerCapture(e.pointerId);
+  };
+
+  const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    lastCursor.current = fraction(e);
+    const p = pointer.current;
+    if (!p || !current || !src || picking) return;
+    const dx = e.clientX - p.x;
+    const dy = e.clientY - p.y;
+    if (!p.moved && Math.hypot(dx, dy) < CLICK_SLOP) return;
+    if (zoom.scale === null) return;
+    p.moved = true;
+    setPanning(true);
+    p.x = e.clientX;
+    p.y = e.clientY;
+    setZoom(pan(zoom, current, dx, dy, dpr(), src.fullW, src.fullH));
+  };
+
+  const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const p = pointer.current;
+    pointer.current = null;
+    setPanning(false);
+    if (!p || p.moved) return;
+    const [fx, fy] = fraction(e);
+    if (picking) pickNeutral(fx, fy);
+    else zoomTo(zoom.scale === null ? 1 : null, fx, fy);
+  };
+
+  const cursor = picking ? 'crosshair' : panning ? 'grabbing' : zoom.scale === null ? 'zoom-in' : 'grab';
 
   return (
     <section className="develop">
       <div className="stage">
         <div className="stage-box" ref={boxRef}>
-          <canvas ref={canvasRef} className={`view${picking ? ' picking' : ''}`} onClick={pickNeutral} aria-label={photo ? `Developed preview of ${photo.name}` : 'Preview'} style={{ visibility: showing ? 'visible' : 'hidden' }} />
+          <canvas
+            ref={canvasRef}
+            className="view"
+            onPointerDown={onPointerDown}
+            onPointerMove={onPointerMove}
+            onPointerUp={onPointerUp}
+            onPointerCancel={() => {
+              pointer.current = null;
+              setPanning(false);
+            }}
+            aria-label={photo ? `Developed preview of ${photo.name}` : 'Preview'}
+            style={{ visibility: showing ? 'visible' : 'hidden', cursor }}
+          />
           {error && <p className="stage-error">{error}</p>}
         </div>
         {compare && <span className="badge">Original</span>}
+        {clipping && <span className="badge clip-badge">Clipping shown (J)</span>}
         {photo && !showing && !error && <span className="stage-status">Opening {photo.name}</span>}
-        {photo && showing && !loaded!.full && <span className="stage-status">Loading full preview</span>}
+        {photo && showing && loaded!.res === 'thumb' && <span className="stage-status">Loading preview</span>}
+        {photo && showing && loadingFull && <span className="stage-status">Loading full resolution</span>}
         {photo && !photo.recipe && showing && <span className="stage-status right">Original. Pick a film stock to develop this frame.</span>}
+        {current && (
+          <div className="zoom-bar" role="group" aria-label="Zoom">
+            <span className="zoom-level" aria-live="polite">{label(zoom, current)}</span>
+            <button type="button" aria-pressed={zoom.scale === null} onClick={() => setZoom(FIT)} title={`Fit (${navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl+'}0)`}>
+              Fit
+            </button>
+            {[0.5, 1, 2].map((s) => (
+              <button key={s} type="button" aria-pressed={zoom.scale !== null && Math.abs(current.scale - s) < 1e-6} onClick={() => zoomTo(s, 0.5, 0.5)}>
+                {s * 100}%
+              </button>
+            ))}
+          </div>
+        )}
       </div>
       <Filmstrip />
     </section>

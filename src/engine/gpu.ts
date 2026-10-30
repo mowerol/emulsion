@@ -55,6 +55,9 @@ function setUniform(gl: WebGL2RenderingContext, type: number, loc: WebGLUniformL
   }
 }
 
+/** Texture unit used only for creating and uploading textures; shaders read units 0 to 5. */
+export const SCRATCH_UNIT = 7;
+
 export class Gpu {
   readonly gl: WebGL2RenderingContext;
   /** Float render targets available (EXT_color_buffer_float). */
@@ -92,12 +95,22 @@ export class Gpu {
     gl.disable(gl.DEPTH_TEST);
 
     this.black = gl.createTexture()!;
+    this.scratch();
     gl.bindTexture(gl.TEXTURE_2D, this.black);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 0]));
     this.params(false);
   }
 
   get blackTexture() { return this.black; }
+
+  /**
+   * Make the scratch texture unit active before creating or uploading a
+   * texture. Binding a texture replaces whatever the active unit held, so doing
+   * it on a unit a shader reads (0 to 5) would swap that shader's input.
+   */
+  scratch() {
+    this.gl.activeTexture(this.gl.TEXTURE0 + SCRATCH_UNIT);
+  }
 
   program(vertex: string, fragment: string): Program {
     const gl = this.gl;
@@ -134,6 +147,7 @@ export class Gpu {
   target(w: number, h: number, hdr: boolean, precise = false): Target {
     const gl = this.gl;
     const tex = gl.createTexture()!;
+    this.scratch();
     gl.bindTexture(gl.TEXTURE_2D, tex);
     if (hdr && precise) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, w, h, 0, gl.RGBA, gl.FLOAT, null);
     else if (hdr) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);

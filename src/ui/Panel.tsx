@@ -12,6 +12,7 @@ import { offscreenEngine, sourceFromBlob, thumbs } from '../library/thumbs';
 import { MOD, Segmented } from './common';
 import { Histogram } from './Histogram';
 import { CurveEditor } from './CurveEditor';
+import { Section } from './Section';
 import { ISOS, isoPreset, matchingIso } from '../engine/grain';
 import { WhiteBalanceControls } from './WhiteBalanceControls';
 
@@ -188,28 +189,24 @@ export function Panel() {
         {multi && <span className="order-note">Stock, development and scanner apply to the {selectedCount} selected frames.</span>}
       </div>
 
-      <section className="group">
-        <h2>Film stock</h2>
+      <Section id="stock" title="Film stock" summary={recipe ? STOCK[recipe.stock].name : 'None'}>
         <StockPicker photo={photo} current={recipe?.stock ?? null} onPick={pickStock} />
-      </section>
+      </Section>
 
-      <section className="group">
-        <h2>Development</h2>
+      <Section id="development" title="Development" summary={recipe ? PUSHES.find((p) => p.value === recipe.push)!.label : undefined}>
         <Segmented label="Push or pull processing" options={PUSHES.map((p) => ({ value: p.value, label: p.label }))} value={recipe?.push ?? null} onChange={pickPush} />
         <p className="hint">{recipe ? PUSHES.find((p) => p.value === recipe.push)!.hint : 'Pick a stock first, or choose processing to start with Portra 400.'}</p>
-      </section>
+      </Section>
 
-      <section className="group">
-        <h2>Scanner</h2>
+      <Section id="scanner" title="Scanner" summary={recipe ? SCANNER[recipe.scanner].name : undefined}>
         <Segmented label="Scanner" options={SCANNERS.map((s) => ({ value: s.id, label: s.name }))} value={recipe?.scanner ?? null} onChange={pickScanner} />
         <p className="hint">{recipe ? SCANNER[recipe.scanner].hint : 'How the negative is scanned and printed.'}</p>
-      </section>
+      </Section>
 
       {view === 'develop' ? (
         groups.map(([title, group]) => (
           <Fragment key={group}>
-            <section className="group">
-              <h2>{title}</h2>
+            <Section id={group} title={title}>
               {group === 'adjust' && <WhiteBalanceControls recipe={recipe} white={photo.white} />}
               {group === 'grain' && <GrainSpeed recipe={recipe} />}
               <div className="sliders">
@@ -217,12 +214,11 @@ export function Panel() {
                   <SliderRow key={d.key} def={d} recipe={recipe} onChange={setSlider} />
                 ))}
               </div>
-            </section>
+            </Section>
             {group === 'adjust' && (
-              <section className="group">
-                <h2>Tone curve</h2>
+              <Section id="curve" title="Tone curve" summary={recipe?.curve ? 'Edited' : 'Straight'}>
                 <CurveEditor curve={recipe?.curve ?? null} disabled={!recipe} onChange={(curve) => editActive((r) => (r ? { ...r, curve } : r))} />
-              </section>
+              </Section>
             )}
           </Fragment>
         ))

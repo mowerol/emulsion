@@ -10,7 +10,7 @@ Version 0.1. Working today:
 
 - Open any folder, including its subfolders. Hidden files, macOS `._` files and the export folder are skipped.
 - Library grid with adjustable thumbnail size, multi-select (Shift and Cmd/Ctrl click, select all).
-- Develop view with filmstrip and a live preview, rendered on the GPU.
+- Develop view with filmstrip and a live preview, rendered on the GPU. Zoom to 100% and beyond (the full resolution loads when needed), pan, and a clipping overlay. The side panel keeps the histogram pinned and folds sections away.
 - Point tone curve, master and per channel, on the final image (darktable's monotone spline), with the frame's histogram behind it.
 - Film grain from the statistics of the Boolean grain model (Newson et al., 2017): coarse and broken up in thin shadows, strongest in the midtones, smooth in dense highlights, clumping more when pushed. Amount, Size and Roughness, with film speed presets from ISO 50 to 3200; each stock starts at its own ISO. Grain and halation are off (0) until turned up.
 - Live histogram of the developed frame (red, green, blue and luma) with clipping readouts.
@@ -53,6 +53,11 @@ A built app also opens a folder or photo passed as its first argument.
 | `Enter` | Develop the selected frame (Library) |
 | Arrow keys | Previous / next frame (up and down move by rows in Library) |
 | `\` (hold) | Show the original |
+| `Z`, or click the photo | Toggle Fit and 100% at that point |
+| Cmd/Ctrl `=` / `-` / `0` | Zoom in / out / fit |
+| Pinch, or Ctrl+scroll | Zoom at the cursor |
+| Drag, or scroll | Pan when zoomed in |
+| `J` | Show clipped highlights (red) and shadows (blue) |
 | Cmd/Ctrl `O` | Open folder |
 | Cmd/Ctrl `A` | Select all (Library) |
 | Cmd/Ctrl Shift `C` / `V` | Copy / paste settings |

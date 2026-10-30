@@ -24,8 +24,21 @@ export interface HalfImage {
   mode: InputMode;
   /** As-shot white point of a RAW, CIE xy. */
   white: Xy | null;
+  /** Size of the full-resolution image this was decoded from. */
+  fullWidth: number;
+  fullHeight: number;
   data: Uint16Array;
 }
+
+/** The part of the image a render shows, in image texture coordinates (y = 0 at the top). */
+export interface View {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+export const FULL_VIEW: View = { x: 0, y: 0, w: 1, h: 1 };
 
 export interface Source {
   tex: WebGLTexture;
@@ -34,6 +47,9 @@ export interface Source {
   mode: InputMode;
   /** As-shot white point; null for D65 (anything that is not a RAW, or not known yet). */
   white: Xy | null;
+  /** Size of the full-resolution image; the texture may be smaller. */
+  fullW: number;
+  fullH: number;
 }
 
 interface Chain {
@@ -84,26 +100,28 @@ export class Engine {
   sourceFromHalf(img: HalfImage): Source {
     const gl = this.gpu.gl;
     const tex = gl.createTexture()!;
+    this.gpu.scratch();
     gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, img.width, img.height, 0, gl.RGBA, gl.HALF_FLOAT, img.data);
     const mips = this.gpu.hdr;
     if (mips) gl.generateMipmap(gl.TEXTURE_2D);
     this.gpu.params(mips);
-    return { tex, w: img.width, h: img.height, mode: img.mode, white: img.white };
+    return { tex, w: img.width, h: img.height, mode: img.mode, white: img.white, fullW: img.fullWidth, fullH: img.fullHeight };
   }
 
   /** Upload an sRGB image (a thumbnail), shot for `white` (a RAW's camera preview) or D65. */
   sourceFromImage(img: TexImageSource, w: number, h: number, white: Xy | null = null): Source {
     const gl = this.gpu.gl;
     const tex = gl.createTexture()!;
+    this.gpu.scratch();
     gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, gl.RGBA, gl.UNSIGNED_BYTE, img);
     gl.generateMipmap(gl.TEXTURE_2D);
     this.gpu.params(true);
-    return { tex, w, h, mode: InputMode.DisplayEncoded, white };
+    return { tex, w, h, mode: InputMode.DisplayEncoded, white, fullW: w, fullH: h };
   }
 
   release(src: Source | null | undefined) {
@@ -171,6 +189,7 @@ export class Engine {
     const key = JSON.stringify(recipe.curve);
     if (this.curveTex && key === this.curveKey) return this.curveTex;
     if (!this.curveTex) this.curveTex = gl.createTexture()!;
+    this.gpu.scratch();
     gl.bindTexture(gl.TEXTURE_2D, this.curveTex);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
     gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, CURVE_RES, 1, 0, gl.RGBA, gl.FLOAT, curveTable(recipe.curve!));
@@ -195,20 +214,30 @@ export class Engine {
    * Develop `src` with `recipe` (null = original) into `target`, or onto the
    * canvas when `target` is 'screen'.
    */
-  render(src: Source, recipe: Recipe | null, opts: { target: Target | 'screen'; width: number; height: number; seed: number; compare?: boolean }) {
+  render(
+    src: Source,
+    recipe: Recipe | null,
+    opts: { target: Target | 'screen'; width: number; height: number; seed: number; compare?: boolean; view?: View; clipping?: boolean },
+  ) {
     const g = this.gpu;
+    const view = opts.view ?? FULL_VIEW;
+    // Effects sized to the frame (grain, vignette) see the whole image at the zoomed size.
     const u = developUniforms(recipe, {
-      width: opts.width, height: opts.height, seed: opts.seed, inputMode: src.mode, store: this.store, compare: opts.compare, white: src.white,
+      width: opts.width / view.w, height: opts.height / view.h, seed: opts.seed, inputMode: src.mode, store: this.store, compare: opts.compare, white: src.white,
     });
+    u.uView = [view.x, view.y, view.w, view.h];
+    u.uClipShow = opts.clipping ? 1 : 0;
     const passes = needsPasses(u);
     let hal: WebGLTexture = g.blackTexture;
     let glow: WebGLTexture = g.blackTexture;
     let sharp: WebGLTexture = g.blackTexture;
     // Without float targets the map would be too coarse; the stage then corrects per pixel.
     const teqLocal = passes.toneEqualizer && g.hdr;
+    // Make every texture this render needs before binding any: creating one can
+    // disturb a binding (see Gpu.scratch).
     const teq = teqLocal ? this.toneEqualizerMap(src, u) : g.blackTexture;
-    g.bind(4, teq);
-    g.bind(5, u.uCurveOn === 1 && recipe ? this.curveTexture(recipe) : g.blackTexture);
+    const curve = u.uCurveOn === 1 && recipe ? this.curveTexture(recipe) : g.blackTexture;
+    if (passes.highlights || passes.sharpen) this.chain(src.w, src.h);
     const teqU = { uTeqTex: 4, uTeqLocal: teqLocal ? 1 : 0, uCurveTex: 5 };
 
     if (passes.highlights || passes.sharpen) {
@@ -216,6 +245,7 @@ export class Engine {
       if (passes.highlights) {
         const { levels, pyramid } = ch;
         g.bind(0, src.tex);
+        g.bind(4, teq);
         this.extract.set({ ...u, ...teqU, uSrc: 0, uTexel: [1 / src.w, 1 / src.h] });
         g.draw(this.extract, levels[0], levels[0].w, levels[0].h);
         for (let i = 1; i < levels.length; i++) this.downsample(levels[i - 1], levels[i]);
@@ -241,6 +271,8 @@ export class Engine {
     g.bind(1, sharp);
     g.bind(2, hal);
     g.bind(3, glow);
+    g.bind(4, teq);
+    g.bind(5, curve);
     this.develop.set({ ...u, ...teqU, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3 });
     if (opts.target === 'screen') g.draw(this.develop, null, opts.width, opts.height, true);
     else g.draw(this.develop, opts.target, opts.width, opts.height, false);
@@ -284,11 +316,11 @@ export class Engine {
   }
 
   /** Develop into RGBA8 pixels, top row first. */
-  readPixels(src: Source, recipe: Recipe | null, width: number, height: number, seed: number, compare = false): Uint8Array<ArrayBuffer> {
+  readPixels(src: Source, recipe: Recipe | null, width: number, height: number, seed: number, compare = false, view?: View): Uint8Array<ArrayBuffer> {
     const g = this.gpu;
     const gl = g.gl;
     const out = this.outs.get(`${width}x${height}`, () => g.target(width, height, false));
-    this.render(src, recipe, { target: out, width, height, seed, compare });
+    this.render(src, recipe, { target: out, width, height, seed, compare, view });
     const px = new Uint8Array(width * height * 4);
     gl.bindFramebuffer(gl.FRAMEBUFFER, out.fbo);
     gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, px);
