@@ -4,6 +4,7 @@
 // can be replaced independently (see docs/ARCHITECTURE.md).
 #include "common.glsl"
 #include "stages/tone.glsl"
+#include "stages/clarity.glsl"
 #include "stages/input.glsl"
 #include "stages/optics.glsl"
 #include "stages/exposure.glsl"
@@ -31,6 +32,8 @@ uniform vec3 uGeoU;
 uniform vec3 uGeoV;
 // Display colour for frame pixels off the photo (only while cropping).
 uniform vec3 uOutside;
+// 1 renders the clarity filter's input instead: the print's lightness in .r.
+uniform float uClarityOut;
 
 void main() {
   vec3 f = vec3(uView.xy + vUv * uView.zw, 1.0);
@@ -55,7 +58,12 @@ void main() {
   x = stageOptics(x, uv);
   x = stageEmulsion(x);
   // Print
-  vec3 e = stagePrint(stageTone(x));
+  vec3 e = stageTone(x);
+  if (uClarityOut > 0.5) {
+    outColor = vec4(clarityLightness(e), 0.0, 0.0, 1.0);
+    return;
+  }
+  e = stagePrint(stageClarity(e, uv));
   // Display
   vec3 d = stageOutput(e);
   d = stageGrain(d, uv);

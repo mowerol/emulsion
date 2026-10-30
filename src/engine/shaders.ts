@@ -22,6 +22,10 @@ import grain from './shaders/stages/grain.glsl?raw';
 import scanner from './shaders/stages/scanner.glsl?raw';
 import finish from './shaders/stages/finish.glsl?raw';
 import curve from './shaders/stages/curve.glsl?raw';
+import clarity from './shaders/stages/clarity.glsl?raw';
+import llcurve from './shaders/llcurve.frag.glsl?raw';
+import llreduce from './shaders/llreduce.frag.glsl?raw';
+import llcollapse from './shaders/llcollapse.frag.glsl?raw';
 
 export const SHADER_FILES: Record<string, string> = {
   'common.glsl': common,
@@ -38,6 +42,7 @@ export const SHADER_FILES: Record<string, string> = {
   'stages/scanner.glsl': scanner,
   'stages/finish.glsl': finish,
   'stages/curve.glsl': curve,
+  'stages/clarity.glsl': clarity,
 };
 
 export const SHADERS = {
@@ -48,4 +53,7 @@ export const SHADERS = {
   sample: assemble(sample, SHADER_FILES),
   blur,
   down,
+  llcurve,
+  llreduce,
+  llcollapse,
 };

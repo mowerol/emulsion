@@ -38,6 +38,13 @@ Template:
 - Ported to: `src/engine/toneequalizer.ts` (reference and band solving), `src/engine/shaders/stages/toneequalizer.glsl` and `src/engine/shaders/toneeqmask.frag.glsl`
 - Changes: translated from C to TypeScript and GLSL. Only the euclidean RGB norm and the exposure-independent guided filter without quantization or contrast boost, with one iteration. The filter's local averages are computed on the GPU on a small fixed-size map with Emulsion's blur, and negative variance from rounding is clamped. The Highlights slider drives the upper bands in the shape of darktable's "compress shadows/highlights" presets (3:5:5:3 over -3 to 0 EV), with their exposure boost of -1.57 EV
 
+### Local laplacian filter and local contrast, from darktable
+- Upstream: https://github.com/darktable-org/darktable, `src/common/locallaplacian.c` and the "clarity" preset of `src/iop/bilat.c`, commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release 5.6.2). The method is Paris, Hasinoff and Kautz, "Local Laplacian Filters: Edge-aware Image Processing with a Laplacian Pyramid" (SIGGRAPH 2011), in the fast form of Aubry et al., "Fast Local Laplacian Filters" (ACM TOG 2014)
+- Licence: GPL-3.0-or-later
+- Copyright: Copyright (C) 2016-2026 darktable developers.
+- Ported to: `src/engine/locallaplacian.ts` (reference), `src/engine/shaders/llcurve.frag.glsl`, `llreduce.frag.glsl`, `llcollapse.frag.glsl` and `src/engine/shaders/stages/clarity.glsl`
+- Changes: translated from C to TypeScript and GLSL. Pyramid borders clamp to the edge at every level rather than padding the input by replication; the pyramids are half floats on the GPU; Lab is relative to D65. Runs on CIE lightness after the tone curve, as darktable's local contrast module does. The Clarity slider goes from no change to darktable's clarity preset at +100 (detail 0.33, shadows and highlights 0, mid-tone range 0.5); below zero only the detail goes negative
+
 ### Monotone curve interpolation, from darktable
 - Upstream: https://github.com/darktable-org/darktable, `src/common/curve_tools.c` (and node limits from `src/iop/rgbcurve.c`), commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release 5.6.2)
 - Licence: GPL-3.0-or-later

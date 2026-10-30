@@ -5,7 +5,7 @@ import { STOCK } from '../film/stocks';
 import { SCANNER } from '../film/scanners';
 import type { Recipe } from '../film/recipe';
 import type { Vec3 } from '../film/stocks';
-import { LUMA_REC2020, REC2020_TO_SRGB, SRGB_TO_REC2020, columnMajor } from './color';
+import { LUMA_REC2020, REC2020_TO_SRGB, SRGB_TO_REC2020, columnMajor, mulVec } from './color';
 import { NEUTRAL, curveFor, packCurve, sigmoidCurve, whiteTargetFor, type ToneLook } from './tone';
 import {
   CONTRAST_FULCRUM,
@@ -16,6 +16,7 @@ import {
   LMS_TO_GRADING,
   LMS_TO_XYZ,
   REC2020_TO_LMS,
+  REC2020_TO_XYZ,
   WHITE_FULCRUM,
   XYZ_TO_REC2020,
   colorBalanceParams,
@@ -26,6 +27,7 @@ import { isIdentity } from '../film/curve';
 import { D65_XY, whiteBalanceMatrix, whiteXy, type Xy } from './whitebalance';
 import { grainShape, type GrainShape } from './grain';
 import { EXPOSURE_BOOST, FEATHERING, SMOOTHING, bandFactors, bandGains } from './toneequalizer';
+import { clarityParams } from './locallaplacian';
 
 export type UniformValue = number | number[];
 export type Uniforms = Record<string, UniformValue>;
@@ -75,6 +77,9 @@ const colorBalanceUniforms = () =>
     uCbRef: [CONTRAST_FULCRUM, yToLStar(WHITE_FULCRUM)],
     uCbMask: [MASK_GREY_FULCRUM, SHADOWS_WEIGHT, HIGHLIGHTS_WEIGHT],
     uCbGamut: Array.from(workingGamut()),
+    uLlToXyz: columnMajor(REC2020_TO_XYZ),
+    uLlFromXyz: columnMajor(XYZ_TO_REC2020),
+    uLlWhite: mulVec(REC2020_TO_XYZ, [1, 1, 1]),
   });
 
 /** Grain amount at which the model shows its full physical strength; the slider goes to twice that. */
@@ -109,7 +114,7 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uHalThreshold: HALATION_THRESHOLD,
   };
   if (!recipe || ctx.compare) {
-    return { ...base, uCompare: 1, uExposure: 0, uExpBlack: 0, uWbMat: IDENTITY, uWB: [1, 1, 1], uBW: 0, uTeqOn: 0, uCurveOn: 0 };
+    return { ...base, uCompare: 1, uExposure: 0, uExpBlack: 0, uWbMat: IDENTITY, uWB: [1, 1, 1], uBW: 0, uTeqOn: 0, uCurveOn: 0, uClarityOn: 0 };
   }
 
   const s = STOCK[recipe.stock];
@@ -135,6 +140,8 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uExposure: recipe.exposure,
     uCurveOn: isIdentity(recipe.curve) ? 0 : 1,
     uTeqOn: teqOn ? 1 : 0,
+    uClarityOn: recipe.clarity !== 0 ? 1 : 0,
+    uLl: llParams(recipe.clarity),
     uTeqF0: teq.slice(0, 4),
     uTeqF1: teq.slice(4, 8),
     uTeqParams: [EXPOSURE_BOOST, FEATHERING, 2 * SMOOTHING * SMOOTHING],
@@ -176,5 +183,12 @@ export function needsPasses(u: Uniforms) {
     highlights: u.uCompare !== 1 && ((u.uHal as number) > 0 || (u.uGlow as number) > 0),
     sharpen: u.uCompare !== 1 && (u.uSharp as number) !== 0,
     toneEqualizer: u.uCompare !== 1 && u.uTeqOn === 1,
+    clarity: u.uCompare !== 1 && u.uClarityOn === 1,
   };
+}
+
+/** The clarity filter's parameters for the Clarity slider: sigma, shadows, highlights, clarity. */
+export function llParams(clarity: number): [number, number, number, number] {
+  const p = clarityParams(clarity);
+  return [p.sigma, p.shadows, p.highlights, p.clarity];
 }

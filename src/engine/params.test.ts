@@ -10,7 +10,7 @@ describe('develop uniforms', () => {
   it('renders the original when there is no recipe or when comparing', () => {
     expect(developUniforms(null, ctx).uCompare).toBe(1);
     expect(developUniforms(defaultRecipe(), { ...ctx, compare: true }).uCompare).toBe(1);
-    expect(needsPasses(developUniforms(null, ctx))).toEqual({ highlights: false, sharpen: false, toneEqualizer: false });
+    expect(needsPasses(developUniforms(null, ctx))).toEqual({ highlights: false, sharpen: false, toneEqualizer: false, clarity: false });
   });
 
   it('keeps luminance in the stock balance', () => {
@@ -55,6 +55,14 @@ describe('develop uniforms', () => {
     const u = developUniforms(defaultRecipe('superia400'), ctx);
     const power = (k: string) => (u[k] as number[])[2];
     expect(power('uSigG')).toBeLessThan(power('uSigR'));
+  });
+
+  it('runs the clarity filter only when Clarity is set, at darktable\'s preset at +100', () => {
+    expect(needsPasses(developUniforms(defaultRecipe(), ctx)).clarity).toBe(false);
+    const u = developUniforms({ ...defaultRecipe(), clarity: 100 }, ctx);
+    expect(needsPasses(u).clarity).toBe(true);
+    expect(u.uLl).toEqual([0.5, 0, 0, 0.33]);
+    expect(needsPasses(developUniforms({ ...defaultRecipe(), clarity: 40 }, { ...ctx, compare: true })).clarity).toBe(false);
   });
 
   it('runs the tone equalizer only when Highlights is set', () => {

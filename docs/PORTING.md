@@ -25,7 +25,7 @@ Ideas, maths and algorithms described in papers or documentation can always be r
 3. **Add a NOTICE entry** in [NOTICE.md](../NOTICE.md) using the template there.
 4. **Record the upstream commit**, so the port can be compared and updated later.
 5. **One upstream module per stage file** where possible, so attribution stays obvious.
-6. **Stay true to the upstream code.** Use darktable's own maths, preset values and curve shapes for tones; only the slider-to-parameter mapping is ours. Any deviation needs Oli's agreement and goes in the file header.
+6. **Port the best, and stay true to it.** For each job, take the implementation the community regards as the best (darktable by default, RawTherapee or ART where they are stronger) and use its own maths, preset values and curve shapes; only the slider-to-parameter mapping is ours. Any deviation needs Oli's agreement and goes in the file header.
 
 Example header for a GLSL stage:
 

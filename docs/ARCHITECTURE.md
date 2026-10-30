@@ -42,6 +42,7 @@ Each stage is one GLSL file in `src/engine/shaders/stages/`, included into `deve
 | Lens | `lens.glsl` | scene | Vignetting | |
 | Optics | `optics.glsl` | scene | Halation and glow, added back from blurred highlights | |
 | Emulsion | `emulsion.glsl` | scene | Dye crosstalk; black and white sensitivity | Measured stock data or CLUTs |
+| Clarity | `clarity.glsl` | print | Clarity: darktable's local laplacian filter (its local contrast module's clarity preset) on CIE lightness, from a map the `ll*` passes make over the whole photo; keeps Lab a and b. **Ported from darktable local contrast** | |
 | Tone | `tone.glsl` | scene to print | **Ported from darktable sigmoid**: log-logistic curve with hue preservation; stock contrast and push scale its contrast, crossover is a per-channel ratio on top, Whites set the display white and Blacks above zero the display black. Then print saturation and stock black lift | |
 | Output | `output.glsl` | print to display | Rec.2020 to sRGB | Colour-managed output |
 | Grain | `grain.glsl` | display | Film grain from the Boolean model's statistics: each pixel draws its grain count (Poisson) from a smooth field and shows the share it covers. Size and Roughness sliders, ISO presets; see `engine/grain.ts` | |
@@ -57,6 +58,7 @@ The tone curve's maths is mirrored in `engine/tone.ts` so it can be unit-tested;
 
 ```
 source ─┬─ tone eq map (1/4 res) ─ down ─ ... ─ blur ── tone equalizer ─┐   (only with Highlights)
+        ├─ (develop to the print's lightness) ─ local laplacian pyramids ─ clarity ─┤   (only with Clarity)
         ├─ extract (1/4 res) ─ down ─ down ─ ...      highlight pyramid
         │        └─ blur at ≤256 px wide ──────────── halation ─┐
         │        └─ blur at ≤128 px wide ──────────── glow ─────┤
@@ -65,6 +67,8 @@ source ─┬─ tone eq map (1/4 res) ─ down ─ ... ─ blur ── tone equ
 ```
 
 The tone equalizer's map holds each pixel's brightness and its square, so the blur yields the local mean and variance its edge-aware filter needs. It is halved down to the halation level (at most 256 wide) and blurred there with a sigma of 2.5% of the long edge, darktable's default smoothing; it uses 32-bit float targets where the GPU can filter them, because the variance is a small difference of large numbers. Without float targets the stage falls back to a plain per-pixel correction, darktable's "no detail preservation" mode.
+
+Clarity runs the develop pass once more over the whole source, stopping at the tone curve to write CIE lightness, then darktable's local laplacian filter: six remapped images in two RGBA pyramids (the second also carries the lightness's own Gaussian pyramid), collapsed coarse to fine into a map of the change in lightness per source pixel, which the develop pass adds after the tone stage. The map is kept until the recipe or the photo changes, so panning, zooming and the split view reuse it. It costs about 70 ms at preview size. Like darktable's, its finest levels are in pixels, so at full resolution (zoomed in, or in an export) clarity reaches finer detail than in the fitted preview.
 
 Halation and glow are blurred on small, fixed-size levels of a downsample pyramid (`engine/pyramid.ts`), with taps no more than one texel apart. That keeps the halos smooth, cheap, and the same relative size in the preview and in a full-size export. Passes are skipped when their amounts are zero.
 

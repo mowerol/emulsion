@@ -9,7 +9,7 @@ import { SHADERS, SHADER_FILES } from '../../src/engine/shaders';
 import { colorBalance, type ColorBalance } from '../../src/engine/colorbalance';
 import { FULL, bounds, framePixels, setAngle, setAspect, sourcePoint, type Crop } from '../../src/film/crop';
 import { CropOverlay } from '../../src/ui/CropOverlay';
-import { developUniforms, InputMode } from '../../src/engine/params';
+import { developUniforms, InputMode, llParams } from '../../src/engine/params';
 import type { Vec3 } from '../../src/film/stocks';
 import { toneRgb } from '../../src/engine/tone';
 import { histogram } from '../../src/engine/histogram';
@@ -29,6 +29,7 @@ import '../../src/styles.css';
 import { Panel } from '../../src/ui/Panel';
 import { useApp } from '../../src/library/store';
 import { bandFactors, bandGains, correction, luminance, toneEqualize } from '../../src/engine/toneequalizer';
+import { clarityParams, lightness, localLaplacian, withLightness } from '../../src/engine/locallaplacian';
 import { toneLookFor } from '../../src/engine/params';
 
 const COLOURS: Vec3[] = [
@@ -196,6 +197,34 @@ function probeCurve(eng: Engine, curve: ToneCurve) {
   });
   gl.deleteTexture(tex);
   return res;
+}
+
+/** Clarity: darktable's local laplacian on the GPU against the reference, and the lightness change per pixel. */
+function probeClarity(eng: Engine) {
+  const w = 97, h = 61;
+  const plane = { w, h, data: new Float64Array(w * h) };
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+    // Fine texture over a soft gradient, with a hard edge across the middle.
+    plane.data[j * w + i] = 0.15 + 0.6 * (i / w) + 0.05 * Math.sin(i * 1.3) * Math.sin(j * 0.9) + (j > h / 2 ? 0.15 : 0);
+  }
+  const filter: Record<string, number> = {};
+  for (const slider of [100, 50, -100]) {
+    const uLl = llParams(slider);
+    const got = eng.probeLocalLaplacian(Float32Array.from(plane.data), w, h, uLl);
+    const ref = localLaplacian(plane, clarityParams(slider));
+    let worst = 0;
+    for (let k = 0; k < w * h; k++) worst = Math.max(worst, Math.abs(got[k] - (ref.data[k] - plane.data[k])));
+    filter[`slider${slider}`] = worst;
+  }
+  const u = developUniforms(defaultRecipe(), stageCtx);
+  const inputs = COLOURS.map((c) => c.map((v) => Math.min(v, 1.2)) as Vec3);
+  const stage = probeStage(eng, ['stages/clarity.glsl'], 'clarityShift(c, 0.04)', inputs, {
+    up: { uniforms: u, ref: (c: Vec3) => withLightness(c, 0.04) },
+  });
+  const lum = probeStage(eng, ['stages/clarity.glsl'], 'vec3(clarityLightness(c))', inputs, {
+    lightness: { uniforms: u, ref: (c: Vec3) => [lightness(c), lightness(c), lightness(c)] as Vec3 },
+  });
+  return { worstLightnessError: filter, shift: stage, lightness: lum };
 }
 
 /** Tone equalizer: per pixel, and edge-aware with a known local mean and mean square. */
@@ -379,6 +408,7 @@ try {
     out.crop = { frame: [fw, fh], squarePixels: Math.abs(fw - fh) <= 1, worstLevels: worst };
     eng.release(gsrc);
   }
+  out.clarity = probeClarity(eng);
   out.grain = probeGrain(eng);
   // Speed: a 2560-wide frame with grain on and off.
   {
@@ -397,7 +427,7 @@ try {
       return (performance.now() - t0) / 4;
     };
     const look: Recipe = { ...defaultRecipe('portra400'), scanner: 'straight', grain: 30 };
-    out.timing = { grainOffMs: time({ ...look, grain: 0 }), grainOnMs: time({ ...look, grain: 50 }), bwMs: time({ ...defaultRecipe('trix400'), grain: 50 }) };
+    out.timing = { grainOffMs: time({ ...look, grain: 0 }), grainOnMs: time({ ...look, grain: 50 }), bwMs: time({ ...defaultRecipe('trix400'), grain: 50 }), clarityMs: time({ ...look, grain: 0, clarity: 100 }) };
     // A crop of the ramp with Portra 400 grain at 100%, for a look.
     const px = eng.readPixels(bsrc, look, PW, PH, 1);
     // Grain strength: standard deviation of the green channel, grain on minus off, in a midtone strip.
@@ -514,3 +544,52 @@ const pre = document.createElement('pre');
 pre.id = 'result';
 pre.textContent = JSON.stringify(report);
 document.body.append(pre);
+
+// A real photo through Clarity, for a screenshot: open with ?img=<file URL of a JPEG>.
+// Shows 1:1 crops from the middle at Clarity -100, 0 and +100, and times the filter.
+const photoArg = new URLSearchParams(location.search).get('img');
+if (photoArg) {
+  (async () => {
+    const res: Record<string, unknown> = {};
+    try {
+      const img = new Image();
+      img.src = photoArg;
+      await img.decode();
+      const pw = img.naturalWidth, ph = img.naturalHeight;
+      const peng = new Engine(document.createElement('canvas'));
+      const psrc = peng.sourceFromImage(img, pw, ph);
+      const gl = peng.gpu.gl;
+      const look = (clarity: number): Recipe => ({ ...defaultRecipe(), clarity });
+      const time = (r: Recipe) => {
+        peng.readPixels(psrc, r, pw, ph, 1);
+        const t0 = performance.now();
+        for (let i = 0; i < 3; i++) peng.readPixels(psrc, r, pw, ph, 1);
+        gl.finish();
+        return (performance.now() - t0) / 3;
+      };
+      res.size = [pw, ph];
+      res.msWithout = time(look(0));
+      res.msWith = time(look(100));
+      const cw = 420, chh = 520;
+      const board = document.createElement('canvas');
+      board.width = cw * 3 + 20; board.height = chh;
+      board.style.cssText = 'position:fixed;left:0;top:0;z-index:99999;background:#000';
+      const bx = board.getContext('2d')!;
+      [-100, 0, 100].forEach((clarity, n) => {
+        const px = peng.readPixels(psrc, look(clarity), pw, ph, 1);
+        const full = new ImageData(new Uint8ClampedArray(px.buffer), pw, ph);
+        const tmp = document.createElement('canvas');
+        tmp.width = pw; tmp.height = ph;
+        tmp.getContext('2d')!.putImageData(full, 0, 0);
+        bx.drawImage(tmp, Math.round(pw / 2 - cw / 2), Math.round(ph / 2 - chh / 2), cw, chh, n * (cw + 10), 0, cw, chh);
+      });
+      document.body.append(board);
+    } catch (e) {
+      res.error = String(e);
+    }
+    const p = document.createElement('pre');
+    p.id = 'photo';
+    p.textContent = JSON.stringify(res);
+    document.body.append(p);
+  })();
+}
