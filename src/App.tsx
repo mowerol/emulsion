@@ -7,7 +7,7 @@ import { isTauri, startupOptions } from './backend/api';
 import { flushSaves, onSaveError } from './library/sidecars';
 import { markForKey } from './library/marks';
 import {
-  copySettings, markPhotos, openFolder, pasteSettings, redo, selectAll, setActive, setCompare, setExportOpen, setView, showToast, step, undo, useApp, type View,
+  copySettings, markPhotos, openFolder, pasteSettings, redo, selectAll, setCompare, setExportOpen, setView, showToast, step, stepToEnd, undo, useApp, type View,
 } from './library/store';
 import { Develop } from './ui/Develop';
 import { ExportDialog } from './ui/ExportDialog';
@@ -80,8 +80,8 @@ function useShortcuts() {
       else if (e.key === 'ArrowLeft') { e.preventDefault(); step(-1); }
       else if (e.key === 'ArrowDown' && s.view === 'library') { e.preventDefault(); step(gridColumns); }
       else if (e.key === 'ArrowUp' && s.view === 'library') { e.preventDefault(); step(-gridColumns); }
-      else if (e.key === 'Home') setActive(0);
-      else if (e.key === 'End') setActive(s.photos.length - 1);
+      else if (e.key === 'Home') stepToEnd('first');
+      else if (e.key === 'End') stepToEnd('last');
     };
     const up = (e: KeyboardEvent) => {
       if (e.key === '\\') setCompare(false);

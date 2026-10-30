@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { memo, useEffect, useRef, useState, type MouseEvent } from 'react';
+import { memo, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { setActive, setView, useApp, type Photo } from '../library/store';
+import { shownIndices } from '../library/filter';
+import { FilterBar } from './FilterBar';
 import { STOCK } from '../film/stocks';
 import { MarkBadges, Thumb, useVisible } from './common';
 
@@ -55,6 +57,8 @@ export function Library() {
   const photos = useApp((s) => s.photos);
   const active = useApp((s) => s.active);
   const selected = useApp((s) => s.selected);
+  const filter = useApp((s) => s.filter);
+  const shown = useMemo(() => shownIndices(photos, filter, active), [photos, filter, active]);
   const [size, setSize] = useState(readSize);
   const gridRef = useRef<HTMLDivElement>(null);
 
@@ -79,7 +83,8 @@ export function Library() {
   return (
     <section className="library">
       <div className="library-bar">
-        <span className="muted">
+        <FilterBar />
+        <span className="muted library-hint">
           {selected.size > 1 ? `${selected.size} selected. ` : ''}Double-click a frame or press D to develop it.
         </span>
         <label className="size-control">
@@ -88,8 +93,8 @@ export function Library() {
         </label>
       </div>
       <div className="grid" ref={gridRef} role="listbox" aria-label="Photos" aria-multiselectable style={{ ['--cell' as string]: `${size}px` }}>
-        {photos.map((p, i) => (
-          <Cell key={p.path} photo={p} index={i} active={i === active} selected={selected.has(p.path)} />
+        {shown.map((i) => (
+          <Cell key={photos[i].path} photo={photos[i]} index={i} active={i === active} selected={selected.has(photos[i].path)} />
         ))}
       </div>
     </section>

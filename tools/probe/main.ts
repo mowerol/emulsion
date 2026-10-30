@@ -647,7 +647,7 @@ try {
     const stripHost = document.createElement('div');
     stripHost.style.cssText = 'position:fixed;top:660px;left:0;width:900px;z-index:100';
     document.body.append(stripHost);
-    useApp.setState({ photos: [...useApp.getState().photos, ...stripPhotos], stripFilter: 'all', active: 2 });
+    useApp.setState({ photos: [...useApp.getState().photos, ...stripPhotos], filter: { edit: 'all', minRating: 2, heart: false, labels: [] }, active: 2 });
     createRoot(stripHost).render(createElement(Filmstrip));
     // The workspace's right-click menu, open over a mid-grey stage.
     useApp.setState({ stageColor: 'grey' });

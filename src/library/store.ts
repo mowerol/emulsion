@@ -8,7 +8,7 @@ import type { Xy } from '../engine/whitebalance';
 import { scanFolder, whitePoints } from '../backend/api';
 import { defaultRecipe, normalizeRecipe, withSettingsFrom, type Recipe } from '../film/recipe';
 import { FULL, isFull, type Crop } from '../film/crop';
-import { stepWithin, stripIndices, type StripFilter } from './filter';
+import { NO_FILTER, normalizeFilter, rangeWithin, shownIndices, stepWithin, type Filter } from './filter';
 import { seedFor } from '../engine/engine';
 import { savePhoto } from './sidecars';
 import { applyMark, describeMark, hasMark, normalizeMarks, type Label, type MarkKey, type Marks } from './marks';
@@ -69,8 +69,8 @@ interface State {
   cropEdit: { path: string; draft: Crop; W: number; H: number } | null;
   /** Size of the photo open in the develop view. */
   developSize: { path: string; W: number; H: number } | null;
-  /** Which photos the develop view's filmstrip shows. */
-  stripFilter: StripFilter;
+  /** Which photos the Library grid and the filmstrip show. */
+  filter: Filter;
   /** The workspace colour behind the photo in Develop. */
   stageColor: StageColorId;
 }
@@ -98,14 +98,15 @@ function savedStageColor(): StageColorId {
   }
 }
 
-const STRIP_FILTER_KEY = 'emulsion.stripFilter';
-/** The filmstrip filter last chosen on this computer. */
-function savedStripFilter(): StripFilter {
+const FILTER_KEY = 'emulsion.filter';
+/** The filter last chosen on this computer (before ratings, the strip's Edited / Unedited). */
+function savedFilter(): Filter {
   try {
-    const v = localStorage.getItem(STRIP_FILTER_KEY);
-    return v === 'edited' || v === 'unedited' ? v : 'all';
+    const v = localStorage.getItem(FILTER_KEY);
+    if (v) return normalizeFilter(JSON.parse(v));
+    return normalizeFilter({ edit: localStorage.getItem('emulsion.stripFilter') });
   } catch {
-    return 'all';
+    return NO_FILTER;
   }
 }
 
@@ -127,7 +128,7 @@ export const useApp = create<State>(() => ({
   history: { undo: null, redo: null },
   cropEdit: null,
   developSize: null,
-  stripFilter: savedStripFilter(),
+  filter: savedFilter(),
   stageColor: savedStageColor(),
 }));
 
@@ -229,19 +230,36 @@ export function setActive(index: number, mode: 'single' | 'toggle' | 'range' | '
     else next.add(path);
     set({ active: index, anchor: index, selected: next });
   } else if (mode === 'range' && anchor >= 0) {
-    const [a, b] = anchor < index ? [anchor, index] : [index, anchor];
-    set({ active: index, selected: new Set(photos.slice(a, b + 1).map((p) => p.path)) });
+    // Only the photos the filter shows; hidden ones in between stay unselected.
+    set({ active: index, selected: new Set(rangeWithin(shown(), anchor, index).map((i) => photos[i].path)) });
   } else {
     set({ active: index, anchor: index, selected: new Set([path]) });
   }
 }
 
+/** Indices of the photos the grid and the strip show. */
+export const shown = (s: State = get()) => shownIndices(s.photos, s.filter, s.active);
+
+/** Move through the shown photos; a grid row down is `delta` = columns. */
 export function step(delta: number) {
-  const { active, photos, view, stripFilter } = get();
-  if (!photos.length) return;
-  // In Develop the arrows walk the filmstrip as filtered; the library grid shows everything.
-  if (view === 'develop' && stripFilter !== 'all') setActive(stepWithin(stripIndices(photos, stripFilter, active), active, delta));
-  else setActive(Math.min(photos.length - 1, Math.max(0, active + delta)));
+  if (!get().photos.length) return;
+  setActive(stepWithin(shown(), get().active, delta));
+}
+
+/** The first or last shown photo. */
+export function stepToEnd(end: 'first' | 'last') {
+  const list = shown();
+  if (list.length) setActive(end === 'first' ? list[0] : list[list.length - 1]);
+}
+
+export function setFilter(change: Partial<Filter>) {
+  const filter = { ...get().filter, ...change };
+  set({ filter });
+  try {
+    localStorage.setItem(FILTER_KEY, JSON.stringify(filter));
+  } catch {
+    /* remembering it is a convenience */
+  }
 }
 
 export function setStageColor(stageColor: StageColorId) {
@@ -253,17 +271,10 @@ export function setStageColor(stageColor: StageColorId) {
   }
 }
 
-export function setStripFilter(stripFilter: StripFilter) {
-  set({ stripFilter });
-  try {
-    localStorage.setItem(STRIP_FILTER_KEY, stripFilter);
-  } catch {
-    /* remembering it is a convenience */
-  }
-}
-
+/** Select every photo the filter shows. */
 export function selectAll() {
-  set({ selected: new Set(get().photos.map((p) => p.path)) });
+  const { photos } = get();
+  set({ selected: new Set(shown().map((i) => photos[i].path)) });
 }
 
 export const activePhoto = (s: State = get()) => s.photos[s.active] ?? null;

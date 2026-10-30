@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { memo, useEffect, useMemo, useRef, type MouseEvent } from 'react';
-import { setActive, setStripFilter, useApp, type Photo } from '../library/store';
-import { STRIP_FILTERS, filterCounts, stripIndices } from '../library/filter';
-import { MarkBadges, Segmented, Thumb, edgeText, useVisible } from './common';
+import { setActive, useApp, type Photo } from '../library/store';
+import { shownIndices } from '../library/filter';
+import { MarkBadges, Thumb, edgeText, useVisible } from './common';
+import { FilterBar } from './FilterBar';
 
 
 const Frame = memo(function Frame({ photo, index, active, selected }: { photo: Photo; index: number; active: boolean; selected: boolean }) {
@@ -35,12 +36,9 @@ export function Filmstrip() {
   const photos = useApp((s) => s.photos);
   const active = useApp((s) => s.active);
   const selected = useApp((s) => s.selected);
-  const filter = useApp((s) => s.stripFilter);
+  const filter = useApp((s) => s.filter);
   const ref = useRef<HTMLDivElement>(null);
-  const shown = useMemo(() => stripIndices(photos, filter, active), [photos, filter, active]);
-  const counts = useMemo(() => filterCounts(photos), [photos]);
-  // Only the active photo is left, and it doesn't match: say why the strip is empty.
-  const onlyActive = filter !== 'all' && counts[filter] === 0;
+  const shown = useMemo(() => shownIndices(photos, filter, active), [photos, filter, active]);
 
   useEffect(() => {
     ref.current?.querySelector<HTMLElement>(`[data-index="${active}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
@@ -49,13 +47,7 @@ export function Filmstrip() {
   return (
     <div className="strip-wrap">
       <div className="strip-bar">
-        <Segmented
-          label="Show in the filmstrip"
-          options={STRIP_FILTERS.map((f) => ({ value: f.value, label: `${f.label} ${counts[f.value]}` }))}
-          value={filter}
-          onChange={setStripFilter}
-        />
-        {onlyActive && <span className="strip-note">{filter === 'edited' ? 'No edited photos yet' : 'Every photo has a look'}</span>}
+        <FilterBar />
       </div>
       <div className="strip" ref={ref} aria-label="Filmstrip">
         <div className="strip-inner">
