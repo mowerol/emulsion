@@ -48,9 +48,54 @@ export interface Recipe {
   wb: WhiteBalance | null;
   /** Crop and straighten; null is the whole frame. */
   crop: Crop | null;
+  /** Colour (darktable's color equalizer) per hue node, red to magenta; null leaves every colour. */
+  color: ColorAdjust | null;
 }
 
-export type SliderKey = Exclude<keyof Recipe, 'v' | 'stock' | 'push' | 'scanner' | 'curve' | 'wb' | 'crop'>;
+/**
+ * Eight values each, red to magenta (0 leaves it). Hue -120 to 120 is darktable's ±36° (0.3° a
+ * step, HUE_MAX at HUE_DEGREES): a little past one neighbouring colour each way, a touch more
+ * than Lightroom's HSL. Saturation ±100 is darktable's gain 1 ± SAT_RANGE: grey at -100 and twice
+ * the saturation at +100 (darktable's full range triples it, and vivid colours meet the gamut
+ * early and stop changing). Brightness ±100 is its gain 1 ± BRIGHT_RANGE, under a third of its
+ * range, which at its ends turns vivid colours black.
+ */
+export interface ColorAdjust {
+  hue: number[];
+  sat: number[];
+  bright: number[];
+}
+
+/** The Hue slider's end, and darktable's hue shift there in degrees. */
+export const HUE_MAX = 120;
+export const HUE_DEGREES = 36;
+/** darktable's saturation gain moves this far from 1 at Saturation ±100. */
+export const SAT_RANGE = 0.5;
+/** darktable's brightness gain moves this far from 1 at Brightness ±100. */
+export const BRIGHT_RANGE = 0.3;
+
+export const COLOR_CHANNELS = [
+  { key: 'hue', label: 'Hue', min: -HUE_MAX, max: HUE_MAX },
+  { key: 'sat', label: 'Saturation', min: -100, max: 100 },
+  { key: 'bright', label: 'Brightness', min: -100, max: 100 },
+] as const;
+
+/** A colour adjustment with every value at rest, as null. */
+export const tidyColor = (c: ColorAdjust | null): ColorAdjust | null =>
+  c && [...c.hue, ...c.sat, ...c.bright].some((v) => v !== 0) ? c : null;
+
+function normalizeColor(input: unknown): ColorAdjust | null {
+  if (!input || typeof input !== 'object') return null;
+  const o = input as Record<string, unknown>;
+  const list = (v: unknown, lo: number, hi: number) =>
+    Array.from({ length: 8 }, (_, i) => {
+      const x = Array.isArray(v) ? v[i] : 0;
+      return typeof x === 'number' && Number.isFinite(x) ? clamp(x, lo, hi) : 0;
+    });
+  return tidyColor({ hue: list(o.hue, -HUE_MAX, HUE_MAX), sat: list(o.sat, -100, 100), bright: list(o.bright, -100, 100) });
+}
+
+export type SliderKey = Exclude<keyof Recipe, 'v' | 'stock' | 'push' | 'scanner' | 'curve' | 'wb' | 'crop' | 'color'>;
 
 export interface SliderDef {
   key: SliderKey;
@@ -141,6 +186,7 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
     curve: null,
     wb: null,
     crop: null,
+    color: null,
   };
 }
 
@@ -163,7 +209,7 @@ export function resetAdjustments(recipe: Recipe): Recipe {
 export const withSettingsFrom = (from: Recipe, target: Recipe | null): Recipe => ({ ...from, crop: target?.crop ?? null });
 
 /** Panel sections that can be reset on their own. */
-export type SectionId = 'development' | 'scanner' | 'crop' | 'adjust' | 'curve' | 'detail' | 'optics' | 'grain';
+export type SectionId = 'development' | 'scanner' | 'crop' | 'adjust' | 'curve' | 'color' | 'detail' | 'optics' | 'grain';
 
 const SECTION_FIELDS: Record<SectionId, (keyof Recipe)[]> = {
   development: ['push'],
@@ -171,6 +217,7 @@ const SECTION_FIELDS: Record<SectionId, (keyof Recipe)[]> = {
   crop: ['crop'],
   adjust: ['wb', ...SLIDERS.filter((d) => d.group === 'adjust').map((d) => d.key)],
   curve: ['curve'],
+  color: ['color'],
   detail: SLIDERS.filter((d) => d.group === 'detail').map((d) => d.key),
   optics: SLIDERS.filter((d) => d.group === 'optics').map((d) => d.key),
   grain: SLIDERS.filter((d) => d.group === 'grain').map((d) => d.key),
@@ -209,7 +256,7 @@ export function normalizeRecipe(input: unknown): Recipe | null {
   const scanner: ScannerId = isScannerId(o.scanner) ? o.scanner : 'frontier';
   const base = defaultRecipe(stock, scanner);
   const push = typeof o.push === 'number' && [-1, 0, 1, 2].includes(o.push) ? (o.push as Push) : 0;
-  const out: Recipe = { ...base, push, curve: normalizeCurve(o.curve), wb: normalizeWhiteBalance(o.wb), crop: normalizeCrop(o.crop) };
+  const out: Recipe = { ...base, push, curve: normalizeCurve(o.curve), wb: normalizeWhiteBalance(o.wb), crop: normalizeCrop(o.crop), color: normalizeColor(o.color) };
   // Capture sharpening was saved as `sharpening` before the unsharp mask came.
   const read = (key: string) => (key === 'captureSharpening' && o.captureSharpening === undefined ? o.sharpening : o[key]);
   for (const def of SLIDERS) {

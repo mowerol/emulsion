@@ -67,7 +67,7 @@ const DISPLAY = columnMajor(REC2020_TO_SRGB);
 
 /** Colour balance constants: matrices, reference values and the gamut table. */
 let colorBalanceBase: Uniforms | null = null;
-const colorBalanceUniforms = () =>
+export const colorBalanceUniforms = () =>
   (colorBalanceBase ??= {
     uCbRgbToLms: columnMajor(REC2020_TO_LMS),
     uCbLmsToXyz: columnMajor(LMS_TO_XYZ),
@@ -114,7 +114,7 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uHalThreshold: HALATION_THRESHOLD,
   };
   if (!recipe || ctx.compare) {
-    return { ...base, uCompare: 1, uExposure: 0, uExpBlack: 0, uWbMat: IDENTITY, uWB: [1, 1, 1], uBW: 0, uTeqOn: 0, uCurveOn: 0, uClarityOn: 0, uTextureOn: 0, uUsmOn: 0 };
+    return { ...base, uCompare: 1, uExposure: 0, uExpBlack: 0, uWbMat: IDENTITY, uWB: [1, 1, 1], uBW: 0, uTeqOn: 0, uCurveOn: 0, uClarityOn: 0, uTextureOn: 0, uUsmOn: 0, uCeOn: 0 };
   }
 
   const s = STOCK[recipe.stock];
@@ -144,6 +144,7 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uTextureOn: recipe.texture !== 0 ? 1 : 0,
     uTextureMix: recipe.texture / 100,
     uUsmOn: recipe.sharpen > 0 ? 1 : 0,
+    uCeOn: recipe.color ? 1 : 0,
     uLl: llParams(recipe.clarity),
     uTeqF0: teq.slice(0, 4),
     uTeqF1: teq.slice(4, 8),
@@ -189,6 +190,7 @@ export function needsPasses(u: Uniforms) {
     clarity: u.uCompare !== 1 && u.uClarityOn === 1,
     texture: u.uCompare !== 1 && u.uTextureOn === 1,
     usm: u.uCompare !== 1 && u.uUsmOn === 1,
+    colorEq: u.uCompare !== 1 && u.uCeOn === 1,
   };
 }
 

@@ -172,6 +172,30 @@ export class Gpu {
     return { tex, fbo, w, h, hdr };
   }
 
+  /**
+   * A target that draws into `a` and `b` at once (outputs 0 and 1 of the
+   * fragment shader); free it with freePair, which leaves `a` and `b` alone.
+   */
+  pair(a: Target, b: Target): Target {
+    const gl = this.gl;
+    const fbo = gl.createFramebuffer()!;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, a.tex, 0);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT1, gl.TEXTURE_2D, b.tex, 0);
+    gl.drawBuffers([gl.COLOR_ATTACHMENT0, gl.COLOR_ATTACHMENT1]);
+    const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    if (!ok) {
+      gl.deleteFramebuffer(fbo);
+      throw new GpuError('Could not pair two render targets');
+    }
+    return { ...a, fbo };
+  }
+
+  freePair(p: Target) {
+    this.gl.deleteFramebuffer(p.fbo);
+  }
+
   free(t: Target) {
     this.gl.deleteTexture(t.tex);
     this.gl.deleteFramebuffer(t.fbo);

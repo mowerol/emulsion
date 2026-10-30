@@ -2,13 +2,14 @@
 // The lab order: what this frame is developed with.
 
 import { Fragment, memo, useEffect, useRef, useState } from 'react';
-import { DEFAULT_STOCK, PUSHES, SLIDERS, defaultRecipe, resetAdjustments, resetSection, sectionChanged, sliderDefault, withSettingsFrom, withStock, type Push, type Recipe, type SectionId, type SliderDef } from '../film/recipe';
+import { BRIGHT_RANGE, COLOR_CHANNELS, DEFAULT_STOCK, HUE_DEGREES, SAT_RANGE, PUSHES, SLIDERS, defaultRecipe, tidyColor, type ColorAdjust, resetAdjustments, resetSection, sectionChanged, sliderDefault, withSettingsFrom, withStock, type Push, type Recipe, type SectionId, type SliderDef } from '../film/recipe';
 import { SCANNER, SCANNERS, type ScannerId } from '../film/scanners';
 import { STOCK, STOCKS, type StockId } from '../film/stocks';
 import {
   activePhoto, copySettings, editActive, editRecipes, finishCrop, pasteSettings, redo, setCropDraft, showToast, startCrop, targets, undo, useApp, type Photo,
 } from '../library/store';
 import { offscreenEngine, sourceFromBlob, thumbs } from '../library/thumbs';
+import type { Source } from '../engine/engine';
 import { MOD, MarkControls, Segmented } from './common';
 import { ASPECTS, FULL, MAX_ANGLE, framePixels, pixelRatio, rotateFrame, setAngle, setAspect, type AspectId, type Crop } from '../film/crop';
 import { Histogram } from './Histogram';
@@ -16,6 +17,7 @@ import { CurveEditor } from './CurveEditor';
 import { Section } from './Section';
 import { ISOS, isoPreset, matchingIso } from '../engine/grain';
 import { WhiteBalanceControls } from './WhiteBalanceControls';
+import { sliderGradient } from '../engine/colorequal';
 
 function summary(r: Recipe | null) {
   if (!r) return 'Neutral, unedited';
@@ -32,33 +34,52 @@ const StockPicker = memo(function StockPicker({ photo, current, onPick }: { phot
   const seed = photo?.seed ?? 0;
   const white = photo?.white ?? null;
 
+  // The decoded photo, kept while the frame and its white point stay the same.
+  const decoded = useRef<{ key: string; src: Source; w: number; h: number } | null>(null);
+  useEffect(
+    () => () => {
+      if (decoded.current) offscreenEngine()?.release(decoded.current.src);
+      decoded.current = null;
+    },
+    [],
+  );
+
   useEffect(() => {
     if (!path) return;
     let cancelled = false;
     const timer = setTimeout(async () => {
       const eng = offscreenEngine();
       if (!eng) return;
-      let orig;
-      try {
-        orig = await thumbs.original(path);
-      } catch {
-        return;
-      }
-      if (cancelled) return;
-      const { src, w: sw, h: sh } = await sourceFromBlob(eng, orig.blob, white);
-      const [w, h] = framePixels(recipe?.crop ?? null, sw, sh);
-      try {
-        for (const s of STOCKS) {
-          const c = canvases.current[s.id];
-          if (!c || cancelled) continue;
-          const cw = 192;
-          const ch = Math.max(1, Math.round((cw * h) / w));
-          if (c.width !== cw) c.width = cw;
-          if (c.height !== ch) c.height = ch;
-          eng.renderToCanvas(src, withStock(recipe, s.id), c, seed);
+      const key = `${path}|${white}`;
+      if (decoded.current?.key !== key) {
+        let orig;
+        try {
+          orig = await thumbs.original(path);
+        } catch {
+          return;
         }
-      } finally {
-        eng.release(src);
+        if (cancelled) return;
+        const made = await sourceFromBlob(eng, orig.blob, white);
+        if (cancelled) {
+          eng.release(made.src);
+          return;
+        }
+        if (decoded.current) eng.release(decoded.current.src);
+        decoded.current = { key, ...made };
+      }
+      const { src, w: sw, h: sh } = decoded.current;
+      const [w, h] = framePixels(recipe?.crop ?? null, sw, sh);
+      for (const s of STOCKS) {
+        const c = canvases.current[s.id];
+        if (cancelled) return;
+        if (!c) continue;
+        const cw = 192;
+        const ch = Math.max(1, Math.round((cw * h) / w));
+        if (c.width !== cw) c.width = cw;
+        if (c.height !== ch) c.height = ch;
+        eng.renderToCanvas(src, withStock(recipe, s.id), c, seed);
+        // Let input through between tiles, so a slider stays responsive while they redraw.
+        await new Promise((r) => setTimeout(r, 0));
       }
     }, 180);
     return () => {
@@ -106,6 +127,65 @@ function SliderRow({ def, recipe, onChange }: { def: SliderDef; recipe: Recipe |
         {tick !== null && <span className="tick" style={{ ['--t' as string]: tick }} />}
       </div>
     </div>
+  );
+}
+
+/** The eight colours of darktable's color equalizer, with a swatch to recognise each. */
+const COLOR_NODES = [
+  { name: 'Red', swatch: '#d9534f' },
+  { name: 'Orange', swatch: '#e8923a' },
+  { name: 'Yellow', swatch: '#e3c84a' },
+  { name: 'Green', swatch: '#5fae5a' },
+  { name: 'Cyan', swatch: '#4fb6c2' },
+  { name: 'Blue', swatch: '#4f78d6' },
+  { name: 'Lavender', swatch: '#8f6fd8' },
+  { name: 'Magenta', swatch: '#c95bb4' },
+];
+
+/** darktable's slider gradients, as CSS, made once per channel and colour. */
+const gradients = new Map<string, string>();
+const trackFor = (channel: 'hue' | 'sat' | 'bright', node: number) => {
+  const key = `${channel}${node}`;
+  if (!gradients.has(key)) gradients.set(key, `linear-gradient(to right, ${sliderGradient(channel, node, HUE_DEGREES, BRIGHT_RANGE, SAT_RANGE).join(', ')})`);
+  return gradients.get(key)!;
+};
+
+const signed = (v: number, unit: string) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v)}${unit}`;
+
+/** Colour: hue, saturation and brightness for each of the eight colours, one channel at a time. */
+function ColorControls({ recipe }: { recipe: Recipe }) {
+  const [channel, setChannel] = useState<(typeof COLOR_CHANNELS)[number]['key']>('sat');
+  const def = COLOR_CHANNELS.find((c) => c.key === channel)!;
+  const color: ColorAdjust = recipe.color ?? { hue: new Array(8).fill(0), sat: new Array(8).fill(0), bright: new Array(8).fill(0) };
+  const set = (i: number, v: number) =>
+    editActive((r) => {
+      const base = r ?? defaultRecipe();
+      const c = base.color ?? color;
+      const next = { ...c, [channel]: c[channel].map((x, k) => (k === i ? v : x)) };
+      return { ...base, color: tidyColor(next) };
+    });
+  return (
+    <>
+      <Segmented label="Colour channel" options={COLOR_CHANNELS.map((c) => ({ value: c.key, label: c.label }))} value={channel} onChange={setChannel} />
+      <div className="sliders color-sliders">
+        {COLOR_NODES.map((n, i) => {
+          const id = `color-${channel}-${i}`;
+          const v = color[channel][i];
+          return (
+            <div className="slider" key={id} style={{ ['--track' as string]: trackFor(channel, i) }}>
+              <label htmlFor={id} onDoubleClick={() => set(i, 0)} title="Double-click the name or the handle to reset">
+                <span className="color-dot" style={{ background: n.swatch }} />
+                {n.name}
+              </label>
+              <output htmlFor={id}>{signed(v, '')}</output>
+              <div className="track">
+                <input id={id} type="range" min={def.min} max={def.max} step={1} value={v} onChange={(e) => set(i, Number(e.target.value))} onDoubleClick={() => set(i, 0)} />
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </>
   );
 }
 
@@ -311,6 +391,11 @@ export function Panel() {
             {group === 'adjust' && (
               <Section id="curve" title="Tone curve" summary={recipe?.curve ? 'Edited' : 'Straight'} onReset={resetFor('curve', 'Tone curve')}>
                 <CurveEditor curve={base.curve} disabled={false} onChange={(curve) => editActive((r) => ({ ...(r ?? defaultRecipe()), curve }))} />
+              </Section>
+            )}
+            {group === 'adjust' && (
+              <Section id="color" title="Colour" summary={recipe?.color ? 'Edited' : 'As shot'} onReset={resetFor('color', 'Colour')}>
+                <ColorControls recipe={base} />
               </Section>
             )}
           </Fragment>

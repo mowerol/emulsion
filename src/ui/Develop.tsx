@@ -216,17 +216,25 @@ export function Develop() {
   const seed = photo?.seed ?? 0;
   const viewKey = current ? `${current.pxW}x${current.pxH}:${current.view.x},${current.view.y},${current.view.w},${current.view.h}` : '';
   useEffect(() => {
-    const id = requestAnimationFrame(() => {
+    // Wait for the GPU to finish the previous frame, then draw the latest state: while dragging,
+    // frames are skipped rather than queued, so the photo keeps up with the slider.
+    let id = 0;
+    const tick = () => {
       const engine = engineRef.current;
       const l = loadedRef.current;
       const canvas = canvasRef.current;
       if (!engine || !l || !canvas || l.path !== path || !canvas.width || !current) return;
+      if (!engine.idle()) {
+        id = requestAnimationFrame(tick);
+        return;
+      }
       try {
         engine.render(l.source, recipe, { target: 'screen', width: canvas.width, height: canvas.height, seed, compare, view: current.view, clipping, split, frame, outside: rgb(stage.hex), sharpenMask });
       } catch (err) {
         setError(`Rendering failed. ${String(err)}`);
       }
-    });
+    };
+    id = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recipe, seed, compare, loadedVersion, viewKey, path, clipping, split, JSON.stringify(frame), stage, sharpenMask]);

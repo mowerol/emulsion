@@ -91,6 +91,7 @@ const FIELD_LABELS: Partial<Record<keyof Recipe, string>> = {
   curve: 'Tone curve',
   wb: 'White balance',
   crop: 'Crop',
+  color: 'Colour',
   captureSharpening: 'Capture sharpening',
   sharpen: 'Sharpening',
   sharpenRadius: 'Sharpening radius',

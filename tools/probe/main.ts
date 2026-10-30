@@ -2,7 +2,7 @@
 // Engine probe: renders a synthetic frame through the real engine in any
 // browser and reports pixel values, so stage changes and ports can be checked
 // numerically. See docs/ARCHITECTURE.md, "Testing".
-import { Engine, type Source } from '../../src/engine/engine';
+import { Engine, colorEqParams, type Source } from '../../src/engine/engine';
 import { defaultRecipe, type Recipe } from '../../src/film/recipe';
 import { assemble } from '../../src/engine/glsl';
 import { SHADERS, SHADER_FILES } from '../../src/engine/shaders';
@@ -33,6 +33,7 @@ import { useApp } from '../../src/library/store';
 import { bandFactors, bandGains, correction, luminance, toneEqualize } from '../../src/engine/toneequalizer';
 import { clarityParams, lightness, localLaplacian, withLightness } from '../../src/engine/locallaplacian';
 import { unsharpMask, usmParams } from '../../src/engine/usm';
+import { colorEqualize } from '../../src/engine/colorequal';
 import { equalize, scales } from '../../src/engine/equalizer';
 import { autoContrast, blendMask, deconvolve } from '../../src/engine/capture';
 import { labL, labShiftL } from '../../src/engine/lab';
@@ -341,6 +342,86 @@ function probeUsm(eng: Engine) {
   return cases;
 }
 
+/** Colour: darktable's color equalizer on the GPU against the reference, on a patchwork of colours. */
+function probeColorEq(eng: Engine) {
+  const w = 61, h = 41;
+  const rgb = new Float64Array(w * h * 3);
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+    // Bands of hue across, saturation down, with noise and a grey strip.
+    const hue = (i / w) * 6.283;
+    const s = j < 6 ? 0 : 0.15 + 0.8 * (j / h);
+    const base = 0.05 + 0.3 * (0.5 + 0.5 * Math.sin(i * 0.37 + j * 0.21));
+    const c = [0, 2.094, 4.189].map((o) => base * (1 + s * Math.cos(hue - o)) + 0.002 * Math.sin(i * 7.1 + j * 3.3 + o));
+    rgb.set(c, 3 * (j * w + i));
+  }
+  const cases: Record<string, { worst: number; largestChange: number }> = {};
+  const zero = () => new Array(8).fill(0);
+  for (const [name, color, roi] of [
+    ['redSat', { hue: zero(), sat: [60, 0, 0, 0, 0, 0, 0, 0], bright: zero() }, 1],
+    ['mixed', { hue: [0, 20, 0, -40, 0, 30, 0, 0], sat: [0, -50, 30, 0, 0, 40, 0, -80], bright: [-40, 0, 20, 0, 0, -30, 0, 0] }, 1],
+    ['preview', { hue: [10, 0, 0, 0, 0, 0, 0, 0], sat: [0, 0, 0, 50, 0, 0, 0, 0], bright: [0, 0, 0, 0, -50, 0, 0, 0] }, 0.4],
+  ] as const) {
+    const c = { hue: [...color.hue], sat: [...color.sat], bright: [...color.bright] };
+    const got = eng.probeColorEq(Float32Array.from(rgb), w, h, c, roi);
+    const ref = colorEqualize(rgb, w, h, colorEqParams(c), roi);
+    let worst = 0, big = 0;
+    for (let k = 0; k < rgb.length; k++) {
+      worst = Math.max(worst, Math.abs(got[k] - ref[k]));
+      big = Math.max(big, Math.abs(ref[k] - rgb[k]));
+    }
+    cases[name] = { worst, largestChange: big };
+  }
+  // Every node at rest: darktable's curves ripple slightly, so this is near, not at, the input.
+  const restC = { hue: zero(), sat: zero(), bright: zero() };
+  const restGot = eng.probeColorEq(Float32Array.from(rgb), w, h, restC, 1);
+  const restRef = colorEqualize(rgb, w, h, colorEqParams(restC), 1);
+  cases.rest = { worst: Math.max(...restGot.map((v, k) => Math.abs(v - restRef[k]))), largestChange: Math.max(...restRef.map((v, k) => Math.abs(v - rgb[k]))) };
+  return cases;
+}
+
+/**
+ * Map caching: one engine walks through edits (reusing whole-photo maps where it can); each
+ * result must equal a fresh engine's render of the same recipe.
+ */
+function probeMapCache() {
+  const w = 160, h = 107;
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const x = c.getContext('2d')!;
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+    x.fillStyle = `hsl(${(i * 3 + j) % 360}, ${30 + (j % 50)}%, ${25 + ((i * j) % 50)}%)`;
+    x.fillRect(i, j, 1, 1);
+  }
+  const zero8 = () => new Array(8).fill(0);
+  const base: Recipe = { ...defaultRecipe('portra400'), grain: 0, texture: 30, clarity: 40, sharpen: 30, halation: 20, color: { hue: zero8(), sat: [40, 0, 0, 0, 0, 0, 0, 0], bright: zero8() } };
+  const steps: [string, Recipe][] = [
+    ['base', base],
+    ['colour', { ...base, color: { hue: zero8(), sat: [10, 0, 0, 30, 0, 0, 0, 0], bright: zero8() } }],
+    ['clarity', { ...base, clarity: 70 }],
+    ['sharpen', { ...base, sharpen: 60 }],
+    ['grain', { ...base, grain: 40 }],
+    ['exposure', { ...base, exposure: 0.4 }],
+    ['texture', { ...base, texture: -20 }],
+    ['saturation', { ...base, saturation: 30 }],
+    ['halation', { ...base, halation: 60 }],
+    ['stock', { ...base, stock: 'gold200' }],
+    ['back', base],
+  ];
+  const live = new Engine(document.createElement('canvas'));
+  const lsrc = live.sourceFromImage(c, w, h);
+  const worst: Record<string, number> = {};
+  for (const [name, r] of steps) {
+    const got = live.readPixels(lsrc, r, w, h, 1);
+    const fresh = new Engine(document.createElement('canvas'));
+    const want = fresh.readPixels(fresh.sourceFromImage(c, w, h), r, w, h, 1);
+    let d = 0;
+    for (let k = 0; k < got.length; k++) d = Math.max(d, Math.abs(got[k] - want[k]));
+    worst[name] = d;
+    fresh.dispose();
+  }
+  return worst;
+}
+
 /** Tone equalizer: per pixel, and edge-aware with a known local mean and mean square. */
 function probeToneEqualizer(eng: Engine) {
   const gl = eng.gpu.gl;
@@ -524,6 +605,8 @@ try {
   }
   out.clarity = probeClarity(eng);
   out.usm = probeUsm(eng);
+  out.colorEq = probeColorEq(eng);
+  out.mapCache = probeMapCache();
   out.texture = probeTexture(eng);
   out.capture = probeCapture(eng);
   out.grain = probeGrain(eng);
@@ -551,6 +634,19 @@ try {
       for (let i = 0; i < 4; i++) eng.readPixels(bsrc, { ...look, grain: 0, [key]: key === 'exposure' ? 0.2 + i * 0.1 : 50 + i * 10 }, PW, PH, 1);
       return (performance.now() - t0) / 4;
     };
+    // Colour while dragging red saturation, alone and with Texture and Clarity on (their maps reused or not).
+    const zero8 = () => new Array(8).fill(0);
+    const colorAt = (v: number) => ({ hue: zero8(), sat: [v, 0, 0, 0, 0, 0, 0, 0], bright: zero8() });
+    // As the app's preview of a 24 MP photo: the same texture, standing for a 6000 px wide original.
+    const psrcPreview = { ...bsrc, fullW: 6000, fullH: 4000 };
+    const timeColorDrag = (extra: Partial<Recipe>, src = psrcPreview) => {
+      eng.readPixels(src, { ...look, grain: 0, ...extra, color: colorAt(10) }, PW, PH, 1);
+      const t0 = performance.now();
+      for (let i = 0; i < 4; i++) eng.readPixels(src, { ...look, grain: 0, ...extra, color: colorAt(20 + i * 10) }, PW, PH, 1);
+      return (performance.now() - t0) / 4;
+    };
+    // A render with nothing to remake, for the cost of reading back alone.
+    const timeStill = () => time({ ...look, grain: 0, color: colorAt(30), texture: 30, clarity: 30, sharpen: 20 });
     // Capture sharpening on float sources of preview and full OM-3 size, 20 iterations, radius 0.67.
     const timeCapture = (cw: number, ch: number, iters = 20) => {
       const gl = eng.gpu.gl;
@@ -572,7 +668,7 @@ try {
       eng.dropBuffers(cw, ch);
       return ms;
     };
-    out.timing = { captureFull1Ms: timeCapture(5184, 3888, 1), captureFullMs: timeCapture(5184, 3888), capturePreviewMs: timeCapture(2592, 1944), grainOffMs: time({ ...look, grain: 0 }), grainOnMs: time({ ...look, grain: 50 }), bwMs: time({ ...defaultRecipe('trix400'), grain: 50 }), clarityMs: time({ ...look, grain: 0, clarity: 100 }), textureMs: time({ ...look, grain: 0, texture: 100 }), dragExposureMs: timeDrag('exposure'), dragClarityMs: timeDrag('clarity'), dragTextureMs: timeDrag('texture') };
+    out.timing = { captureFull1Ms: timeCapture(5184, 3888, 1), captureFullMs: timeCapture(5184, 3888), capturePreviewMs: timeCapture(2592, 1944), grainOffMs: time({ ...look, grain: 0 }), grainOnMs: time({ ...look, grain: 50 }), bwMs: time({ ...defaultRecipe('trix400'), grain: 50 }), clarityMs: time({ ...look, grain: 0, clarity: 100 }), textureMs: time({ ...look, grain: 0, texture: 100 }), dragExposureMs: timeDrag('exposure'), dragClarityMs: timeDrag('clarity'), dragTextureMs: timeDrag('texture'), dragColorMs: timeColorDrag({}), dragColorWithDetailMs: timeColorDrag({ texture: 30, clarity: 30, sharpen: 20 }), stillWithDetailMs: timeStill() };
     // A crop of the ramp with Portra 400 grain at 100%, for a look.
     const px = eng.readPixels(bsrc, look, PW, PH, 1);
     // Grain strength: standard deviation of the green channel, grain on minus off, in a midtone strip.
@@ -688,6 +784,9 @@ try {
     setTimeout(() => {
       const panel = host.querySelector('.panel') as HTMLElement | null;
       if (panel) panel.scrollTop = Number(new URLSearchParams(location.search).get('scroll') ?? 900);
+      // ?tab=Hue|Brightness opens that tab of the Colour section.
+      const tab = new URLSearchParams(location.search).get('tab');
+      if (tab) [...host.querySelectorAll('button')].find((b) => b.textContent === tab)?.click();
     }, 300);
   }
   const gl = eng.gpu.gl;
@@ -709,7 +808,7 @@ document.body.append(pre);
 // A real photo through Clarity (or ?slider=texture), for a screenshot: open with
 // ?img=<file URL of a JPEG>. Shows 1:1 crops from the middle at -100, 0 and +100.
 const photoArg = new URLSearchParams(location.search).get('img');
-const photoSlider = (new URLSearchParams(location.search).get('slider') ?? 'clarity') as 'clarity' | 'texture' | 'sharpen';
+const photoSlider = (new URLSearchParams(location.search).get('slider') ?? 'clarity') as 'clarity' | 'texture' | 'sharpen' | 'redsat';
 // Sharpening has no negative side: show none, RawTherapee's default amount, and three times it.
 const photoValues = photoSlider === 'sharpen' ? [0, 20, 60] : [-100, 0, 100];
 if (photoArg) {
@@ -723,7 +822,11 @@ if (photoArg) {
       const peng = new Engine(document.createElement('canvas'));
       const psrc = peng.sourceFromImage(img, pw, ph);
       const gl = peng.gpu.gl;
-      const look = (v: number): Recipe => ({ ...defaultRecipe(), [photoSlider]: v });
+      // redsat: Colour's red saturation at -100, 0 and +100.
+      const look = (v: number): Recipe =>
+        photoSlider === 'redsat'
+          ? { ...defaultRecipe(), color: { hue: new Array(8).fill(0), sat: [v, 0, 0, 0, 0, 0, 0, 0], bright: new Array(8).fill(0) } }
+          : { ...defaultRecipe(), [photoSlider]: v };
       const time = (r: Recipe) => {
         peng.readPixels(psrc, r, pw, ph, 1);
         const t0 = performance.now();

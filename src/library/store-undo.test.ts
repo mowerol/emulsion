@@ -10,7 +10,8 @@ vi.mock('../backend/api', () => ({
   logToTerminal: () => {},
 }));
 
-const { editRecipes, markPhotos, undo, redo, useApp } = await import('./store');
+const { editRecipes, markPhotos, setFilter, undo, redo, useApp } = await import('./store');
+const { NO_FILTER } = await import('./filter');
 const { writeSidecar } = await import('../backend/api');
 const { withStock, defaultRecipe } = await import('../film/recipe');
 
@@ -65,5 +66,16 @@ describe('undo in the store', () => {
     expect(useApp.getState().history.undo).toBe('Remove tag on 2 photos');
     undo();
     expect(useApp.getState().photos.map((p) => p.label)).toEqual(['red', 'red']);
+  });
+
+  it('moves to the first matching photo when a filter hides the active one', () => {
+    useApp.setState((st) => ({ photos: st.photos.map((p, i) => (i === 1 ? { ...p, heart: true } : p)), active: 0, selected: new Set(['a']), filter: NO_FILTER }));
+    setFilter({ heart: true });
+    expect(useApp.getState().active).toBe(1);
+    expect([...useApp.getState().selected]).toEqual(['b']);
+    // With nothing matching, the active photo stays.
+    setFilter({ heart: false, minRating: 5 });
+    expect(useApp.getState().active).toBe(1);
+    setFilter(NO_FILTER);
   });
 });

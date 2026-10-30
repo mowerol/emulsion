@@ -112,4 +112,11 @@ describe('crop in recipes', () => {
     expect(normalizeRecipe({ captureSharpening: 30, sharpening: 60 })!.captureSharpening).toBe(30);
     expect(resetSection({ ...r, sharpen: 40, sharpenRadius: 1.2, clarity: 20 }, 'detail')).toEqual({ ...r, captureSharpening: 0 });
   });
+
+  it('reads Colour from a sidecar, clamping it, and keeps an untouched one as null', () => {
+    const r = normalizeRecipe({ color: { hue: [200, 0, 10], sat: [0, -150, 0, 0, 0, 0, 0, 40], bright: 'x' } })!;
+    expect(r.color).toEqual({ hue: [120, 0, 10, 0, 0, 0, 0, 0], sat: [0, -100, 0, 0, 0, 0, 0, 40], bright: [0, 0, 0, 0, 0, 0, 0, 0] });
+    expect(normalizeRecipe({ color: { hue: [0], sat: [], bright: [] } })!.color).toBeNull();
+    expect(resetSection({ ...r }, 'color').color).toBeNull();
+  });
 });

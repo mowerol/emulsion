@@ -11,6 +11,8 @@ import { Engine, InputMode, type Source } from '../engine/engine';
 
 const THUMB_EDGE = 512;
 const DEVELOPED_EDGE = 384;
+/** How long edits must pause before an edited frame's thumbnail is redeveloped. */
+const SETTLE_MS = 400;
 const FETCH_CONCURRENCY = 4;
 
 let engine: Engine | null | undefined;
@@ -92,12 +94,30 @@ class ThumbStore {
     return p;
   }
 
-  /** Ask for the thumbnails of a frame that is on screen. */
+  /** Pending redevelopments of thumbnails that are being edited, by path. */
+  private settling = new Map<string, ReturnType<typeof setTimeout>>();
+
+  /**
+   * Ask for the thumbnails of a frame that is on screen. A frame that already
+   * has a developed thumbnail is redeveloped once its edits pause, not on every
+   * step of a slider drag, where it would compete with the main render.
+   */
   want(path: string, recipe: Recipe | null, seed: number, white: Xy | null) {
     if (!this.originals.has(path) && !this.failed.has(path)) this.original(path).catch(() => {});
     if (recipe && this.developed.get(path)?.key !== thumbKey(recipe, white)) {
       this.wanted.set(path, { recipe, seed, white });
-      this.pump();
+      if (!this.developed.has(path)) {
+        this.pump();
+        return;
+      }
+      clearTimeout(this.settling.get(path));
+      this.settling.set(
+        path,
+        setTimeout(() => {
+          this.settling.delete(path);
+          this.pump();
+        }, SETTLE_MS),
+      );
     }
   }
 
@@ -106,7 +126,10 @@ class ThumbStore {
     this.developing = true;
     try {
       while (this.wanted.size) {
-        const [path, job] = this.wanted.entries().next().value as [string, { recipe: Recipe | null; seed: number; white: Xy | null }];
+        // Frames still being edited wait for their edits to pause.
+        const next = [...this.wanted.entries()].find(([p]) => !this.settling.has(p));
+        if (!next) break;
+        const [path, job] = next;
         this.wanted.delete(path);
         const key = thumbKey(job.recipe, job.white);
         if (this.developed.get(path)?.key === key) continue;
@@ -145,6 +168,8 @@ class ThumbStore {
     this.originals.clear();
     this.developed.clear();
     this.wanted.clear();
+    for (const t of this.settling.values()) clearTimeout(t);
+    this.settling.clear();
     this.failed.clear();
     this.emit();
   }

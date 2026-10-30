@@ -9,18 +9,20 @@
 import type { Recipe } from '../film/recipe';
 import { FULL, cropAffine, type Rect } from '../film/crop';
 import { Gpu, GpuError, Lru, type Program, type Target } from './gpu';
-import { InputMode, developUniforms, needsPasses, type Uniforms } from './params';
+import { InputMode, colorBalanceUniforms, developUniforms, needsPasses, type Uniforms } from './params';
 import { GLOW_SIGMA, HALATION_SIGMA, blurPlan, pyramidFor, type Pyramid } from './pyramid';
 import { MASK_SIGMA } from './toneequalizer';
 import { GAMMAS, levelSize, numLevels } from './locallaplacian';
 import { scales } from './equalizer';
 import { usmKernel, usmParams, type UsmParams } from './usm';
+import { DEFAULTS as CE, SAT_SHIFT, WHITE, colorEqLuts, pixelUvl, type ColorEqLuts, type ColorEqParams } from './colorequal';
+import { BRIGHT_RANGE, HUE_DEGREES, HUE_MAX, SAT_RANGE, type ColorAdjust } from '../film/recipe';
 import { autoContrast, borderFor, gaussian1d, iterationsFor, kernelFor, TILE } from './capture';
 import { columnMajor } from './color';
 import type { Mat3 } from '../film/stocks';
 import { CURVE_RES, curveTable } from '../film/curve';
 import type { Xy } from './whitebalance';
-import { SHADERS } from './shaders';
+import { SHADERS, SHADER_FILES } from './shaders';
 
 export { GpuError, InputMode };
 
@@ -94,6 +96,22 @@ interface Ll {
   O: Target[];
 }
 
+/** The uniforms a stage file declares, read from its source. */
+const uniformsOf = (file: string) => [...SHADER_FILES[file].matchAll(/uniform\s+\w+\s+(\w+)/g)].map((m) => m[1]);
+
+/**
+ * The uniforms of the stages before each whole-photo map's input, in pipeline
+ * order (see develop.frag), so a map is remade only when something upstream of
+ * it changes. optics.glsl holds both the scanner's sharpness (first) and
+ * halation and glow (later), so it is split by hand.
+ */
+const BEFORE_TEXTURE = ['stages/input.glsl', 'stages/exposure.glsl', 'stages/toneequalizer.glsl'].flatMap(uniformsOf).concat('uSharp', 'uStore');
+const TEXTURE_STAGE = uniformsOf('stages/texture.glsl').concat('uTextureMix');
+const COLOR_STAGE = uniformsOf('stages/colorequal.glsl');
+const BEFORE_CLARITY = ['stages/colorbalance.glsl', 'stages/lens.glsl', 'stages/emulsion.glsl', 'stages/tone.glsl'].flatMap(uniformsOf).concat('uHal', 'uHalCol', 'uGlow', 'uBW');
+const CLARITY_STAGE = uniformsOf('stages/clarity.glsl').concat('uLl');
+const pick = (u: Uniforms, names: string[]) => JSON.stringify(names.map((n) => u[n] ?? null));
+
 export class Engine {
   readonly gpu: Gpu;
   private develop: Program;
@@ -124,6 +142,11 @@ export class Engine {
   /** Sharpening's ping-pong targets for the latest source size, and what its map was made from. */
   private usm: { w: number; h: number; a: Target; b: Target } | null = null;
   private usmMade: { tex: WebGLTexture; key: string; out: Target } | null = null;
+  private ceP: Program;
+  /** The colour equalizer's five 32-bit targets for the latest source size, and what its map was made from. */
+  private ce: { w: number; h: number; t: Target[]; pair: Target } | null = null;
+  private ceMade: { tex: WebGLTexture; key: string; out: Target } | null = null;
+  private ceLuts: { key: string; luts: ColorEqLuts } | null = null;
   private outs: Lru<Target>;
   private store: number;
 
@@ -144,11 +167,28 @@ export class Engine {
     this.eqP = this.gpu.program(SHADERS.vertex, SHADERS.eq);
     this.csP = this.gpu.program(SHADERS.vertex, SHADERS.cs);
     this.usmP = this.gpu.program(SHADERS.vertex, SHADERS.usm);
+    this.ceP = this.gpu.program(SHADERS.vertex, SHADERS.ce);
     // Full-size pyramids are large: keep only the latest two sizes (preview and full resolution).
     this.lls = new Lru<Ll>(2, (l) => [...l.A, ...l.B, ...l.O].forEach((t) => this.gpu.free(t)));
   }
 
   get maxTextureSize() { return this.gpu.maxTextureSize; }
+
+  /** A fence after the last screen render, to tell when the GPU has finished it. */
+  private fence: WebGLSync | null = null;
+
+  /**
+   * Whether the GPU has finished the last screen render. Rendering again before
+   * then only queues more work, so a slider drag falls further and further behind.
+   */
+  idle(): boolean {
+    if (!this.fence) return true;
+    const gl = this.gpu.gl;
+    if (gl.getSyncParameter(this.fence, gl.SYNC_STATUS) !== gl.SIGNALED) return false;
+    gl.deleteSync(this.fence);
+    this.fence = null;
+    return true;
+  }
 
   /** Upload decoded half-float pixels. */
   sourceFromHalf(img: HalfImage): Source {
@@ -453,6 +493,87 @@ export class Engine {
     return b;
   }
 
+  /** The colour equalizer's targets for a w × h source, made on first use (one size at a time). */
+  private ceTargets(w: number, h: number) {
+    if (!this.ce || this.ce.w !== w || this.ce.h !== h) {
+      if (this.ce) {
+        this.gpu.freePair(this.ce.pair);
+        this.ce.t.forEach((t) => this.gpu.free(t));
+      }
+      const t = Array.from({ length: 5 }, () => this.gpu.target(w, h, true, true));
+      // Steps 0 and 4 write targets 1 and 2 together.
+      this.ce = { w, h, t, pair: this.gpu.pair(t[1], t[2]) };
+      this.ceMade = null;
+    }
+    return this.ce.t;
+  }
+
+  /**
+   * darktable's color equalizer over the whole photo: returns the target
+   * holding the finished scene colour of every source pixel. `drawInput`
+   * renders ceAnalyse() of the scene into a target. `roi` is the source's
+   * width over the full-resolution width.
+   */
+  private colorEqMap(w: number, h: number, roi: number, color: ColorAdjust, u: Uniforms, drawInput: (t: Target) => void): Target {
+    const g = this.gpu;
+    const [t0, t1, t2, t3, t4] = this.ceTargets(w, h);
+    const key = JSON.stringify(color);
+    if (this.ceLuts?.key !== key) this.ceLuts = { key, luts: colorEqLuts(colorEqParams(color)) };
+    const luts = this.ceLuts.luts;
+    const k = (sigma: number) => {
+      const kern = sigma < 0.05 ? [1] : gaussian1d(sigma);
+      return { v: [...kern, ...new Array(7 - kern.length).fill(0)], half: (kern.length - 1) / 2 };
+    };
+    const kh = k(Math.max(0.2, 0.5 * CE.chromaSize * roi));
+    const parSigma = Math.max(0.2, 0.5 * CE.paramSize * roi);
+    const kp = k(parSigma);
+    const ks = k(Math.max(0.5, roi));
+    const kb = k(0.1 * parSigma);
+    const brightShift = SAT_SHIFT + 0.01 * luts.maxBrightness * Math.min(5, Math.sqrt(CE.paramSize));
+    const common = {
+      ...u, ...colorBalanceUniforms(), uA: 0, uB: 1, uC: 2, uD: 3,
+      uKh: kh.v, uKhHalf: kh.half, uKp: kp.v, uKpHalf: kp.half, uKs: ks.v, uKsHalf: ks.half, uKb: kb.v, uKbHalf: kb.half,
+      uCeHue: Array.from(luts.hue), uCeSat: Array.from(luts.sat), uCeBright: Array.from(luts.bright),
+      uCeShift: [SAT_SHIFT, brightShift, 4 * Math.sqrt(luts.maxBrightness) * roi * roi, WHITE],
+    };
+    drawInput(t0);
+    const step = (mode: number, to: Target, ...from: Target[]) => {
+      // Every input unit is rebound: a target still bound from an earlier step would make a feedback loop.
+      for (let i = 0; i < 4; i++) g.bind(i, from[i]?.tex ?? g.blackTexture);
+      this.ceP.set({ ...common, uMode: mode });
+      g.draw(this.ceP, to, to.w, to.h);
+    };
+    const both = this.ce!.pair;
+    step(0, both, t0);
+    step(2, t3, t0, t1, t2);
+    step(3, t4, t3);
+    step(4, both, t3, t4);
+    step(6, t0, t3, t4, t1, t2);
+    return t0;
+  }
+
+  /** The colour equalizer alone on scene-linear Rec.2020 pixels, for the probe: the finished colour per pixel. */
+  probeColorEq(rgb: Float32Array, w: number, h: number, color: ColorAdjust, roi = 1): Float32Array {
+    const gl = this.gpu.gl;
+    this.ceMade = null;
+    const u = developUniforms(null, { width: w, height: h, seed: 0, inputMode: InputMode.SceneLinear, store: 1 });
+    const out = this.colorEqMap(w, h, roi, color, u, (t) => {
+      // ceAnalyse on the CPU reference's terms: upload U, V, L*, saturation.
+      const data = new Float32Array(w * h * 4);
+      for (let k = 0; k < w * h; k++) {
+        const q = pixelUvl([rgb[3 * k], rgb[3 * k + 1], rgb[3 * k + 2]]);
+        data.set([q.u, q.v, q.L, q.sat], 4 * k);
+      }
+      this.gpu.scratch();
+      gl.bindTexture(gl.TEXTURE_2D, t.tex);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RGBA, gl.FLOAT, data);
+    });
+    const px = new Float32Array(w * h * 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, out.fbo);
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.FLOAT, px);
+    return Float32Array.from({ length: w * h * 3 }, (_, k) => px[4 * Math.floor(k / 3) + (k % 3)]);
+  }
+
   /** Sharpening alone on a lightness plane (0 to 1), for the probe: change in lightness and mask per pixel. */
   probeUsm(L: Float32Array, w: number, h: number, p: UsmParams, scale = 1): { delta: Float32Array; mask: Float32Array } {
     const gl = this.gpu.gl;
@@ -634,6 +755,8 @@ export class Engine {
     const usmKern = usmKernel(usmP.radius * (src.w / src.fullW));
     const usmOn = passes.usm && g.hdr && g.float32 && usmKern.length > 1;
     if (usmOn) this.usmTargets(src.w, src.h);
+    const ceOn = passes.colorEq && g.hdr && g.float32 && !!recipe?.color;
+    if (ceOn) this.ceTargets(src.w, src.h);
     if (passes.highlights || passes.sharpen) this.chain(src.w, src.h);
     const teqU = { uTeqTex: 4, uTeqLocal: teqLocal ? 1 : 0, uCurveTex: 5 };
 
@@ -665,6 +788,7 @@ export class Engine {
     }
 
     let usm: WebGLTexture = g.blackTexture;
+    let ceTex: WebGLTexture = g.blackTexture;
     const bindDevelop = (clarity: WebGLTexture) => {
       g.bind(0, src.tex);
       g.bind(1, sharp);
@@ -675,29 +799,45 @@ export class Engine {
       g.bind(6, clarity);
       g.bind(8, texture);
       g.bind(9, usm);
+      g.bind(10, ceTex);
     };
     // A pass over the whole source that stops at a filter's input (see uTap in develop.frag).
     const tap = (t: Target, uTap: number, extra: Uniforms) => {
       this.develop.set({
         ...u, ...teqU, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3, uClarityTex: 6, uTextureTex: 8, uUsmTex: 9,
-        uView: [0, 0, 1, 1], uGeoU: [1, 0, 0], uGeoV: [0, 1, 0], uSplit: -1, uClipShow: 0, uUsmOn: 0, uUsmShowMask: 0, uTap, ...extra,
+        uView: [0, 0, 1, 1], uGeoU: [1, 0, 0], uGeoV: [0, 1, 0], uSplit: -1, uClipShow: 0, uUsmOn: 0, uUsmShowMask: 0, uCeTex: 10, uCeOn: ceOn ? 1 : 0, uTap, ...extra,
       });
       g.draw(this.develop, t, t.w, t.h);
     };
     // Each map depends on the photo and everything before it, not on the view or crop.
-    const pipeKey = `${src.w}x${src.h}|${JSON.stringify({ ...recipe, crop: null })}`;
+    // Each map is kept until something upstream of it changes (BEFORE_TEXTURE and on).
+    const textureKey = `${src.w}x${src.h}|${pick(u, BEFORE_TEXTURE)}|${pick(u, TEXTURE_STAGE)}`;
+    const ceKey = `${textureKey}|${pick(u, COLOR_STAGE)}|${JSON.stringify(recipe?.color ?? null)}`;
+    // The vignette reads the frame's aspect.
+    const aspect = ((u.uOut as number[])[0] / (u.uOut as number[])[1]).toFixed(6);
+    const llKey = `${ceKey}|${pick(u, BEFORE_CLARITY)}|${aspect}|${pick(u, CLARITY_STAGE)}`;
+    const usmKey = `${llKey}|${recipe?.sharpen},${recipe?.sharpenRadius},${recipe?.sharpenMasking}`;
     let texture: WebGLTexture = g.blackTexture;
-    if (eqOn && this.eqMade?.tex === src.tex && this.eqMade.key === pipeKey) texture = this.eqMade.out.tex;
+    if (eqOn && this.eqMade?.tex === src.tex && this.eqMade.key === textureKey) texture = this.eqMade.out.tex;
     else if (eqOn) {
       const out = this.textureMap(src, u.uTextureMix as number, (t) => {
         bindDevelop(g.blackTexture);
         tap(t, 2, { uTextureOn: 0, uClarityOn: 0 });
       });
-      this.eqMade = { tex: src.tex, key: pipeKey, out };
+      this.eqMade = { tex: src.tex, key: textureKey, out };
       texture = out.tex;
     }
+    if (ceOn && this.ceMade?.tex === src.tex && this.ceMade.key === ceKey) ceTex = this.ceMade.out.tex;
+    else if (ceOn) {
+      // The equalizer's input: the scene after texture, analysed, at every source pixel.
+      const out = this.colorEqMap(src.w, src.h, src.w / src.fullW, recipe!.color!, u, (t) => {
+        bindDevelop(g.blackTexture);
+        tap(t, 4, { uTextureOn: eqOn ? 1 : 0, uClarityOn: 0, uCeOn: 0 });
+      });
+      this.ceMade = { tex: src.tex, key: ceKey, out };
+      ceTex = out.tex;
+    }
     let clarity: WebGLTexture = g.blackTexture;
-    const llKey = pipeKey;
     if (ll && this.llMade?.tex === src.tex && this.llMade.key === llKey) clarity = ll.O[0].tex;
     else if (ll) {
       // The filter's input: the print's lightness at every source pixel, uncropped.
@@ -707,22 +847,27 @@ export class Engine {
       });
       this.llMade = { tex: src.tex, key: llKey };
     }
-    if (usmOn && this.usmMade?.tex === src.tex && this.usmMade.key === pipeKey) usm = this.usmMade.out.tex;
+    if (usmOn && this.usmMade?.tex === src.tex && this.usmMade.key === usmKey) usm = this.usmMade.out.tex;
     else if (usmOn) {
       // The mask's input: the finished print's lightness at every source pixel, uncropped.
       const out = this.usmMap(src.w, src.h, usmP, usmKern, (t) => {
         bindDevelop(clarity);
         tap(t, 3, { uTextureOn: eqOn ? 1 : 0, uClarityOn: ll ? 1 : 0 });
       });
-      this.usmMade = { tex: src.tex, key: pipeKey, out };
+      this.usmMade = { tex: src.tex, key: usmKey, out };
       usm = out.tex;
     }
     bindDevelop(clarity);
     this.develop.set({
-      ...u, ...teqU, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3, uClarityTex: 6, uTextureTex: 8, uUsmTex: 9, uTap: 0, uClarityOn: ll ? 1 : 0, uTextureOn: eqOn ? 1 : 0,
+      ...u, ...teqU, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3, uClarityTex: 6, uTextureTex: 8, uUsmTex: 9, uCeTex: 10, uCeOn: ceOn ? 1 : 0, uTap: 0, uClarityOn: ll ? 1 : 0, uTextureOn: eqOn ? 1 : 0,
       uUsmOn: usmOn ? 1 : 0, uUsmShowMask: usmOn && opts.sharpenMask ? 1 : 0,
     });
-    if (opts.target === 'screen') g.draw(this.develop, null, opts.width, opts.height, true);
+    if (opts.target === 'screen') {
+      g.draw(this.develop, null, opts.width, opts.height, true);
+      if (this.fence) g.gl.deleteSync(this.fence);
+      this.fence = g.gl.fenceSync(g.gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+      g.gl.flush();
+    }
     else g.draw(this.develop, opts.target, opts.width, opts.height, false);
   }
 
@@ -791,6 +936,9 @@ export class Engine {
     this.outs.clear();
   }
 }
+
+/** A recipe's colour adjustment (percent and degrees) as darktable's color equalizer parameters. */
+export const colorEqParams = (c: ColorAdjust): ColorEqParams => ({ hue: c.hue.map((v) => (v * HUE_DEGREES) / HUE_MAX), sat: c.sat.map((v) => 1 + (SAT_RANGE * v) / 100), bright: c.bright.map((v) => 1 + (BRIGHT_RANGE * v) / 100) });
 
 /** A stable per-photo seed so grain is fixed for each frame. */
 export function seedFor(path: string): number {

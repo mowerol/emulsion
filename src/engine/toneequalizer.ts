@@ -56,7 +56,7 @@ export function bandGains(highlights: number): number[] {
 }
 
 /** Solve the symmetric positive definite system M x = v by Cholesky decomposition. */
-function choleskySolve(M: number[][], v: number[]): number[] | null {
+export function choleskySolve(M: number[][], v: number[]): number[] | null {
   const n = v.length;
   const L = M.map(() => new Array<number>(n).fill(0));
   for (let i = 0; i < n; i++) {

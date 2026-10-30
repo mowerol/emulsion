@@ -8,7 +8,7 @@ import type { Xy } from '../engine/whitebalance';
 import { scanFolder, whitePoints } from '../backend/api';
 import { defaultRecipe, normalizeRecipe, withSettingsFrom, type Recipe } from '../film/recipe';
 import { FULL, isFull, type Crop } from '../film/crop';
-import { NO_FILTER, normalizeFilter, rangeWithin, shownIndices, stepWithin, type Filter } from './filter';
+import { NO_FILTER, normalizeFilter, passes, rangeWithin, shownIndices, stepWithin, type Filter } from './filter';
 import { seedFor } from '../engine/engine';
 import { savePhoto } from './sidecars';
 import { applyMark, describeMark, hasMark, normalizeMarks, type Label, type MarkKey, type Marks } from './marks';
@@ -186,7 +186,9 @@ export async function openFolder(path: string, view: View = 'library') {
       ...normalizeMarks(e.rating, e.label, e.heart),
     }));
     const focus = res.focus ? photos.findIndex((p) => p.path === res.focus) : -1;
-    const active = photos.length ? Math.max(0, focus) : -1;
+    // Without a file to open on, start on the first photo the remembered filter shows.
+    const firstShown = photos.findIndex((p) => passes(p, get().filter));
+    const active = !photos.length ? -1 : focus >= 0 ? focus : Math.max(0, firstShown);
     set({
       folder: { root: res.root, name: res.name, unreadable: res.unreadable },
       photos,
@@ -255,9 +257,21 @@ export function stepToEnd(end: 'first' | 'last') {
   if (list.length) setActive(end === 'first' ? list[0] : list[list.length - 1]);
 }
 
+/**
+ * Change the filter. If the active photo does not match the new filter, the
+ * first photo that does becomes active (and the selection), so a filter never
+ * opens on a frame it hides. Edits made under a filter still keep the photo in
+ * view (see shownIndices) until another is chosen.
+ */
 export function setFilter(change: Partial<Filter>) {
   const filter = { ...get().filter, ...change };
   set({ filter });
+  const { photos, active } = get();
+  const current = photos[active];
+  if (current && !passes(current, filter)) {
+    const first = photos.findIndex((p) => passes(p, filter));
+    if (first >= 0) setActive(first);
+  }
   try {
     localStorage.setItem(FILTER_KEY, JSON.stringify(filter));
   } catch {

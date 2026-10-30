@@ -12,6 +12,7 @@
 #include "stages/toneequalizer.glsl"
 #include "stages/texture.glsl"
 #include "stages/colorbalance.glsl"
+#include "stages/colorequal.glsl"
 #include "stages/lens.glsl"
 #include "stages/emulsion.glsl"
 #include "stages/output.glsl"
@@ -36,7 +37,7 @@ uniform vec3 uGeoV;
 uniform vec3 uOutside;
 // Renders a multi-scale filter's input instead, over the whole source: 1, the print's
 // lightness for clarity (0 to 1); 2, the scene's L* for texture; 3, the print's lightness
-// after clarity and print, for sharpening (0 to 1).
+// after clarity and print, for sharpening (0 to 1); 4, the colour equalizer's analysis (ceAnalyse).
 uniform float uTap;
 // 1 shows Sharpening's contrast mask as grey instead of the photo.
 uniform float uUsmShowMask;
@@ -68,6 +69,11 @@ void main() {
     return;
   }
   x = stageTexture(x, uv);
+  if (uTap > 3.5) {
+    outColor = ceAnalyse(x);
+    return;
+  }
+  x = stageColorEqual(x, uv);
   x = stageColorBalance(x);
   x = stageLens(x, uv);
   x = stageOptics(x, uv);
@@ -79,7 +85,7 @@ void main() {
     return;
   }
   e = stagePrint(stageClarity(e, uv));
-  if (uTap > 2.5) {
+  if (uTap > 2.5 && uTap < 3.5) {
     outColor = vec4(clarityLightness(e), 0.0, 0.0, 1.0);
     return;
   }
