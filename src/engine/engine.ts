@@ -732,6 +732,7 @@ export class Engine {
     u.uGeoU = [a, b, e];
     u.uGeoV = [c, d, f];
     u.uOutside = opts.outside ?? [0, 0, 0];
+    u.uGrainFull = [src.fullW, src.fullH];
     u.uView = [view.x, view.y, view.w, view.h];
     u.uClipShow = opts.clipping ? 1 : 0;
     u.uSplit = opts.split ?? -1;

@@ -18,7 +18,7 @@ Emulsion has two halves. The Rust core (`src-tauri/`) owns the file system: it s
 
 - **Working space:** scene-linear Rec.2020, the same choice darktable makes. Everything up to the tone stage happens in scene light, where light adds and multiplies physically.
 - **Input:** ordinary photos are display-referred, so the input stage expands them into scene light with the inverse of the neutral tone curve. This guarantees that a photo with no look applied (or with Compare held) renders back exactly as it came in. RAW files arrive already scene-linear (input mode 2) and skip the expansion.
-- **Output:** the tone stage produces a display-encoded print in Rec.2020 primaries; the output stage converts it to sRGB. Grain and the scanner then work on the display image, like a real scan.
+- **Output:** the tone stage produces a display-encoded print in Rec.2020 primaries; grain is added to its lightness, then the output stage converts it to sRGB and the scanner works on the display image, like a real scan.
 
 Input modes (`engine/params.ts`, `InputMode`):
 
@@ -47,9 +47,9 @@ Each stage is one GLSL file in `src/engine/shaders/stages/`, included into `deve
 | Emulsion | `emulsion.glsl` | scene | Dye crosstalk; black and white sensitivity | Measured stock data or CLUTs |
 | Clarity | `clarity.glsl` | print | Clarity: darktable's local laplacian filter (its local contrast module's clarity preset) on CIE lightness, from a map the `ll*` passes make over the whole photo; keeps Lab a and b. **Ported from darktable local contrast** | |
 | Sharpening | `usm.glsl` | print | Sharpening, Radius, Masking: RawTherapee's unsharp mask on CIE lightness of the finished print, from a map the `usm` passes make over the whole photo; keeps Lab a and b. Runs after Tone and the print step, before grain. **Ported from RawTherapee sharpening** | |
+| Grain | `grain.glsl` | print | Grain, Size (ISO), Mid-tones: darktable's grain on CIE lightness of the finished print, after Sharpening and before output: three octaves of simplex noise fitted to real grain scans, sized by film speed relative to the frame (pushing doubles the speed per stop), through darktable's paper response so it fades in shadows and highlights; away from 1:1 it averages 21 samples per pixel. **Ported from darktable grain** | |
 | Tone | `tone.glsl` | scene to print | **Ported from darktable sigmoid**: log-logistic curve with hue preservation; stock contrast and push scale its contrast, crossover is a per-channel ratio on top, Whites set the display white and Blacks above zero the display black. Then print saturation and stock black lift | |
 | Output | `output.glsl` | print to display | Rec.2020 to sRGB | Colour-managed output |
-| Grain | `grain.glsl` | display | Film grain from the Boolean model's statistics: each pixel draws its grain count (Poisson) from a smooth field and shows the share it covers. Size and Roughness sliders, ISO presets; see `engine/grain.ts` | |
 | Scanner | `scanner.glsl` | display | Levels, colour cast, contrast and saturation of the scan | |
 | Curve | `curve.glsl` | display | Point curve: master, then red, green and blue, from a 256-step lookup table sampled in `film/curve.ts` (darktable's monotone spline) | |
 | Finish | `finish.glsl` | display | Matte fade and dither | |

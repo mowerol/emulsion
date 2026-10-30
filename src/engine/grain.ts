@@ -1,206 +1,170 @@
+// Copyright (C) 2010-2024 darktable developers.
+// Ported from darktable src/iop/grain.c at commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773
+// (release 5.6.2). Translated from C to TypeScript (and GLSL, in stages/grain.glsl). Changes: the
+// paper response is evaluated directly rather than from its 128 × 128 table (inputs clamped to the
+// table's range); the per-photo offset is Emulsion's seed rather than a hash of the file name modulo
+// the view's width (which moves the grain between views); grain sits on the uncropped frame; Lab is
+// relative to D65; the lightness channel only, darktable's default. The GPU twin works in single
+// precision where darktable uses doubles, which moves its output by about 0.001 at most. Film speed: Size is darktable's
+// coarseness in its own ISO units, and pushing or pulling the film multiplies it by 2^push, as a
+// pushed film looks like a faster one.
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Film grain from the statistics of the Boolean grain model of A. Newson,
-// N. Faraj, B. Galerne and J. Delon, "A Stochastic Film Grain Model for
-// Resolution-Independent Rendering", Computer Graphics Forum 36(8), 2017.
-// Implemented from the paper, not from its code.
 //
-// In the model, developed film is silver grains scattered by a Poisson process
-// at the density that makes them cover a fraction u of the film, the tone.
-// Rather than placing every grain, which takes hundreds of grains per pixel,
-// Emulsion draws the number of grains N in each pixel's footprint directly:
-// N is Poisson with mean m = -ln(1 - u) / k, where k is a grain's area over the
-// footprint's, and the pixel shows 1 - (1 - k)^N. That keeps the model's mean
-// (exactly u) and its variance, (1 - u)^(2 - k) - (1 - u)^2, at a fixed cost.
-// Neighbouring pixels draw their counts from one smooth random field, so grain
-// clumps rather than fizzes.
-//
-// What follows from it, as on film: where the film is thin (u small) the count
-// is a few grains, so the texture is coarse and broken up; where it is dense
-// the count is large and evens out into smooth tone; the fluctuation is
-// largest in the midtones. Emulsion also makes grains larger in thin areas:
-// the larger crystals are the more sensitive, so they are what develops with
-// little light, and underexposed film clumps.
-//
-// Reference implementation of the grain stage (stages/grain.glsl), which uses
-// the same noise and hash.
+// Reference implementation of the grain stage: darktable's grain. Three
+// octaves of simplex noise, weighted to match the power spectrum of real grain
+// scans, at a size set by the film speed and relative to the frame, change
+// lightness through a model of photographic paper's response, so grain is
+// strongest in the midtones and fades in shadows and highlights.
 
-export interface GrainShape {
-  /** Grain area over the pixel footprint's at mid tone; sets how strong grain is. */
-  kappa: number;
-  /** How much larger grains are in thin areas: k × (1 + clump (1 − u)²). */
-  clump: number;
-  /** Size of grain clumps in pixels at the output size. */
-  size: number;
-}
-
-/** Tones are kept off 0 and 1, where the grain count would be zero or infinite. */
-export const U_MIN = 0.0005;
-export const U_MAX = 0.995;
-/** Above this many grains the count is drawn from its normal approximation. */
-export const NORMAL_ABOVE = 24;
-
-export const kappaAt = (g: GrainShape, u: number) => Math.min(0.9, g.kappa * (1 + g.clump * (1 - u) ** 2));
-
-/** Expected grains in a footprint at tone u. */
-export const expectedGrains = (g: GrainShape, u: number) => -Math.log(1 - u) / kappaAt(g, u);
-
-/** Standard normal CDF (Abramowitz and Stegun 26.2.17, error below 1e-7). */
-export function normalCdf(z: number): number {
-  const t = 1 / (1 + 0.2316419 * Math.abs(z));
-  const d = 0.3989422804014327 * Math.exp((-z * z) / 2);
-  const p = d * t * (0.31938153 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))));
-  return z >= 0 ? 1 - p : p;
-}
-
-/** Poisson count with mean m for a standard normal draw z: inverse CDF while small, normal approximation when large. */
-export function grainCount(m: number, z: number): number {
-  if (m > NORMAL_ABOVE) return Math.max(0, m + Math.sqrt(m) * z);
-  const v = normalCdf(z);
-  let p = Math.exp(-m);
-  let s = p;
-  let k = 0;
-  while (v > s && k < 3 * NORMAL_ABOVE) {
-    k++;
-    p *= m / k;
-    s += p;
-  }
-  return k;
-}
-
-/** The tone a pixel shows: tone u with grain, for a standard normal draw z. */
-export function grainTone(u: number, z: number, g: GrainShape): number {
-  const v = Math.min(U_MAX, Math.max(U_MIN, u));
-  const k = kappaAt(g, v);
-  return 1 - Math.exp(grainCount(-Math.log(1 - v) / k, z) * log1m(k));
-}
-
-/**
- * ln(1 - k), by series when k is tiny: at small output sizes a grain is a
- * minute share of a pixel, and 1 - k loses precision in 32-bit floats.
- */
-export const log1m = (k: number) => (k < 1e-3 ? -k * (1 + k * (0.5 + k / 3)) : Math.log(1 - k));
-
-// ---------- The random field, identical to the shader ----------
-
-/** PCG-style 3D hash on 32-bit unsigned integers (Jarzynski and Olano, 2020). */
-export function pcg3(x: number, y: number, z: number): [number, number, number] {
-  let a = (Math.imul(x, 1664525) + 1013904223) >>> 0;
-  let b = (Math.imul(y, 1664525) + 1013904223) >>> 0;
-  let c = (Math.imul(z, 1664525) + 1013904223) >>> 0;
-  a = (a + Math.imul(b, c)) >>> 0;
-  b = (b + Math.imul(c, a)) >>> 0;
-  c = (c + Math.imul(a, b)) >>> 0;
-  a ^= a >>> 16;
-  b ^= b >>> 16;
-  c ^= c >>> 16;
-  a = (a + Math.imul(b, c)) >>> 0;
-  b = (b + Math.imul(c, a)) >>> 0;
-  c = (c + Math.imul(a, b)) >>> 0;
-  return [a, b, c];
-}
-
-const unit = (v: number) => (v >>> 8) / 16777216;
-
-/** Lattice value in [-1, 1) at integer point (x, y) of layer `layer`. */
-const lattice = (x: number, y: number, layer: number) => 2 * unit(pcg3(x >>> 0, y >>> 0, layer >>> 0)[0]) - 1;
-
-/** Smooth value noise in [-1, 1] with a quintic fade. */
-export function valueNoise(x: number, y: number, layer: number): number {
-  const ix = Math.floor(x);
-  const iy = Math.floor(y);
-  const fx = x - ix;
-  const fy = y - iy;
-  const sx = fx * fx * fx * (fx * (fx * 6 - 15) + 10);
-  const sy = fy * fy * fy * (fy * (fy * 6 - 15) + 10);
-  const a = lattice(ix, iy, layer);
-  const b = lattice(ix + 1, iy, layer);
-  const c = lattice(ix, iy + 1, layer);
-  const d = lattice(ix + 1, iy + 1, layer);
-  return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
-}
-
-/** Scale that brings the sum of four value noises to unit variance (measured, see grain.test.ts). */
-export const FIELD_NORM = 1.106;
-
-/**
- * A smooth, close to normal random field: four value noises on offset,
- * rotated lattices, so their sum loses the lattice's squareness and tends to
- * a normal distribution. `size` is the clump size in pixels.
- */
-export function grainField(px: number, py: number, size: number, layer: number): number {
-  const x = px / size;
-  const y = py / size;
-  let s = valueNoise(x, y, layer);
-  s += valueNoise(0.8 * x - 0.6 * y + 17.3, 0.6 * x + 0.8 * y + 41.7, layer + 1);
-  s += valueNoise(-0.6 * x + 0.8 * y + 83.1, -0.8 * x - 0.6 * y + 7.9, layer + 2);
-  s += valueNoise(-0.8 * x - 0.6 * y + 29.5, 0.6 * x - 0.8 * y + 61.2, layer + 3);
-  return s * FIELD_NORM;
-}
-
-/**
- * One display pixel through the stage (display-encoded RGB in [0, 1]): the
- * shader's stageGrain. Black and white uses one layer; colour draws each dye
- * layer's count from a mix of a shared and its own field.
- */
-export function grainPixel(d: [number, number, number], px: number, py: number, g: GrainShape, amount: number, chroma: number, frameSeed: number): [number, number, number] {
-  if (amount <= 0) return d;
-  const seed = (Math.floor(frameSeed * 1000) * 64) >>> 0;
-  const u = d.map((v) => Math.min(1, Math.max(0, v)));
-  const common = grainField(px, py, g.size, seed);
-  if (chroma <= 0) {
-    const n = amount * (grainTone(u[1], common, g) - u[1]);
-    return d.map((v) => v + n) as [number, number, number];
-  }
-  const norm = 1 / Math.sqrt((1 - chroma) ** 2 + chroma ** 2);
-  return d.map((v, c) => {
-    const own = grainField(px, py, g.size, seed + 16 * (c + 1));
-    return v + amount * (grainTone(u[c], ((1 - chroma) * common + chroma * own) * norm, g) - u[c]);
-  }) as [number, number, number];
-}
-
-// ---------- From the recipe ----------
-
-/** Output long edge at which ISO 400 has grain area KAPPA_400 of a pixel's footprint. */
-export const REFERENCE_EDGE = 2560;
-export const KAPPA_400 = 0.005;
-
-/** ISO presets in the grain menu. */
+/** The coarseness slider shows darktable's scale × this, as ISO. */
+export const GRAIN_SCALE_FACTOR = 213.2;
+export const ISO_MIN = 20;
+export const ISO_MAX = 6400;
+/** Film speeds offered as presets. */
 export const ISOS = [50, 100, 200, 400, 800, 1600, 3200] as const;
+const LIGHTNESS_STRENGTH_SCALE = 0.15;
+const LUT_DELTA_MAX = 2;
+const LUT_DELTA_MIN = 0.0001;
+const PAPER_GAMMA = 1;
 
-/**
- * Grain from the Size and Roughness sliders (percent) at an output long edge
- * in pixels. Size sets the clump size, relative to the frame so a preview and a
- * full-size export match. Roughness sets how few, and so how visible, the
- * grains in a footprint are, and how much more they clump in thin areas.
- * A pixel's footprint covers more film at smaller output sizes, so a grain is
- * a smaller share of it (kappa scales with pixel area) and grain averages out,
- * as when a scan is viewed smaller. At the reference size and ISO 400, the
- * midtones vary by about 0.03 (8 levels of 255) at full amount.
- * Pushing acts like faster film and clumps more in the shadows; pulling
- * (overexposed, less developed) gives finer grain, like slower film.
- */
-export function grainShape(size: number, roughness: number, push: number, longEdge: number): GrainShape {
-  const speed = 2 ** push;
-  const r = Math.max(roughness, 0) / 100;
-  return {
-    kappa: Math.min(0.9, KAPPA_400 * (2 * r) ** 1.5 * speed ** 0.6 * (longEdge / REFERENCE_EDGE) ** 2) + 1e-5,
-    clump: 2.4 * r + 0.6 * Math.max(push, 0),
-    size: 1.4 * (size / 100) * speed ** 0.3 * (longEdge / 1600),
-  };
+// prettier-ignore
+export const PERMUTATION = [
+  151, 160, 137, 91, 90, 15, 131, 13, 201, 95, 96, 53, 194, 233, 7, 225, 140, 36, 103, 30, 69, 142, 8, 99, 37, 240, 21, 10, 23, 190, 6, 148,
+  247, 120, 234, 75, 0, 26, 197, 62, 94, 252, 219, 203, 117, 35, 11, 32, 57, 177, 33, 88, 237, 149, 56, 87, 174, 20, 125, 136, 171, 168, 68, 175,
+  74, 165, 71, 134, 139, 48, 27, 166, 77, 146, 158, 231, 83, 111, 229, 122, 60, 211, 133, 230, 220, 105, 92, 41, 55, 46, 245, 40, 244, 102, 143, 54,
+  65, 25, 63, 161, 1, 216, 80, 73, 209, 76, 132, 187, 208, 89, 18, 169, 200, 196, 135, 130, 116, 188, 159, 86, 164, 100, 109, 198, 173, 186, 3, 64,
+  52, 217, 226, 250, 124, 123, 5, 202, 38, 147, 118, 126, 255, 82, 85, 212, 207, 206, 59, 227, 47, 16, 58, 17, 182, 189, 28, 42, 223, 183, 170, 213,
+  119, 248, 152, 2, 44, 154, 163, 70, 221, 153, 101, 155, 167, 43, 172, 9, 129, 22, 39, 253, 19, 98, 108, 110, 79, 113, 224, 232, 178, 185, 112, 104,
+  218, 246, 97, 228, 251, 34, 242, 193, 238, 210, 144, 12, 191, 179, 162, 241, 81, 51, 145, 235, 249, 14, 239, 107, 49, 192, 214, 31, 181, 199, 106, 157,
+  184, 84, 204, 176, 115, 121, 50, 45, 127, 4, 150, 254, 138, 236, 205, 93, 222, 114, 67, 29, 24, 72, 243, 141, 128, 195, 78, 66, 215, 61, 156, 180,
+];
+const GRAD3 = [
+  [1, 1, 0], [-1, 1, 0], [1, -1, 0], [-1, -1, 0], [1, 0, 1], [-1, 0, 1],
+  [1, 0, -1], [-1, 0, -1], [0, 1, 1], [0, -1, 1], [0, 1, -1], [0, -1, -1],
+];
+const perm = (i: number) => PERMUTATION[i & 255];
+const permMod = (i: number) => perm(i) % 12;
+const fastFloor = (x: number) => (x > 0 ? Math.trunc(x) : Math.trunc(x) - 1);
+
+/** _simplex_noise: 3D simplex noise, just inside [-1, 1]. */
+export function simplexNoise(xin: number, yin: number, zin: number): number {
+  const F3 = 1 / 3;
+  const s = (xin + yin + zin) * F3;
+  const i = fastFloor(xin + s);
+  const j = fastFloor(yin + s);
+  const k = fastFloor(zin + s);
+  const G3 = 1 / 6;
+  const t = (i + j + k) * G3;
+  const x0 = xin - (i - t);
+  const y0 = yin - (j - t);
+  const z0 = zin - (k - t);
+  let i1, j1, k1, i2, j2, k2;
+  if (x0 >= y0) {
+    if (y0 >= z0) [i1, j1, k1, i2, j2, k2] = [1, 0, 0, 1, 1, 0];
+    else if (x0 >= z0) [i1, j1, k1, i2, j2, k2] = [1, 0, 0, 1, 0, 1];
+    else [i1, j1, k1, i2, j2, k2] = [0, 0, 1, 1, 0, 1];
+  } else {
+    if (y0 < z0) [i1, j1, k1, i2, j2, k2] = [0, 0, 1, 0, 1, 1];
+    else if (x0 < z0) [i1, j1, k1, i2, j2, k2] = [0, 1, 0, 0, 1, 1];
+    else [i1, j1, k1, i2, j2, k2] = [0, 1, 0, 1, 1, 0];
+  }
+  const corners = [
+    [x0, y0, z0],
+    [x0 - i1 + G3, y0 - j1 + G3, z0 - k1 + G3],
+    [x0 - i2 + 2 * G3, y0 - j2 + 2 * G3, z0 - k2 + 2 * G3],
+    [x0 - 1 + 3 * G3, y0 - 1 + 3 * G3, z0 - 1 + 3 * G3],
+  ];
+  const ii = i & 255;
+  const jj = j & 255;
+  const kk = k & 255;
+  const gi = [
+    permMod(ii + perm(jj + perm(kk))),
+    permMod(ii + i1 + perm(jj + j1 + perm(kk + k1))),
+    permMod(ii + i2 + perm(jj + j2 + perm(kk + k2))),
+    permMod(ii + 1 + perm(jj + 1 + perm(kk + 1))),
+  ];
+  let n = 0;
+  corners.forEach(([x, y, z], c) => {
+    let tt = 0.6 - x * x - y * y - z * z;
+    if (tt < 0) return;
+    tt *= tt;
+    const g = GRAD3[gi[c]];
+    n += tt * tt * (g[0] * x + g[1] * y + g[2] * z);
+  });
+  return 32 * n;
+}
+
+/** _simplex_2d_noise: three octaves, "parametrized to match the power spectrum of real grain scans". */
+export function grainNoise(x: number, y: number, zoom: number): number {
+  const f = [0.491, 0.9441, 1.728];
+  const a = [0.234, 0.785, 1.215];
+  let total = 0;
+  for (let o = 0; o < 3; o++) total += simplexNoise((x * f[o]) / zoom, (y * f[o]) / zoom, o) * a[o];
+  return total;
+}
+
+const deltaFor = (mb: number) => LUT_DELTA_MAX * Math.exp((mb / 100) * Math.log(LUT_DELTA_MIN));
+
+/** paper_resp: density of photographic paper for an exposure (0 to 1), with mid-tones bias mb. */
+export function paperResp(exposure: number, mb: number, gp = PAPER_GAMMA): number {
+  const d = deltaFor(mb);
+  return (1 + 2 * d) / (1 + Math.exp((4 * gp * (0.5 - exposure)) / (1 + 2 * d))) - d;
+}
+
+/** paper_resp_inverse */
+export function paperRespInverse(density: number, mb: number, gp = PAPER_GAMMA): number {
+  const d = deltaFor(mb);
+  return (-Math.log((1 + 2 * d) / (density + d) - 1) * (1 + 2 * d)) / (4 * gp) + 0.5;
 }
 
 /**
- * Size and Roughness for a film speed. Faster film has larger crystals: fewer
- * per footprint (rougher) in larger clumps. ISO 400 is 100% size, 50% roughness.
+ * The change in L* (0 to 100) for grain gu at lightness l (0 to 1): what
+ * evaluate_grain_lut tabulates, with gu and l clamped to the table's range.
  */
-export function isoPreset(iso: number): { size: number; roughness: number } {
-  const r = iso / 400;
-  return { size: Math.round(100 * r ** 0.3), roughness: Math.min(100, Math.round(50 * r ** 0.4)) };
+export function grainDelta(gu: number, l: number, mb: number): number {
+  const g = Math.min(Math.max(gu, -0.5), 0.5);
+  const ll = Math.min(Math.max(l, 0), 1);
+  return 100 * (paperResp(g + paperRespInverse(ll, mb), mb) - ll);
 }
 
-/** The ISO preset these sliders match, if any. */
-export const matchingIso = (size: number, roughness: number, isos: readonly number[]) =>
-  isos.find((iso) => {
-    const p = isoPreset(iso);
-    return p.size === size && p.roughness === roughness;
-  }) ?? null;
+/** The noise zoom for a film speed: darktable's (1 + 8 scale / 100) / 800 with scale = ISO / 213.2. */
+export const zoomForIso = (iso: number) => (1 + (8 * (iso / GRAIN_SCALE_FACTOR)) / 100) / 800;
+
+/** The film speed the grain is drawn at: Size, pushed or pulled. */
+export const effectiveIso = (iso: number, push: number) => Math.min(ISO_MAX, Math.max(ISO_MIN, iso * 2 ** push));
+
+export interface GrainParams {
+  /** darktable's strength, 0 to 100. */
+  strength: number;
+  /** darktable's coarseness, in ISO. */
+  iso: number;
+  /** darktable's mid-tones bias, 0 to 100. */
+  midtones: number;
+  /** The per-photo offset of the noise, in units of the frame's shorter side. */
+  offset: number;
+}
+
+/**
+ * New L* (0 to 100) at a point of the frame: (x, y) in full-resolution pixels,
+ * on a frame `fullW` × `fullH` shown at `scale` output pixels per full pixel.
+ * Below or above 1:1 it averages 21 samples over the output pixel (rank-1 lattice).
+ */
+export function grainL(L: number, x: number, y: number, fullW: number, fullH: number, scale: number, p: GrainParams): number {
+  const wd = Math.min(fullW, fullH);
+  const nx = x / wd;
+  const ny = y / wd;
+  const zoom = zoomForIso(p.iso);
+  let noise = 0;
+  if (Math.abs(scale - 1) > 0.01) {
+    const fib1 = 34;
+    const fib2 = 21;
+    const filtermul = 1 / (scale * wd);
+    for (let l = 0; l < fib2; l++) {
+      const px = l / fib2;
+      let py = (l * fib1) / fib2;
+      py -= Math.trunc(py);
+      noise += (1 / fib2) * grainNoise(nx + px * filtermul + p.offset, ny + py * filtermul, zoom);
+    }
+  } else noise = grainNoise(nx + p.offset, ny, zoom);
+  return L + grainDelta(noise * (p.strength / 100) * LIGHTNESS_STRENGTH_SCALE, L / 100, p.midtones);
+}

@@ -77,14 +77,12 @@ Template:
 
 Implemented from the papers, not from code.
 
-### Film grain
-- A. Newson, N. Faraj, B. Galerne and J. Delon, "A Stochastic Film Grain Model for Resolution-Independent Rendering", Computer Graphics Forum 36(8), 2017
-- Used in: `src/engine/grain.ts` and `src/engine/shaders/stages/grain.glsl`
-- Emulsion uses the model's statistics (Poisson grain counts at the density that keeps the mean tone, and the resulting variance) rather than rendering each grain, and makes grains larger in thin areas
-
-### Random hash
-- M. Jarzynski and M. Olano, "Hash Functions for GPU Rendering", Journal of Computer Graphics Techniques 9(3), 2020 (the PCG 3D hash)
-- Used in: `src/engine/grain.ts` and `src/engine/shaders/stages/grain.glsl`
+### Grain, from darktable
+- Upstream: https://github.com/darktable-org/darktable, `src/iop/grain.c`, commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release 5.6.2)
+- Licence: GPL-3.0-or-later
+- Copyright: Copyright (C) 2010-2024 darktable developers.
+- Ported to: `src/engine/grain.ts` (reference) and `src/engine/shaders/stages/grain.glsl`
+- Changes: translated from C to TypeScript and GLSL (single precision on the GPU). The lightness channel only, darktable's default; the paper response evaluated directly rather than from its 128 × 128 table; a per-photo offset from Emulsion's seed rather than a hash of the file name modulo the view width; grain on the uncropped frame; Lab relative to D65. Size is darktable's coarseness in its ISO units, set from the stock's film speed and doubled per stop of push. Replaces Emulsion's earlier grain from the statistics of Newson et al.'s Boolean model
 
 ## Bundled libraries
 

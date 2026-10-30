@@ -7,6 +7,7 @@ import { isScannerId, type ScannerId } from './scanners';
 import { normalizeCurve, type ToneCurve } from './curve';
 import { clampWhiteBalance, type WhiteBalance } from '../engine/whitebalance';
 import { normalizeCrop, type Crop } from './crop';
+import { ISO_MAX, ISO_MIN } from '../engine/grain';
 
 export const RECIPE_VERSION = 1;
 
@@ -38,10 +39,10 @@ export interface Recipe {
   glow: number;
   vignette: number;
   grain: number;
-  /** Grain clump size, percent; the stock's ISO preset by default. */
-  grainSize: number;
-  /** Grain roughness, percent; the stock's ISO preset by default. */
-  grainRough: number;
+  /** Grain size: darktable's coarseness, in its ISO units; the stock's film speed by default. */
+  grainIso: number;
+  /** darktable's grain mid-tones bias, 0 to 100: how much grain falls off in shadows and highlights. */
+  grainMidtones: number;
   /** Point curve on the final display image; null is a straight line. */
   curve: ToneCurve | null;
   /** White balance; null keeps the as-shot white. */
@@ -105,7 +106,11 @@ export interface SliderDef {
   max: number;
   step: number;
   /** When set, the default comes from the stock rather than zero. */
-  stockKey?: 'halation' | 'grain' | 'grainSize' | 'grainRough';
+  stockKey?: 'halation' | 'grain' | 'grainIso';
+  /** Drawn on a logarithmic scale (film speeds). */
+  log?: boolean;
+  /** What the slider does, shown on hover. */
+  hint?: string;
   /** The default when it is not zero and not the stock's. */
   default?: number;
   format?: (v: number) => string;
@@ -135,8 +140,8 @@ export const SLIDERS: SliderDef[] = [
   { key: 'glow', label: 'Glow', group: 'optics', min: 0, max: 100, step: 1 },
   { key: 'vignette', label: 'Vignette', group: 'optics', min: 0, max: 100, step: 1 },
   { key: 'grain', label: 'Amount', group: 'grain', min: 0, max: 100, step: 1, stockKey: 'grain' },
-  { key: 'grainSize', label: 'Size', group: 'grain', min: 50, max: 200, step: 1, stockKey: 'grainSize', format: (v) => `${v}%` },
-  { key: 'grainRough', label: 'Roughness', group: 'grain', min: 0, max: 100, step: 1, stockKey: 'grainRough' },
+  { key: 'grainIso', label: 'Size', group: 'grain', min: ISO_MIN, max: ISO_MAX, step: 1, stockKey: 'grainIso', log: true, hint: 'The grain size, as the ISO of the film.', format: (v) => `ISO ${Math.round(v)}` },
+  { key: 'grainMidtones', label: 'Mid-tones', group: 'grain', min: 0, max: 100, step: 1, default: 100, hint: 'How much the grain fades in shadows and highlights, as on a photographic print. At 0 it is even across every tone.', format: (v) => `${v}%` },
 ];
 
 export const SLIDER: Record<SliderKey, SliderDef> = Object.fromEntries(SLIDERS.map((s) => [s.key, s])) as Record<SliderKey, SliderDef>;
@@ -181,8 +186,8 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
     glow: 0,
     vignette: 0,
     grain: s.grain,
-    grainSize: s.grainSize,
-    grainRough: s.grainRough,
+    grainIso: s.grainIso,
+    grainMidtones: 100,
     curve: null,
     wb: null,
     crop: null,
@@ -190,11 +195,15 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
   };
 }
 
-/** Switch stock, resetting the sliders whose defaults belong to the stock. */
+/**
+ * Switch stock. Grain size follows the new stock's film speed; the
+ * Grain amount and Halation stay as they are, since every stock starts them at 0
+ * and resetting them would wipe the photo's grain on each change of stock.
+ */
 export function withStock(recipe: Recipe | null, stock: StockId): Recipe {
   if (!recipe) return defaultRecipe(stock);
   const s = STOCK[stock];
-  return { ...recipe, stock, halation: s.halation, grain: s.grain, grainSize: s.grainSize, grainRough: s.grainRough };
+  return { ...recipe, stock, grainIso: s.grainIso };
 }
 
 /** Reset the sliders, keeping stock, development, scanner and crop. */

@@ -45,10 +45,10 @@ describe('develop uniforms', () => {
     expect(c(at(1))).toBeGreaterThan(c(at(0)));
     expect(c(at(2))).toBeGreaterThan(c(at(1)));
     expect(c(at(-1))).toBeLessThan(c(at(0)));
-    // Grain strength (kappa) follows the effective film speed.
-    const k = (u: ReturnType<typeof at>) => (u.uGrainA as number[])[0];
-    expect(k(at(2))).toBeGreaterThan(k(at(0)));
-    expect(k(at(-1))).toBeLessThan(k(at(0)));
+    // Grain is drawn at the pushed film speed: coarser when pushed.
+    const zoom = (u: ReturnType<typeof at>) => (u.uGrain as number[])[1];
+    expect(zoom(at(2))).toBeGreaterThan(zoom(at(0)));
+    expect(zoom(at(-1))).toBeLessThan(zoom(at(0)));
   });
 
   it('applies crossover per channel', () => {
@@ -91,10 +91,8 @@ describe('develop uniforms', () => {
     expect(at(0, 50).uSigS).not.toEqual(at(0, 0).uSigS);
   });
 
-  it('turns off colour grain for black and white', () => {
-    const u = developUniforms(defaultRecipe('trix400'), ctx);
-    expect(u.uBW).toBe(1);
-    expect(u.uChroma).toBe(0);
+  it('marks black and white stocks', () => {
+    expect(developUniforms(defaultRecipe('trix400'), ctx).uBW).toBe(1);
   });
 
   it('skips the highlight passes when halation and glow are off', () => {

@@ -22,8 +22,7 @@ import { whiteBalanceMatrix, whiteXy, type Xy } from '../../src/engine/whitebala
 import { mulVec } from '../../src/engine/color';
 import { STOCK } from '../../src/film/stocks';
 import { toneInverse } from '../../src/engine/tone';
-import { grainPixel, grainShape, isoPreset } from '../../src/engine/grain';
-import { GRAIN_FULL } from '../../src/engine/params';
+import { effectiveIso, grainL } from '../../src/engine/grain';
 import { CURVE_RES, curveTable, type ToneCurve } from '../../src/film/curve';
 import '../../src/styles.css';
 import { Filmstrip } from '../../src/ui/Filmstrip';
@@ -140,27 +139,28 @@ function probeTone(eng: Engine) {
   return { tone, roundTrip };
 }
 
-/** Grain stage against the reference, pixel for pixel; also the median error, as counts are whole numbers. */
+/** Grain: darktable's grain on the GPU against the reference, at 1:1 and zoomed out (21-sample averaging). */
 function probeGrain(eng: Engine) {
   const n = 48;
-  const inputs: Vec3[] = Array.from({ length: n }, (_, i) => [i / (n - 1), Math.min(1, (i * 0.37) % 1), 0.02 + (i / (n - 1)) * 0.95] as Vec3);
+  const inputs: Vec3[] = Array.from({ length: n }, (_, i) => [0.05 + (i / (n - 1)) * 0.9, Math.min(1, 0.1 + ((i * 0.37) % 0.8)), 0.02 + (i / (n - 1)) * 0.95] as Vec3);
   const out: Record<string, unknown> = {};
-  for (const [name, stock, chroma] of [['bw', 'trix400', 0], ['colour', 'portra400', 0.3]] as const) {
-    const recipe = { ...defaultRecipe(stock), grain: 50 };
-    const u = developUniforms(recipe, { width: n, height: 1, seed: 7.31, inputMode: InputMode.SceneLinear, store: 1 });
-    const shape = grainShape(isoPreset(400).size, isoPreset(400).roughness, 0, n);
-    const errs: number[] = [];
-    const res = probeStage(eng, ['stages/tone.glsl', 'stages/grain.glsl'], 'stageGrain(c, vUv)', inputs, {
+  const [fullW, fullH] = [3000, 2000];
+  for (const [name, stock, scale, strength] of [['bw', 'trix400', 1, 50], ['colour', 'portra400', 1, 25], ['zoomedOut', 'portra400', 0.25, 60]] as const) {
+    const recipe = { ...defaultRecipe(stock), grain: strength };
+    const seed = 7.31;
+    const u = developUniforms(recipe, { width: n, height: 1, seed, inputMode: InputMode.SceneLinear, store: 1 });
+    const p = { strength, iso: effectiveIso(recipe.grainIso, recipe.push), midtones: recipe.grainMidtones, offset: seed };
+    out[name] = probeStage(eng, ['stages/clarity.glsl', 'stages/grain.glsl'], 'stageGrain(c, vUv)', inputs, {
       [name]: {
-        uniforms: { ...u, uOut: [n, 1], uSeed: 7.31, uChroma: chroma },
+        uniforms: { ...u, uOut: [fullW * scale, 1], uGrainFull: [fullW, fullH] },
         ref: (c: Vec3) => {
           const i = inputs.indexOf(c);
-          return grainPixel(c, i + 0.5, 0.5, shape, recipe.grain / GRAIN_FULL, chroma, 7.31);
+          const L = lightness(c) * 100;
+          const L2 = grainL(L, ((i + 0.5) / n) * fullW, 0.5 * fullH, fullW, fullH, scale, p);
+          return withLightness(c, (L2 - L) / 100);
         },
       },
     });
-    void errs;
-    out[name] = res;
   }
   return out;
 }
@@ -808,9 +808,9 @@ document.body.append(pre);
 // A real photo through Clarity (or ?slider=texture), for a screenshot: open with
 // ?img=<file URL of a JPEG>. Shows 1:1 crops from the middle at -100, 0 and +100.
 const photoArg = new URLSearchParams(location.search).get('img');
-const photoSlider = (new URLSearchParams(location.search).get('slider') ?? 'clarity') as 'clarity' | 'texture' | 'sharpen' | 'redsat';
+const photoSlider = (new URLSearchParams(location.search).get('slider') ?? 'clarity') as 'clarity' | 'texture' | 'sharpen' | 'redsat' | 'grain';
 // Sharpening has no negative side: show none, RawTherapee's default amount, and three times it.
-const photoValues = photoSlider === 'sharpen' ? [0, 20, 60] : [-100, 0, 100];
+const photoValues = photoSlider === 'sharpen' ? [0, 20, 60] : photoSlider === 'grain' ? [0, 25, 60] : [-100, 0, 100];
 if (photoArg) {
   (async () => {
     const res: Record<string, unknown> = {};
@@ -826,7 +826,9 @@ if (photoArg) {
       const look = (v: number): Recipe =>
         photoSlider === 'redsat'
           ? { ...defaultRecipe(), color: { hue: new Array(8).fill(0), sat: [v, 0, 0, 0, 0, 0, 0, 0], bright: new Array(8).fill(0) } }
-          : { ...defaultRecipe(), [photoSlider]: v };
+          : photoSlider === 'grain'
+            ? { ...defaultRecipe('portra400'), grain: v }
+            : { ...defaultRecipe(), [photoSlider]: v };
       const time = (r: Recipe) => {
         peng.readPixels(psrc, r, pw, ph, 1);
         const t0 = performance.now();

@@ -34,11 +34,13 @@ describe('recipes', () => {
     expect(normalizeRecipe({ stock: 'portra400', warmth: 40 })!.wb).toBeNull();
   });
 
-  it('switching stock resets only stock-owned sliders', () => {
-    const r = { ...defaultRecipe('portra400'), exposure: 0.5, halation: 70 };
+  it('switching stock keeps the grain amount and halation, and takes the new film speed', () => {
+    const r = { ...defaultRecipe('portra400'), exposure: 0.5, halation: 70, grain: 40 };
     const s = withStock(r, 'trix400');
     expect(s.exposure).toBe(0.5);
-    expect(s.halation).toBe(STOCK.trix400.halation);
+    expect(s.halation).toBe(70);
+    expect(s.grain).toBe(40);
+    expect(s.grainIso).toBe(STOCK.trix400.iso);
     expect(withStock(null, 'gold200')).toEqual(defaultRecipe('gold200'));
   });
 
@@ -66,7 +68,7 @@ describe('recipes', () => {
   });
 
   it('resets one section to its defaults and leaves the rest', () => {
-    const r = { ...defaultRecipe('cinestill800t'), exposure: 1, wb: { temperature: 4000, tint: 5 }, grain: 60, grainSize: 150, push: 1 as const };
+    const r = { ...defaultRecipe('cinestill800t'), exposure: 1, wb: { temperature: 4000, tint: 5 }, grain: 60, grainIso: 1600, push: 1 as const };
     const a = resetSection(r, 'adjust');
     expect(a.exposure).toBe(0);
     expect(a.wb).toBeNull();
@@ -74,7 +76,7 @@ describe('recipes', () => {
     expect(a.push).toBe(1);
     const g = resetSection(r, 'grain');
     expect(g.grain).toBe(defaultRecipe('cinestill800t').grain);
-    expect(g.grainSize).toBe(defaultRecipe('cinestill800t').grainSize);
+    expect(g.grainIso).toBe(defaultRecipe('cinestill800t').grainIso);
     expect(g.exposure).toBe(1);
     expect(resetSection(r, 'development').push).toBe(0);
     expect(sectionChanged(r, 'adjust')).toBe(true);

@@ -15,7 +15,7 @@ import { ASPECTS, FULL, MAX_ANGLE, framePixels, pixelRatio, rotateFrame, setAngl
 import { Histogram } from './Histogram';
 import { CurveEditor } from './CurveEditor';
 import { Section } from './Section';
-import { ISOS, isoPreset, matchingIso } from '../engine/grain';
+import { ISOS } from '../engine/grain';
 import { WhiteBalanceControls } from './WhiteBalanceControls';
 import { sliderGradient } from '../engine/colorequal';
 
@@ -101,10 +101,16 @@ const StockPicker = memo(function StockPicker({ photo, current, onPick }: { phot
   );
 });
 
+/** A logarithmic slider (film speeds) runs over this many steps. */
+const LOG_STEPS = 1000;
+const toLog = (d: SliderDef, v: number) => Math.round((LOG_STEPS * Math.log(v / d.min)) / Math.log(d.max / d.min));
+/** A position on a logarithmic slider as a value, rounded to whole ISO. */
+const fromLog = (d: SliderDef, p: number) => Math.round(d.min * Math.pow(d.max / d.min, p / LOG_STEPS));
+
 function SliderRow({ def, recipe, onChange }: { def: SliderDef; recipe: Recipe | null; onChange: (key: SliderDef['key'], v: number) => void }) {
   const value = recipe ? recipe[def.key] : sliderDefault(def, DEFAULT_STOCK);
   const fmt = def.format ?? String;
-  const tick = def.stockKey && recipe ? (sliderDefault(def, recipe.stock) - def.min) / (def.max - def.min) : null;
+  const tick = def.stockKey && recipe ? (def.log ? toLog(def, sliderDefault(def, recipe.stock)) / LOG_STEPS : (sliderDefault(def, recipe.stock) - def.min) / (def.max - def.min)) : null;
   const id = `slider-${def.key}`;
   const reset = () => recipe && onChange(def.key, sliderDefault(def, recipe.stock));
   // Masking shows the mask in black and white while ⌥ is held on it, as in Lightroom.
@@ -112,12 +118,20 @@ function SliderRow({ def, recipe, onChange }: { def: SliderDef; recipe: Recipe |
   const mask = (on: boolean) => showsMask && useApp.setState({ sharpenMask: on });
   return (
     <div className="slider">
-      <label htmlFor={id} onDoubleClick={reset} title={showsMask ? 'Hold ⌥ while dragging to see where sharpening reaches (white). Double-click to reset' : 'Double-click the name or the handle to reset'}>
+      <label htmlFor={id} onDoubleClick={reset} title={showsMask ? 'Hold ⌥ while dragging to see where sharpening reaches (white). Double-click to reset' : def.hint ? `${def.hint} Double-click to reset.` : 'Double-click the name or the handle to reset'}>
         {def.label}
       </label>
       <output htmlFor={id}>{fmt(value)}</output>
       <div className="track">
-        <input id={id} type="range" min={def.min} max={def.max} step={def.step} value={value} disabled={!recipe} onChange={(e) => onChange(def.key, Number(e.target.value))}
+        <input
+          id={id}
+          type="range"
+          min={def.log ? 0 : def.min}
+          max={def.log ? LOG_STEPS : def.max}
+          step={def.log ? 1 : def.step}
+          value={def.log ? toLog(def, value) : value}
+          disabled={!recipe}
+          onChange={(e) => onChange(def.key, def.log ? fromLog(def, Number(e.target.value)) : Number(e.target.value))}
           onDoubleClick={reset}
           onPointerDown={(e) => mask(e.altKey)}
           onPointerUp={() => mask(false)}
@@ -193,7 +207,7 @@ function ColorControls({ recipe }: { recipe: Recipe }) {
 function GrainSpeed({ recipe }: { recipe: Recipe | null }) {
   const stockIso = recipe ? STOCK[recipe.stock].iso : null;
   const isos = stockIso && !(ISOS as readonly number[]).includes(stockIso) ? [...ISOS, stockIso].sort((a, b) => a - b) : [...ISOS];
-  const match = recipe ? matchingIso(recipe.grainSize, recipe.grainRough, isos) : null;
+  const match = recipe && isos.includes(recipe.grainIso) ? recipe.grainIso : null;
   return (
     <div className="grain-speed">
       <label htmlFor="grain-iso">Film speed</label>
@@ -202,8 +216,8 @@ function GrainSpeed({ recipe }: { recipe: Recipe | null }) {
         value={match ? String(match) : 'custom'}
         disabled={!recipe}
         onChange={(e) => {
-          const p = isoPreset(Number(e.target.value));
-          editActive((r) => ({ ...(r ?? defaultRecipe()), grainSize: p.size, grainRough: p.roughness }));
+          const iso = Number(e.target.value);
+          editActive((r) => ({ ...(r ?? defaultRecipe()), grainIso: iso }));
         }}
       >
         {isos.map((iso) => (

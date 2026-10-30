@@ -90,9 +90,9 @@ void main() {
     return;
   }
   e = stageUnsharpMask(e, uv);
+  e = stageGrain(e, uv);
   // Display
   vec3 d = stageOutput(e);
-  d = stageGrain(d, uv);
   d = stageScanner(d);
   d = stageCurve(d);
   d = stageFinish(d);
