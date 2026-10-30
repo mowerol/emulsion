@@ -26,9 +26,21 @@ uniform vec4 uView;
 uniform float uClipShow;
 // Split before/after: screen x (0 to 1) left of which the original shows; below 0, off.
 uniform float uSplit;
+// Crop and straighten: the source point under a frame point f is (dot(uGeoU, (f, 1)), dot(uGeoV, (f, 1))).
+uniform vec3 uGeoU;
+uniform vec3 uGeoV;
+// Display colour for frame pixels off the photo (only while cropping).
+uniform vec3 uOutside;
 
 void main() {
-  vec2 uv = clamp(uView.xy + vUv * uView.zw, 0.0, 1.0);
+  vec3 f = vec3(uView.xy + vUv * uView.zw, 1.0);
+  vec2 uv = vec2(dot(uGeoU, f), dot(uGeoV, f));
+  vec2 edge = 0.5 / vec2(textureSize(uSrc, 0));
+  if (any(lessThan(uv, -edge)) || any(greaterThan(uv, 1.0 + edge))) {
+    outColor = vec4(uOutside, 1.0);
+    return;
+  }
+  uv = clamp(uv, 0.0, 1.0);
   vec3 x = stageInput(texture(uSrc, uv));
   if (uCompare > 0.5 || vUv.x < uSplit) {
     outColor = vec4(stageOutput(stageToneNeutral(x)), 1.0);

@@ -5,6 +5,7 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import { thumbnail } from '../backend/api';
 import { recipeKey, type Recipe } from '../film/recipe';
+import { framePixels } from '../film/crop';
 import type { Xy } from '../engine/whitebalance';
 import { Engine } from '../engine/engine';
 
@@ -167,8 +168,9 @@ export async function sourceFromBlob(eng: Engine, blob: Blob, white: Xy | null =
 async function developBlob(blob: Blob, recipe: Recipe | null, seed: number, edge: number, white: Xy | null): Promise<string> {
   const eng = offscreenEngine();
   if (!eng) throw new Error('No GPU');
-  const { src, w, h } = await sourceFromBlob(eng, blob, white);
+  const { src, w: sw, h: sh } = await sourceFromBlob(eng, blob, white);
   try {
+    const [w, h] = framePixels(recipe?.crop ?? null, sw, sh);
     const s = Math.min(1, edge / Math.max(w, h));
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(w * s));

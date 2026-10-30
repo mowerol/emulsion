@@ -7,6 +7,8 @@ import { defaultRecipe, type Recipe } from '../../src/film/recipe';
 import { assemble } from '../../src/engine/glsl';
 import { SHADERS, SHADER_FILES } from '../../src/engine/shaders';
 import { colorBalance, type ColorBalance } from '../../src/engine/colorbalance';
+import { FULL, bounds, framePixels, setAngle, setAspect, sourcePoint, type Crop } from '../../src/film/crop';
+import { CropOverlay } from '../../src/ui/CropOverlay';
 import { developUniforms, InputMode } from '../../src/engine/params';
 import type { Vec3 } from '../../src/film/stocks';
 import { toneRgb } from '../../src/engine/tone';
@@ -347,6 +349,36 @@ try {
     const corner = Array.from(z.slice(0, 3));
     out.zoom = { centre: mid, corner };
   }
+  // Crop and straighten: the original through a rotated crop of a gradient (red across, green down)
+  // shows the source point the reference geometry predicts, and the frame's pixel size follows the crop.
+  {
+    const gw = 600, gh = 400;
+    const gc = document.createElement('canvas');
+    gc.width = gw; gc.height = gh;
+    const gx = gc.getContext('2d')!;
+    const img = gx.createImageData(gw, gh);
+    for (let y = 0; y < gh; y++) for (let x = 0; x < gw; x++) {
+      const i = (y * gw + x) * 4;
+      img.data[i] = Math.round(((x + 0.5) / gw) * 255);
+      img.data[i + 1] = Math.round(((y + 0.5) / gh) * 255);
+      img.data[i + 3] = 255;
+    }
+    gx.putImageData(img, 0, 0);
+    const gsrc = eng.sourceFromImage(gc, gw, gh);
+    const cropped: Crop = { ...setAngle(setAspect(FULL, '1:1', gw, gh), 12, gw, gh) };
+    const recipe: Recipe = { ...defaultRecipe(), crop: cropped };
+    const [fw, fh] = framePixels(cropped, gw, gh);
+    const px = eng.readPixels(gsrc, recipe, fw, fh, 1, true);
+    let worst = 0;
+    for (const [u, v] of [[0.1, 0.1], [0.5, 0.5], [0.9, 0.2], [0.3, 0.85], [0.95, 0.95]]) {
+      const x = Math.floor(u * fw), y = Math.floor(v * fh);
+      const [sx, sy] = sourcePoint(cropped, gw, gh, (x + 0.5) / fw, (y + 0.5) / fh);
+      const got = px.slice((y * fw + x) * 4, (y * fw + x) * 4 + 2);
+      worst = Math.max(worst, Math.abs(got[0] - sx * 255), Math.abs(got[1] - sy * 255));
+    }
+    out.crop = { frame: [fw, fh], squarePixels: Math.abs(fw - fh) <= 1, worstLevels: worst };
+    eng.release(gsrc);
+  }
   out.grain = probeGrain(eng);
   // Speed: a 2560-wide frame with grain on and off.
   {
@@ -402,6 +434,16 @@ try {
   wbHost.style.cssText = 'width:304px;padding:14px 18px;background:#201f1d';
   document.body.prepend(wbHost);
   createRoot(wbHost).render(createElement(WhiteBalanceControls, { recipe: { ...defaultRecipe('portra400'), wb: { temperature: 4300, tint: 12 } }, white: [0.3441, 0.3631] }));
+  // The crop frame over a straightened photo, for a screenshot.
+  {
+    const cw = 360, ch = 240;
+    const draft = setAngle(setAspect(FULL, '4:5', cw * 10, ch * 10), 6, cw * 10, ch * 10);
+    const frame = bounds(6, cw * 10, ch * 10);
+    const cropHost = document.createElement('div');
+    cropHost.style.cssText = `position:fixed;left:560px;top:20px;z-index:9999;width:${Math.round(cw * frame.w)}px;height:${Math.round(ch * frame.h)}px;background:linear-gradient(135deg,#6b5a45,#c8b48f 60%,#3d4b5c)`;
+    document.body.prepend(cropHost);
+    createRoot(cropHost).render(createElement(CropOverlay, { draft, frame, W: cw * 10, H: ch * 10, onChange: () => {} }));
+  }
   // The real editor, for a screenshot.
   const host = document.createElement('div');
   host.style.cssText = 'width:304px;padding:14px 18px;background:#201f1d';

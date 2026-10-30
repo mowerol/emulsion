@@ -2,14 +2,15 @@
 // The lab order: what this frame is developed with.
 
 import { Fragment, memo, useEffect, useRef, useState } from 'react';
-import { DEFAULT_STOCK, PUSHES, SLIDERS, defaultRecipe, resetAdjustments, resetSection, sectionChanged, sliderDefault, withStock, type Push, type Recipe, type SectionId, type SliderDef } from '../film/recipe';
+import { DEFAULT_STOCK, PUSHES, SLIDERS, defaultRecipe, resetAdjustments, resetSection, sectionChanged, sliderDefault, withSettingsFrom, withStock, type Push, type Recipe, type SectionId, type SliderDef } from '../film/recipe';
 import { SCANNER, SCANNERS, type ScannerId } from '../film/scanners';
 import { STOCK, STOCKS, type StockId } from '../film/stocks';
 import {
-  activePhoto, copySettings, editActive, editRecipes, pasteSettings, redo, showToast, targets, undo, useApp, type Photo,
+  activePhoto, copySettings, editActive, editRecipes, finishCrop, pasteSettings, redo, setCropDraft, showToast, startCrop, targets, undo, useApp, type Photo,
 } from '../library/store';
 import { offscreenEngine, sourceFromBlob, thumbs } from '../library/thumbs';
 import { MOD, Segmented } from './common';
+import { ASPECTS, FULL, MAX_ANGLE, framePixels, pixelRatio, rotateFrame, setAngle, setAspect, type AspectId, type Crop } from '../film/crop';
 import { Histogram } from './Histogram';
 import { CurveEditor } from './CurveEditor';
 import { Section } from './Section';
@@ -44,7 +45,8 @@ const StockPicker = memo(function StockPicker({ photo, current, onPick }: { phot
         return;
       }
       if (cancelled) return;
-      const { src, w, h } = await sourceFromBlob(eng, orig.blob, white);
+      const { src, w: sw, h: sh } = await sourceFromBlob(eng, orig.blob, white);
+      const [w, h] = framePixels(recipe?.crop ?? null, sw, sh);
       try {
         for (const s of STOCKS) {
           const c = canvases.current[s.id];
@@ -123,6 +125,70 @@ function GrainSpeed({ recipe }: { recipe: Recipe | null }) {
         {!match && <option value="custom">Custom</option>}
       </select>
     </div>
+  );
+}
+
+const cropSummary = (c: Crop | null) => {
+  if (!c) return 'Whole frame';
+  const aspect = c.aspect === 'free' ? 'Free' : ASPECTS.find((a) => a.id === c.aspect)!.label;
+  return c.angle ? `${aspect}, ${c.angle > 0 ? '+' : '−'}${Math.abs(c.angle).toFixed(1)}°` : aspect;
+};
+
+/** Crop and straighten: a button to start, then the aspect and angle while cropping. */
+function CropControls({ recipe }: { recipe: Recipe | null }) {
+  const edit = useApp((s) => s.cropEdit);
+  const canStart = useApp((s) => s.developSize?.path === activePhoto(s)?.path);
+  if (!edit) {
+    return (
+      <button type="button" className="btn" disabled={!canStart} onClick={startCrop} title="R">
+        {recipe?.crop ? 'Edit crop' : 'Crop and straighten'}
+      </button>
+    );
+  }
+  const { draft, W, H } = edit;
+  const change = (f: (c: Crop) => Crop) => setCropDraft(f);
+  const portrait = pixelRatio(draft, W, H) < 1;
+  return (
+    <>
+      <Segmented<AspectId>
+        label="Aspect ratio"
+        options={ASPECTS.map((a) => ({ value: a.id, label: a.label }))}
+        value={draft.aspect}
+        onChange={(aspect) => change((c) => setAspect(c, aspect, W, H))}
+      />
+      <button type="button" className="btn" onClick={() => change((c) => rotateFrame(c, W, H))} title="X">
+        {portrait ? 'Make landscape' : 'Make portrait'}
+      </button>
+      <div className="slider">
+        <label htmlFor="slider-straighten" onDoubleClick={() => change((c) => setAngle(c, 0, W, H))} title="Double-click to reset">
+          Straighten
+        </label>
+        <output htmlFor="slider-straighten">{`${draft.angle > 0 ? '+' : draft.angle < 0 ? '−' : ''}${Math.abs(draft.angle).toFixed(1)}°`}</output>
+        <div className="track">
+          <input
+            id="slider-straighten"
+            type="range"
+            min={-MAX_ANGLE}
+            max={MAX_ANGLE}
+            step={0.1}
+            value={draft.angle}
+            onChange={(e) => change((c) => setAngle(c, Number(e.target.value), W, H))}
+          />
+        </div>
+      </div>
+      <p className="hint">Drag the corners to resize, inside to move and outside to straighten.</p>
+      <div className="crop-actions">
+        <button type="button" className="btn" onClick={() => change(() => ({ ...FULL, aspect: draft.aspect === 'free' ? 'original' : draft.aspect }))}>
+          Reset
+        </button>
+        <button type="button" className="btn" onClick={() => finishCrop(false)} title="Esc">
+          Cancel
+        </button>
+        <button type="button" className="btn primary" onClick={() => finishCrop(true)} title="Enter">
+          Done
+        </button>
+      </div>
+    </>
   );
 }
 
@@ -210,6 +276,12 @@ export function Panel() {
         <p className="hint">{SCANNER[base.scanner].hint}</p>
       </Section>
 
+      {view === 'develop' && (
+        <Section id="crop" title="Crop" summary={cropSummary(recipe?.crop ?? null)} onReset={resetFor('crop', 'Crop')}>
+          <CropControls recipe={recipe} />
+        </Section>
+      )}
+
       {view === 'develop' ? (
         groups.map(([title, group]) => (
           <Fragment key={group}>
@@ -267,7 +339,7 @@ export function Panel() {
           disabled={!recipe || total < 2}
           onConfirm={() => {
             const r = recipe!;
-            editRecipes(useApp.getState().photos.map((p) => p.path), () => ({ ...r }), `Apply to all ${total} photos`);
+            editRecipes(useApp.getState().photos.map((p) => p.path), (t) => withSettingsFrom(r, t), `Apply to all ${total} photos`);
             showToast(`Applied to all ${total} frames`);
           }}
         />

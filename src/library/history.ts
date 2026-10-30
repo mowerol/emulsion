@@ -89,6 +89,7 @@ const FIELD_LABELS: Partial<Record<keyof Recipe, string>> = {
   scanner: 'Scanner',
   curve: 'Tone curve',
   wb: 'White balance',
+  crop: 'Crop',
   grain: 'Grain amount',
   grainSize: 'Grain size',
   grainRough: 'Grain roughness',

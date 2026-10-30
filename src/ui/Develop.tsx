@@ -5,7 +5,9 @@ import { Engine, type Source } from '../engine/engine';
 import { histogram } from '../engine/histogram';
 import { defaultRecipe } from '../film/recipe';
 import { D65_XY, clampWhiteBalance, neutralizingWhite, temperatureTint } from '../engine/whitebalance';
-import { activePhoto, editActive, setPhotoWhite, showToast, useApp } from '../library/store';
+import { activePhoto, editActive, finishCrop, setCropDraft, setPhotoWhite, showToast, startCrop, useApp } from '../library/store';
+import { FULL, bounds, framePixels, rotateFrame, sourcePoint } from '../film/crop';
+import { CropOverlay } from './CropOverlay';
 import { sourceFromBlob, thumbs } from '../library/thumbs';
 import { Filmstrip } from './Filmstrip';
 import { FIT, imagePoint, label, layout, pan, step, zoomAt, type Layout, type Zoom } from './zoom';
@@ -28,6 +30,8 @@ interface Loaded {
 }
 
 const dpr = () => Math.min(window.devicePixelRatio || 1, 2);
+/** The stage's colour (--stage), shown around the photo while it is straightened. */
+const STAGE: [number, number, number] = [0x2a / 255, 0x29 / 255, 0x26 / 255];
 
 export function Develop() {
   const boxRef = useRef<HTMLDivElement>(null);
@@ -47,9 +51,11 @@ export function Develop() {
   const lastCursor = useRef<[number, number]>([0.5, 0.5]);
 
   const photo = useApp(activePhoto);
-  const held = useApp((s) => s.compare);
-  const compare = held || before === 'full';
-  const split = before === 'split' && !held ? splitAt : undefined;
+  const cropEdit = useApp((s) => (s.cropEdit && s.cropEdit.path === photo?.path ? s.cropEdit : null));
+  const cropping = !!cropEdit;
+  const held = useApp((s) => s.compare) && !cropping;
+  const compare = held || (before === 'full' && !cropping);
+  const split = before === 'split' && !held && !cropping ? splitAt : undefined;
   const picking = useApp((s) => s.picking);
   const clipping = useApp((s) => s.clipping);
   const path = photo?.path;
@@ -138,7 +144,20 @@ export function Develop() {
   const loaded = loadedRef.current;
   const showing = !!loaded && loaded.path === path;
   const src = showing ? loaded!.source : null;
-  const current: Layout | null = src && box.w > 2 && box.h > 2 ? layout(zoom, box.w, box.h, dpr(), src.fullW, src.fullH) : null;
+  const recipe = photo?.recipe ?? null;
+  // What the canvas shows: the crop, or while cropping the whole straightened photo.
+  const frame = cropEdit ? { ...bounds(cropEdit.draft.angle, cropEdit.W, cropEdit.H), angle: cropEdit.draft.angle } : (recipe?.crop ?? FULL);
+  const current: Layout | null =
+    src && box.w > 2 && box.h > 2 ? layout(cropping ? FIT : zoom, box.w, box.h, dpr(), src.fullW * frame.w, src.fullH * frame.h) : null;
+
+  // Tell the store the photo's size, so cropping can start from the panel.
+  useEffect(() => {
+    if (path && src) useApp.setState({ developSize: { path, W: src.fullW, H: src.fullH } });
+  }, [path, src?.fullW, src?.fullH]);
+
+  // A new crop changes what the zoom refers to, so start from the whole frame.
+  const cropKey = JSON.stringify(recipe?.crop ?? null);
+  useEffect(() => setZoom(FIT), [cropKey, cropping]);
 
   // Size the canvas to the layout.
   useLayoutEffect(() => {
@@ -173,7 +192,6 @@ export function Develop() {
   }, [current?.scale, path, loadedVersion]);
 
   // Render whenever anything that affects the frame changes.
-  const recipe = photo?.recipe ?? null;
   const seed = photo?.seed ?? 0;
   const viewKey = current ? `${current.pxW}x${current.pxH}:${current.view.x},${current.view.y},${current.view.w},${current.view.h}` : '';
   useEffect(() => {
@@ -183,14 +201,14 @@ export function Develop() {
       const canvas = canvasRef.current;
       if (!engine || !l || !canvas || l.path !== path || !canvas.width || !current) return;
       try {
-        engine.render(l.source, recipe, { target: 'screen', width: canvas.width, height: canvas.height, seed, compare, view: current.view, clipping, split });
+        engine.render(l.source, recipe, { target: 'screen', width: canvas.width, height: canvas.height, seed, compare, view: current.view, clipping, split, frame, outside: STAGE });
       } catch (err) {
         setError(`Rendering failed. ${String(err)}`);
       }
     });
     return () => cancelAnimationFrame(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recipe, seed, compare, loadedVersion, viewKey, path, clipping, split]);
+  }, [recipe, seed, compare, loadedVersion, viewKey, path, clipping, split, JSON.stringify(frame)]);
 
   // Count the histogram from a small render of the whole frame, once changes settle.
   useEffect(() => {
@@ -198,7 +216,7 @@ export function Develop() {
       const engine = engineRef.current;
       const l = loadedRef.current;
       if (!engine || !l || l.path !== path) return;
-      const { w, h } = l.source;
+      const [w, h] = framePixels(recipe?.crop ?? null, l.source.w, l.source.h);
       const k = HISTOGRAM_EDGE / Math.max(w, h);
       const hw = Math.max(1, Math.round(w * Math.min(1, k)));
       const hh = Math.max(1, Math.round(h * Math.min(1, k)));
@@ -235,6 +253,7 @@ export function Develop() {
     const onWheel = (e: WheelEvent) => {
       if (!current || !src) return;
       e.preventDefault();
+      if (cropping) return;
       if (e.ctrlKey || e.metaKey) {
         const [fx, fy] = fraction(e);
         zoomTo(current.scale * Math.exp(-e.deltaY * 0.01), fx, fy);
@@ -244,7 +263,7 @@ export function Develop() {
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, [current, src, zoom, zoomTo]);
+  }, [current, src, zoom, zoomTo, cropping]);
 
   // Keys: Z toggles fit and 100%, Cmd/Ctrl with = - 0 zoom, J shows clipping.
   useEffect(() => {
@@ -257,6 +276,20 @@ export function Develop() {
       }
       if (!current) return;
       const mod = e.metaKey || e.ctrlKey;
+      // R crops; while cropping, Enter keeps it, Escape throws it away and X turns the frame.
+      if (!mod && !e.altKey && e.key.toLowerCase() === 'r') {
+        if (cropping) finishCrop(true);
+        else startCrop();
+        return;
+      }
+      if (cropping) {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          finishCrop(true);
+        } else if (e.key === 'Escape') finishCrop(false);
+        else if (!mod && !e.altKey && e.key.toLowerCase() === 'x') setCropDraft((c) => rotateFrame(c, cropEdit!.W, cropEdit!.H));
+        return;
+      }
       const fit = layout(FIT, box.w, box.h, dpr(), src!.fullW, src!.fullH).scale;
       if (mod && (e.key === '=' || e.key === '+')) {
         e.preventDefault();
@@ -277,7 +310,7 @@ export function Develop() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [current, src, box.w, box.h, zoom.scale, zoomTo, picking]);
+  }, [current, src, box.w, box.h, zoom.scale, zoomTo, picking, cropping, cropEdit?.W, cropEdit?.H]);
 
   useEffect(() => () => useApp.setState({ picking: false }), [path]);
 
@@ -286,7 +319,8 @@ export function Develop() {
     const engine = engineRef.current;
     const l = loadedRef.current;
     if (!engine || !l || l.path !== path || !current) return;
-    const [u, v] = imagePoint(current.view, fx, fy);
+    const [fu, fv] = imagePoint(current.view, fx, fy);
+    const [u, v] = sourcePoint({ ...FULL, ...frame }, l.source.w, l.source.h, fu, fv);
     const sample = engine.sampleScene(l.source, u, v);
     const w = neutralizingWhite(sample, l.source.white ?? D65_XY);
     useApp.setState({ picking: false });
@@ -299,7 +333,7 @@ export function Develop() {
   };
 
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (e.button !== 0) return;
+    if (e.button !== 0 || cropping) return;
     pointer.current = { x: e.clientX, y: e.clientY, moved: false, id: e.pointerId };
     e.currentTarget.setPointerCapture(e.pointerId);
   };
@@ -329,13 +363,13 @@ export function Develop() {
     else zoomTo(zoom.scale === null ? 1 : null, fx, fy);
   };
 
-  const cursor = picking ? 'crosshair' : panning ? 'grabbing' : zoom.scale === null ? 'zoom-in' : 'grab';
+  const cursor = cropping ? 'default' : picking ? 'crosshair' : panning ? 'grabbing' : zoom.scale === null ? 'zoom-in' : 'grab';
 
   return (
     <section className="develop">
       <div className="stage">
         <div className="stage-box" ref={boxRef}>
-          <div className="view-wrap" style={current ? { width: current.cssW, height: current.cssH } : undefined}>
+          <div className={`view-wrap${cropping ? ' cropping' : ''}`} style={current ? { width: current.cssW, height: current.cssH } : undefined}>
           <canvas
             ref={canvasRef}
             className="view"
@@ -350,15 +384,19 @@ export function Develop() {
             style={{ visibility: showing ? 'visible' : 'hidden', cursor }}
           />
           {split !== undefined && showing && <SplitDivider at={splitAt} onMove={setSplitAt} />}
+          {cropEdit && showing && (
+            <CropOverlay draft={cropEdit.draft} frame={frame} W={cropEdit.W} H={cropEdit.H} onChange={(c) => setCropDraft(() => c)} />
+          )}
           </div>
           {error && <p className="stage-error">{error}</p>}
         </div>
         {compare && <span className="badge">{held ? 'Original' : 'Before'}</span>}
         {clipping && <span className="badge clip-badge">Clipping shown (J)</span>}
+        {cropping && <span className="badge">Cropping: Enter to keep, Esc to cancel, X turns the frame</span>}
         {photo && !showing && !error && <span className="stage-status">Opening {photo.name}</span>}
         {photo && showing && loaded!.res === 'thumb' && <span className="stage-status">Loading preview</span>}
         {photo && showing && loadingFull && <span className="stage-status">Loading full resolution</span>}
-        {current && (
+        {current && !cropping && (
           <div className="zoom-bar" role="group" aria-label="Zoom">
             <button type="button" aria-pressed={before === 'full'} onClick={() => setBefore((b) => (b === 'full' ? 'off' : 'full'))} title={'Show the original (or hold \\)'}>
               Before

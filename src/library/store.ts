@@ -6,7 +6,8 @@ import { create } from 'zustand';
 import type { Histogram } from '../engine/histogram';
 import type { Xy } from '../engine/whitebalance';
 import { scanFolder, whitePoints } from '../backend/api';
-import { normalizeRecipe, type Recipe } from '../film/recipe';
+import { defaultRecipe, normalizeRecipe, withSettingsFrom, type Recipe } from '../film/recipe';
+import { FULL, isFull, type Crop } from '../film/crop';
 import { seedFor } from '../engine/engine';
 import { saveRecipe } from './sidecars';
 import { History, describe, type Change, type Step } from './history';
@@ -57,6 +58,10 @@ interface State {
   clipping: boolean;
   /** Names of the steps undo and redo would apply, if any. */
   history: { undo: string | null; redo: string | null };
+  /** The crop being edited, for the photo at `path` of size W × H; it is saved when cropping ends. */
+  cropEdit: { path: string; draft: Crop; W: number; H: number } | null;
+  /** Size of the photo open in the develop view. */
+  developSize: { path: string; W: number; H: number } | null;
 }
 
 export const useApp = create<State>(() => ({
@@ -75,6 +80,8 @@ export const useApp = create<State>(() => ({
   picking: false,
   clipping: false,
   history: { undo: null, redo: null },
+  cropEdit: null,
+  developSize: null,
 }));
 
 const set = useApp.setState;
@@ -151,15 +158,18 @@ export async function openFolder(path: string, view: View = 'library') {
 }
 
 export function closeFolder() {
+  finishCrop(true);
   set({ folder: null, photos: [], active: -1, selected: new Set(), view: 'welcome' });
 }
 
 export const setView = (view: View) => {
   if (view !== 'welcome' && !get().photos.length) return;
+  if (view !== 'develop') finishCrop(true);
   set({ view });
 };
 
 export function setActive(index: number, mode: 'single' | 'toggle' | 'range' | 'keep' = 'single') {
+  if (index !== get().active) finishCrop(true);
   const { photos, anchor, selected } = get();
   if (index < 0 || index >= photos.length) return;
   const path = photos[index].path;
@@ -245,12 +255,14 @@ function applyStep(step: Step, side: 'before' | 'after', verb: string) {
 }
 
 export function undo() {
+  finishCrop(true);
   const s = history.undo();
   if (s) applyStep(s, 'before', 'Undid');
   else showToast('Nothing to undo');
 }
 
 export function redo() {
+  finishCrop(true);
   const s = history.redo();
   if (s) applyStep(s, 'after', 'Redid');
   else showToast('Nothing to redo');
@@ -273,7 +285,7 @@ export function pasteSettings() {
     return;
   }
   const t = targets();
-  editRecipes(t.map((p) => p.path), () => ({ ...clip }), t.length === 1 ? 'Paste settings' : `Paste settings to ${t.length} photos`);
+  editRecipes(t.map((p) => p.path), (r) => withSettingsFrom(clip, r), t.length === 1 ? 'Paste settings' : `Paste settings to ${t.length} photos`);
   showToast(t.length === 1 ? `Pasted onto ${t[0].name}` : `Pasted onto ${t.length} frames`);
 }
 
@@ -310,4 +322,33 @@ async function loadWhitePoints(root: string, paths: string[]) {
     if (![...byPath.values()].some(Boolean)) continue;
     set({ photos: get().photos.map((p) => (byPath.get(p.path) && !sameWhite(p.white, byPath.get(p.path)!) ? { ...p, white: byPath.get(p.path)! } : p)) });
   }
+}
+
+// ---------- Cropping ----------
+
+/** Start cropping the active photo from its current crop. */
+export function startCrop() {
+  const a = activePhoto();
+  const size = get().developSize;
+  if (!a || get().cropEdit || get().view !== 'develop' || size?.path !== a.path) return;
+  set({ cropEdit: { path: a.path, draft: a.recipe?.crop ?? FULL, W: size.W, H: size.H }, picking: false });
+}
+
+export function setCropDraft(change: (c: Crop) => Crop) {
+  const e = get().cropEdit;
+  if (e) set({ cropEdit: { ...e, draft: change(e.draft) } });
+}
+
+/** Stop cropping, saving the crop as one undoable step, or throwing it away. */
+export function finishCrop(keep: boolean) {
+  const e = get().cropEdit;
+  if (!e) return;
+  set({ cropEdit: null });
+  if (!keep) return;
+  const crop = isFull(e.draft) ? null : e.draft;
+  editRecipes(
+    [e.path],
+    (r) => (JSON.stringify(r?.crop ?? null) === JSON.stringify(crop) ? r : { ...(r ?? defaultRecipe()), crop }),
+    'Crop',
+  );
 }

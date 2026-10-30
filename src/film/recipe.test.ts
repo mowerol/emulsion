@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
-import { SLIDERS, defaultRecipe, normalizeRecipe, recipeKey, resetAdjustments, resetSection, sectionChanged, withStock } from './recipe';
+import { SLIDERS, defaultRecipe, normalizeRecipe, recipeKey, resetAdjustments, resetSection, sectionChanged, withSettingsFrom, withStock } from './recipe';
 import { STOCK, STOCKS } from './stocks';
 import { SCANNERS } from './scanners';
 
@@ -81,5 +81,25 @@ describe('recipes', () => {
     expect(sectionChanged(a, 'adjust')).toBe(false);
     expect(sectionChanged(r, 'curve')).toBe(false);
     expect(sectionChanged(null, 'grain')).toBe(false);
+  });
+});
+
+describe('crop in recipes', () => {
+  const crop = { x: 0.1, y: 0.1, w: 0.6, h: 0.6, angle: 2.5, aspect: '1:1' as const };
+
+  it('reads a crop from a sidecar and keeps it through slider resets', () => {
+    const r = normalizeRecipe({ ...defaultRecipe(), crop })!;
+    expect(r.crop).toEqual(crop);
+    expect(resetAdjustments({ ...r, exposure: 1 }).crop).toEqual(crop);
+    expect(resetSection(r, 'crop').crop).toBeNull();
+    expect(sectionChanged(r, 'crop')).toBe(true);
+    expect(normalizeRecipe({ ...defaultRecipe() })!.crop).toBeNull();
+  });
+
+  it('keeps each frame\'s own crop when settings are pasted', () => {
+    const from = { ...defaultRecipe('portra400'), crop };
+    expect(withSettingsFrom(from, null).crop).toBeNull();
+    const other = { ...defaultRecipe(), crop: { ...crop, x: 0.2 } };
+    expect(withSettingsFrom(from, other)).toEqual({ ...from, crop: other.crop });
   });
 });

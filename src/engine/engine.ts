@@ -7,6 +7,7 @@
 //           └────────────────────────────────────────────── develop ─ output
 
 import type { Recipe } from '../film/recipe';
+import { FULL, cropAffine, type Rect } from '../film/crop';
 import { Gpu, GpuError, Lru, type Program, type Target } from './gpu';
 import { InputMode, developUniforms, needsPasses, type Uniforms } from './params';
 import { GLOW_SIGMA, HALATION_SIGMA, blurPlan, pyramidFor, type Pyramid } from './pyramid';
@@ -227,14 +228,24 @@ export class Engine {
       clipping?: boolean;
       /** Show the original left of this screen x (0 to 1). */
       split?: number;
+      /** Frame to show instead of the recipe's crop: a rectangle of the photo straightened by `angle`. */
+      frame?: Rect & { angle: number };
+      /** Display colour for parts of the frame off the photo. */
+      outside?: [number, number, number];
     },
   ) {
     const g = this.gpu;
     const view = opts.view ?? FULL_VIEW;
-    // Effects sized to the frame (grain, vignette) see the whole image at the zoomed size.
+    const frame = opts.frame ?? recipe?.crop ?? FULL;
+    // Effects that belong to the film (grain, vignette) see the whole uncropped
+    // frame at the size it is shown, so cropping enlarges them as it would a negative.
     const u = developUniforms(recipe, {
-      width: opts.width / view.w, height: opts.height / view.h, seed: opts.seed, inputMode: src.mode, store: this.store, compare: opts.compare, white: src.white,
+      width: opts.width / view.w / frame.w, height: opts.height / view.h / frame.h, seed: opts.seed, inputMode: src.mode, store: this.store, compare: opts.compare, white: src.white,
     });
+    const [a, b, c, d, e, f] = cropAffine({ ...FULL, ...frame }, src.w, src.h);
+    u.uGeoU = [a, b, e];
+    u.uGeoV = [c, d, f];
+    u.uOutside = opts.outside ?? [0, 0, 0];
     u.uView = [view.x, view.y, view.w, view.h];
     u.uClipShow = opts.clipping ? 1 : 0;
     u.uSplit = opts.split ?? -1;
@@ -326,7 +337,7 @@ export class Engine {
     }
   }
 
-  /** Develop into RGBA8 pixels, top row first. */
+  /** Develop into RGBA8 pixels, top row first, at width × height; size it to the recipe's crop (`framePixels`). */
   readPixels(src: Source, recipe: Recipe | null, width: number, height: number, seed: number, compare = false, view?: View, split?: number): Uint8Array<ArrayBuffer> {
     const g = this.gpu;
     const gl = g.gl;

@@ -6,6 +6,7 @@ import { STOCK, isStockId, type StockId } from './stocks';
 import { isScannerId, type ScannerId } from './scanners';
 import { normalizeCurve, type ToneCurve } from './curve';
 import { clampWhiteBalance, type WhiteBalance } from '../engine/whitebalance';
+import { normalizeCrop, type Crop } from './crop';
 
 export const RECIPE_VERSION = 1;
 
@@ -37,9 +38,11 @@ export interface Recipe {
   curve: ToneCurve | null;
   /** White balance; null keeps the as-shot white. */
   wb: WhiteBalance | null;
+  /** Crop and straighten; null is the whole frame. */
+  crop: Crop | null;
 }
 
-export type SliderKey = Exclude<keyof Recipe, 'v' | 'stock' | 'push' | 'scanner' | 'curve' | 'wb'>;
+export type SliderKey = Exclude<keyof Recipe, 'v' | 'stock' | 'push' | 'scanner' | 'curve' | 'wb' | 'crop'>;
 
 export interface SliderDef {
   key: SliderKey;
@@ -115,6 +118,7 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
     grainRough: s.grainRough,
     curve: null,
     wb: null,
+    crop: null,
   };
 }
 
@@ -125,17 +129,24 @@ export function withStock(recipe: Recipe | null, stock: StockId): Recipe {
   return { ...recipe, stock, halation: s.halation, grain: s.grain, grainSize: s.grainSize, grainRough: s.grainRough };
 }
 
-/** Reset the sliders, keeping stock, development and scanner. */
+/** Reset the sliders, keeping stock, development, scanner and crop. */
 export function resetAdjustments(recipe: Recipe): Recipe {
-  return { ...defaultRecipe(recipe.stock, recipe.scanner), push: recipe.push };
+  return { ...defaultRecipe(recipe.stock, recipe.scanner), push: recipe.push, crop: recipe.crop };
 }
 
+/**
+ * Another frame's settings applied to this one. The crop stays this frame's own:
+ * it belongs to the composition, and frames differ in shape.
+ */
+export const withSettingsFrom = (from: Recipe, target: Recipe | null): Recipe => ({ ...from, crop: target?.crop ?? null });
+
 /** Panel sections that can be reset on their own. */
-export type SectionId = 'development' | 'scanner' | 'adjust' | 'curve' | 'optics' | 'grain';
+export type SectionId = 'development' | 'scanner' | 'crop' | 'adjust' | 'curve' | 'optics' | 'grain';
 
 const SECTION_FIELDS: Record<SectionId, (keyof Recipe)[]> = {
   development: ['push'],
   scanner: ['scanner'],
+  crop: ['crop'],
   adjust: ['wb', ...SLIDERS.filter((d) => d.group === 'adjust').map((d) => d.key)],
   curve: ['curve'],
   optics: SLIDERS.filter((d) => d.group === 'optics').map((d) => d.key),
@@ -175,7 +186,7 @@ export function normalizeRecipe(input: unknown): Recipe | null {
   const scanner: ScannerId = isScannerId(o.scanner) ? o.scanner : 'frontier';
   const base = defaultRecipe(stock, scanner);
   const push = typeof o.push === 'number' && [-1, 0, 1, 2].includes(o.push) ? (o.push as Push) : 0;
-  const out: Recipe = { ...base, push, curve: normalizeCurve(o.curve), wb: normalizeWhiteBalance(o.wb) };
+  const out: Recipe = { ...base, push, curve: normalizeCurve(o.curve), wb: normalizeWhiteBalance(o.wb), crop: normalizeCrop(o.crop) };
   for (const def of SLIDERS) {
     const v = o[def.key];
     if (typeof v === 'number' && Number.isFinite(v)) out[def.key] = clamp(v, def.min, def.max);

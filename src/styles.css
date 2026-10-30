@@ -218,6 +218,24 @@ input[type='range']:disabled { opacity: 0.35; cursor: default; }
 .split-label.left { right: 12px; }
 .split-label.right { left: 12px; }
 .view { touch-action: none; }
+.view-wrap.cropping .view { box-shadow: none; }
+.crop { position: absolute; inset: 0; overflow: hidden; touch-action: none; cursor: grab; }
+.crop:active { cursor: grabbing; }
+.crop-box { position: absolute; cursor: move; outline: 1px solid rgba(255, 255, 255, 0.9); box-shadow: 0 0 0 100vmax rgba(20, 19, 17, 0.6); }
+.crop-line { position: absolute; background: rgba(255, 255, 255, 0.35); pointer-events: none; }
+.crop-line.v { top: 0; bottom: 0; width: 1px; }
+.crop-line.h { left: 0; right: 0; height: 1px; }
+.crop-handle { position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; background: var(--fg); border: 1px solid rgba(0, 0, 0, 0.5); border-radius: 2px; }
+.crop-handle.nw { left: 0; top: 0; cursor: nwse-resize; }
+.crop-handle.n { left: 50%; top: 0; cursor: ns-resize; }
+.crop-handle.ne { left: 100%; top: 0; cursor: nesw-resize; }
+.crop-handle.e { left: 100%; top: 50%; cursor: ew-resize; }
+.crop-handle.se { left: 100%; top: 100%; cursor: nwse-resize; }
+.crop-handle.s { left: 50%; top: 100%; cursor: ns-resize; }
+.crop-handle.sw { left: 0; top: 100%; cursor: nesw-resize; }
+.crop-handle.w { left: 0; top: 50%; cursor: ew-resize; }
+.crop-aspects { display: flex; flex-wrap: wrap; gap: 4px; }
+.crop-actions { display: flex; gap: 6px; justify-content: flex-end; }
 
 .grain-speed { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; }
 .grain-speed label { font-size: 13px; }

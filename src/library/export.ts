@@ -3,6 +3,7 @@
 
 import { loadImage, writeExport } from '../backend/api';
 import type { Photo } from './store';
+import { framePixels } from '../film/crop';
 import { offscreenEngine } from './thumbs';
 
 export interface ExportOptions {
@@ -44,14 +45,15 @@ export async function exportPhotos(
     try {
       const img = await loadImage(p.path, limit);
       const src = engine.sourceFromHalf(img);
+      const [w, h] = framePixels(p.recipe?.crop ?? null, img.width, img.height);
       let px: Uint8Array;
       try {
-        px = engine.readPixels(src, p.recipe, img.width, img.height, p.seed);
+        px = engine.readPixels(src, p.recipe, w, h, p.seed);
       } finally {
         engine.release(src);
         engine.dropBuffers(img.width, img.height);
       }
-      result.written.push(await writeExport(opts.dir, stemOf(p.name), px, img.width, img.height, opts.quality));
+      result.written.push(await writeExport(opts.dir, stemOf(p.name), px, w, h, opts.quality));
     } catch (err) {
       result.failed.push({ name: p.name, error: String(err) });
     }
