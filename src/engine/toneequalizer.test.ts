@@ -10,7 +10,7 @@ const flat = (v: number, factors: number[]) => toneEqualize(grey(v), luminance(g
 
 describe('tone equalizer', () => {
   it('fits the band gains with its eight Gaussians', () => {
-    const gains = bandGains(60, -40);
+    const gains = bandGains(-40);
     const factors = bandFactors(gains);
     CENTERS_PARAMS.forEach((c, i) => expect(ev(correction(2 ** c, factors))).toBeCloseTo(gains[i], 1));
   });
@@ -18,20 +18,23 @@ describe('tone equalizer', () => {
   it('stays within 2% (0.025 EV) of no change with both sliders at zero', () => {
     // Eight Gaussians only approximate a flat line (darktable ripples the same way),
     // so the engine skips the stage at zero.
-    const factors = bandFactors(bandGains(0, 0));
+    const factors = bandFactors(bandGains(0));
     for (let e = -10; e <= 2; e += 0.5) expect(Math.abs(correction(2 ** e, factors) - 1)).toBeLessThan(0.02);
   });
 
-  it('lifts shadows and lowers highlights while middle grey barely moves', () => {
-    const f = bandFactors(bandGains(100, -100));
-    expect(ev(flat(0.01, f))).toBeGreaterThan(0.8);
-    expect(ev(flat(1.5, f))).toBeLessThan(-0.8);
-    expect(Math.abs(ev(flat(0.18, f)))).toBeLessThan(0.25);
+  it('follows darktable\'s compress preset: 3:5:5:3 over -3 to 0 EV, pivoting at -4 EV', () => {
+    const g = bandGains(-100);
+    expect(g.slice(0, 5)).toEqual([0, 0, 0, 0, 0]);
+    expect(g[6]).toBeCloseTo(-1.5, 9);
+    expect(g[7]).toBeCloseTo(-1.5, 9);
+    expect(g[5] / g[6]).toBeCloseTo(3 / 5, 9);
+    expect(g[8] / g[6]).toBeCloseTo(3 / 5, 9);
   });
 
-  it('keeps each slider to its own end of the range', () => {
-    expect(Math.abs(ev(flat(1.5, bandFactors(bandGains(100, 0)))))).toBeLessThan(0.15);
-    expect(Math.abs(ev(flat(0.01, bandFactors(bandGains(0, -100)))))).toBeLessThan(0.15);
+  it('lowers highlights and leaves shadows alone', () => {
+    const f = bandFactors(bandGains(-100));
+    expect(ev(flat(1.5, f))).toBeLessThan(-0.8);
+    expect(Math.abs(ev(flat(0.01, f)))).toBeLessThan(0.15);
   });
 
   it('clamps the correction to ±2 EV', () => {
@@ -52,7 +55,7 @@ describe('tone equalizer', () => {
   });
 
   it('scales all three channels by the same amount, so colours keep their hue', () => {
-    const f = bandFactors(bandGains(80, 0));
+    const f = bandFactors(bandGains(-80));
     const px: Vec3 = [0.02, 0.01, 0.005];
     const out = toneEqualize(px, luminance(px), luminance(px) ** 2, f);
     expect(out[0] / out[1]).toBeCloseTo(2, 9);

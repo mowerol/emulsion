@@ -9,6 +9,9 @@ import { LUMA_REC2020, REC2020_TO_SRGB, SRGB_TO_REC2020, columnMajor } from './c
 import { NEUTRAL, curveFor, packCurve, sigmoidCurve, whiteTargetFor, type ToneLook } from './tone';
 import {
   CONTRAST_FULCRUM,
+  HIGHLIGHTS_WEIGHT,
+  MASK_GREY_FULCRUM,
+  SHADOWS_WEIGHT,
   GRADING_TO_LMS,
   LMS_TO_GRADING,
   LMS_TO_XYZ,
@@ -70,6 +73,7 @@ const colorBalanceUniforms = () =>
     uCbLmsToGrading: columnMajor(LMS_TO_GRADING),
     uCbGradingToLms: columnMajor(GRADING_TO_LMS),
     uCbRef: [CONTRAST_FULCRUM, yToLStar(WHITE_FULCRUM)],
+    uCbMask: [MASK_GREY_FULCRUM, SHADOWS_WEIGHT, HIGHLIGHTS_WEIGHT],
     uCbGamut: Array.from(workingGamut()),
   });
 
@@ -118,15 +122,15 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
   const wbMat = recipe.wb ? columnMajor(whiteBalanceMatrix(ctx.white ?? D65_XY, whiteXy(recipe.wb.temperature, recipe.wb.tint))) : IDENTITY;
 
   const look = toneLookFor(recipe);
-  const teqOn = recipe.shadows !== 0 || recipe.highlights !== 0;
-  const teq = teqOn ? bandFactors(bandGains(recipe.shadows, recipe.highlights)) : [0, 0, 0, 0, 0, 0, 0, 0];
-  const cb = colorBalanceParams(recipe.contrast, recipe.vibrance, recipe.saturation);
+  const teqOn = recipe.highlights !== 0;
+  const teq = teqOn ? bandFactors(bandGains(recipe.highlights)) : [0, 0, 0, 0, 0, 0, 0, 0];
+  const cb = colorBalanceParams(recipe.contrast, recipe.vibrance, recipe.saturation, recipe.shadows);
   const grain = grainShapeFor(recipe, Math.max(ctx.width, ctx.height));
 
   return {
     ...base,
     ...colorBalanceUniforms(),
-    uCbParams: [1 + cb.contrast, cb.vibrance, cb.saturation],
+    uCbParams: [1 + cb.contrast, cb.vibrance, cb.saturation, cb.shadows],
     uCompare: 0,
     uExposure: recipe.exposure,
     uCurveOn: isIdentity(recipe.curve) ? 0 : 1,

@@ -92,17 +92,19 @@ const stageCtx = { width: 16, height: 1, seed: 1, inputMode: InputMode.SceneLine
 function probeColorBalance(eng: Engine) {
   const uniforms = developUniforms(defaultRecipe(), stageCtx);
   const settings: Record<string, ColorBalance> = {
-    none: { contrast: 0, vibrance: 0, saturation: 0 },
-    contrastUp: { contrast: 0.4, vibrance: 0, saturation: 0 },
-    contrastDown: { contrast: -0.4, vibrance: 0, saturation: 0 },
-    vibranceUp: { contrast: 0, vibrance: 0.7, saturation: 0 },
-    vibranceDown: { contrast: 0, vibrance: -0.7, saturation: 0 },
-    saturationUp: { contrast: 0, vibrance: 0, saturation: 0.6 },
-    saturationDown: { contrast: 0, vibrance: 0, saturation: -0.8 },
-    all: { contrast: 0.25, vibrance: 0.4, saturation: 0.3 },
+    none: { contrast: 0, vibrance: 0, saturation: 0, shadows: 0 },
+    contrastUp: { contrast: 0.4, vibrance: 0, saturation: 0, shadows: 0 },
+    contrastDown: { contrast: -0.4, vibrance: 0, saturation: 0, shadows: 0 },
+    vibranceUp: { contrast: 0, vibrance: 0.7, saturation: 0, shadows: 0 },
+    vibranceDown: { contrast: 0, vibrance: -0.7, saturation: 0, shadows: 0 },
+    saturationUp: { contrast: 0, vibrance: 0, saturation: 0.6, shadows: 0 },
+    saturationDown: { contrast: 0, vibrance: 0, saturation: -0.8, shadows: 0 },
+    shadowsUp: { contrast: 0, vibrance: 0, saturation: 0, shadows: 1 },
+    shadowsDown: { contrast: 0, vibrance: 0, saturation: 0, shadows: -0.6 },
+    all: { contrast: 0.25, vibrance: 0.4, saturation: 0.3, shadows: 0.5 },
   };
   const cases = Object.fromEntries(
-    Object.entries(settings).map(([k, p]) => [k, { uniforms: { ...uniforms, uCbParams: [1 + p.contrast, p.vibrance, p.saturation] }, ref: (c: Vec3) => colorBalance(c, p) }]),
+    Object.entries(settings).map(([k, p]) => [k, { uniforms: { ...uniforms, uCbParams: [1 + p.contrast, p.vibrance, p.saturation, p.shadows] }, ref: (c: Vec3) => colorBalance(c, p) }]),
   );
   return probeStage(eng, ['stages/colorbalance.glsl'], 'stageColorBalance(c)', COLOURS, cases);
 }
@@ -199,7 +201,7 @@ function probeToneEqualizer(eng: Engine) {
   const gl = eng.gpu.gl;
   const recipe = { ...defaultRecipe('portra400'), shadows: 80, highlights: -60 };
   const u = developUniforms(recipe, stageCtx);
-  const f = bandFactors(bandGains(recipe.shadows, recipe.highlights));
+  const f = bandFactors(bandGains(recipe.highlights));
   const perPixel = probeStage(eng, ['stages/toneequalizer.glsl'], 'stageToneEqualizer(c, vec2(0.5))', COLOURS, {
     perPixel: { uniforms: { ...u, uTeqLocal: 0 }, ref: (c: Vec3) => c.map((v) => v * correction(luminance(c), f)) as Vec3 },
   });

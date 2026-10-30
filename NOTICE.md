@@ -11,7 +11,7 @@ Every port is listed here with its source, upstream licence, the upstream commit
 - Licence: GPL-3.0-or-later
 - Copyright: Copyright (C) 2020-2026 darktable developers. Copyright (C) 2017-2023 darktable developers (colour space conversions). darktable Uniform Color Space 2022 © Aurélien Pierre
 - Ported to: `src/engine/colorbalance.ts` (reference and gamut table) and `src/engine/shaders/stages/colorbalance.glsl`
-- Changes: translated from C to TypeScript and GLSL. Only the global contrast, vibrance and saturation (darktable UCS formula) are kept; the colour wheels, brilliance, chroma, hue shift and masks are left out. The working space is D65 Rec.2020, so darktable's D50 adaptation drops out. Contrast pivots on Emulsion's middle grey. Negative output is clipped, and FLT_MIN guards are 1e-30 so they cannot overflow on a GPU
+- Changes: translated from C to TypeScript and GLSL. Only the global contrast, vibrance and saturation (darktable UCS formula) and the luminance of the shadows lift are kept, the lift with darktable's default masks (middle grey 0.1845, fall-offs 1); the lift colour and other colour wheels, brilliance, chroma and hue shift are left out. The working space is D65 Rec.2020, so darktable's D50 adaptation drops out. Contrast pivots on Emulsion's middle grey. Negative output is clipped, and FLT_MIN guards are 1e-30 so they cannot overflow on a GPU
 
 <!--
 Template:
@@ -36,7 +36,7 @@ Template:
 - Licence: GPL-3.0-or-later
 - Copyright: Copyright (C) 2018-2026 darktable developers. Copyright (C) 2019-2024 darktable developers (exposure-independent guided filter; Cholesky least squares). Copyright (C) 2019-2023 darktable developers (luminance mask)
 - Ported to: `src/engine/toneequalizer.ts` (reference and band solving), `src/engine/shaders/stages/toneequalizer.glsl` and `src/engine/shaders/toneeqmask.frag.glsl`
-- Changes: translated from C to TypeScript and GLSL. Only the euclidean RGB norm and the exposure-independent guided filter without quantization or contrast boost, with one iteration. The filter's local averages are computed on the GPU on a small fixed-size map with Emulsion's blur, and negative variance from rounding is clamped. Shadows and Highlights sliders drive the nine bands in the shape of darktable's "compress shadows/highlights" presets, with their exposure boost of -1.57 EV
+- Changes: translated from C to TypeScript and GLSL. Only the euclidean RGB norm and the exposure-independent guided filter without quantization or contrast boost, with one iteration. The filter's local averages are computed on the GPU on a small fixed-size map with Emulsion's blur, and negative variance from rounding is clamped. The Highlights slider drives the upper bands in the shape of darktable's "compress shadows/highlights" presets (3:5:5:3 over -3 to 0 EV), with their exposure boost of -1.57 EV
 
 ### Monotone curve interpolation, from darktable
 - Upstream: https://github.com/darktable-org/darktable, `src/common/curve_tools.c` (and node limits from `src/iop/rgbcurve.c`), commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release 5.6.2)

@@ -3,8 +3,9 @@
 // darktable Uniform Color Space 2022 © Aurélien Pierre.
 // Ported from darktable src/iop/colorbalancergb.c, src/common/colorspaces_inline_conversions.h
 // and src/common/darktable_ucs_22_helpers.h at commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773
-// (release 5.6.2). Translated from C to TypeScript; only the global controls are kept (contrast,
-// vibrance, saturation with the darktable UCS formula), the working space is D65 Rec.2020,
+// (release 5.6.2). Translated from C to TypeScript; only the global controls (contrast,
+// vibrance, saturation with the darktable UCS formula) and the luminance of the shadows lift,
+// with its mask at darktable's defaults, are kept. The working space is D65 Rec.2020,
 // so darktable's D50 adaptation drops out, and negative output is clipped because later
 // Emulsion stages expect non-negative light.
 // SPDX-License-Identifier: GPL-3.0-or-later
@@ -250,6 +251,8 @@ export interface ColorBalance {
   vibrance: number;
   /** -1 to 1; darktable's `saturation_global`, darktable UCS formula. */
   saturation: number;
+  /** -1 to 1; darktable's `shadows_Y`, the luminance of the shadows lift. */
+  shadows: number;
 }
 
 /**
@@ -259,6 +262,26 @@ export interface ColorBalance {
 export const CONTRAST_FULCRUM = lmsToYrg(mulVec(REC2020_TO_LMS, [TONE.grey, TONE.grey, TONE.grey]))[0];
 /** darktable's white fulcrum at its default of 0 EV. */
 export const WHITE_FULCRUM = 1;
+
+// The luminance masks, at darktable's defaults: middle grey 0.1845 and fall-offs of 1,
+// which darktable's commit_params turns into weights of 2 + 2 * fall-off.
+const MASK_POWER = 0.4101205819200422;
+/** The mask's middle grey, on the scale the masks work on (Y to the power 0.41, grey near 50%). */
+export const MASK_GREY_FULCRUM = Math.pow(0.1845, MASK_POWER);
+export const SHADOWS_WEIGHT = 4;
+export const HIGHLIGHTS_WEIGHT = 4;
+
+/**
+ * Luminance gain of the shadows lift for a pixel of Yrg luminance `Y`
+ * (darktable's opacity_masks and the lift/gain slopes, with no highlights gain
+ * and no lift colour, which reduce to one gain on all three channels).
+ */
+export function shadowsGain(Y: number, shadows: number): number {
+  const offset = (Math.pow(Math.max(Y, 0), MASK_POWER) - MASK_GREY_FULCRUM) / MASK_GREY_FULCRUM;
+  const alpha = 1 / (1 + Math.exp(offset * SHADOWS_WEIGHT));
+  const beta = 1 / (1 + Math.exp(-offset * HIGHLIGHTS_WEIGHT));
+  return (1 - beta) * (1 - alpha + alpha * (1 + shadows)) + beta;
+}
 
 /** One scene-linear Rec.2020 pixel through the stage. */
 export function colorBalance(rgb: Vec3, p: ColorBalance, lut: ArrayLike<number> = workingGamut()): Vec3 {
@@ -272,6 +295,11 @@ export function colorBalance(rgb: Vec3, p: ColorBalance, lut: ArrayLike<number> 
   ych[1] *= Math.max(1 + vib, 0);
   ych = gamutCheckYrg(ych);
   const yrg = ychToYrg(ych);
+
+  // Shadows lift. darktable scales grading RGB, which is linear in LMS, so the
+  // same gain on luminance alone leaves r and g unchanged. The mask reads the
+  // luminance before any change, as darktable's does.
+  yrg[0] *= shadowsGain(ych[0], p.shadows);
 
   // Contrast on luminance alone, around middle grey.
   yrg[0] = CONTRAST_FULCRUM * Math.pow(yrg[0] / CONTRAST_FULCRUM, 1 + p.contrast);
@@ -304,6 +332,6 @@ export function colorBalance(rgb: Vec3, p: ColorBalance, lut: ArrayLike<number> 
 }
 
 /** Recipe sliders (-100 to 100, contrast -50 to 50) to the stage's parameters. */
-export function colorBalanceParams(contrast: number, vibrance: number, saturation: number): ColorBalance {
-  return { contrast: contrast / 100, vibrance: vibrance / 100, saturation: saturation / 100 };
+export function colorBalanceParams(contrast: number, vibrance: number, saturation: number, shadows: number): ColorBalance {
+  return { contrast: contrast / 100, vibrance: vibrance / 100, saturation: saturation / 100, shadows: shadows / 100 };
 }

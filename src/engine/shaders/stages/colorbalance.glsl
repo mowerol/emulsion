@@ -3,12 +3,13 @@
 // darktable Uniform Color Space 2022 © Aurélien Pierre.
 // Ported from darktable src/iop/colorbalancergb.c, src/common/colorspaces_inline_conversions.h
 // and src/common/darktable_ucs_22_helpers.h at commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773
-// (release 5.6.2). Translated from C to GLSL; only the global controls are kept (contrast,
-// vibrance, saturation with the darktable UCS formula), the working space is D65 Rec.2020,
+// (release 5.6.2). Translated from C to GLSL; only the global controls (contrast, vibrance,
+// saturation with the darktable UCS formula) and the luminance of the shadows lift are kept,
+// the working space is D65 Rec.2020,
 // and negative output is clipped. Mirrors src/engine/colorbalance.ts.
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// Colour balance, in scene light: vibrance in Filmlight Yrg, contrast on
+// Colour balance, in scene light: vibrance and the shadows lift in Filmlight Yrg, contrast on
 // luminance around middle grey, then saturation and gamut mapping in darktable UCS.
 
 // Working RGB to CIE 2006 LMS, LMS to XYZ, XYZ to working RGB.
@@ -18,10 +19,12 @@ uniform mat3 uCbXyzToRgb;
 // LMS to Filmlight grading RGB and back.
 uniform mat3 uCbLmsToGrading;
 uniform mat3 uCbGradingToLms;
-// x: 1 + contrast, y: vibrance, z: saturation
-uniform vec3 uCbParams;
+// x: 1 + contrast, y: vibrance, z: saturation, w: shadows lift
+uniform vec4 uCbParams;
 // x: contrast fulcrum (Yrg luminance), y: L* of the white fulcrum
 uniform vec2 uCbRef;
+// The luminance masks: x: middle grey fulcrum (on Y^0.41), y: shadows weight, z: highlights weight
+uniform vec3 uCbMask;
 // Squared colourfulness of the working gamut boundary for 512 hues in [-pi, pi), packed in fours.
 uniform vec4 uCbGamut[128];
 
@@ -140,6 +143,12 @@ vec3 stageColorBalance(vec3 rgb) {
   if (trial.y < 0.0) maxC = min(-CB_D65_G / sinH, maxC);
   if (trial.x + trial.y > 1.0) maxC = min((1.0 - CB_D65_R - CB_D65_G) / (cosH + sinH), maxC);
   yrg = vec3(Y, maxC * vec2(cosH, sinH) + vec2(CB_D65_R, CB_D65_G));
+
+  // Shadows lift: one gain on luminance from darktable's shadows and highlights masks.
+  float offset = (pow(Y, 0.4101205819200422) - uCbMask.x) / uCbMask.x;
+  float alpha = 1.0 / (1.0 + exp(offset * uCbMask.y));
+  float beta = 1.0 / (1.0 + exp(-offset * uCbMask.z));
+  yrg.x *= (1.0 - beta) * (1.0 - alpha + alpha * (1.0 + uCbParams.w)) + beta;
 
   // Contrast on luminance alone, around middle grey.
   yrg.x = uCbRef.x * pow(yrg.x / uCbRef.x, uCbParams.x);

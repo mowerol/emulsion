@@ -5,16 +5,17 @@
 // Ported from darktable src/iop/toneequal.c, src/common/eigf.h, src/common/luminance_mask.h and
 // src/iop/choleski.h at commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release 5.6.2).
 // Translated from C to TypeScript; the euclidean RGB norm and the exposure-independent guided
-// filter (EIGF) without quantization or contrast boost, one iteration, and Shadows and Highlights
-// sliders mapped onto the nine bands in the shape of darktable's "compress shadows/highlights"
-// presets. The filter's averages are computed on a small fixed-size map (see engine.ts), and
+// filter (EIGF) without quantization or contrast boost, one iteration, and the Highlights
+// slider mapped onto the upper bands in the shape of darktable's "compress shadows/highlights"
+// presets (compress_shadows_highlight_preset_set_exposure_params). The filter's averages are computed on a small fixed-size map (see engine.ts), and
 // negative variance from rounding is clamped to zero.
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Reference implementation of the tone equalizer stage (stages/toneequalizer.glsl).
 // It changes exposure by brightness band, like an audio equalizer for light:
-// a smoothed, edge-aware brightness map decides how much each pixel is lifted
-// or lowered, so local contrast inside shadows and highlights survives.
+// a smoothed, edge-aware brightness map decides how much each pixel is lowered
+// or lifted, so local contrast inside the highlights survives. (Shadows is
+// darktable's shadows lift, in the colour balance stage.)
 
 import type { Vec3 } from '../film/stocks';
 
@@ -46,12 +47,12 @@ export const MAX_STEP = 1.5;
 const gaussianDenom = (sigma: number) => 2 * sigma * sigma;
 const gaussian = (r: number, denom: number) => Math.exp((-r * r) / denom);
 
-/** Band gains in EV for the Shadows and Highlights sliders (-100 to 100). */
-export function bandGains(shadows: number, highlights: number): number[] {
-  const s = (shadows / 100) * MAX_STEP;
+/** Band gains in EV for the Highlights slider (-100 to 100). */
+export function bandGains(highlights: number): number[] {
   const h = (highlights / 100) * MAX_STEP;
-  // darktable's compress presets shape shadows as 3:5:5:3 over the darkest four bands.
-  return [0.6 * s, s, s, 0.6 * s, 0, 0, 0.6 * h, h, h];
+  // darktable's compress presets shape the highlights as 3:5:5:3 over -3, -2, -1 and 0 EV,
+  // with -4 EV as the pivot.
+  return [0, 0, 0, 0, 0, 0.6 * h, h, h, 0.6 * h];
 }
 
 /** Solve the symmetric positive definite system M x = v by Cholesky decomposition. */

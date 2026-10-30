@@ -10,6 +10,7 @@ import {
   colorBalance,
   lmsToYrg,
   lookupGamut,
+  shadowsGain,
   ucsJCHToXyY,
   workingGamut,
   xyYToUcsJCH,
@@ -20,7 +21,7 @@ import {
 } from './colorbalance';
 import { SRGB_TO_REC2020, mulMat, mulVec } from './color';
 
-const NONE: ColorBalance = { contrast: 0, vibrance: 0, saturation: 0 };
+const NONE: ColorBalance = { contrast: 0, vibrance: 0, saturation: 0, shadows: 0 };
 const L_WHITE = yToLStar(1);
 
 const close = (a: number[], b: number[], tol: number) => a.every((v, i) => Math.abs(v - b[i]) < tol);
@@ -108,10 +109,43 @@ describe('colour balance', () => {
   });
 
   it('never produces negative or non-finite values', () => {
-    const p = { contrast: 0.5, vibrance: 1, saturation: 1 };
+    const p = { contrast: 0.5, vibrance: 1, saturation: 1, shadows: 1 };
     for (const c of [[0, 0, 0], [1, 0, 0], [0, 1, 0], [0, 0, 1], [4, 0.01, 0.01], [-0.1, 0.2, 0.3]] as Vec3[]) {
       const out = colorBalance(c, p);
       expect(out.every((v) => Number.isFinite(v) && v >= -1e-6)).toBe(true);
+    }
+  });
+});
+
+describe('shadows lift', () => {
+  // darktable's masks at their defaults centre middle grey (0.1845) in the shadows and
+  // highlights sigmoids, so the lift there is a quarter of the full gain.
+  it('gains nearly 1 + lift in deep shadows, a quarter of it at middle grey and almost nothing in highlights', () => {
+    // At black the sigmoids reach 0.982, so the full lift is 1 + 0.982².
+    expect(shadowsGain(0, 1)).toBeCloseTo(1 + (1 / (1 + Math.exp(-4))) ** 2, 9);
+    expect(shadowsGain(0.1845, 1)).toBeCloseTo(1.25, 9);
+    expect(shadowsGain(0.1845, -1)).toBeCloseTo(0.75, 9);
+    expect(shadowsGain(2, 1)).toBeLessThan(1.01);
+    for (const Y of [0, 0.01, 0.18, 1]) expect(shadowsGain(Y, 0)).toBeCloseTo(1, 12);
+  });
+
+  it('falls smoothly from shadows to highlights', () => {
+    let last = Infinity;
+    for (let e = -10; e <= 2; e += 0.25) {
+      const g = shadowsGain(0.1845 * 2 ** e, 0.8);
+      expect(g).toBeLessThanOrEqual(last);
+      last = g;
+    }
+  });
+
+  it('lifts luminance and keeps chromaticity', () => {
+    const p = { ...NONE, shadows: 0.7 };
+    for (const c of [SKIN.map((v) => v * 0.15) as Vec3, FOLIAGE, [0.02, 0.02, 0.02] as Vec3]) {
+      const out = colorBalance(c, p);
+      expect(out[1]).toBeGreaterThan(c[1]);
+      const [x0, y0] = xy(c);
+      const [x1, y1] = xy(out);
+      expect(Math.abs(x1 - x0) + Math.abs(y1 - y0)).toBeLessThan(2e-4);
     }
   });
 });

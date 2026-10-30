@@ -28,11 +28,11 @@ describe('develop uniforms', () => {
     expect(fromWarm).not.toEqual(fromD65);
   });
 
-  it('sends contrast, vibrance and saturation to the colour balance stage, not the print', () => {
+  it('sends contrast, vibrance, saturation and shadows to the colour balance stage, not the print', () => {
     const base = developUniforms(defaultRecipe(), ctx);
-    const u = developUniforms({ ...defaultRecipe(), contrast: 40, vibrance: -30, saturation: 25 }, ctx);
-    expect(u.uCbParams).toEqual([1.4, -0.3, 0.25]);
-    expect(base.uCbParams).toEqual([1, 0, 0]);
+    const u = developUniforms({ ...defaultRecipe(), contrast: 40, vibrance: -30, saturation: 25, shadows: 60 }, ctx);
+    expect(u.uCbParams).toEqual([1.4, -0.3, 0.25, 0.6]);
+    expect(base.uCbParams).toEqual([1, 0, 0, 0]);
     expect(u.uSigS).toEqual(base.uSigS);
     expect(u.uSat).toEqual(base.uSat);
     expect((u.uCbGamut as number[]).length).toBe(512);
@@ -57,9 +57,10 @@ describe('develop uniforms', () => {
     expect(power('uSigG')).toBeLessThan(power('uSigR'));
   });
 
-  it('runs the tone equalizer only when Shadows or Highlights is set', () => {
+  it('runs the tone equalizer only when Highlights is set', () => {
     expect(needsPasses(developUniforms(defaultRecipe(), ctx)).toneEqualizer).toBe(false);
-    const u = developUniforms({ ...defaultRecipe(), shadows: 40 }, ctx);
+    expect(needsPasses(developUniforms({ ...defaultRecipe(), shadows: 40 }, ctx)).toneEqualizer).toBe(false);
+    const u = developUniforms({ ...defaultRecipe(), highlights: -40 }, ctx);
     expect(needsPasses(u).toneEqualizer).toBe(true);
     expect((u.uTeqF0 as number[]).length).toBe(4);
     expect(needsPasses(developUniforms({ ...defaultRecipe(), highlights: -10 }, { ...ctx, compare: true })).toneEqualizer).toBe(false);

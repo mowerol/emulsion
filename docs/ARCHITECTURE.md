@@ -37,8 +37,8 @@ Each stage is one GLSL file in `src/engine/shaders/stages/`, included into `deve
 | Input | `input.glsl` | scene | Bring any source into scene-linear Rec.2020 | |
 | Sharpen | `optics.glsl` | scene | Scanner sharpness, a log-domain unsharp mask | |
 | Exposure | `exposure.glsl` | scene | White balance (CAT16 from the as-shot white to the chosen one, **ported from darktable**), exposure, black level (Blacks below zero, as darktable's exposure module) and the stock's colour balance | |
-| Tone equalizer | `toneequalizer.glsl` | scene | Highlights and Shadows: exposure by brightness band through an edge-aware brightness map. **Ported from darktable tone equalizer** | |
-| Colour balance | `colorbalance.glsl` | scene | Contrast around middle grey, vibrance, saturation with gamut mapping. **Ported from darktable colour balance rgb** | |
+| Tone equalizer | `toneequalizer.glsl` | scene | Highlights: exposure by brightness band through an edge-aware brightness map, in the shape of darktable's compress shadows/highlights presets. **Ported from darktable tone equalizer** | |
+| Colour balance | `colorbalance.glsl` | scene | Shadows (darktable's shadows lift luminance, with its masks at their defaults), contrast around middle grey, vibrance, saturation with gamut mapping. **Ported from darktable colour balance rgb** | |
 | Lens | `lens.glsl` | scene | Vignetting | |
 | Optics | `optics.glsl` | scene | Halation and glow, added back from blurred highlights | |
 | Emulsion | `emulsion.glsl` | scene | Dye crosstalk; black and white sensitivity | Measured stock data or CLUTs |
@@ -56,7 +56,7 @@ The tone curve's maths is mirrored in `engine/tone.ts` so it can be unit-tested;
 `engine/engine.ts` runs these passes per render:
 
 ```
-source ─┬─ tone eq map (1/4 res) ─ down ─ ... ─ blur ── tone equalizer ─┐   (only with Highlights or Shadows)
+source ─┬─ tone eq map (1/4 res) ─ down ─ ... ─ blur ── tone equalizer ─┐   (only with Highlights)
         ├─ extract (1/4 res) ─ down ─ down ─ ...      highlight pyramid
         │        └─ blur at ≤256 px wide ──────────── halation ─┐
         │        └─ blur at ≤128 px wide ──────────── glow ─────┤
