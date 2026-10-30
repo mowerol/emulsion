@@ -1,8 +1,24 @@
 # Handoff
 
-Rewritten at the end of each session. Last updated 2026-10-30.
+Rewritten at the end of each session. Last updated 2026-10-30 (evening).
 
-## Just finished
+## This session: research on grounding the film stocks (no code changed)
+
+Oli asked how the stocks are made. Answer: they are hand-tuned numbers in `src/film/stocks.ts` (balance, crosstalk matrix, sigmoid contrast and crossover, saturation, fade), from before the porting rule, with no source. Two research notes, **not committed yet**:
+
+- `docs/research/spektrafilm.md`: can spektrafilm (Andrea Volpato's spectral negative → print → scan model from manufacturer data sheets) come in as a contained stage? Yes: it takes scene-linear light (Rec.2020 accepted, grey 0.184), and for film stocks it replaces Emulsion (crosstalk), the Tone sigmoid and the print saturation and fade; Neutral keeps darktable sigmoid. Its halation, grain and scanner sharpening can be switched off so ours stay in charge.
+- `docs/research/film-stock-options.md`: the alternatives. Every free film CLUT pack and darktable style is made by eye (t3mujinpack, RawTherapee/G'MIC). spectral_film_lut (MIT, data-sheet based, simpler model) is the runner-up. darktable's colour calibration has an HP5+ B&W preset from Ilford's data. Section 8: **darktable master has a native spektrafilm module** (`src/iop/spektrafilm.c`, `src/common/spektra_sim.c` per-pixel colour, `spektra_core.c` spatial effects, `data/kernels/spektrafilm.cl`, unit tests; merged 2026-09-05 in #21967, last seen at `f38e304`; not in darktable 5.6.2). A faithful port of spektrafilm 0.3.x within 1e-4 of the Python, used *instead of* sigmoid; data shipped separately from darktable-org/darktable-spektrafilm (CC BY-SA 4.0 profiles). Section 9: filmic rgb and "tone mapper plus a parametric look layer" (that is our current design; it does not say where the numbers come from).
+
+**Oli's decision:** try spektrafilm, next session. Discussed and agreed:
+- Port **darktable's** module (the porting rule; it already turned the Python into per-pixel code with tests), crediting spektrafilm and darktable in `NOTICE.md`.
+- Prefer a **live per-pixel GLSL port of the colour path** over baked LUTs: no grid, so no banding, no clipped highlights, and live controls (film exposure, push/pull, print exposure and contrast, enlarger filtration). A scene-referred float LUT (log input, 65³) is acceptable only as a quick prototype.
+- Oli's worries about LUTs were banding and destroyed highlights; both come from display-referred 8-bit LUTs, not LUTs as such.
+- Caveat raised: the "Portra look" most people know is a Frontier/Noritsu lab scan; spektrafilm's default is an optical print. Oli should judge its look on his photos early.
+- Lightroom creative profiles are LUTs in an XMP wrapper with an Amount slider; an Amount slider would be our addition (needs Oli's approval).
+
+Open decisions for Oli (in both notes): which pinned darktable commit; print paper per stock; what happens to stocks with no data (Superia 400 → X-TRA 400? CineStill 800T → Vision3 500T? HP5 → darktable's HP5+ weights? Tri-X: darktable's `kodak_trix` is the 7266 reversal stock, not Tri-X 400); Whites/Blacks for film stocks (no sigmoid to move: map to print exposure?); push/pull (darktable's `push_pull_stops`); whether our Scanner presets stay on top; bundling the data pack vs downloading it.
+
+## Earlier work
 
 Everything below is committed and pushed on `main` (last: `961aab1`).
 
@@ -66,6 +82,7 @@ Camera colour is already covered for every LibRaw camera through its matrices; D
 
 ## Next
 
+0. **spektrafilm** (Oli's pick for the next session): read both research notes, then port darktable's spektrafilm colour path as a film-stock stage (see "This session" above). Lens correction follows.
 1. **Lens correction** (see the findings above). Oli: every camera treated equally, nothing built around his own. Order: (a) all four embedded formats together (Fuji, Olympus/OM, Sony, DNG; readers are per file format, so every body of those makers is covered, and new ones on day one), tested on Oli's files plus public samples from raw.pixls.us for Sony and DNG; then darktable's v2 maths. (b) lensfun auto-matching for every other maker (coverage arrives as database updates, not code). (c) A remembered per camera+lens assignment: when a lens is not recognised, the Lens section lets Oli pick a lensfun entry or load an Adobe LCP profile, applied to every photo from that camera and lens from then on (also fixes adapted and misnamed lenses).
 2. Oli tries the speed work (GPU-paced rendering), Colour, grain and RAW+JPEG folding in the real app.
 3. **Batch 3, part 2:** user presets (save and apply looks).
