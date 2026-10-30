@@ -10,7 +10,8 @@ import { defaultRecipe, normalizeRecipe, withSettingsFrom, type Recipe } from '.
 import { FULL, isFull, type Crop } from '../film/crop';
 import { stepWithin, stripIndices, type StripFilter } from './filter';
 import { seedFor } from '../engine/engine';
-import { saveRecipe } from './sidecars';
+import { savePhoto } from './sidecars';
+import { applyMark, describeMark, hasMark, normalizeMarks, type Label, type MarkKey, type Marks } from './marks';
 import { History, describe, type Change, type Step } from './history';
 
 export interface Photo {
@@ -23,6 +24,11 @@ export interface Photo {
   seed: number;
   /** As-shot white point of a RAW; null for D65 (other files, or not read yet). */
   white: Xy | null;
+  /** Stars, 0 to 5; 0 is unrated. */
+  rating: number;
+  label: Label | null;
+  /** A favourite. */
+  heart: boolean;
 }
 
 export interface Folder {
@@ -65,6 +71,31 @@ interface State {
   developSize: { path: string; W: number; H: number } | null;
   /** Which photos the develop view's filmstrip shows. */
   stripFilter: StripFilter;
+  /** The workspace colour behind the photo in Develop. */
+  stageColor: StageColorId;
+}
+
+/**
+ * Workspace colours, as Lightroom offers them. Mid grey is 18% reflectance (sRGB 118),
+ * the photographers' neutral for judging tones; dark is the app's own stage colour.
+ */
+export const STAGE_COLORS = [
+  { id: 'black', label: 'Black', hex: '#000000', light: false },
+  { id: 'dark', label: 'Dark grey', hex: '#2a2926', light: false },
+  { id: 'grey', label: 'Mid grey (18%)', hex: '#767676', light: true },
+  { id: 'white', label: 'White', hex: '#ffffff', light: true },
+] as const;
+export type StageColorId = (typeof STAGE_COLORS)[number]['id'];
+
+const STAGE_COLOR_KEY = 'emulsion.stageColor';
+/** The workspace colour last chosen on this computer. */
+function savedStageColor(): StageColorId {
+  try {
+    const v = localStorage.getItem(STAGE_COLOR_KEY);
+    return STAGE_COLORS.find((c) => c.id === v)?.id ?? 'dark';
+  } catch {
+    return 'dark';
+  }
 }
 
 const STRIP_FILTER_KEY = 'emulsion.stripFilter';
@@ -97,6 +128,7 @@ export const useApp = create<State>(() => ({
   cropEdit: null,
   developSize: null,
   stripFilter: savedStripFilter(),
+  stageColor: savedStageColor(),
 }));
 
 const set = useApp.setState;
@@ -147,6 +179,7 @@ export async function openFolder(path: string, view: View = 'library') {
       recipe: normalizeRecipe(e.recipe),
       seed: seedFor(e.path),
       white: null,
+      ...normalizeMarks(e.rating, e.label, e.heart),
     }));
     const focus = res.focus ? photos.findIndex((p) => p.path === res.focus) : -1;
     const active = photos.length ? Math.max(0, focus) : -1;
@@ -211,6 +244,15 @@ export function step(delta: number) {
   else setActive(Math.min(photos.length - 1, Math.max(0, active + delta)));
 }
 
+export function setStageColor(stageColor: StageColorId) {
+  set({ stageColor });
+  try {
+    localStorage.setItem(STAGE_COLOR_KEY, stageColor);
+  } catch {
+    /* remembering it is a convenience */
+  }
+}
+
 export function setStripFilter(stripFilter: StripFilter) {
   set({ stripFilter });
   try {
@@ -249,12 +291,13 @@ export function editRecipes(paths: string[], change: (r: Recipe | null, p: Photo
     if (!wanted.has(p.path)) return p;
     const recipe = change(p.recipe, p);
     if (recipe === p.recipe) return p;
-    saveRecipe(p.path, recipe);
+    savePhoto({ ...p, recipe });
     changes.push({ path: p.path, before: p.recipe, after: recipe });
     return { ...p, recipe };
   });
   if (changes.length) {
-    const name = label ?? describe(changes[0].before, changes[0].after);
+    const first = changes[0] as { before: Recipe | null; after: Recipe | null };
+    const name = label ?? describe(first.before, first.after);
     history.record(changes.length > 1 && !label ? `${name} on ${changes.length} photos` : name, changes, performance.now());
   }
   set({ photos, ...historyState() });
@@ -265,14 +308,41 @@ export const editActive = (change: (r: Recipe | null, p: Photo) => Recipe | null
   if (a) editRecipes([a.path], change, label);
 };
 
-/** Put recipes back as a history step recorded them, without recording a new step. */
-function applyStep(step: Step, side: 'before' | 'after', verb: string) {
-  const byPath = new Map(step.changes.map((c) => [c.path, c[side]]));
+/**
+ * Star, tag or heart the selected frames (or the active one), as one undoable step.
+ * A tag or heart every target already has comes off; otherwise they all get it.
+ */
+export function markPhotos(mark: MarkKey) {
+  const t = targets();
+  if (!t.length) return;
+  const allHave = t.every((p) => hasMark(p, mark));
+  const wanted = new Set(t.map((p) => p.path));
+  const changes: Change[] = [];
   const photos = get().photos.map((p) => {
-    if (!byPath.has(p.path)) return p;
-    const recipe = byPath.get(p.path)!;
-    saveRecipe(p.path, recipe);
-    return { ...p, recipe };
+    if (!wanted.has(p.path)) return p;
+    const before: Marks = { rating: p.rating, label: p.label, heart: p.heart };
+    const after = applyMark(before, mark, allHave);
+    if (after.rating === before.rating && after.label === before.label && after.heart === before.heart) return p;
+    const next = { ...p, ...after };
+    savePhoto(next);
+    changes.push({ path: p.path, marks: true, before, after });
+    return next;
+  });
+  if (!changes.length) return;
+  const name = !('rating' in mark) && allHave ? ('heart' in mark ? 'Remove heart' : 'Remove tag') : describeMark(mark);
+  history.record(changes.length > 1 ? `${name} on ${changes.length} photos` : name, changes, performance.now());
+  set({ photos, ...historyState() });
+}
+
+/** Put recipes and marks back as a history step recorded them, without recording a new step. */
+function applyStep(step: Step, side: 'before' | 'after', verb: string) {
+  const byPath = new Map(step.changes.map((c) => [c.path, c]));
+  const photos = get().photos.map((p) => {
+    const c = byPath.get(p.path);
+    if (!c) return p;
+    const next = c.marks ? { ...p, ...c[side] } : { ...p, recipe: c[side] };
+    savePhoto(next);
+    return next;
   });
   set({ photos, ...historyState() });
   const only = step.changes.length === 1 ? photos.find((p) => p.path === step.changes[0].path) : null;

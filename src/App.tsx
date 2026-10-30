@@ -5,8 +5,9 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { listen } from '@tauri-apps/api/event';
 import { isTauri, startupOptions } from './backend/api';
 import { flushSaves, onSaveError } from './library/sidecars';
+import { markForKey } from './library/marks';
 import {
-  copySettings, openFolder, pasteSettings, redo, selectAll, setActive, setCompare, setExportOpen, setView, showToast, step, undo, useApp, type View,
+  copySettings, markPhotos, openFolder, pasteSettings, redo, selectAll, setActive, setCompare, setExportOpen, setView, showToast, step, undo, useApp, type View,
 } from './library/store';
 import { Develop } from './ui/Develop';
 import { ExportDialog } from './ui/ExportDialog';
@@ -74,6 +75,7 @@ function useShortcuts() {
       else if (k === 'd') setView('develop');
       else if (e.key === 'Enter' && s.view === 'library') setView('develop');
       else if (onRange) return;
+      else if (markForKey(e.key)) markPhotos(markForKey(e.key)!);
       else if (e.key === 'ArrowRight') { e.preventDefault(); step(1); }
       else if (e.key === 'ArrowLeft') { e.preventDefault(); step(-1); }
       else if (e.key === 'ArrowDown' && s.view === 'library') { e.preventDefault(); step(gridColumns); }

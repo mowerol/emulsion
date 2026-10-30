@@ -85,9 +85,9 @@ pub async fn white_points(paths: Vec<String>) -> Result<Vec<Option<[f32; 2]>>, S
 }
 
 #[tauri::command]
-pub async fn write_sidecar(path: String, recipe: serde_json::Value) -> Result<(), String> {
+pub async fn write_sidecar(path: String, saved: sidecar::Saved) -> Result<(), String> {
     blocking(move || {
-        sidecar::write(Path::new(&path), &recipe).map_err(|e| format!("Could not save edits for {path}: {e}"))
+        sidecar::write(Path::new(&path), &saved).map_err(|e| format!("Could not save edits for {path}: {e}"))
     })
     .await
 }

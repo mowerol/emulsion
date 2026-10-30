@@ -27,6 +27,7 @@ import { GRAIN_FULL } from '../../src/engine/params';
 import { CURVE_RES, curveTable, type ToneCurve } from '../../src/film/curve';
 import '../../src/styles.css';
 import { Filmstrip } from '../../src/ui/Filmstrip';
+import { StageMenu } from '../../src/ui/StageMenu';
 import { Panel } from '../../src/ui/Panel';
 import { useApp } from '../../src/library/store';
 import { bandFactors, bandGains, correction, luminance, toneEqualize } from '../../src/engine/toneequalizer';
@@ -621,7 +622,7 @@ try {
   // The real panel, scrolled, to check the histogram stays pinned and sections fold.
   {
     useApp.setState({
-      photos: [{ path: '/probe/frame.jpg', rel: 'frame.jpg', name: 'frame.jpg', size: 1, modified: 0, recipe: { ...defaultRecipe('portra400'), grain: 30 }, seed: 1, white: null }],
+      photos: [{ path: '/probe/frame.jpg', rel: 'frame.jpg', name: 'frame.jpg', size: 1, modified: 0, recipe: { ...defaultRecipe('portra400'), grain: 30 }, seed: 1, white: null, rating: 3, label: 'green' as const, heart: true }],
       active: 0,
       view: 'develop',
       histogram: { path: '/probe/frame.jpg', data: counted },
@@ -641,12 +642,19 @@ try {
     // The filmstrip with its filter, for a screenshot (thumbnails can't load here, so frames are empty).
     const stripPhotos = Array.from({ length: 7 }, (_, i) => ({
       path: `/probe/f${i}.jpg`, rel: `f${i}.jpg`, name: `f${i}.jpg`, size: 1, modified: 0, recipe: i === 4 || i === 5 ? defaultRecipe('trix400') : i < 4 && i > 0 ? defaultRecipe('portra400') : null, seed: i, white: null,
+      rating: [0, 5, 3, 0, 1, 0, 2][i], label: ([null, 'red', null, 'blue', null, 'yellow', 'green'] as const)[i], heart: i === 1 || i === 3,
     }));
     const stripHost = document.createElement('div');
     stripHost.style.cssText = 'position:fixed;top:660px;left:0;width:900px;z-index:100';
     document.body.append(stripHost);
     useApp.setState({ photos: [...useApp.getState().photos, ...stripPhotos], stripFilter: 'all', active: 2 });
     createRoot(stripHost).render(createElement(Filmstrip));
+    // The workspace's right-click menu, open over a mid-grey stage.
+    useApp.setState({ stageColor: 'grey' });
+    const menuHost = document.createElement('div');
+    menuHost.style.cssText = 'position:fixed;top:0;left:360px;width:300px;height:220px;background:#767676;z-index:100';
+    document.body.append(menuHost);
+    createRoot(menuHost).render(createElement(StageMenu, { x: 400, y: 30, onClose: () => {} }));
     setTimeout(() => {
       const panel = host.querySelector('.panel') as HTMLElement | null;
       if (panel) panel.scrollTop = Number(new URLSearchParams(location.search).get('scroll') ?? 900);

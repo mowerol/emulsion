@@ -9,7 +9,7 @@ import {
   activePhoto, copySettings, editActive, editRecipes, finishCrop, pasteSettings, redo, setCropDraft, showToast, startCrop, targets, undo, useApp, type Photo,
 } from '../library/store';
 import { offscreenEngine, sourceFromBlob, thumbs } from '../library/thumbs';
-import { MOD, Segmented } from './common';
+import { MOD, MarkControls, Segmented } from './common';
 import { ASPECTS, FULL, MAX_ANGLE, framePixels, pixelRatio, rotateFrame, setAngle, setAspect, type AspectId, type Crop } from '../film/crop';
 import { Histogram } from './Histogram';
 import { CurveEditor } from './CurveEditor';
@@ -261,7 +261,8 @@ export function Panel() {
           Frame {active + 1} of {total}, {photo.name}
         </span>
         <span className="order-line">{summary(recipe)}</span>
-        {multi && <span className="order-note">Stock, development and scanner apply to the {selectedCount} selected frames.</span>}
+        <MarkControls photo={photo} />
+        {multi && <span className="order-note">Stock, development, scanner, stars, tags and hearts apply to the {selectedCount} selected frames.</span>}
       </div>
 
       <Section id="stock" title="Film stock" summary={recipe ? STOCK[recipe.stock].name : 'None'}>

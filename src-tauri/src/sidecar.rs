@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Sidecars: each edited photo gets `<file name>.emulsion.json` next to it.
-//! Edits are never written into the photo itself.
+//! Sidecars: each edited, rated, tagged or hearted photo gets `<file name>.emulsion.json`
+//! next to it. Nothing is ever written into the photo itself.
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -18,7 +18,44 @@ struct Sidecar {
     version: u32,
     /// Milliseconds since the Unix epoch.
     updated: u64,
+    /// The look; `null` for a photo that is only rated or tagged.
     recipe: serde_json::Value,
+    #[serde(default, skip_serializing_if = "is_zero")]
+    rating: u8,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    label: Option<String>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    heart: bool,
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+fn is_zero(n: &u8) -> bool {
+    *n == 0
+}
+
+/// What a sidecar keeps for one photo.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Saved {
+    pub recipe: Option<serde_json::Value>,
+    /// Stars, 0 to 5; 0 is unrated.
+    #[serde(default)]
+    pub rating: u8,
+    /// A colour tag: red, yellow, green or blue.
+    #[serde(default)]
+    pub label: Option<String>,
+    /// A favourite.
+    #[serde(default)]
+    pub heart: bool,
+}
+
+impl Saved {
+    fn is_empty(&self) -> bool {
+        self.recipe.is_none() && self.rating == 0 && self.label.is_none() && !self.heart
+    }
 }
 
 pub fn path_for(image: &Path) -> PathBuf {
@@ -27,22 +64,28 @@ pub fn path_for(image: &Path) -> PathBuf {
     PathBuf::from(s)
 }
 
-/// The recipe saved for `image`, or `None` when there is no readable sidecar.
-pub fn read(image: &Path) -> Option<serde_json::Value> {
+/// What is saved for `image`, or `None` when there is no readable sidecar.
+pub fn read(image: &Path) -> Option<Saved> {
     let text = fs::read_to_string(path_for(image)).ok()?;
     let car: Sidecar = serde_json::from_str(&text).ok()?;
-    if car.format != FORMAT || car.recipe.is_null() {
+    if car.format != FORMAT {
         return None;
     }
-    Some(car.recipe)
+    let saved = Saved {
+        recipe: Some(car.recipe).filter(|r| !r.is_null()),
+        rating: car.rating.min(5),
+        label: car.label,
+        heart: car.heart,
+    };
+    Some(saved).filter(|s| !s.is_empty())
 }
 
-/// Save `recipe` for `image`. A `null` recipe removes the sidecar, returning the
-/// photo to its original state. Writes go to a temporary file first and are
-/// renamed into place so a crash never leaves a half-written sidecar.
-pub fn write(image: &Path, recipe: &serde_json::Value) -> io::Result<()> {
+/// Save `saved` for `image`. With no recipe, rating or label the sidecar is
+/// removed, returning the photo to its original state. Writes go to a temporary
+/// file first and are renamed into place so a crash never leaves a half-written sidecar.
+pub fn write(image: &Path, saved: &Saved) -> io::Result<()> {
     let target = path_for(image);
-    if recipe.is_null() {
+    if saved.is_empty() {
         return match fs::remove_file(&target) {
             Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
             _ => Ok(()),
@@ -52,7 +95,15 @@ pub fn write(image: &Path, recipe: &serde_json::Value) -> io::Result<()> {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
-    let car = Sidecar { format: FORMAT.into(), version: VERSION, updated, recipe: recipe.clone() };
+    let car = Sidecar {
+        format: FORMAT.into(),
+        version: VERSION,
+        updated,
+        recipe: saved.recipe.clone().unwrap_or(serde_json::Value::Null),
+        rating: saved.rating.min(5),
+        label: saved.label.clone(),
+        heart: saved.heart,
+    };
     let text = serde_json::to_string_pretty(&car).map_err(io::Error::other)?;
     let mut tmp = target.as_os_str().to_owned();
     tmp.push(".tmp");
@@ -77,16 +128,35 @@ mod tests {
         let img = dir.path().join("a.jpg");
         assert!(read(&img).is_none());
 
-        let recipe = json!({ "stock": "gold200", "exposure": 0.5 });
-        write(&img, &recipe).unwrap();
-        assert_eq!(read(&img).unwrap(), recipe);
+        let look = Saved { recipe: Some(json!({ "stock": "gold200", "exposure": 0.5 })), ..Saved::default() };
+        write(&img, &look).unwrap();
+        assert_eq!(read(&img).unwrap(), look);
         assert!(!dir.path().join("a.jpg.emulsion.json.tmp").exists());
 
-        write(&img, &serde_json::Value::Null).unwrap();
+        write(&img, &Saved::default()).unwrap();
         assert!(read(&img).is_none());
         assert!(!path_for(&img).exists());
         // Removing again is not an error.
-        write(&img, &serde_json::Value::Null).unwrap();
+        write(&img, &Saved::default()).unwrap();
+    }
+
+    #[test]
+    fn keeps_a_rating_or_label_without_a_look() {
+        let dir = tempfile::tempdir().unwrap();
+        let img = dir.path().join("a.jpg");
+        let marked = Saved { recipe: None, rating: 4, label: Some("green".into()), heart: true };
+        write(&img, &marked).unwrap();
+        assert_eq!(read(&img).unwrap(), marked);
+        let text = fs::read_to_string(path_for(&img)).unwrap();
+        assert!(text.contains("\"recipe\": null"), "{text}");
+    }
+
+    #[test]
+    fn reads_sidecars_from_before_ratings() {
+        let dir = tempfile::tempdir().unwrap();
+        let img = dir.path().join("a.jpg");
+        fs::write(path_for(&img), r#"{"format":"emulsion","version":1,"updated":0,"recipe":{"stock":"portra400"}}"#).unwrap();
+        assert_eq!(read(&img).unwrap(), Saved { recipe: Some(json!({ "stock": "portra400" })), rating: 0, label: None, heart: false });
     }
 
     #[test]

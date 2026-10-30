@@ -1,18 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Undo and redo for edits: every change to recipes is a step that records each
-// photo it touched, before and after. Pure, so it can be tested.
+// Undo and redo for edits: every change to recipes, stars or colour tags is a
+// step that records each photo it touched, before and after. Pure, so it can be tested.
 
 import { SLIDER, defaultRecipe, type Recipe, type SliderKey } from '../film/recipe';
 import { STOCK } from '../film/stocks';
+import type { Marks } from './marks';
 
 const keysChanged = (a: Recipe, b: Recipe) =>
   (Object.keys(b) as (keyof Recipe)[]).filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
 
-export interface Change {
-  path: string;
-  before: Recipe | null;
-  after: Recipe | null;
-}
+/** One photo's look, or (with `marks`) its stars and colour tag, before and after. */
+export type Change =
+  | { path: string; marks?: false; before: Recipe | null; after: Recipe | null }
+  | { path: string; marks: true; before: Marks; after: Marks };
 
 export interface Step {
   label: string;
@@ -52,7 +52,8 @@ export class History {
       const byPath = new Map(last.changes.map((c) => [c.path, c]));
       for (const c of changes) {
         const prev = byPath.get(c.path);
-        byPath.set(c.path, prev ? { ...prev, after: c.after } : c);
+        // Steps merge only with the same label, so both changes are of one kind.
+        byPath.set(c.path, prev ? ({ ...prev, after: c.after } as Change) : c);
       }
       last.changes = [...byPath.values()];
       last.at = now;

@@ -12,6 +12,9 @@ export interface Entry {
   size: number;
   modified: number;
   recipe: unknown | null;
+  rating: number;
+  label: string | null;
+  heart: boolean;
 }
 
 export interface ScanResult {
@@ -81,7 +84,15 @@ export async function captureInfo(path: string, width: number, height: number): 
 /** As-shot white points (CIE xy) of `paths`; null for anything that is not a RAW. */
 export const whitePoints = (paths: string[]) => invoke<([number, number] | null)[]>('white_points', { paths });
 
-export const writeSidecar = (path: string, recipe: unknown | null) => invoke<void>('write_sidecar', { path, recipe });
+/** What a sidecar keeps: the look, stars, colour tag and heart. With none of them the sidecar is removed. */
+export interface Saved {
+  recipe: unknown | null;
+  rating: number;
+  label: string | null;
+  heart: boolean;
+}
+
+export const writeSidecar = (path: string, saved: Saved) => invoke<void>('write_sidecar', { path, saved });
 
 export function writeExport(dir: string, stem: string, rgba: Uint8Array, width: number, height: number, quality: number) {
   return invoke<string>('write_export', rgba, {

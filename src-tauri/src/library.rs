@@ -54,6 +54,10 @@ pub struct Entry {
     pub modified: u64,
     /// The recipe saved in this photo's sidecar, if it has one.
     pub recipe: Option<serde_json::Value>,
+    /// Stars, 0 to 5, colour tag and heart, from the sidecar.
+    pub rating: u8,
+    pub label: Option<String>,
+    pub heart: bool,
 }
 
 #[derive(Serialize, Debug)]
@@ -142,13 +146,17 @@ pub fn scan(target: &Path, recursive: bool) -> std::io::Result<ScanResult> {
             .map(|c| c.as_os_str().to_string_lossy().into_owned())
             .collect::<Vec<_>>()
             .join("/");
+        let saved = sidecar::read(item.path()).unwrap_or_default();
         entries.push(Entry {
             path: item.path().to_string_lossy().into_owned(),
             rel,
             name: item.file_name().to_string_lossy().into_owned(),
             size: meta.len(),
             modified,
-            recipe: sidecar::read(item.path()),
+            recipe: saved.recipe,
+            rating: saved.rating,
+            label: saved.label,
+            heart: saved.heart,
         });
     }
 
@@ -229,10 +237,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let img = dir.path().join("a.jpg");
         touch(&img);
-        sidecar::write(&img, &serde_json::json!({ "stock": "portra400" })).unwrap();
+        let look = sidecar::Saved { recipe: Some(serde_json::json!({ "stock": "portra400" })), rating: 3, label: None, heart: false };
+        sidecar::write(&img, &look).unwrap();
         let res = scan(dir.path(), true).unwrap();
         assert_eq!(res.entries.len(), 1, "sidecar must not appear as a photo");
         assert_eq!(res.entries[0].recipe.as_ref().unwrap()["stock"], "portra400");
+        assert_eq!(res.entries[0].rating, 3);
     }
 
     #[test]

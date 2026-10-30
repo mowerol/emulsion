@@ -2,10 +2,8 @@
 import { memo, useEffect, useMemo, useRef, type MouseEvent } from 'react';
 import { setActive, setStripFilter, useApp, type Photo } from '../library/store';
 import { STRIP_FILTERS, filterCounts, stripIndices } from '../library/filter';
-import { Segmented, Thumb, edgeText, useVisible } from './common';
+import { MarkBadges, Segmented, Thumb, edgeText, useVisible } from './common';
 
-/** The film base a frame sits on: developed frames on film, a photo with no look yet on the dark rebate. */
-const baseFor = (photo: Photo) => (photo.recipe ? 'base-film' : 'base-none');
 
 const Frame = memo(function Frame({ photo, index, active, selected }: { photo: Photo; index: number; active: boolean; selected: boolean }) {
   const [ref, visible] = useVisible<HTMLButtonElement>('600px');
@@ -14,7 +12,7 @@ const Frame = memo(function Frame({ photo, index, active, selected }: { photo: P
     <button
       ref={ref}
       type="button"
-      className={`frame ${baseFor(photo)}${active ? ' active' : ''}${selected ? ' selected' : ''}`}
+      className={`frame${photo.recipe ? ' edited' : ''}${active ? ' active' : ''}${selected ? ' selected' : ''}`}
       data-index={index}
       aria-label={`Frame ${n}, ${photo.name}`}
       aria-current={active}
@@ -27,6 +25,7 @@ const Frame = memo(function Frame({ photo, index, active, selected }: { photo: P
       <Thumb photo={photo} visible={visible} className="frame-img" />
       <span className="edge">
         <span>{n}A</span>
+        <MarkBadges photo={photo} />
       </span>
     </button>
   );

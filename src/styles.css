@@ -16,6 +16,7 @@
   --strip: #121110;      /* film rebate */
   --hole: #2a2926;
   --edge: #e2a556;       /* edge print */
+  --heart: #ef6f8a;
   --scrim: rgba(18, 17, 16, 0.78);
   --font: 'Archivo Variable', 'Archivo', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --panel-w: 340px;
@@ -108,6 +109,13 @@ code { font-size: 12.5px; background: var(--raise); padding: 1px 5px; border-rad
 .cell-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cell-stock { color: var(--faint); white-space: nowrap; }
 .cell-stock.on { color: var(--edge); }
+.cell-marks { height: 14px; display: flex; align-items: center; font-size: 12px; }
+
+/* Heart, stars and colour tag, on grid cells and filmstrip frames */
+.marks { display: inline-flex; align-items: center; gap: 5px; line-height: 1; letter-spacing: 0; }
+.mark-heart { color: var(--heart); }
+.mark-stars { color: var(--edge); letter-spacing: 0.04em; }
+.mark-label { display: inline-block; width: 9px; height: 9px; border-radius: 50%; }
 
 /* Develop */
 .develop { flex: 1; display: grid; grid-template-rows: minmax(0, 1fr) auto; min-width: 0; }
@@ -126,10 +134,10 @@ code { font-size: 12.5px; background: var(--raise); padding: 1px 5px; border-rad
 .strip-note { color: var(--muted); }
 .strip { background: var(--strip); overflow-x: auto; overflow-y: hidden; padding: 0 16px; scrollbar-color: var(--line) transparent; }
 .strip-inner { position: relative; display: flex; padding: 8px 0; min-width: max-content; }
-/* Each frame is a length of film on its stock's base, sprocket holes punched through. */
+/* Each frame is a length of film on the base, sprocket holes punched through. */
 .frame {
   position: relative; display: flex; flex-direction: column; gap: 3px; padding: 18px 5px; border: 0; cursor: pointer;
-  background: var(--base); --base: var(--strip);
+  background: #281f18; --hole: #141110;
 }
 .frame::before, .frame::after {
   /* Rounded, slightly tall perforations, one every 16 px, cut through to the dark behind. */
@@ -139,8 +147,6 @@ code { font-size: 12.5px; background: var(--raise); padding: 1px 5px; border-rad
 }
 .frame::before { top: 4px; }
 .frame::after { bottom: 4px; }
-/* A developed frame, colour or black and white, on the film base. */
-.frame.base-film { --base: #281f18; --hole: #141110; }
 .frame-img, .frame .thumb-empty { display: block; height: 84px; width: auto; min-width: 56px; border: 2px solid transparent; object-fit: contain; }
 .frame .thumb-empty { width: 126px; }
 .frame.selected .frame-img { border-color: var(--faint); }
@@ -150,6 +156,8 @@ code { font-size: 12.5px; background: var(--raise); padding: 1px 5px; border-rad
   font-size: 10px; font-weight: 600; font-stretch: 72%; letter-spacing: 0.12em; line-height: 1;
   color: var(--edge); text-transform: uppercase;
 }
+/* A frame with no look yet: its edge print reads ORIGINAL, dimmed, as in the Library grid. */
+.frame:not(.edited) .edge { color: var(--faint); }
 
 /* Panel: the lab order */
 .panel { border-left: 1px solid var(--line); background: var(--panel); overflow-y: auto; padding: 0 18px 24px; min-height: 0; }
@@ -163,6 +171,17 @@ code { font-size: 12.5px; background: var(--raise); padding: 1px 5px; border-rad
 .order { display: grid; gap: 3px; padding: 14px 0 16px; border-bottom: 1px solid var(--line); }
 .order-frame { font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
 .order-line { font-size: 15px; font-weight: 600; text-wrap: balance; }
+.mark-controls { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+.mark-stars-input, .mark-labels-input { display: flex; align-items: center; }
+.mark-btn { background: none; border: 0; padding: 2px 3px; font-size: 16px; line-height: 1; color: var(--faint); cursor: pointer; border-radius: 4px; }
+.mark-btn:hover { color: var(--muted); }
+.mark-btn.star.on { color: var(--edge); }
+.mark-btn.heart { font-size: 17px; }
+.mark-btn.heart.on { color: var(--heart); }
+.mark-btn.swatch-btn { padding: 4px; }
+.mark-btn.swatch-btn span { display: block; width: 12px; height: 12px; border-radius: 50%; opacity: 0.45; }
+.mark-btn.swatch-btn:hover span { opacity: 0.8; }
+.mark-btn.swatch-btn.on span { opacity: 1; box-shadow: 0 0 0 1.5px var(--panel), 0 0 0 3px var(--fg); }
 .order-note { font-size: 12px; color: var(--edge); }
 .group { display: flex; flex-direction: column; gap: 10px; padding: 16px 0; border-bottom: 1px solid var(--line); }
 .group h2 { margin: 0; font-size: 12px; font-weight: 600; color: var(--muted); }
@@ -223,6 +242,8 @@ input[type='range']:disabled { opacity: 0.35; cursor: default; }
 .zoom-level { min-width: 44px; text-align: center; color: var(--fg); font-variant-numeric: tabular-nums; }
 .clip-badge { left: auto; right: 32px; }
 .view-wrap { position: relative; }
+/* On a light workspace, status lines sit on the scrim like the badges so they stay readable. */
+.stage.light .stage-status { background: var(--scrim); padding: 2px 6px; border-radius: 4px; }
 .zoom-sep { width: 1px; height: 14px; background: var(--line); margin: 0 4px; }
 .split { position: absolute; top: 0; bottom: 0; width: 15px; margin-left: -7px; cursor: ew-resize; touch-action: none; }
 .split::before { content: ''; position: absolute; top: 0; bottom: 0; left: 7px; width: 1px; background: rgba(255, 255, 255, 0.85); box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35); }
@@ -300,3 +321,14 @@ input[type='range']:disabled { opacity: 0.35; cursor: default; }
 .toast button { background: none; border: 1px solid var(--bg); color: var(--bg); border-radius: 5px; padding: 3px 9px; font-weight: 700; cursor: pointer; }
 
 @media (prefers-reduced-motion: reduce) { .bar span { transition: none; } }
+
+/* Right-click menus */
+.menu {
+  position: fixed; z-index: 50; min-width: 180px; padding: 4px; display: flex; flex-direction: column;
+  background: var(--raise); border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45); font-size: 13px;
+}
+.menu-title { padding: 4px 8px 4px 28px; font-size: 11px; font-weight: 600; color: var(--faint); text-transform: uppercase; letter-spacing: 0.06em; }
+.menu-item { display: flex; align-items: center; gap: 8px; padding: 5px 8px; border: 0; border-radius: 4px; background: none; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
+.menu-item:hover, .menu-item:focus-visible { background: var(--line); outline: none; }
+.menu-check { width: 12px; color: var(--edge); }
+.menu .swatch { width: 12px; height: 12px; border-radius: 3px; box-shadow: inset 0 0 0 1px var(--faint); }

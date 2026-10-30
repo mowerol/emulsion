@@ -2,7 +2,7 @@
 import { memo, useEffect, useRef, useState, type MouseEvent } from 'react';
 import { setActive, setView, useApp, type Photo } from '../library/store';
 import { STOCK } from '../film/stocks';
-import { Thumb, useVisible } from './common';
+import { MarkBadges, Thumb, useVisible } from './common';
 
 /** Columns in the grid, for up/down arrow navigation. */
 export let gridColumns = 1;
@@ -43,6 +43,9 @@ const Cell = memo(function Cell({ photo, index, active, selected }: { photo: Pho
       <div className="cell-meta">
         <span className="cell-name">{photo.name}</span>
         <span className={`cell-stock${photo.recipe ? ' on' : ''}`}>{photo.recipe ? STOCK[photo.recipe.stock].name : 'Original'}</span>
+      </div>
+      <div className="cell-marks">
+        <MarkBadges photo={photo} />
       </div>
     </div>
   );

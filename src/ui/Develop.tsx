@@ -5,7 +5,8 @@ import { Engine, type Source } from '../engine/engine';
 import { histogram } from '../engine/histogram';
 import { defaultRecipe } from '../film/recipe';
 import { D65_XY, clampWhiteBalance, neutralizingWhite, temperatureTint } from '../engine/whitebalance';
-import { activePhoto, editActive, finishCrop, setCropDraft, setPhotoWhite, showToast, startCrop, useApp } from '../library/store';
+import { STAGE_COLORS, activePhoto, editActive, finishCrop, setCropDraft, setPhotoWhite, showToast, startCrop, useApp } from '../library/store';
+import { StageMenu } from './StageMenu';
 import { FULL, bounds, framePixels, rotateFrame, sourcePoint } from '../film/crop';
 import { CropOverlay } from './CropOverlay';
 import { ensureCapture, sourceFromBlob, thumbs } from '../library/thumbs';
@@ -30,8 +31,8 @@ interface Loaded {
 }
 
 const dpr = () => Math.min(window.devicePixelRatio || 1, 2);
-/** The stage's colour (--stage), shown around the photo while it is straightened. */
-const STAGE: [number, number, number] = [0x2a / 255, 0x29 / 255, 0x26 / 255];
+/** A workspace colour as the engine's display-encoded RGB, painted around the photo while it is straightened. */
+const rgb = (hex: string): [number, number, number] => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255) as [number, number, number];
 
 export function Develop() {
   const boxRef = useRef<HTMLDivElement>(null);
@@ -47,6 +48,9 @@ export function Develop() {
   /** Before/after: off, the whole original, or split at `splitAt` of the canvas width. */
   const [before, setBefore] = useState<'off' | 'full' | 'split'>('off');
   const [splitAt, setSplitAt] = useState(0.5);
+  /** Where the workspace's right-click menu is open, if it is. */
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const closeMenu = useCallback(() => setMenu(null), []);
   const pointer = useRef<{ x: number; y: number; moved: boolean; id: number } | null>(null);
   const lastCursor = useRef<[number, number]>([0.5, 0.5]);
 
@@ -58,6 +62,8 @@ export function Develop() {
   const split = before === 'split' && !held && !cropping ? splitAt : undefined;
   const picking = useApp((s) => s.picking);
   const clipping = useApp((s) => s.clipping);
+  const stageId = useApp((s) => s.stageColor);
+  const stage = STAGE_COLORS.find((c) => c.id === stageId)!;
   const path = photo?.path;
 
   // Start the GPU engine for this canvas.
@@ -215,14 +221,14 @@ export function Develop() {
       const canvas = canvasRef.current;
       if (!engine || !l || !canvas || l.path !== path || !canvas.width || !current) return;
       try {
-        engine.render(l.source, recipe, { target: 'screen', width: canvas.width, height: canvas.height, seed, compare, view: current.view, clipping, split, frame, outside: STAGE });
+        engine.render(l.source, recipe, { target: 'screen', width: canvas.width, height: canvas.height, seed, compare, view: current.view, clipping, split, frame, outside: rgb(stage.hex) });
       } catch (err) {
         setError(`Rendering failed. ${String(err)}`);
       }
     });
     return () => cancelAnimationFrame(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recipe, seed, compare, loadedVersion, viewKey, path, clipping, split, JSON.stringify(frame)]);
+  }, [recipe, seed, compare, loadedVersion, viewKey, path, clipping, split, JSON.stringify(frame), stage]);
 
   // Count the histogram from a small render of the whole frame, once changes settle.
   useEffect(() => {
@@ -381,7 +387,15 @@ export function Develop() {
 
   return (
     <section className="develop">
-      <div className="stage">
+      <div
+        className={`stage${stage.light ? ' light' : ''}`}
+        style={{ background: stage.hex }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setMenu({ x: e.clientX, y: e.clientY });
+        }}
+      >
+        {menu && <StageMenu x={menu.x} y={menu.y} onClose={closeMenu} />}
         <div className="stage-box" ref={boxRef}>
           <div className={`view-wrap${cropping ? ' cropping' : ''}`} style={current ? { width: current.cssW, height: current.cssH } : undefined}>
           <canvas
