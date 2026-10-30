@@ -13,6 +13,7 @@ import { InputMode, developUniforms, needsPasses, type Uniforms } from './params
 import { GLOW_SIGMA, HALATION_SIGMA, blurPlan, pyramidFor, type Pyramid } from './pyramid';
 import { MASK_SIGMA } from './toneequalizer';
 import { GAMMAS, levelSize, numLevels } from './locallaplacian';
+import { scales } from './equalizer';
 import { CURVE_RES, curveTable } from '../film/curve';
 import type { Xy } from './whitebalance';
 import { SHADERS } from './shaders';
@@ -93,6 +94,10 @@ export class Engine {
   private llCollapse: Program;
   /** What the clarity map in `lls` was last made from, so panning and zooming reuse it. */
   private llMade: { tex: WebGLTexture; key: string } | null = null;
+  private eqP: Program;
+  /** The texture map's ping-pong targets for the latest source size, and what it was made from. */
+  private eq: { w: number; h: number; a: Target; b: Target } | null = null;
+  private eqMade: { tex: WebGLTexture; key: string; out: Target } | null = null;
   private outs: Lru<Target>;
   private store: number;
 
@@ -110,6 +115,7 @@ export class Engine {
     this.llCurve = this.gpu.program(SHADERS.vertex, SHADERS.llcurve);
     this.llReduce = this.gpu.program(SHADERS.vertex, SHADERS.llreduce);
     this.llCollapse = this.gpu.program(SHADERS.vertex, SHADERS.llcollapse);
+    this.eqP = this.gpu.program(SHADERS.vertex, SHADERS.eq);
     // Full-size pyramids are large: keep only the latest two sizes (preview and full resolution).
     this.lls = new Lru<Ll>(2, (l) => [...l.A, ...l.B, ...l.O].forEach((t) => this.gpu.free(t)));
   }
@@ -153,6 +159,12 @@ export class Engine {
     this.chains.delete(`${w}x${h}`);
     this.outs.delete(`${w}x${h}`);
     this.lls.delete(`${w}x${h}`);
+    if (this.eq && this.eq.w === w && this.eq.h === h) {
+      this.gpu.free(this.eq.a);
+      this.gpu.free(this.eq.b);
+      this.eq = null;
+      this.eqMade = null;
+    }
   }
 
   private chain(w: number, h: number): Chain {
@@ -245,6 +257,60 @@ export class Engine {
       g.draw(this.llCollapse, ll.O[l], ll.O[l].w, ll.O[l].h);
     }
     return ll.O[0].tex;
+  }
+
+  /** The texture map's two targets for a w × h source, made on first use (one size at a time). */
+  private eqTargets(w: number, h: number) {
+    if (!this.eq || this.eq.w !== w || this.eq.h !== h) {
+      if (this.eq) {
+        this.gpu.free(this.eq.a);
+        this.gpu.free(this.eq.b);
+      }
+      // 32-bit where possible: L* runs to 100 and more, where half floats step by 0.06.
+      const precise = this.gpu.float32;
+      this.eq = { w, h, a: this.gpu.target(w, h, true, precise), b: this.gpu.target(w, h, true, precise) };
+      this.eqMade = null;
+    }
+    return this.eq;
+  }
+
+  /**
+   * darktable's contrast equalizer over the whole photo, on the scene's L*:
+   * returns the target holding residue, boosted detail and the starting
+   * lightness. `drawInput` renders the lightness into a target.
+   */
+  private textureMap(src: Source, mix: number, drawInput: (t: Target) => void): Target {
+    const g = this.gpu;
+    const { a, b } = this.eqTargets(src.w, src.h);
+    const sc = scales(src.w, src.h, src.fullW, src.fullH, mix);
+    drawInput(a);
+    let from = a;
+    let to = b;
+    sc.forEach((s, i) => {
+      g.bind(0, from.tex);
+      this.eqP.set({ uIn: 0, uMult: s.mult, uBoost: s.boost, uSharpen: s.sharpen, uFirst: i === 0 ? 1 : 0 });
+      g.draw(this.eqP, to, to.w, to.h);
+      [from, to] = [to, from];
+    });
+    return from;
+  }
+
+  /** The texture equalizer alone on an L* plane, for the probe: the change in L* per pixel. */
+  probeEqualizer(L: Float32Array, w: number, h: number, fullW: number, fullH: number, mix: number): Float32Array {
+    const gl = this.gpu.gl;
+    const src = { w, h, fullW, fullH } as Source;
+    this.eqMade = null;
+    const out = this.textureMap(src, mix, (t) => {
+      const rgba = new Float32Array(w * h * 4);
+      L.forEach((v, k) => (rgba[4 * k] = v));
+      this.gpu.scratch();
+      gl.bindTexture(gl.TEXTURE_2D, t.tex);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RGBA, gl.FLOAT, rgba);
+    });
+    const px = new Float32Array(w * h * 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, out.fbo);
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.FLOAT, px);
+    return Float32Array.from({ length: w * h }, (_, k) => px[4 * k] + px[4 * k + 1] - px[4 * k + 2]);
   }
 
   /** The clarity filter alone on a lightness plane, for the probe: the change in lightness per pixel. */
@@ -342,6 +408,9 @@ export class Engine {
     const curve = u.uCurveOn === 1 && recipe ? this.curveTexture(recipe) : g.blackTexture;
     // Clarity needs float targets and at least two pyramid levels.
     const ll = passes.clarity && g.hdr && numLevels(src.w, src.h) >= 2 ? this.llPyramids(src.w, src.h) : null;
+    // Texture needs float targets and at least one wavelet scale.
+    const eqOn = passes.texture && g.hdr && scales(src.w, src.h, src.fullW, src.fullH, 1).length > 0;
+    if (eqOn) this.eqTargets(src.w, src.h);
     if (passes.highlights || passes.sharpen) this.chain(src.w, src.h);
     const teqU = { uTeqTex: 4, uTeqLocal: teqLocal ? 1 : 0, uCurveTex: 5 };
 
@@ -380,25 +449,43 @@ export class Engine {
       g.bind(4, teq);
       g.bind(5, curve);
       g.bind(6, clarity);
+      g.bind(8, texture);
     };
+    // A pass over the whole source that stops at a filter's input (see uTap in develop.frag).
+    const tap = (t: Target, uTap: number, extra: Uniforms) => {
+      this.develop.set({
+        ...u, ...teqU, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3, uClarityTex: 6, uTextureTex: 8,
+        uView: [0, 0, 1, 1], uGeoU: [1, 0, 0], uGeoV: [0, 1, 0], uSplit: -1, uClipShow: 0, uTap, ...extra,
+      });
+      g.draw(this.develop, t, t.w, t.h);
+    };
+    // Each map depends on the photo and everything before it, not on the view or crop.
+    const pipeKey = `${src.w}x${src.h}|${JSON.stringify({ ...recipe, crop: null })}`;
+    let texture: WebGLTexture = g.blackTexture;
+    if (eqOn && this.eqMade?.tex === src.tex && this.eqMade.key === pipeKey) texture = this.eqMade.out.tex;
+    else if (eqOn) {
+      const out = this.textureMap(src, u.uTextureMix as number, (t) => {
+        bindDevelop(g.blackTexture);
+        tap(t, 2, { uTextureOn: 0, uClarityOn: 0 });
+      });
+      this.eqMade = { tex: src.tex, key: pipeKey, out };
+      texture = out.tex;
+    }
     let clarity: WebGLTexture = g.blackTexture;
-    // The map depends on the photo and everything before the print, not on the view or crop.
-    const llKey = ll ? `${src.w}x${src.h}|${JSON.stringify({ ...recipe, crop: null })}` : '';
+    const llKey = pipeKey;
     if (ll && this.llMade?.tex === src.tex && this.llMade.key === llKey) clarity = ll.O[0].tex;
     else if (ll) {
       // The filter's input: the print's lightness at every source pixel, uncropped.
       clarity = this.clarityMap(ll, u.uLl as number[], (t) => {
         bindDevelop(g.blackTexture);
-        this.develop.set({
-          ...u, ...teqU, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3, uClarityTex: 6,
-          uView: [0, 0, 1, 1], uGeoU: [1, 0, 0], uGeoV: [0, 1, 0], uSplit: -1, uClipShow: 0, uClarityOut: 1, uClarityOn: 0,
-        });
-        g.draw(this.develop, t, t.w, t.h);
+        tap(t, 1, { uTextureOn: eqOn ? 1 : 0, uClarityOn: 0 });
       });
       this.llMade = { tex: src.tex, key: llKey };
     }
     bindDevelop(clarity);
-    this.develop.set({ ...u, ...teqU, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3, uClarityTex: 6, uClarityOut: 0, uClarityOn: ll ? 1 : 0 });
+    this.develop.set({
+      ...u, ...teqU, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3, uClarityTex: 6, uTextureTex: 8, uTap: 0, uClarityOn: ll ? 1 : 0, uTextureOn: eqOn ? 1 : 0,
+    });
     if (opts.target === 'screen') g.draw(this.develop, null, opts.width, opts.height, true);
     else g.draw(this.develop, opts.target, opts.width, opts.height, false);
   }

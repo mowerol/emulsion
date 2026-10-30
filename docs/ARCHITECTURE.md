@@ -38,6 +38,7 @@ Each stage is one GLSL file in `src/engine/shaders/stages/`, included into `deve
 | Sharpen | `optics.glsl` | scene | Scanner sharpness, a log-domain unsharp mask | |
 | Exposure | `exposure.glsl` | scene | White balance (CAT16 from the as-shot white to the chosen one, **ported from darktable**), exposure, black level (Blacks below zero, as darktable's exposure module) and the stock's colour balance | |
 | Tone equalizer | `toneequalizer.glsl` | scene | Highlights: exposure by brightness band through an edge-aware brightness map, in the shape of darktable's compress shadows/highlights presets. **Ported from darktable tone equalizer** | |
+| Texture | `texture.glsl` | scene | Texture: darktable's contrast equalizer (its "sharpen" preset, with darktable's mix as the slider) on CIE L*, from a map the `eq` passes make over the whole photo; keeps Lab a and b. **Ported from darktable contrast equalizer** | |
 | Colour balance | `colorbalance.glsl` | scene | Shadows (darktable's shadows lift luminance, with its masks at their defaults), contrast around middle grey, vibrance, saturation with gamut mapping. **Ported from darktable colour balance rgb** | |
 | Lens | `lens.glsl` | scene | Vignetting | |
 | Optics | `optics.glsl` | scene | Halation and glow, added back from blurred highlights | |
@@ -58,6 +59,7 @@ The tone curve's maths is mirrored in `engine/tone.ts` so it can be unit-tested;
 
 ```
 source ─┬─ tone eq map (1/4 res) ─ down ─ ... ─ blur ── tone equalizer ─┐   (only with Highlights)
+        ├─ (develop to the scene's L*) ─ wavelet scales ─ texture ─┤   (only with Texture)
         ├─ (develop to the print's lightness) ─ local laplacian pyramids ─ clarity ─┤   (only with Clarity)
         ├─ extract (1/4 res) ─ down ─ down ─ ...      highlight pyramid
         │        └─ blur at ≤256 px wide ──────────── halation ─┐
@@ -69,6 +71,8 @@ source ─┬─ tone eq map (1/4 res) ─ down ─ ... ─ blur ── tone equ
 The tone equalizer's map holds each pixel's brightness and its square, so the blur yields the local mean and variance its edge-aware filter needs. It is halved down to the halation level (at most 256 wide) and blurred there with a sigma of 2.5% of the long edge, darktable's default smoothing; it uses 32-bit float targets where the GPU can filter them, because the variance is a small difference of large numbers. Without float targets the stage falls back to a plain per-pixel correction, darktable's "no detail preservation" mode.
 
 Clarity runs the develop pass once more over the whole source, stopping at the tone curve to write CIE lightness, then darktable's local laplacian filter: six remapped images in two RGBA pyramids (the second also carries the lightness's own Gaussian pyramid), collapsed coarse to fine into a map of the change in lightness per source pixel, which the develop pass adds after the tone stage. The map is kept until the recipe or the photo changes, so panning, zooming and the split view reuse it. It costs about 70 ms at preview size. Like darktable's, its finest levels are in pixels, so at full resolution (zoomed in, or in an export) clarity reaches finer detail than in the fitted preview.
+
+Texture works the same way one stage earlier: the develop pass writes the scene's L* after the tone equalizer, and darktable's contrast equalizer runs one edge-avoiding à-trous pass per detail size (up to eight, from 5 px at full resolution to about 20% of the frame) in two 32-bit targets, keeping the coarse residue, the boosted detail and the starting L* in one texture. Its sizes are tied to the photo, not to pixels, so the preview shows the same bands as full resolution minus the finest. Its map is kept like clarity's; an edit costs about 50 ms at preview size. The clarity pass's input includes texture.
 
 Halation and glow are blurred on small, fixed-size levels of a downsample pyramid (`engine/pyramid.ts`), with taps no more than one texel apart. That keeps the halos smooth, cheap, and the same relative size in the preview and in a full-size export. Passes are skipped when their amounts are zero.
 

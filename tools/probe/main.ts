@@ -30,6 +30,8 @@ import { Panel } from '../../src/ui/Panel';
 import { useApp } from '../../src/library/store';
 import { bandFactors, bandGains, correction, luminance, toneEqualize } from '../../src/engine/toneequalizer';
 import { clarityParams, lightness, localLaplacian, withLightness } from '../../src/engine/locallaplacian';
+import { equalize, scales } from '../../src/engine/equalizer';
+import { labL, labShiftL } from '../../src/engine/lab';
 import { toneLookFor } from '../../src/engine/params';
 
 const COLOURS: Vec3[] = [
@@ -197,6 +199,33 @@ function probeCurve(eng: Engine, curve: ToneCurve) {
   });
   gl.deleteTexture(tex);
   return res;
+}
+
+/** Texture: darktable's contrast equalizer on the GPU against the reference, and the L* shift per pixel. */
+function probeTexture(eng: Engine) {
+  const w = 160, h = 120;
+  const L = new Float64Array(w * h);
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+    L[j * w + i] = 30 + 40 * (i / w) + 4 * Math.sin(i * 1.7) * Math.sin(j * 1.1) + (j > h / 2 ? 15 : 0);
+  }
+  const worst: Record<string, number> = {};
+  for (const mix of [1, 0.5, -1]) {
+    // Pretend the plane is a quarter-size preview, so the coarse bands are in play.
+    const sc = scales(w, h, w * 4, h * 4, mix);
+    const ref = equalize(L, w, h, sc);
+    const got = eng.probeEqualizer(Float32Array.from(L), w, h, w * 4, h * 4, mix);
+    let m = 0;
+    for (let k = 0; k < w * h; k++) m = Math.max(m, Math.abs(got[k] - (ref[k] - L[k])));
+    worst[`mix${mix}`] = m;
+  }
+  const u = developUniforms(defaultRecipe(), stageCtx);
+  const shift = probeStage(eng, ['stages/lab.glsl'], 'labShiftL(c, 3.0)', COLOURS, {
+    up: { uniforms: u, ref: (c: Vec3) => labShiftL(c, 3) },
+  });
+  const l = probeStage(eng, ['stages/lab.glsl'], 'vec3(labL(c))', COLOURS, {
+    L: { uniforms: u, ref: (c: Vec3) => [labL(c), labL(c), labL(c)] as Vec3 },
+  });
+  return { worstLStarError: worst, shift, lightness: l };
 }
 
 /** Clarity: darktable's local laplacian on the GPU against the reference, and the lightness change per pixel. */
@@ -409,6 +438,7 @@ try {
     eng.release(gsrc);
   }
   out.clarity = probeClarity(eng);
+  out.texture = probeTexture(eng);
   out.grain = probeGrain(eng);
   // Speed: a 2560-wide frame with grain on and off.
   {
@@ -427,7 +457,14 @@ try {
       return (performance.now() - t0) / 4;
     };
     const look: Recipe = { ...defaultRecipe('portra400'), scanner: 'straight', grain: 30 };
-    out.timing = { grainOffMs: time({ ...look, grain: 0 }), grainOnMs: time({ ...look, grain: 50 }), bwMs: time({ ...defaultRecipe('trix400'), grain: 50 }), clarityMs: time({ ...look, grain: 0, clarity: 100 }) };
+    // Each render a different value, as while dragging a slider, so nothing is reused.
+    const timeDrag = (key: 'clarity' | 'texture' | 'exposure') => {
+      eng.readPixels(bsrc, { ...look, grain: 0, [key]: key === 'exposure' ? 0.1 : 40 }, PW, PH, 1);
+      const t0 = performance.now();
+      for (let i = 0; i < 4; i++) eng.readPixels(bsrc, { ...look, grain: 0, [key]: key === 'exposure' ? 0.2 + i * 0.1 : 50 + i * 10 }, PW, PH, 1);
+      return (performance.now() - t0) / 4;
+    };
+    out.timing = { grainOffMs: time({ ...look, grain: 0 }), grainOnMs: time({ ...look, grain: 50 }), bwMs: time({ ...defaultRecipe('trix400'), grain: 50 }), clarityMs: time({ ...look, grain: 0, clarity: 100 }), textureMs: time({ ...look, grain: 0, texture: 100 }), dragExposureMs: timeDrag('exposure'), dragClarityMs: timeDrag('clarity'), dragTextureMs: timeDrag('texture') };
     // A crop of the ramp with Portra 400 grain at 100%, for a look.
     const px = eng.readPixels(bsrc, look, PW, PH, 1);
     // Grain strength: standard deviation of the green channel, grain on minus off, in a midtone strip.
@@ -545,9 +582,10 @@ pre.id = 'result';
 pre.textContent = JSON.stringify(report);
 document.body.append(pre);
 
-// A real photo through Clarity, for a screenshot: open with ?img=<file URL of a JPEG>.
-// Shows 1:1 crops from the middle at Clarity -100, 0 and +100, and times the filter.
+// A real photo through Clarity (or ?slider=texture), for a screenshot: open with
+// ?img=<file URL of a JPEG>. Shows 1:1 crops from the middle at -100, 0 and +100.
 const photoArg = new URLSearchParams(location.search).get('img');
+const photoSlider = (new URLSearchParams(location.search).get('slider') ?? 'clarity') as 'clarity' | 'texture';
 if (photoArg) {
   (async () => {
     const res: Record<string, unknown> = {};
@@ -559,7 +597,7 @@ if (photoArg) {
       const peng = new Engine(document.createElement('canvas'));
       const psrc = peng.sourceFromImage(img, pw, ph);
       const gl = peng.gpu.gl;
-      const look = (clarity: number): Recipe => ({ ...defaultRecipe(), clarity });
+      const look = (v: number): Recipe => ({ ...defaultRecipe(), [photoSlider]: v });
       const time = (r: Recipe) => {
         peng.readPixels(psrc, r, pw, ph, 1);
         const t0 = performance.now();

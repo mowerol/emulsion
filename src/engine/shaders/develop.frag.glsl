@@ -9,6 +9,7 @@
 #include "stages/optics.glsl"
 #include "stages/exposure.glsl"
 #include "stages/toneequalizer.glsl"
+#include "stages/texture.glsl"
 #include "stages/colorbalance.glsl"
 #include "stages/lens.glsl"
 #include "stages/emulsion.glsl"
@@ -32,8 +33,9 @@ uniform vec3 uGeoU;
 uniform vec3 uGeoV;
 // Display colour for frame pixels off the photo (only while cropping).
 uniform vec3 uOutside;
-// 1 renders the clarity filter's input instead: the print's lightness in .r.
-uniform float uClarityOut;
+// Renders a multi-scale filter's input instead, over the whole source: 1, the print's
+// lightness for clarity (0 to 1); 2, the scene's L* for texture.
+uniform float uTap;
 
 void main() {
   vec3 f = vec3(uView.xy + vUv * uView.zw, 1.0);
@@ -53,13 +55,18 @@ void main() {
   x = stageSharpen(x, uv);
   x = stageExposure(x);
   x = stageToneEqualizer(x, uv);
+  if (uTap > 1.5) {
+    outColor = vec4(labL(x), 0.0, 0.0, 1.0);
+    return;
+  }
+  x = stageTexture(x, uv);
   x = stageColorBalance(x);
   x = stageLens(x, uv);
   x = stageOptics(x, uv);
   x = stageEmulsion(x);
   // Print
   vec3 e = stageTone(x);
-  if (uClarityOut > 0.5) {
+  if (uTap > 0.5) {
     outColor = vec4(clarityLightness(e), 0.0, 0.0, 1.0);
     return;
   }

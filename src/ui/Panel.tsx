@@ -85,14 +85,15 @@ function SliderRow({ def, recipe, onChange }: { def: SliderDef; recipe: Recipe |
   const fmt = def.format ?? String;
   const tick = def.stockKey && recipe ? (sliderDefault(def, recipe.stock) - def.min) / (def.max - def.min) : null;
   const id = `slider-${def.key}`;
+  const reset = () => recipe && onChange(def.key, sliderDefault(def, recipe.stock));
   return (
     <div className="slider">
-      <label htmlFor={id} onDoubleClick={() => recipe && onChange(def.key, sliderDefault(def, recipe.stock))} title="Double-click to reset">
+      <label htmlFor={id} onDoubleClick={reset} title="Double-click the name or the handle to reset">
         {def.label}
       </label>
       <output htmlFor={id}>{fmt(value)}</output>
       <div className="track">
-        <input id={id} type="range" min={def.min} max={def.max} step={def.step} value={value} disabled={!recipe} onChange={(e) => onChange(def.key, Number(e.target.value))} />
+        <input id={id} type="range" min={def.min} max={def.max} step={def.step} value={value} disabled={!recipe} onChange={(e) => onChange(def.key, Number(e.target.value))} onDoubleClick={reset} />
         {tick !== null && <span className="tick" style={{ ['--t' as string]: tick }} />}
       </div>
     </div>
@@ -160,7 +161,7 @@ function CropControls({ recipe }: { recipe: Recipe | null }) {
         {portrait ? 'Make landscape' : 'Make portrait'}
       </button>
       <div className="slider">
-        <label htmlFor="slider-straighten" onDoubleClick={() => change((c) => setAngle(c, 0, W, H))} title="Double-click to reset">
+        <label htmlFor="slider-straighten" onDoubleClick={() => change((c) => setAngle(c, 0, W, H))} title="Double-click the name or the handle to reset">
           Straighten
         </label>
         <output htmlFor="slider-straighten">{`${draft.angle > 0 ? '+' : draft.angle < 0 ? '−' : ''}${Math.abs(draft.angle).toFixed(1)}°`}</output>
@@ -173,6 +174,7 @@ function CropControls({ recipe }: { recipe: Recipe | null }) {
             step={0.1}
             value={draft.angle}
             onChange={(e) => change((c) => setAngle(c, Number(e.target.value), W, H))}
+            onDoubleClick={() => change((c) => setAngle(c, 0, W, H))}
           />
         </div>
       </div>

@@ -23,6 +23,7 @@ export interface Recipe {
   shadows: number;
   whites: number;
   blacks: number;
+  texture: number;
   clarity: number;
   vibrance: number;
   saturation: number;
@@ -68,6 +69,7 @@ export const SLIDERS: SliderDef[] = [
   { key: 'shadows', label: 'Shadows', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'whites', label: 'Whites', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'blacks', label: 'Blacks', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
+  { key: 'texture', label: 'Texture', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'clarity', label: 'Clarity', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'vibrance', label: 'Vibrance', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'saturation', label: 'Saturation', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
@@ -109,6 +111,7 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
     shadows: 0,
     whites: 0,
     blacks: 0,
+    texture: 0,
     clarity: 0,
     vibrance: 0,
     saturation: 0,

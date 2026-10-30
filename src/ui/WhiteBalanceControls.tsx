@@ -73,7 +73,7 @@ export function WhiteBalanceControls({ recipe, white }: { recipe: Recipe | null;
       </div>
 
       <div className="slider wb-temp">
-        <label htmlFor="wb-temp" onDoubleClick={() => recipe && set(null)} title="Double-click for as shot">
+        <label htmlFor="wb-temp" onDoubleClick={() => recipe && set(null)} title="Double-click the name or the handle for as shot">
           Temperature
         </label>
         <output htmlFor="wb-temp">{kelvin(wb.temperature)}</output>
@@ -88,12 +88,13 @@ export function WhiteBalanceControls({ recipe, white }: { recipe: Recipe | null;
             disabled={disabled}
             aria-valuetext={kelvin(wb.temperature)}
             onChange={(e) => set({ temperature: fromPos(Number(e.target.value)), tint: wb.tint })}
+            onDoubleClick={() => recipe && set(null)}
           />
         </div>
       </div>
 
       <div className="slider wb-tint">
-        <label htmlFor="wb-tint" onDoubleClick={() => recipe && set(null)} title="Double-click for as shot">
+        <label htmlFor="wb-tint" onDoubleClick={() => recipe && set(null)} title="Double-click the name or the handle for as shot">
           Tint
         </label>
         <output htmlFor="wb-tint">{signed(Math.round(wb.tint))}</output>
@@ -107,6 +108,7 @@ export function WhiteBalanceControls({ recipe, white }: { recipe: Recipe | null;
             value={Math.round(wb.tint)}
             disabled={disabled}
             onChange={(e) => set({ temperature: wb.temperature, tint: Number(e.target.value) })}
+            onDoubleClick={() => recipe && set(null)}
           />
         </div>
       </div>

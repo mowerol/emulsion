@@ -114,7 +114,7 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uHalThreshold: HALATION_THRESHOLD,
   };
   if (!recipe || ctx.compare) {
-    return { ...base, uCompare: 1, uExposure: 0, uExpBlack: 0, uWbMat: IDENTITY, uWB: [1, 1, 1], uBW: 0, uTeqOn: 0, uCurveOn: 0, uClarityOn: 0 };
+    return { ...base, uCompare: 1, uExposure: 0, uExpBlack: 0, uWbMat: IDENTITY, uWB: [1, 1, 1], uBW: 0, uTeqOn: 0, uCurveOn: 0, uClarityOn: 0, uTextureOn: 0 };
   }
 
   const s = STOCK[recipe.stock];
@@ -141,6 +141,8 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uCurveOn: isIdentity(recipe.curve) ? 0 : 1,
     uTeqOn: teqOn ? 1 : 0,
     uClarityOn: recipe.clarity !== 0 ? 1 : 0,
+    uTextureOn: recipe.texture !== 0 ? 1 : 0,
+    uTextureMix: recipe.texture / 100,
     uLl: llParams(recipe.clarity),
     uTeqF0: teq.slice(0, 4),
     uTeqF1: teq.slice(4, 8),
@@ -184,6 +186,7 @@ export function needsPasses(u: Uniforms) {
     sharpen: u.uCompare !== 1 && (u.uSharp as number) !== 0,
     toneEqualizer: u.uCompare !== 1 && u.uTeqOn === 1,
     clarity: u.uCompare !== 1 && u.uClarityOn === 1,
+    texture: u.uCompare !== 1 && u.uTextureOn === 1,
   };
 }
 

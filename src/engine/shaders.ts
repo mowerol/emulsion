@@ -23,6 +23,9 @@ import scanner from './shaders/stages/scanner.glsl?raw';
 import finish from './shaders/stages/finish.glsl?raw';
 import curve from './shaders/stages/curve.glsl?raw';
 import clarity from './shaders/stages/clarity.glsl?raw';
+import lab from './shaders/stages/lab.glsl?raw';
+import texture from './shaders/stages/texture.glsl?raw';
+import eq from './shaders/eq.frag.glsl?raw';
 import llcurve from './shaders/llcurve.frag.glsl?raw';
 import llreduce from './shaders/llreduce.frag.glsl?raw';
 import llcollapse from './shaders/llcollapse.frag.glsl?raw';
@@ -43,6 +46,8 @@ export const SHADER_FILES: Record<string, string> = {
   'stages/finish.glsl': finish,
   'stages/curve.glsl': curve,
   'stages/clarity.glsl': clarity,
+  'stages/lab.glsl': lab,
+  'stages/texture.glsl': texture,
 };
 
 export const SHADERS = {
@@ -56,4 +61,5 @@ export const SHADERS = {
   llcurve,
   llreduce,
   llcollapse,
+  eq,
 };

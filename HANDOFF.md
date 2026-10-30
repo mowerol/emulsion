@@ -6,6 +6,11 @@ Rewritten at the end of each session. Last updated 2026-10-30.
 
 Committed, not pushed:
 
+- **Texture**: darktable's contrast equalizer ("sharpen" preset, darktable's mix as slider / 100) as a Texture slider before Clarity; reference in `equalizer.ts`, shared Lab maths in `lab.ts`/`stages/lab.glsl`, wavelet passes in `eq.frag.glsl` on 32-bit targets (GPU within 1e-5 L*). About 50 ms per edit at preview size. Strength still for Oli to judge in the app.
+- **Double-click a slider's handle to reset it** (sliders, Temperature/Tint, Straighten), as well as its name. Untested by Claude (mouse and trackpad).
+
+Committed, not pushed:
+
 - **Clarity**: darktable's local laplacian (local contrast module; +100 is its clarity preset) as a Clarity slider after Blacks. GPU passes in `engine.ts` (`clarityMap`, cached across view-only renders), reference in `locallaplacian.ts`; the probe checks it within 0.0013 lightness, and has a `?img=` mode that renders a real JPEG at Clarity -100/0/+100 for a screenshot. About 70 ms per edit at preview size; strength and full-resolution speed still to be judged by Oli in the app.
 
 Committed and pushed on `main`:
@@ -28,7 +33,7 @@ Earlier, also pushed:
 
 ## In progress
 
-Nothing half-done. Next is Texture (darktable's contrast equalizer).
+Nothing half-done. Next is sharpening (RawTherapee's capture sharpening).
 
 ## Known issues and open questions
 
@@ -42,7 +47,7 @@ Nothing half-done. Next is Texture (darktable's contrast equalizer).
 
 Oli chooses between:
 
-1. **Texture/micro-contrast**, then **sharpening**, in that order after Clarity (Oli). Texture: darktable's contrast equalizer (à-trous wavelets, like RawTherapee's wavelet levels), unless Oli wants RawTherapee's own. RawTherapee's capture sharpening (RL deconvolution) is fair game under the updated rule (port the community's best, not only darktable) as a replacement for Emulsion's own unsharp-mask Sharpen.
+1. **Sharpening**, after Texture (Oli's order): RawTherapee's capture sharpening (RL deconvolution), fair game under the updated rule, as a replacement for Emulsion's own unsharp-mask Sharpen.
 2. **Batch 3, part 2:** user presets (save and apply looks).
 3. **Filter the filmstrip to edited photos** in Develop (Oli asked for it).
 4. Later: **Batch 4** — ratings, flags and filtering in the library; an EXIF info overlay.

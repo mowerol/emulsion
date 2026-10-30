@@ -16,8 +16,7 @@
 // the pixel's own brightness at that scale, and the pyramid is collapsed.
 
 import type { Vec3 } from '../film/stocks';
-import { REC2020_TO_XYZ, XYZ_TO_REC2020 } from './colorbalance';
-import { mulVec } from './color';
+import { labL, labShiftL } from './lab';
 
 export const NUM_GAMMA = 6;
 /** Brightness levels the remapping curves centre on: evenly spaced in [0, 1]. */
@@ -156,30 +155,12 @@ export function gammaSpan(v: number): [number, number, number] {
 
 // ---------- Lightness ----------
 
-/** The working space's white in XYZ, so greys stay exactly grey. */
-const D65_WHITE = mulVec(REC2020_TO_XYZ, [1, 1, 1]);
-const EPS = 216 / 24389;
-const KAPPA = 24389 / 27;
-const labF = (t: number) => (t > EPS ? Math.cbrt(t) : (KAPPA * t + 16) / 116);
-const labFInv = (f: number) => (f * f * f > EPS ? f * f * f : (116 * f - 16) / KAPPA);
 const srgbEotf = (c: number) => (c <= 0.04045 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
 const srgbOetf = (l: number) => (l <= 0.0031308 ? l * 12.92 : 1.055 * Math.pow(l, 1 / 2.4) - 0.055);
 
 /** CIE lightness (0 to 1) of a tone-stage pixel: display-encoded Rec.2020. */
-export function lightness(e: Vec3): number {
-  const lin = e.map((v) => srgbEotf(Math.max(v, 0))) as Vec3;
-  const Y = REC2020_TO_XYZ[1][0] * lin[0] + REC2020_TO_XYZ[1][1] * lin[1] + REC2020_TO_XYZ[1][2] * lin[2];
-  return (116 * labF(Math.max(Y, 0)) - 16) / 100;
-}
+export const lightness = (e: Vec3): number => labL(e.map((v) => srgbEotf(Math.max(v, 0))) as Vec3) / 100;
 
-/** A tone-stage pixel with its lightness moved by `delta` and its Lab a and b kept. */
-export function withLightness(e: Vec3, delta: number): Vec3 {
-  const lin = e.map((v) => srgbEotf(Math.max(v, 0))) as Vec3;
-  const xyz = mulVec(REC2020_TO_XYZ, lin);
-  const f = xyz.map((v, i) => labF(Math.max(v, 0) / D65_WHITE[i]));
-  const L = Math.max(116 * f[1] - 16 + 100 * delta, 0);
-  // Keeping a = 500 (fx - fy) and b = 200 (fy - fz) moves all three by the same step.
-  const step = (L + 16) / 116 - f[1];
-  const out = f.map((v, i) => labFInv(v + step) * D65_WHITE[i]) as Vec3;
-  return mulVec(XYZ_TO_REC2020, out).map((v) => srgbOetf(Math.max(v, 0))) as Vec3;
-}
+/** A tone-stage pixel with its lightness moved by `delta` (0 to 1 scale) and its Lab a and b kept. */
+export const withLightness = (e: Vec3, delta: number): Vec3 =>
+  labShiftL(e.map((v) => srgbEotf(Math.max(v, 0))) as Vec3, 100 * delta).map((v) => srgbOetf(v)) as Vec3;

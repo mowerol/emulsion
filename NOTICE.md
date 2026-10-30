@@ -45,6 +45,13 @@ Template:
 - Ported to: `src/engine/locallaplacian.ts` (reference), `src/engine/shaders/llcurve.frag.glsl`, `llreduce.frag.glsl`, `llcollapse.frag.glsl` and `src/engine/shaders/stages/clarity.glsl`
 - Changes: translated from C to TypeScript and GLSL. Pyramid borders clamp to the edge at every level rather than padding the input by replication; the pyramids are half floats on the GPU; Lab is relative to D65. Runs on CIE lightness after the tone curve, as darktable's local contrast module does. The Clarity slider goes from no change to darktable's clarity preset at +100 (detail 0.33, shadows and highlights 0, mid-tone range 0.5); below zero only the detail goes negative
 
+### Contrast equalizer, from darktable
+- Upstream: https://github.com/darktable-org/darktable, `src/iop/atrous.c`, `src/common/eaw.c` and `src/common/curve_tools.c` (Catmull-Rom curves), commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release 5.6.2)
+- Licence: GPL-3.0-or-later
+- Copyright: Copyright (C) 2010-2026 darktable developers. Copyright (C) 2017-2024 darktable developers (edge-avoiding wavelets). Copyright (C) 2011-2022 darktable developers (curve tools)
+- Ported to: `src/engine/equalizer.ts` (reference and scales), `src/engine/lab.ts`, `src/engine/shaders/eq.frag.glsl`, `src/engine/shaders/stages/texture.glsl` and `src/engine/shaders/stages/lab.glsl`
+- Changes: translated from C to TypeScript and GLSL. Lightness only, as the "sharpen" preset it uses leaves colour alone, and without noise thresholds, which the preset sets to zero; Lab relative to D65. The Texture slider is darktable's mix control on the "sharpen" preset (slider / 100: no change at 0, the preset at +100, its mirror at -100). The highlight extraction for halation and glow does not see it
+
 ### Monotone curve interpolation, from darktable
 - Upstream: https://github.com/darktable-org/darktable, `src/common/curve_tools.c` (and node limits from `src/iop/rgbcurve.c`), commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release 5.6.2)
 - Licence: GPL-3.0-or-later
