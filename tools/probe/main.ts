@@ -253,6 +253,40 @@ try {
   const sCurve: ToneCurve = { rgb: [[0, 0.04], [0.25, 0.19], [0.75, 0.84], [1, 0.97]], r: [[0, 0], [0.5, 0.55], [1, 1]], g: [[0, 0], [1, 1]], b: [[0, 0.05], [1, 1]] };
   out.curve = probeCurve(eng, sCurve);
   out.whiteBalance = probeWhiteBalance(eng);
+  // Neutral against the original: how far the default look moves an ordinary photo.
+  {
+    const nc = document.createElement('canvas');
+    nc.width = 256; nc.height = 8;
+    const ng = nc.getContext('2d')!;
+    const hue = ng.createLinearGradient(0, 0, 256, 0);
+    ['#101010', '#7a3a1a', '#d8a060', '#5d8fb0', '#2f6a2a', '#f0e8e0'].forEach((c, i) => hue.addColorStop(i / 5, c));
+    ng.fillStyle = hue; ng.fillRect(0, 0, 256, 8);
+    const nsrc = eng.sourceFromImage(nc, 256, 8);
+    const o = eng.readPixels(nsrc, null, 256, 8, 1);
+    const n = eng.readPixels(nsrc, { ...defaultRecipe('neutral'), scanner: 'straight' }, 256, 8, 1);
+    let worst = 0, sum = 0;
+    for (let x = 0; x < 256; x++) for (let c = 0; c < 3; c++) {
+      const d = Math.abs(o[(4 * 256 + x) * 4 + c] - n[(4 * 256 + x) * 4 + c]);
+      worst = Math.max(worst, d); sum += d;
+    }
+    out.neutral = { worstLevels: worst, meanLevels: sum / (256 * 3) };
+    eng.release(nsrc);
+  }
+  // Split before/after: left of the line is the original, right is the edit.
+  {
+    const colour = document.createElement('canvas');
+    colour.width = 200; colour.height = 40;
+    const cg = colour.getContext('2d')!;
+    cg.fillStyle = 'rgb(200,90,40)'; cg.fillRect(0, 0, 200, 40);
+    const csrc = eng.sourceFromImage(colour, 200, 40);
+    const look = { ...defaultRecipe('trix400'), grain: 0 };
+    const orig = eng.readPixels(csrc, null, 200, 40, 1);
+    const edit = eng.readPixels(csrc, look, 200, 40, 1);
+    const splitPx = eng.readPixels(csrc, look, 200, 40, 1, false, undefined, 0.5);
+    const at = (px: Uint8Array, x: number) => Array.from(px.slice((20 * 200 + x) * 4, (20 * 200 + x) * 4 + 3));
+    out.split = { left: at(splitPx, 40), original: at(orig, 40), right: at(splitPx, 160), edit: at(edit, 160) };
+    eng.release(csrc);
+  }
   // Tone curve through the whole engine: a fresh engine and a fresh source, so
   // buffers are created during the render, as when a photo first opens.
   {
@@ -403,7 +437,9 @@ try {
       active: 0,
       view: 'develop',
       histogram: { path: '/probe/frame.jpg', data: counted },
+      history: { undo: 'Exposure', redo: null },
     });
+    useApp.setState((st) => ({ photos: st.photos.map((p) => ({ ...p, recipe: null })) }));
     const host = document.createElement('div');
     host.id = 'panel-host';
     host.style.cssText = 'position:fixed;top:0;left:0;width:340px;height:640px;display:grid;z-index:100';

@@ -2,7 +2,7 @@
 // White balance: as-shot, presets, Temperature and Tint, and an eyedropper.
 
 import { useMemo } from 'react';
-import type { Recipe } from '../film/recipe';
+import { defaultRecipe, type Recipe } from '../film/recipe';
 import {
   D65_XY,
   MAX_TEMPERATURE,
@@ -32,7 +32,7 @@ export function WhiteBalanceControls({ recipe, white }: { recipe: Recipe | null;
   const wb = recipe?.wb ?? asShot;
   const disabled = !recipe;
 
-  const set = (next: WhiteBalance | null) => editActive((r) => (r ? { ...r, wb: next ? clampWhiteBalance(next) : null } : r));
+  const set = (next: WhiteBalance | null) => editActive((r) => ({ ...(r ?? defaultRecipe()), wb: next ? clampWhiteBalance(next) : null }));
 
   const preset = !recipe?.wb ? 'as-shot' : (WB_PRESETS.find((p) => p.wb.temperature === wb.temperature && p.wb.tint === wb.tint)?.id ?? 'custom');
 

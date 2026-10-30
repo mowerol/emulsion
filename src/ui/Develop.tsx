@@ -3,6 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { loadImage, logToTerminal } from '../backend/api';
 import { Engine, type Source } from '../engine/engine';
 import { histogram } from '../engine/histogram';
+import { defaultRecipe } from '../film/recipe';
 import { D65_XY, clampWhiteBalance, neutralizingWhite, temperatureTint } from '../engine/whitebalance';
 import { activePhoto, editActive, setPhotoWhite, showToast, useApp } from '../library/store';
 import { sourceFromBlob, thumbs } from '../library/thumbs';
@@ -39,11 +40,16 @@ export function Develop() {
   const [zoom, setZoom] = useState<Zoom>(FIT);
   const [loadingFull, setLoadingFull] = useState(false);
   const [panning, setPanning] = useState(false);
+  /** Before/after: off, the whole original, or split at `splitAt` of the canvas width. */
+  const [before, setBefore] = useState<'off' | 'full' | 'split'>('off');
+  const [splitAt, setSplitAt] = useState(0.5);
   const pointer = useRef<{ x: number; y: number; moved: boolean; id: number } | null>(null);
   const lastCursor = useRef<[number, number]>([0.5, 0.5]);
 
   const photo = useApp(activePhoto);
-  const compare = useApp((s) => s.compare);
+  const held = useApp((s) => s.compare);
+  const compare = held || before === 'full';
+  const split = before === 'split' && !held ? splitAt : undefined;
   const picking = useApp((s) => s.picking);
   const clipping = useApp((s) => s.clipping);
   const path = photo?.path;
@@ -177,14 +183,14 @@ export function Develop() {
       const canvas = canvasRef.current;
       if (!engine || !l || !canvas || l.path !== path || !canvas.width || !current) return;
       try {
-        engine.render(l.source, recipe, { target: 'screen', width: canvas.width, height: canvas.height, seed, compare, view: current.view, clipping });
+        engine.render(l.source, recipe, { target: 'screen', width: canvas.width, height: canvas.height, seed, compare, view: current.view, clipping, split });
       } catch (err) {
         setError(`Rendering failed. ${String(err)}`);
       }
     });
     return () => cancelAnimationFrame(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recipe, seed, compare, loadedVersion, viewKey, path, clipping]);
+  }, [recipe, seed, compare, loadedVersion, viewKey, path, clipping, split]);
 
   // Count the histogram from a small render of the whole frame, once changes settle.
   useEffect(() => {
@@ -265,6 +271,8 @@ export function Develop() {
         zoomTo(zoom.scale === null ? 1 : null);
       } else if (!mod && !e.altKey && e.key.toLowerCase() === 'j') {
         useApp.setState((s) => ({ clipping: !s.clipping }));
+      } else if (!mod && !e.altKey && e.key.toLowerCase() === 'y') {
+        setBefore((b) => (b === 'split' ? 'off' : 'split'));
       }
     };
     window.addEventListener('keydown', onKey);
@@ -287,7 +295,7 @@ export function Develop() {
       return;
     }
     const { temperature, tint } = temperatureTint(w);
-    editActive((rec) => (rec ? { ...rec, wb: clampWhiteBalance({ temperature, tint: Math.round(tint) }) } : rec));
+    editActive((rec) => ({ ...(rec ?? defaultRecipe()), wb: clampWhiteBalance({ temperature, tint: Math.round(tint) }) }));
   };
 
   const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -327,6 +335,7 @@ export function Develop() {
     <section className="develop">
       <div className="stage">
         <div className="stage-box" ref={boxRef}>
+          <div className="view-wrap" style={current ? { width: current.cssW, height: current.cssH } : undefined}>
           <canvas
             ref={canvasRef}
             className="view"
@@ -340,16 +349,24 @@ export function Develop() {
             aria-label={photo ? `Developed preview of ${photo.name}` : 'Preview'}
             style={{ visibility: showing ? 'visible' : 'hidden', cursor }}
           />
+          {split !== undefined && showing && <SplitDivider at={splitAt} onMove={setSplitAt} />}
+          </div>
           {error && <p className="stage-error">{error}</p>}
         </div>
-        {compare && <span className="badge">Original</span>}
+        {compare && <span className="badge">{held ? 'Original' : 'Before'}</span>}
         {clipping && <span className="badge clip-badge">Clipping shown (J)</span>}
         {photo && !showing && !error && <span className="stage-status">Opening {photo.name}</span>}
         {photo && showing && loaded!.res === 'thumb' && <span className="stage-status">Loading preview</span>}
         {photo && showing && loadingFull && <span className="stage-status">Loading full resolution</span>}
-        {photo && !photo.recipe && showing && <span className="stage-status right">Original. Pick a film stock to develop this frame.</span>}
         {current && (
           <div className="zoom-bar" role="group" aria-label="Zoom">
+            <button type="button" aria-pressed={before === 'full'} onClick={() => setBefore((b) => (b === 'full' ? 'off' : 'full'))} title={'Show the original (or hold \\)'}>
+              Before
+            </button>
+            <button type="button" aria-pressed={before === 'split'} onClick={() => setBefore((b) => (b === 'split' ? 'off' : 'split'))} title="Before and after side by side (Y)">
+              Split
+            </button>
+            <span className="zoom-sep" aria-hidden="true" />
             <span className="zoom-level" aria-live="polite">{label(zoom, current)}</span>
             <button type="button" aria-pressed={zoom.scale === null} onClick={() => setZoom(FIT)} title={`Fit (${navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl+'}0)`}>
               Fit
@@ -364,5 +381,42 @@ export function Develop() {
       </div>
       <Filmstrip />
     </section>
+  );
+}
+
+/** The split line: drag it to move; the original shows to its left. */
+function SplitDivider({ at, onMove }: { at: number; onMove: (at: number) => void }) {
+  const drag = (e: React.PointerEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    const wrap = e.currentTarget.parentElement!;
+    const move = (ev: PointerEvent) => {
+      const r = wrap.getBoundingClientRect();
+      onMove(Math.min(0.98, Math.max(0.02, (ev.clientX - r.left) / r.width)));
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+  return (
+    <div
+      className="split"
+      style={{ left: `${at * 100}%` }}
+      onPointerDown={drag}
+      role="separator"
+      aria-orientation="vertical"
+      aria-label="Before and after divider"
+      aria-valuenow={Math.round(at * 100)}
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'ArrowLeft') onMove(Math.max(0.02, at - 0.02));
+        if (e.key === 'ArrowRight') onMove(Math.min(0.98, at + 0.02));
+      }}
+    >
+      <span className="split-label left">Before</span>
+      <span className="split-label right">After</span>
+    </div>
   );
 }

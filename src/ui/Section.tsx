@@ -23,7 +23,20 @@ function writeFolded(s: Set<string>) {
   }
 }
 
-export function Section({ id, title, summary, children }: { id: string; title: string; summary?: string; children: ReactNode }) {
+export function Section({
+  id,
+  title,
+  summary,
+  onReset,
+  children,
+}: {
+  id: string;
+  title: string;
+  summary?: string;
+  /** Shown as a Reset link in the heading when the section differs from its defaults. */
+  onReset?: () => void;
+  children: ReactNode;
+}) {
   const [open, setOpen] = useState(() => !readFolded().has(id));
   const toggle = () => {
     const s = readFolded();
@@ -41,6 +54,11 @@ export function Section({ id, title, summary, children }: { id: string; title: s
           <span className="section-title">{title}</span>
           {!open && summary && <span className="section-summary">{summary}</span>}
         </button>
+        {onReset && (
+          <button type="button" className="link section-reset" onClick={onReset} title={`Reset ${title} to its defaults`}>
+            Reset
+          </button>
+        )}
       </h2>
       <div id={body} className="section-body" hidden={!open}>
         {children}

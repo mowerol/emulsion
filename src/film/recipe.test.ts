@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
-import { SLIDERS, defaultRecipe, normalizeRecipe, recipeKey, resetAdjustments, withStock } from './recipe';
+import { SLIDERS, defaultRecipe, normalizeRecipe, recipeKey, resetAdjustments, resetSection, sectionChanged, withStock } from './recipe';
 import { STOCK, STOCKS } from './stocks';
 import { SCANNERS } from './scanners';
 
@@ -20,7 +20,7 @@ describe('recipes', () => {
   });
 
   it('falls back to a known stock', () => {
-    expect(normalizeRecipe({ stock: 'aerochrome' })!.stock).toBe('portra400');
+    expect(normalizeRecipe({ stock: 'aerochrome' })!.stock).toBe('neutral');
   });
 
   it('round-trips through JSON unchanged', () => {
@@ -63,5 +63,23 @@ describe('recipes', () => {
   it('keys distinguish recipes', () => {
     expect(recipeKey(null)).toBe('original');
     expect(recipeKey(defaultRecipe())).not.toBe(recipeKey({ ...defaultRecipe(), exposure: 0.05 }));
+  });
+
+  it('resets one section to its defaults and leaves the rest', () => {
+    const r = { ...defaultRecipe('cinestill800t'), exposure: 1, wb: { temperature: 4000, tint: 5 }, grain: 60, grainSize: 150, push: 1 as const };
+    const a = resetSection(r, 'adjust');
+    expect(a.exposure).toBe(0);
+    expect(a.wb).toBeNull();
+    expect(a.grain).toBe(60);
+    expect(a.push).toBe(1);
+    const g = resetSection(r, 'grain');
+    expect(g.grain).toBe(defaultRecipe('cinestill800t').grain);
+    expect(g.grainSize).toBe(defaultRecipe('cinestill800t').grainSize);
+    expect(g.exposure).toBe(1);
+    expect(resetSection(r, 'development').push).toBe(0);
+    expect(sectionChanged(r, 'adjust')).toBe(true);
+    expect(sectionChanged(a, 'adjust')).toBe(false);
+    expect(sectionChanged(r, 'curve')).toBe(false);
+    expect(sectionChanged(null, 'grain')).toBe(false);
   });
 });

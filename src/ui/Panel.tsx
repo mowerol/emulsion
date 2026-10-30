@@ -2,11 +2,11 @@
 // The lab order: what this frame is developed with.
 
 import { Fragment, memo, useEffect, useRef, useState } from 'react';
-import { PUSHES, SLIDERS, defaultRecipe, resetAdjustments, sliderDefault, withStock, type Push, type Recipe, type SliderDef } from '../film/recipe';
+import { DEFAULT_STOCK, PUSHES, SLIDERS, defaultRecipe, resetAdjustments, resetSection, sectionChanged, sliderDefault, withStock, type Push, type Recipe, type SectionId, type SliderDef } from '../film/recipe';
 import { SCANNER, SCANNERS, type ScannerId } from '../film/scanners';
 import { STOCK, STOCKS, type StockId } from '../film/stocks';
 import {
-  activePhoto, copySettings, editActive, editRecipes, pasteSettings, showToast, targets, useApp, type Photo,
+  activePhoto, copySettings, editActive, editRecipes, pasteSettings, redo, showToast, targets, undo, useApp, type Photo,
 } from '../library/store';
 import { offscreenEngine, sourceFromBlob, thumbs } from '../library/thumbs';
 import { MOD, Segmented } from './common';
@@ -17,7 +17,7 @@ import { ISOS, isoPreset, matchingIso } from '../engine/grain';
 import { WhiteBalanceControls } from './WhiteBalanceControls';
 
 function summary(r: Recipe | null) {
-  if (!r) return 'Original, not developed';
+  if (!r) return 'Neutral, unedited';
   const push = PUSHES.find((p) => p.value === r.push)!.phrase;
   const scan = r.scanner === 'straight' ? 'with no scanner profile' : `scanned on a ${SCANNER[r.scanner].name}`;
   return `${STOCK[r.stock].name} ${push}, ${scan}`;
@@ -79,7 +79,7 @@ const StockPicker = memo(function StockPicker({ photo, current, onPick }: { phot
 });
 
 function SliderRow({ def, recipe, onChange }: { def: SliderDef; recipe: Recipe | null; onChange: (key: SliderDef['key'], v: number) => void }) {
-  const value = recipe ? recipe[def.key] : sliderDefault(def, 'portra400');
+  const value = recipe ? recipe[def.key] : sliderDefault(def, DEFAULT_STOCK);
   const fmt = def.format ?? String;
   const tick = def.stockKey && recipe ? (sliderDefault(def, recipe.stock) - def.min) / (def.max - def.min) : null;
   const id = `slider-${def.key}`;
@@ -111,7 +111,7 @@ function GrainSpeed({ recipe }: { recipe: Recipe | null }) {
         disabled={!recipe}
         onChange={(e) => {
           const p = isoPreset(Number(e.target.value));
-          editActive((r) => (r ? { ...r, grainSize: p.size, grainRough: p.roughness } : r));
+          editActive((r) => ({ ...(r ?? defaultRecipe()), grainSize: p.size, grainRough: p.roughness }));
         }}
       >
         {isos.map((iso) => (
@@ -158,6 +158,7 @@ export function Panel() {
   const total = useApp((s) => s.photos.length);
   const selectedCount = useApp((s) => s.selected.size);
   const clipboard = useApp((s) => s.clipboard);
+  const history = useApp((s) => s.history);
   const recipe = photo?.recipe ?? null;
   const multi = selectedCount > 1;
 
@@ -166,9 +167,15 @@ export function Panel() {
     editRecipes(targets().map((p) => p.path), (r) => change(r));
   };
   const pickStock = (id: StockId) => applyToTargets((r) => withStock(r, id));
-  const pickPush = (push: Push) => applyToTargets((r) => ({ ...(r ?? defaultRecipe(recipe?.stock)), push }));
-  const pickScanner = (scanner: ScannerId) => applyToTargets((r) => ({ ...(r ?? defaultRecipe(recipe?.stock)), scanner }));
-  const setSlider = (key: SliderDef['key'], v: number) => editActive((r) => (r ? { ...r, [key]: v } : r));
+  // An unedited photo shows Neutral's settings, and any change starts a Neutral edit.
+  const base = recipe ?? defaultRecipe();
+  const pickPush = (push: Push) => applyToTargets((r) => ({ ...(r ?? defaultRecipe()), push }));
+  const pickScanner = (scanner: ScannerId) => applyToTargets((r) => ({ ...(r ?? defaultRecipe()), scanner }));
+  const setSlider = (key: SliderDef['key'], v: number) => editActive((r) => ({ ...(r ?? defaultRecipe()), [key]: v }));
+
+  /** A section's Reset, offered only when the section differs from its defaults. */
+  const resetFor = (section: SectionId, title: string) =>
+    sectionChanged(recipe, section) ? () => editActive((r) => (r ? resetSection(r, section) : r), `Reset ${title}`) : undefined;
 
   if (!photo) return <aside className="panel" aria-label="Lab order" />;
 
@@ -190,34 +197,34 @@ export function Panel() {
       </div>
 
       <Section id="stock" title="Film stock" summary={recipe ? STOCK[recipe.stock].name : 'None'}>
-        <StockPicker photo={photo} current={recipe?.stock ?? null} onPick={pickStock} />
+        <StockPicker photo={photo} current={base.stock} onPick={pickStock} />
       </Section>
 
-      <Section id="development" title="Development" summary={recipe ? PUSHES.find((p) => p.value === recipe.push)!.label : undefined}>
-        <Segmented label="Push or pull processing" options={PUSHES.map((p) => ({ value: p.value, label: p.label }))} value={recipe?.push ?? null} onChange={pickPush} />
-        <p className="hint">{recipe ? PUSHES.find((p) => p.value === recipe.push)!.hint : 'Pick a stock first, or choose processing to start with Portra 400.'}</p>
+      <Section id="development" title="Development" summary={PUSHES.find((p) => p.value === base.push)!.label} onReset={resetFor('development', 'Development')}>
+        <Segmented label="Push or pull processing" options={PUSHES.map((p) => ({ value: p.value, label: p.label }))} value={base.push} onChange={pickPush} />
+        <p className="hint">{PUSHES.find((p) => p.value === base.push)!.hint}</p>
       </Section>
 
-      <Section id="scanner" title="Scanner" summary={recipe ? SCANNER[recipe.scanner].name : undefined}>
-        <Segmented label="Scanner" options={SCANNERS.map((s) => ({ value: s.id, label: s.name }))} value={recipe?.scanner ?? null} onChange={pickScanner} />
-        <p className="hint">{recipe ? SCANNER[recipe.scanner].hint : 'How the negative is scanned and printed.'}</p>
+      <Section id="scanner" title="Scanner" summary={SCANNER[base.scanner].name} onReset={resetFor('scanner', 'Scanner')}>
+        <Segmented label="Scanner" options={SCANNERS.map((s) => ({ value: s.id, label: s.name }))} value={base.scanner} onChange={pickScanner} />
+        <p className="hint">{SCANNER[base.scanner].hint}</p>
       </Section>
 
       {view === 'develop' ? (
         groups.map(([title, group]) => (
           <Fragment key={group}>
-            <Section id={group} title={title}>
-              {group === 'adjust' && <WhiteBalanceControls recipe={recipe} white={photo.white} />}
-              {group === 'grain' && <GrainSpeed recipe={recipe} />}
+            <Section id={group} title={title} onReset={resetFor(group, title)}>
+              {group === 'adjust' && <WhiteBalanceControls recipe={base} white={photo.white} />}
+              {group === 'grain' && <GrainSpeed recipe={base} />}
               <div className="sliders">
                 {SLIDERS.filter((d) => d.group === group).map((d) => (
-                  <SliderRow key={d.key} def={d} recipe={recipe} onChange={setSlider} />
+                  <SliderRow key={d.key} def={d} recipe={base} onChange={setSlider} />
                 ))}
               </div>
             </Section>
             {group === 'adjust' && (
-              <Section id="curve" title="Tone curve" summary={recipe?.curve ? 'Edited' : 'Straight'}>
-                <CurveEditor curve={recipe?.curve ?? null} disabled={!recipe} onChange={(curve) => editActive((r) => (r ? { ...r, curve } : r))} />
+              <Section id="curve" title="Tone curve" summary={recipe?.curve ? 'Edited' : 'Straight'} onReset={resetFor('curve', 'Tone curve')}>
+                <CurveEditor curve={base.curve} disabled={false} onChange={(curve) => editActive((r) => ({ ...(r ?? defaultRecipe()), curve }))} />
               </Section>
             )}
           </Fragment>
@@ -227,6 +234,12 @@ export function Panel() {
       )}
 
       <div className="panel-actions">
+        <button type="button" className="btn" onClick={undo} disabled={!history.undo} title={history.undo ? `Undo ${history.undo} (${MOD}Z)` : 'Nothing to undo'}>
+          Undo
+        </button>
+        <button type="button" className="btn" onClick={redo} disabled={!history.redo} title={history.redo ? `Redo ${history.redo} (${MOD}Shift+Z)` : 'Nothing to redo'}>
+          Redo
+        </button>
         <button type="button" className="btn" onClick={copySettings} disabled={!recipe} title={`${MOD}Shift+C`}>
           Copy settings
         </button>
@@ -234,7 +247,7 @@ export function Panel() {
           {multi ? `Paste to ${selectedCount}` : 'Paste settings'}
         </button>
         {view === 'develop' && (
-          <button type="button" className="btn" disabled={!recipe} onClick={() => editActive((r) => (r ? resetAdjustments(r) : r))}>
+          <button type="button" className="btn" disabled={!recipe} onClick={() => editActive((r) => (r ? resetAdjustments(r) : r), 'Reset sliders')}>
             Reset sliders
           </button>
         )}
@@ -244,7 +257,7 @@ export function Panel() {
           disabled={!targets().some((p) => p.recipe)}
           onConfirm={() => {
             const t = targets();
-            editRecipes(t.map((p) => p.path), () => null);
+            editRecipes(t.map((p) => p.path), () => null, t.length === 1 ? 'Remove look' : `Remove looks from ${t.length} photos`);
             showToast(t.length === 1 ? 'Back to the original' : `${t.length} frames back to the original`);
           }}
         />
@@ -254,7 +267,7 @@ export function Panel() {
           disabled={!recipe || total < 2}
           onConfirm={() => {
             const r = recipe!;
-            editRecipes(useApp.getState().photos.map((p) => p.path), () => ({ ...r }));
+            editRecipes(useApp.getState().photos.map((p) => p.path), () => ({ ...r }), `Apply to all ${total} photos`);
             showToast(`Applied to all ${total} frames`);
           }}
         />

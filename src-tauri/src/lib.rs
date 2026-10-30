@@ -11,10 +11,60 @@ mod sidecar;
 mod thumbs;
 
 use std::path::PathBuf;
-use tauri::Manager;
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
+use tauri::{Emitter, Manager};
 
 pub struct AppPaths {
     pub cache_dir: PathBuf,
+}
+
+/// The app menu. The standard Edit menu's Undo, Redo and Select All would take
+/// those shortcuts before the webview sees them, so these send them to the
+/// webview instead, which undoes edits and selects photos (or acts on a text
+/// field when one has focus).
+fn app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
+    let sep = || PredefinedMenuItem::separator(app);
+    let about = Submenu::with_items(
+        app,
+        "Emulsion",
+        true,
+        &[
+            &PredefinedMenuItem::about(app, None, None)?,
+            &sep()?,
+            &PredefinedMenuItem::hide(app, None)?,
+            &PredefinedMenuItem::hide_others(app, None)?,
+            &PredefinedMenuItem::show_all(app, None)?,
+            &sep()?,
+            &PredefinedMenuItem::quit(app, None)?,
+        ],
+    )?;
+    let edit = Submenu::with_items(
+        app,
+        "Edit",
+        true,
+        &[
+            &MenuItem::with_id(app, "undo", "Undo", true, Some("CmdOrCtrl+Z"))?,
+            &MenuItem::with_id(app, "redo", "Redo", true, Some("CmdOrCtrl+Shift+Z"))?,
+            &sep()?,
+            &PredefinedMenuItem::cut(app, None)?,
+            &PredefinedMenuItem::copy(app, None)?,
+            &PredefinedMenuItem::paste(app, None)?,
+            &MenuItem::with_id(app, "select-all", "Select All", true, Some("CmdOrCtrl+A"))?,
+        ],
+    )?;
+    let window = Submenu::with_items(
+        app,
+        "Window",
+        true,
+        &[
+            &PredefinedMenuItem::minimize(app, None)?,
+            &PredefinedMenuItem::maximize(app, None)?,
+            &PredefinedMenuItem::fullscreen(app, None)?,
+            &sep()?,
+            &PredefinedMenuItem::close_window(app, None)?,
+        ],
+    )?;
+    Menu::with_items(app, &[&about, &edit, &window])
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -26,7 +76,15 @@ pub fn run() {
             let cache_dir = app.path().app_cache_dir()?.join("thumbs");
             std::fs::create_dir_all(&cache_dir)?;
             app.manage(AppPaths { cache_dir });
+            app.set_menu(app_menu(app.handle())?)?;
             Ok(())
+        })
+        .on_menu_event(|app, event| {
+            // Undo, redo and select all are Emulsion's own, handled in the webview.
+            let id = event.id().as_ref();
+            if matches!(id, "undo" | "redo" | "select-all") {
+                let _ = app.emit("menu", id);
+            }
         })
         .invoke_handler(tauri::generate_handler![
             commands::scan_folder,

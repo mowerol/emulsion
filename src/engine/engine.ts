@@ -217,7 +217,17 @@ export class Engine {
   render(
     src: Source,
     recipe: Recipe | null,
-    opts: { target: Target | 'screen'; width: number; height: number; seed: number; compare?: boolean; view?: View; clipping?: boolean },
+    opts: {
+      target: Target | 'screen';
+      width: number;
+      height: number;
+      seed: number;
+      compare?: boolean;
+      view?: View;
+      clipping?: boolean;
+      /** Show the original left of this screen x (0 to 1). */
+      split?: number;
+    },
   ) {
     const g = this.gpu;
     const view = opts.view ?? FULL_VIEW;
@@ -227,6 +237,7 @@ export class Engine {
     });
     u.uView = [view.x, view.y, view.w, view.h];
     u.uClipShow = opts.clipping ? 1 : 0;
+    u.uSplit = opts.split ?? -1;
     const passes = needsPasses(u);
     let hal: WebGLTexture = g.blackTexture;
     let glow: WebGLTexture = g.blackTexture;
@@ -316,11 +327,11 @@ export class Engine {
   }
 
   /** Develop into RGBA8 pixels, top row first. */
-  readPixels(src: Source, recipe: Recipe | null, width: number, height: number, seed: number, compare = false, view?: View): Uint8Array<ArrayBuffer> {
+  readPixels(src: Source, recipe: Recipe | null, width: number, height: number, seed: number, compare = false, view?: View, split?: number): Uint8Array<ArrayBuffer> {
     const g = this.gpu;
     const gl = g.gl;
     const out = this.outs.get(`${width}x${height}`, () => g.target(width, height, false));
-    this.render(src, recipe, { target: out, width, height, seed, compare, view });
+    this.render(src, recipe, { target: out, width, height, seed, compare, view, split });
     const px = new Uint8Array(width * height * 4);
     gl.bindFramebuffer(gl.FRAMEBUFFER, out.fbo);
     gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, px);

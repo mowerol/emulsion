@@ -20,6 +20,7 @@
 import { isoPreset } from '../engine/grain';
 
 export type StockId =
+  | 'neutral'
   | 'portra400'
   | 'portra160'
   | 'gold200'
@@ -66,6 +67,15 @@ const I: Mat3 = [
 ];
 
 const RAW_STOCKS: Omit<Stock, 'grainSize' | 'grainRough'>[] = [
+  {
+    // No film: the pipeline's neutral tone curve and nothing else, like a raw
+    // converter's default profile. The default for every photo.
+    id: 'neutral', iso: 400, name: 'Neutral', maker: 'No film look', edge: 'EMULSION', bw: false,
+    contrast: 1, crossover: [0, 0, 0], balance: [1, 1, 1],
+    matrix: I,
+    saturation: 1, fade: 0, halation: 0, halationColor: [1, 0.36, 0.14],
+    grain: 0, grainChroma: 0.3,
+  },
   {
     id: 'portra400', iso: 400, name: 'Portra 400', maker: 'Kodak', edge: 'PORTRA 400', bw: false,
     contrast: 0.9, crossover: [0, 0.01, -0.05], balance: [1.04, 1, 0.93],

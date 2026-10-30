@@ -9,6 +9,7 @@ import { scanFolder, whitePoints } from '../backend/api';
 import { normalizeRecipe, type Recipe } from '../film/recipe';
 import { seedFor } from '../engine/engine';
 import { saveRecipe } from './sidecars';
+import { History, describe, type Change, type Step } from './history';
 
 export interface Photo {
   path: string;
@@ -54,6 +55,8 @@ interface State {
   picking: boolean;
   /** Clipped pixels are marked on the photo. */
   clipping: boolean;
+  /** Names of the steps undo and redo would apply, if any. */
+  history: { undo: string | null; redo: string | null };
 }
 
 export const useApp = create<State>(() => ({
@@ -71,6 +74,7 @@ export const useApp = create<State>(() => ({
   histogram: null,
   picking: false,
   clipping: false,
+  history: { undo: null, redo: null },
 }));
 
 const set = useApp.setState;
@@ -107,6 +111,9 @@ function rememberFolder(r: Recent) {
 
 export async function openFolder(path: string, view: View = 'library') {
   set({ loading: true });
+  // Steps refer to photos by path, so they belong to the folder they were made in.
+  history.clear();
+  set(historyState());
   try {
     const res = await scanFolder(path, true);
     const photos: Photo[] = res.entries.map((e) => ({
@@ -191,22 +198,63 @@ export function targets(s: State = get()): Photo[] {
 }
 
 /** Change recipes and save their sidecars. */
-export function editRecipes(paths: string[], change: (r: Recipe | null, p: Photo) => Recipe | null) {
+const history = new History();
+
+const historyState = () => ({ history: { undo: history.undoLabel, redo: history.redoLabel } });
+
+/**
+ * Change the recipes of `paths`. Every change is an undoable step, named by
+ * `label`, or after what changed.
+ */
+export function editRecipes(paths: string[], change: (r: Recipe | null, p: Photo) => Recipe | null, label?: string) {
   const wanted = new Set(paths);
+  const changes: Change[] = [];
   const photos = get().photos.map((p) => {
     if (!wanted.has(p.path)) return p;
     const recipe = change(p.recipe, p);
     if (recipe === p.recipe) return p;
     saveRecipe(p.path, recipe);
+    changes.push({ path: p.path, before: p.recipe, after: recipe });
     return { ...p, recipe };
   });
-  set({ photos });
+  if (changes.length) {
+    const name = label ?? describe(changes[0].before, changes[0].after);
+    history.record(changes.length > 1 && !label ? `${name} on ${changes.length} photos` : name, changes, performance.now());
+  }
+  set({ photos, ...historyState() });
 }
 
-export const editActive = (change: (r: Recipe | null, p: Photo) => Recipe | null) => {
+export const editActive = (change: (r: Recipe | null, p: Photo) => Recipe | null, label?: string) => {
   const a = activePhoto();
-  if (a) editRecipes([a.path], change);
+  if (a) editRecipes([a.path], change, label);
 };
+
+/** Put recipes back as a history step recorded them, without recording a new step. */
+function applyStep(step: Step, side: 'before' | 'after', verb: string) {
+  const byPath = new Map(step.changes.map((c) => [c.path, c[side]]));
+  const photos = get().photos.map((p) => {
+    if (!byPath.has(p.path)) return p;
+    const recipe = byPath.get(p.path)!;
+    saveRecipe(p.path, recipe);
+    return { ...p, recipe };
+  });
+  set({ photos, ...historyState() });
+  const only = step.changes.length === 1 ? photos.find((p) => p.path === step.changes[0].path) : null;
+  const where = only && only.path !== activePhoto()?.path ? ` on ${only.name}` : '';
+  showToast(`${verb} ${step.label}${where}`);
+}
+
+export function undo() {
+  const s = history.undo();
+  if (s) applyStep(s, 'before', 'Undid');
+  else showToast('Nothing to undo');
+}
+
+export function redo() {
+  const s = history.redo();
+  if (s) applyStep(s, 'after', 'Redid');
+  else showToast('Nothing to redo');
+}
 
 export function copySettings() {
   const a = activePhoto();
@@ -225,7 +273,7 @@ export function pasteSettings() {
     return;
   }
   const t = targets();
-  editRecipes(t.map((p) => p.path), () => ({ ...clip }));
+  editRecipes(t.map((p) => p.path), () => ({ ...clip }), t.length === 1 ? 'Paste settings' : `Paste settings to ${t.length} photos`);
   showToast(t.length === 1 ? `Pasted onto ${t[0].name}` : `Pasted onto ${t.length} frames`);
 }
 

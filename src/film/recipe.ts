@@ -88,7 +88,10 @@ export function sliderDefault(def: SliderDef, stock: StockId): number {
   return def.stockKey ? STOCK[stock][def.stockKey] : 0;
 }
 
-export function defaultRecipe(stock: StockId = 'portra400', scanner: ScannerId = 'frontier'): Recipe {
+/** The stock new edits start from. */
+export const DEFAULT_STOCK: StockId = 'neutral';
+
+export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId = 'frontier'): Recipe {
   const s = STOCK[stock];
   return {
     v: RECIPE_VERSION,
@@ -127,6 +130,30 @@ export function resetAdjustments(recipe: Recipe): Recipe {
   return { ...defaultRecipe(recipe.stock, recipe.scanner), push: recipe.push };
 }
 
+/** Panel sections that can be reset on their own. */
+export type SectionId = 'development' | 'scanner' | 'adjust' | 'curve' | 'optics' | 'grain';
+
+const SECTION_FIELDS: Record<SectionId, (keyof Recipe)[]> = {
+  development: ['push'],
+  scanner: ['scanner'],
+  adjust: ['wb', ...SLIDERS.filter((d) => d.group === 'adjust').map((d) => d.key)],
+  curve: ['curve'],
+  optics: SLIDERS.filter((d) => d.group === 'optics').map((d) => d.key),
+  grain: SLIDERS.filter((d) => d.group === 'grain').map((d) => d.key),
+};
+
+/** The recipe with one section back to its defaults (stock defaults where the stock owns them). */
+export function resetSection(recipe: Recipe, section: SectionId): Recipe {
+  const base = defaultRecipe(recipe.stock);
+  const out = { ...recipe } as Record<keyof Recipe, unknown>;
+  for (const k of SECTION_FIELDS[section]) out[k] = base[k];
+  return out as unknown as Recipe;
+}
+
+/** Whether a section differs from its defaults. */
+export const sectionChanged = (recipe: Recipe | null, section: SectionId) =>
+  !!recipe && JSON.stringify(resetSection(recipe, section)) !== JSON.stringify(recipe);
+
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
 function normalizeWhiteBalance(input: unknown): WhiteBalance | null {
@@ -144,7 +171,7 @@ function normalizeWhiteBalance(input: unknown): WhiteBalance | null {
 export function normalizeRecipe(input: unknown): Recipe | null {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
   const o = input as Record<string, unknown>;
-  const stock: StockId = isStockId(o.stock) ? o.stock : 'portra400';
+  const stock: StockId = isStockId(o.stock) ? o.stock : DEFAULT_STOCK;
   const scanner: ScannerId = isScannerId(o.scanner) ? o.scanner : 'frontier';
   const base = defaultRecipe(stock, scanner);
   const push = typeof o.push === 'number' && [-1, 0, 1, 2].includes(o.push) ? (o.push as Push) : 0;

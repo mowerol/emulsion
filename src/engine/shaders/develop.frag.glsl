@@ -24,11 +24,13 @@ uniform float uCompare;
 uniform vec4 uView;
 // 1 marks clipped pixels: red where any channel is at white, blue where all are at black.
 uniform float uClipShow;
+// Split before/after: screen x (0 to 1) left of which the original shows; below 0, off.
+uniform float uSplit;
 
 void main() {
   vec2 uv = clamp(uView.xy + vUv * uView.zw, 0.0, 1.0);
   vec3 x = stageInput(texture(uSrc, uv));
-  if (uCompare > 0.5) {
+  if (uCompare > 0.5 || vUv.x < uSplit) {
     outColor = vec4(stageOutput(stageToneNeutral(x)), 1.0);
     return;
   }

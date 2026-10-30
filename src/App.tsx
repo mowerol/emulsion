@@ -2,10 +2,11 @@
 import { useEffect, useState } from 'react';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { listen } from '@tauri-apps/api/event';
 import { isTauri, startupOptions } from './backend/api';
 import { flushSaves, onSaveError } from './library/sidecars';
 import {
-  copySettings, openFolder, pasteSettings, selectAll, setActive, setCompare, setExportOpen, setView, showToast, step, useApp, type View,
+  copySettings, openFolder, pasteSettings, redo, selectAll, setActive, setCompare, setExportOpen, setView, showToast, step, undo, useApp, type View,
 } from './library/store';
 import { Develop } from './ui/Develop';
 import { ExportDialog } from './ui/ExportDialog';
@@ -21,6 +22,24 @@ const typingIn = (t: EventTarget | null) => {
   return el.tagName === 'INPUT' && (el as HTMLInputElement).type !== 'range' && (el as HTMLInputElement).type !== 'radio';
 };
 
+/**
+ * On macOS the app menu owns Cmd+Z, Cmd+Shift+Z and Cmd+A (see app_menu in
+ * src-tauri/src/lib.rs) and sends them here; elsewhere the keydown handler does.
+ */
+const MENU_OWNS_EDIT_KEYS = isTauri() && navigator.platform.startsWith('Mac');
+
+/** Undo, redo or select all from the app menu: on a focused text field, its own; otherwise Emulsion's. */
+function menuAction(id: string) {
+  const el = document.activeElement as HTMLElement | null;
+  if (typingIn(el)) {
+    document.execCommand(id === 'select-all' ? 'selectAll' : id);
+    return;
+  }
+  if (id === 'undo') undo();
+  else if (id === 'redo') redo();
+  else if (id === 'select-all' && useApp.getState().view === 'library') selectAll();
+}
+
 function useShortcuts() {
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -31,6 +50,17 @@ function useShortcuts() {
         return;
       }
       if (typingIn(e.target) || s.exportOpen) return;
+      if (!MENU_OWNS_EDIT_KEYS && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) redo();
+        else undo();
+        return;
+      }
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        redo();
+        return;
+      }
       const onRange = (e.target as HTMLElement)?.tagName === 'INPUT';
       const k = e.key.toLowerCase();
       if (mod && k === 'o') { e.preventDefault(); chooseFolder(); return; }
@@ -38,7 +68,7 @@ function useShortcuts() {
       if (mod && e.shiftKey && k === 'c') { e.preventDefault(); copySettings(); return; }
       if (mod && e.shiftKey && k === 'v') { e.preventDefault(); pasteSettings(); return; }
       if (mod && e.shiftKey && k === 'e') { e.preventDefault(); setExportOpen(true); return; }
-      if (mod && k === 'a' && s.view === 'library') { e.preventDefault(); selectAll(); return; }
+      if (!MENU_OWNS_EDIT_KEYS && mod && k === 'a' && s.view === 'library') { e.preventDefault(); selectAll(); return; }
       if (mod || e.altKey) return;
       if (k === 'g') setView('library');
       else if (k === 'd') setView('develop');
@@ -86,6 +116,7 @@ function useDesktop() {
           if (e.payload.paths.length) openFolder(e.payload.paths[0]);
         }
       }),
+      listen<string>('menu', (e) => menuAction(e.payload)),
       getCurrentWindow().onCloseRequested(async () => {
         await flushSaves();
       }),
