@@ -283,45 +283,158 @@ export function shadowsGain(Y: number, shadows: number): number {
   return (1 - beta) * (1 - alpha + alpha * (1 + shadows)) + beta;
 }
 
-/** One scene-linear Rec.2020 pixel through the stage. */
-export function colorBalance(rgb: Vec3, p: ColorBalance, lut: ArrayLike<number> = workingGamut()): Vec3 {
-  const lWhite = yToLStar(WHITE_FULCRUM);
-  const lin: Vec3 = [Math.max(rgb[0], 0), Math.max(rgb[1], 0), Math.max(rgb[2], 0)];
+/**
+ * darktable colour balance rgb's parameters (dt_iop_colorbalancergb_params_t, v5, with the
+ * darktable UCS saturation formula). Hues are in conventional degrees, as darktable shows them.
+ */
+export interface CbParams {
+  shadows_Y: number; shadows_C: number; shadows_H: number;
+  midtones_Y: number; midtones_C: number; midtones_H: number;
+  highlights_Y: number; highlights_C: number; highlights_H: number;
+  global_Y: number; global_C: number; global_H: number;
+  shadows_weight: number; white_fulcrum: number; highlights_weight: number;
+  chroma_shadows: number; chroma_highlights: number; chroma_global: number; chroma_midtones: number;
+  saturation_global: number; saturation_highlights: number; saturation_midtones: number; saturation_shadows: number;
+  hue_angle: number;
+  brilliance_global: number; brilliance_highlights: number; brilliance_midtones: number; brilliance_shadows: number;
+  mask_grey_fulcrum: number;
+  vibrance: number; grey_fulcrum: number; contrast: number;
+}
 
-  // Vibrance, as linear chroma in Yrg at constant luminance and hue.
+/** darktable's defaults: the module does nothing. */
+export const CB_DEFAULTS: CbParams = {
+  shadows_Y: 0, shadows_C: 0, shadows_H: 0, midtones_Y: 0, midtones_C: 0, midtones_H: 0,
+  highlights_Y: 0, highlights_C: 0, highlights_H: 0, global_Y: 0, global_C: 0, global_H: 0,
+  shadows_weight: 1, white_fulcrum: 0, highlights_weight: 1,
+  chroma_shadows: 0, chroma_highlights: 0, chroma_global: 0, chroma_midtones: 0,
+  saturation_global: 0, saturation_highlights: 0, saturation_midtones: 0, saturation_shadows: 0,
+  hue_angle: 0, brilliance_global: 0, brilliance_highlights: 0, brilliance_midtones: 0, brilliance_shadows: 0,
+  mask_grey_fulcrum: 0.1845, vibrance: 0, grey_fulcrum: 0.1845, contrast: 0,
+};
+
+/** commit_params: what the per-pixel loop reads. */
+export interface CbData {
+  vibrance: number;
+  contrast: number;
+  greyFulcrum: number;
+  whiteFulcrum: number;
+  /** global, then [shadows, midtones, highlights] */
+  chroma: [number, number, number, number];
+  saturation: [number, number, number, number];
+  brilliance: [number, number, number, number];
+  hueCos: number;
+  hueSin: number;
+  global: Vec3;
+  shadows: Vec3;
+  highlights: Vec3;
+  midtones: Vec3;
+  midtonesY: number;
+  shadowsWeight: number;
+  highlightsWeight: number;
+  midtonesWeight: number;
+  maskGreyFulcrum: number;
+  lWhite: number;
+}
+
+/** darktable's ANGLE_SHIFT: conventional degrees to Yrg radians. */
+const degToYrg = (d: number) => ((d - 30) * Math.PI) / 180;
+
+/** Ych (Y, chroma, hue in Yrg radians) to Filmlight grading RGB. */
+function ychToGrading(Y: number, c: number, h: number): Vec3 {
+  return mulVec(LMS_TO_GRADING, yrgToLms(ychToYrg([Y, c, Math.cos(h), Math.sin(h)])));
+}
+
+export function cbCommit(p: CbParams): CbData {
+  const norm = ychToGrading(1, 0, 0); // grading RGB of a pure white
+  const wheel = (C: number, H: number) => ychToGrading(1, C, degToYrg(H));
+  const g = wheel(p.global_C, p.global_H).map((v, c) => v - norm[c] + norm[c] * p.global_Y) as Vec3;
+  const sh = wheel(p.shadows_C, p.shadows_H).map((v, c) => 1 + (v - norm[c]) + p.shadows_Y) as Vec3;
+  const hi = wheel(p.highlights_C, p.highlights_H).map((v, c) => 1 + (v - norm[c]) + p.highlights_Y) as Vec3;
+  const mid = wheel(p.midtones_C, p.midtones_H).map((v, c) => 1 / (1 + (v - norm[c]))) as Vec3;
+  const sw = 2 + p.shadows_weight * 2, hw = 2 + p.highlights_weight * 2;
+  const white = Math.pow(2, p.white_fulcrum);
+  const angle = (p.hue_angle * Math.PI) / 180;
+  return {
+    vibrance: p.vibrance,
+    contrast: 1 + p.contrast,
+    greyFulcrum: p.grey_fulcrum,
+    whiteFulcrum: white,
+    chroma: [p.chroma_global, p.chroma_shadows, p.chroma_midtones, p.chroma_highlights],
+    saturation: [p.saturation_global, p.saturation_shadows, p.saturation_midtones, p.saturation_highlights],
+    brilliance: [p.brilliance_global, p.brilliance_shadows, p.brilliance_midtones, p.brilliance_highlights],
+    hueCos: Math.cos(angle),
+    hueSin: Math.sin(angle),
+    global: g,
+    shadows: sh,
+    highlights: hi,
+    midtones: mid,
+    midtonesY: 1 / (1 + p.midtones_Y),
+    shadowsWeight: sw,
+    highlightsWeight: hw,
+    midtonesWeight: (sw * sw * hw * hw) / (sw * sw + hw * hw),
+    maskGreyFulcrum: Math.pow(p.mask_grey_fulcrum, MASK_POWER),
+    lWhite: yToLStar(white),
+  };
+}
+
+/** darktable's opacity_masks: shadows, mid-tones and highlights opacities of a pixel. */
+export function opacityMasks(x: number, d: CbData): Vec3 {
+  const off = x - d.maskGreyFulcrum;
+  const offN = off / d.maskGreyFulcrum;
+  const alpha = 1 / (1 + Math.exp(offN * d.shadowsWeight));
+  const beta = 1 / (1 + Math.exp(-offN * d.highlightsWeight));
+  const gamma = Math.exp((-off * off * d.midtonesWeight) / 4) * (1 - alpha) ** 2 * (1 - beta) ** 2 * 8;
+  return [alpha, gamma, beta];
+}
+
+/** One scene-linear Rec.2020 pixel through darktable's colour balance rgb (process()). */
+export function colorBalanceRgb(rgb: Vec3, d: CbData, lut: ArrayLike<number> = workingGamut()): Vec3 {
+  const lin: Vec3 = [Math.max(rgb[0], 0), Math.max(rgb[1], 0), Math.max(rgb[2], 0)];
   let ych = yrgToYch(lmsToYrg(mulVec(REC2020_TO_LMS, lin)));
   ych[0] = Math.max(ych[0], 0);
-  const vib = p.vibrance * (1 - Math.pow(ych[1], Math.abs(p.vibrance)));
-  ych[1] *= Math.max(1 + vib, 0);
+  const op = opacityMasks(Math.pow(ych[0], MASK_POWER), d);
+  const zone = (v: [number, number, number, number]) => v[0] + op[0] * v[1] + op[1] * v[2] + op[2] * v[3];
+
+  // hue shift
+  const [cosH, sinH] = [ych[2], ych[3]];
+  ych = [ych[0], ych[1], d.hueCos * cosH - d.hueSin * sinH, d.hueSin * cosH + d.hueCos * sinH];
+
+  // linear chroma
+  const vib = d.vibrance === 0 ? 0 : d.vibrance * (1 - Math.pow(ych[1], Math.abs(d.vibrance)));
+  ych[1] *= Math.max(1 + zone(d.chroma) + vib, 0);
   ych = gamutCheckYrg(ych);
-  const yrg = ychToYrg(ych);
 
-  // Shadows lift. darktable scales grading RGB, which is linear in LMS, so the
-  // same gain on luminance alone leaves r and g unchanged. The mask reads the
-  // luminance before any change, as darktable's does.
-  yrg[0] *= shadowsGain(ych[0], p.shadows);
+  // the four ways, in grading RGB
+  let g = mulVec(LMS_TO_GRADING, yrgToLms(ychToYrg(ych)));
+  g = g.map((v, c) => {
+    v += d.global[c];
+    v *= (1 - op[2]) * (1 - op[0] + op[0] * d.shadows[c]) + op[2] * d.highlights[c];
+    const sign = v < 0 ? -1 : 1;
+    return sign * Math.pow(Math.abs(v) / d.whiteFulcrum, d.midtones[c]) * d.whiteFulcrum;
+  }) as Vec3;
+  const yrg = lmsToYrg(mulVec(GRADING_TO_LMS, g));
 
-  // Contrast on luminance alone, around middle grey.
-  yrg[0] = CONTRAST_FULCRUM * Math.pow(yrg[0] / CONTRAST_FULCRUM, 1 + p.contrast);
+  // luminance power, then contrast around the grey fulcrum
+  yrg[0] = Math.pow(Math.max(yrg[0] / d.whiteFulcrum, 0), d.midtonesY) * d.whiteFulcrum;
+  yrg[0] = d.greyFulcrum * Math.pow(yrg[0] / d.greyFulcrum, d.contrast);
   const xyz = mulVec(LMS_TO_XYZ, yrgToLms(yrg));
 
-  // Saturation in darktable UCS, then gamut mapping at constant brightness.
-  const xyY = xyzToXyY(xyz);
-  const jch = xyYToUcsJCH(xyY, lWhite);
-  const hcb = jchToHcb(jch);
+  // saturation and brilliance in darktable UCS, then gamut mapping at constant brightness
+  const lWhite = d.lWhite;
+  const hcb = jchToHcb(xyYToUcsJCH(xyzToXyY(xyz), lWhite));
   const radius = Math.hypot(hcb[1], hcb[2]);
   const sinT = radius > 0 ? hcb[1] / radius : 0;
   const cosT = radius > 0 ? hcb[2] / radius : 0;
   const P = Math.max(FLT_MIN, hcb[1]);
   const W = sinT * hcb[1] + cosT * hcb[2];
   const maxA = Math.hypot(P, W) / P;
-  const a = softClip(Math.max(1 + p.saturation, 0), 0.5 * maxA, maxA);
+  const a = softClip(Math.max(1 + zone(d.saturation), 0), 0.5 * maxA, maxA);
+  const b = Math.max(1 + zone(d.brilliance), 0);
   const Pp = (a - 1) * P;
-  const Wp = Math.sqrt(P * P * (1 - a * a) + W * W);
+  const Wp = Math.sqrt(P * P * (1 - a * a) + W * W) * b;
   hcb[1] = Math.max(cosT * Pp + sinT * Wp, 0);
   hcb[2] = Math.max(-sinT * Pp + cosT * Wp, 0);
   const jch2 = hcbToJch(hcb);
-
   const maxM2 = lookupGamut(lut, jch2[2]);
   const maxC = (15.932993652962535 * Math.pow(jch2[0] * lWhite, 0.6523997524738018) * Math.pow(maxM2, 0.6007557017508491)) / lWhite;
   const boundary = jchToHsb([jch2[0], maxC, jch2[2]]);
@@ -329,6 +442,27 @@ export function colorBalance(rgb: Vec3, p: ColorBalance, lut: ArrayLike<number> 
   hsb[1] = softClip(hsb[1], 0.8 * boundary[1], boundary[1]);
   const out = xyYToXyz(ucsJCHToXyY(hsbToJch(hsb), lWhite));
   return mulVec(XYZ_TO_REC2020, out).map((v) => Math.max(v, 0)) as Vec3;
+}
+
+/** An instance's constants for stages/colorbalance.glsl (uCbP, uCbS): ten vec4s. */
+export function cbUniform(d: CbData): number[] {
+  return [
+    d.contrast, d.vibrance, d.greyFulcrum, d.whiteFulcrum,
+    ...d.chroma, ...d.saturation, ...d.brilliance,
+    ...d.global, 0, ...d.shadows, 0, ...d.highlights, 0, ...d.midtones, 0,
+    d.midtonesY, d.shadowsWeight, d.highlightsWeight, d.midtonesWeight,
+    d.maskGreyFulcrum, d.hueCos, d.hueSin, d.lWhite,
+  ];
+}
+
+/** The recipe sliders' instance: contrast, vibrance, saturation and the shadows lift. */
+export function sliderParams(p: ColorBalance): CbParams {
+  return { ...CB_DEFAULTS, contrast: p.contrast, vibrance: p.vibrance, saturation_global: p.saturation, shadows_Y: p.shadows, grey_fulcrum: CONTRAST_FULCRUM };
+}
+
+/** One scene-linear Rec.2020 pixel through the recipe sliders' instance. */
+export function colorBalance(rgb: Vec3, p: ColorBalance, lut: ArrayLike<number> = workingGamut()): Vec3 {
+  return colorBalanceRgb(rgb, cbCommit(sliderParams(p)), lut);
 }
 
 /** Recipe sliders (-100 to 100, contrast -50 to 50) to the stage's parameters. */

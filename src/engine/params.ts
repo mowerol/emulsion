@@ -8,20 +8,18 @@ import type { Stock, Vec3 } from '../film/stocks';
 import { LUMA_REC2020, REC2020_TO_SRGB, SRGB_TO_REC2020, columnMajor, mulVec } from './color';
 import { NEUTRAL, curveFor, packCurve, sigmoidCurve, whiteTargetFor, type ToneLook } from './tone';
 import {
-  CONTRAST_FULCRUM,
-  HIGHLIGHTS_WEIGHT,
-  MASK_GREY_FULCRUM,
-  SHADOWS_WEIGHT,
+  CB_DEFAULTS,
   GRADING_TO_LMS,
   LMS_TO_GRADING,
   LMS_TO_XYZ,
   REC2020_TO_LMS,
   REC2020_TO_XYZ,
-  WHITE_FULCRUM,
   XYZ_TO_REC2020,
+  cbCommit,
+  cbUniform,
   colorBalanceParams,
+  sliderParams,
   workingGamut,
-  yToLStar,
 } from './colorbalance';
 import { isIdentity } from '../film/curve';
 import { D65_XY, whiteBalanceMatrix, whiteXy, type Xy } from './whitebalance';
@@ -67,6 +65,9 @@ const WORKING = columnMajor(SRGB_TO_REC2020);
 const IDENTITY = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 const NEUTRAL_CURVE = packCurve(sigmoidCurve(NEUTRAL));
 
+/** A colour balance instance that does nothing (the stock grade when a stock has none). */
+const CB_NONE = cbUniform(cbCommit(CB_DEFAULTS));
+
 /** Lowering Blacks to -100 cuts scene light below this, about 4.5 stops under middle grey. */
 export const MAX_BLACK_LEVEL = 0.008;
 const DISPLAY = columnMajor(REC2020_TO_SRGB);
@@ -80,8 +81,6 @@ export const colorBalanceUniforms = () =>
     uCbXyzToRgb: columnMajor(XYZ_TO_REC2020),
     uCbLmsToGrading: columnMajor(LMS_TO_GRADING),
     uCbGradingToLms: columnMajor(GRADING_TO_LMS),
-    uCbRef: [CONTRAST_FULCRUM, yToLStar(WHITE_FULCRUM)],
-    uCbMask: [MASK_GREY_FULCRUM, SHADOWS_WEIGHT, HIGHLIGHTS_WEIGHT],
     uCbGamut: Array.from(workingGamut()),
     uLlToXyz: columnMajor(REC2020_TO_XYZ),
     uLlFromXyz: columnMajor(XYZ_TO_REC2020),
@@ -143,7 +142,10 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
   return {
     ...base,
     ...colorBalanceUniforms(),
-    uCbParams: [1 + cb.contrast, cb.vibrance, cb.saturation, cb.shadows],
+    uCbP: cbUniform(cbCommit(sliderParams(cb))),
+    // The stock's own grade (its style), off for a stock a LUT renders.
+    uCbS: s.grade && !lut ? cbUniform(cbCommit({ ...CB_DEFAULTS, ...s.grade })) : CB_NONE,
+    uCbSOn: s.grade && !lut ? 1 : 0,
     uCompare: 0,
     uExposure: recipe.exposure,
     uCurveOn: isIdentity(recipe.curve) ? 0 : 1,

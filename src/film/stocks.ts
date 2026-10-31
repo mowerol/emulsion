@@ -30,6 +30,8 @@ export type StockId =
   | 'trix400'
   | 'hp5';
 
+import type { CbParams } from '../engine/colorbalance';
+
 export type Mat3 = [[number, number, number], [number, number, number], [number, number, number]];
 export type Vec3 = [number, number, number];
 
@@ -55,6 +57,11 @@ export interface Stock {
   grain: number;
   /** Grain Size default: the stock's film speed, in darktable's ISO units. */
   grainIso: number;
+  /**
+   * The stock's own colour grade (part of its style): darktable colour balance rgb settings,
+   * run on the scene before Emulsion, separate from the recipe's Colour balance sliders.
+   */
+  grade?: Partial<CbParams>;
 }
 
 const I: Mat3 = [
@@ -108,12 +115,15 @@ const RAW_STOCKS: Omit<Stock, 'grainIso'>[] = [
     saturation: 1.08, fade: 0.01, halation: 0, halationColor: [1, 0.34, 0.14],
     grain: 0,
   },
+  // Fitted 2026-10-31 to the direction of Oli's reference edits of four photos (tools/probe ?fit
+  // with ?grade): warm highlights, cool lifted shadows, gentle crosstalk, low saturation.
   {
     id: 'pro400h', iso: 400, name: 'Pro 400H', maker: 'Fujifilm', edge: 'PRO 400H', bw: false,
-    contrast: 0.86, crossover: [0, -0.03, -0.02], balance: [0.95, 1.02, 1.03],
-    matrix: [[0.97, 0.03, 0], [0, 1, 0], [0, 0.07, 0.93]],
-    saturation: 0.84, fade: 0.03, halation: 0, halationColor: [1, 0.36, 0.16],
+    contrast: 1.043, crossover: [-0.045, -0.036, 0.049], balance: [0.946, 1, 1.038],
+    matrix: [[1.036, -0.006, -0.03], [0.063, 0.864, 0.073], [-0.067, 0.01, 1.057]],
+    saturation: 0.62, fade: 0, halation: 0, halationColor: [1, 0.36, 0.16],
     grain: 0,
+    grade: { shadows_C: 0.026, shadows_H: 264, midtones_C: 0.006, midtones_H: 78, highlights_C: 0.055, highlights_H: 57, shadows_Y: 0.041, midtones_Y: -0.011, highlights_Y: -0.016, saturation_shadows: 0.06, chroma_shadows: 0.068 },
   },
   {
     id: 'cinestill800t', iso: 800, name: 'CineStill 800T', maker: 'CineStill', edge: '800T', bw: false,
@@ -129,7 +139,7 @@ const RAW_STOCKS: Omit<Stock, 'grainIso'>[] = [
   },
   {
     id: 'hp5', iso: 400, name: 'HP5 Plus', maker: 'Ilford', edge: 'HP5 PLUS', bw: true,
-    contrast: 1.0, crossover: [0, 0, 0], balance: [1, 1, 1], matrix: I, bwWeights: [0.29, 0.55, 0.16],
+    contrast: 1, crossover: [0, 0, 0], balance: [1, 1, 1], matrix: I, bwWeights: [0.29, 0.55, 0.16],
     saturation: 1, fade: 0.012, halation: 0, halationColor: [1, 1, 1],
     grain: 0,
   },

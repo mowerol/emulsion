@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLutVersion } from '../engine/lutstore';
+import { useStockTuningVersion } from '../film/stocktuning';
 import { loadImage, logToTerminal } from '../backend/api';
 import { Engine, type Source } from '../engine/engine';
 import { histogram } from '../engine/histogram';
@@ -68,6 +69,7 @@ export function Develop() {
   const stage = STAGE_COLORS.find((c) => c.id === stageId)!;
   const path = photo?.path;
   const lutVersion = useLutVersion();
+  const tuningVersion = useStockTuningVersion();
 
   // Start the GPU engine for this canvas.
   useLayoutEffect(() => {
@@ -241,7 +243,7 @@ export function Develop() {
     id = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recipe, seed, compare, loadedVersion, viewKey, path, clipping, split, JSON.stringify(frame), stage, sharpenMask, lutVersion]);
+  }, [recipe, seed, compare, loadedVersion, viewKey, path, clipping, split, JSON.stringify(frame), stage, sharpenMask, lutVersion, tuningVersion]);
 
   // Count the histogram from a small render of the whole frame, once changes settle.
   useEffect(() => {

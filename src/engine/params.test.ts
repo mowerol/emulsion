@@ -44,8 +44,10 @@ describe('develop uniforms', () => {
   it('sends contrast, vibrance, saturation and shadows to the colour balance stage, not the print', () => {
     const base = developUniforms(defaultRecipe(), ctx);
     const u = developUniforms({ ...defaultRecipe(), contrast: 40, vibrance: -30, saturation: 25, shadows: 60 }, ctx);
-    expect(u.uCbParams).toEqual([1.4, -0.3, 0.25, 0.6]);
-    expect(base.uCbParams).toEqual([1, 0, 0, 0]);
+    const P = u.uCbP as number[];
+    expect([P[0], P[1], P[8]]).toEqual([1.4, -0.3, 0.25]);
+    expect(P[20]).toBeCloseTo(1.6, 6);
+    expect((base.uCbP as number[]).slice(0, 2)).toEqual([1, 0]);
     expect(u.uSigS).toEqual(base.uSigS);
     expect(u.uSat).toEqual(base.uSat);
     expect((u.uCbGamut as number[]).length).toBe(512);

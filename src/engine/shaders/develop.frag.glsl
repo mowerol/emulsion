@@ -79,7 +79,7 @@ void main() {
   x = stageLens(x, uv);
   x = stageOptics(x, uv);
   // Print: the pack's LUT for the stock, or our own emulsion and tone curve
-  vec3 e = uLutOn > 0.5 ? stageLook(x) : stageTone(stageEmulsion(x));
+  vec3 e = uLutOn > 0.5 ? stageLook(x) : stageTone(stageEmulsion(stageStockGrade(x)));
   if (uTap > 0.5 && uTap < 1.5) {
     outColor = vec4(clarityLightness(e), 0.0, 0.0, 1.0);
     return;

@@ -6,7 +6,7 @@ import { Engine, colorEqParams, type Source } from '../../src/engine/engine';
 import { defaultRecipe, type Recipe } from '../../src/film/recipe';
 import { assemble } from '../../src/engine/glsl';
 import { SHADERS, SHADER_FILES } from '../../src/engine/shaders';
-import { colorBalance, type ColorBalance } from '../../src/engine/colorbalance';
+import { cbCommit, cbUniform, colorBalance, colorBalanceRgb, sliderParams, CB_DEFAULTS, type CbParams, type ColorBalance } from '../../src/engine/colorbalance';
 import { FULL, bounds, framePixels, setAngle, setAspect, sourcePoint, type Crop } from '../../src/film/crop';
 import { CropOverlay } from '../../src/ui/CropOverlay';
 import { developUniforms, InputMode, llParams } from '../../src/engine/params';
@@ -119,7 +119,7 @@ function probeColorBalance(eng: Engine) {
     all: { contrast: 0.25, vibrance: 0.4, saturation: 0.3, shadows: 0.5 },
   };
   const cases = Object.fromEntries(
-    Object.entries(settings).map(([k, p]) => [k, { uniforms: { ...uniforms, uCbParams: [1 + p.contrast, p.vibrance, p.saturation, p.shadows] }, ref: (c: Vec3) => colorBalance(c, p) }]),
+    Object.entries(settings).map(([k, p]) => [k, { uniforms: { ...uniforms, uCbP: cbUniform(cbCommit(sliderParams(p))) }, ref: (c: Vec3) => colorBalance(c, p) }]),
   );
   return probeStage(eng, ['stages/colorbalance.glsl'], 'stageColorBalance(c)', COLOURS, cases);
 }
@@ -482,6 +482,21 @@ try {
     out[name] = { center: at(px, 600, 400), d10: at(px, 640, 400), d25: at(px, 655, 400), d45: at(px, 675, 400), d70: at(px, 700, 400), far: at(px, 900, 400), grey: at(px, 150, 150) };
   }
   out.colorBalance = probeColorBalance(eng);
+  // The full module, as a stock's grade: every control at once.
+  {
+    const grades: Record<string, Partial<CbParams>> = {
+      wheels: { shadows_C: 0.3, shadows_H: 220, shadows_Y: 0.1, highlights_C: 0.2, highlights_H: 60, highlights_Y: -0.1, midtones_C: 0.15, midtones_H: 140, midtones_Y: 0.2, global_C: 0.02, global_H: 30, global_Y: 0.01 },
+      tone: { chroma_global: -0.2, chroma_shadows: 0.3, chroma_highlights: -0.3, saturation_midtones: 0.3, brilliance_shadows: 0.2, brilliance_highlights: -0.2, hue_angle: 15, contrast: 0.2, vibrance: 0.3 },
+      masks: { shadows_weight: 2, highlights_weight: 0.5, mask_grey_fulcrum: 0.3, white_fulcrum: 1, shadows_C: 0.2, shadows_H: 300 },
+    };
+    const gu = developUniforms(defaultRecipe(), stageCtx);
+    out.colorGrade = probeStage(eng, ['stages/colorbalance.glsl'], 'colorBalanceRgb(c, uCbS)', COLOURS, Object.fromEntries(
+      Object.entries(grades).map(([k, p]) => {
+        const d = cbCommit({ ...CB_DEFAULTS, ...p });
+        return [k, { uniforms: { ...gu, uCbS: cbUniform(d) }, ref: (c: Vec3) => colorBalanceRgb(c, d) }];
+      }),
+    ));
+  }
   Object.assign(out, probeTone(eng));
   out.toneEqualizer = probeToneEqualizer(eng);
   const sCurve: ToneCurve = { rgb: [[0, 0.04], [0.25, 0.19], [0.75, 0.84], [1, 0.97]], r: [[0, 0], [0.5, 0.55], [1, 1]], g: [[0, 0], [1, 1]], b: [[0, 0.05], [1, 1]] };
@@ -957,4 +972,232 @@ if (photoArg) {
   p2.id = 'looksPhoto';
   p2.textContent = JSON.stringify(out);
   document.body.append(p2);
+})();
+
+// Stock fitting (tuning from samples): ?fit=<original URL>&ref=<edited URL>, repeated for several
+// photos, [&stock=pro400h]. Renders each original through the real engine with candidate stock
+// numbers and minimises the mean CIE76 colour difference to its reference (Nelder-Mead, restarted
+// once). Each photo also gets its own exposure, a nuisance fitted alongside, so brightness
+// differences between a camera JPEG and the reference are reported rather than baked into the
+// stock. Reports the numbers; draws original | reference | stock now | stock fitted per photo.
+(async () => {
+  const q = new URLSearchParams(location.search);
+  const origUrls = q.getAll('fit'), refUrls = q.getAll('ref');
+  if (!origUrls.length) return;
+  const out: Record<string, unknown> = {};
+  try {
+    const load = async (u: string) => {
+      const im = new Image();
+      im.src = u;
+      await im.decode();
+      return im;
+    };
+    const stockId = (q.get('stock') ?? 'pro400h') as Recipe['stock'];
+    const canvasOf = (im: HTMLImageElement, w: number, h: number, turn: number) => {
+      const c = document.createElement('canvas');
+      c.width = w; c.height = h;
+      const x = c.getContext('2d')!;
+      x.translate(w / 2, h / 2);
+      x.rotate((turn * Math.PI) / 2);
+      const [dw, dh] = turn % 2 ? [h, w] : [w, h];
+      x.drawImage(im, -dw / 2, -dh / 2, dw, dh);
+      return c;
+    };
+    const lab = (r: number, g: number, b: number) => {
+      const lin = [r, g, b].map((v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
+      const X = (0.4124 * lin[0] + 0.3576 * lin[1] + 0.1805 * lin[2]) / 0.95047;
+      const Y = 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
+      const Z = (0.0193 * lin[0] + 0.1192 * lin[1] + 0.9505 * lin[2]) / 1.08883;
+      const f = (t: number) => (t > 216 / 24389 ? Math.cbrt(t) : (24389 / 27 * t + 16) / 116);
+      return [116 * f(Y) - 16, 500 * (f(X) - f(Y)), 200 * (f(Y) - f(Z))];
+    };
+    const peng = new Engine(document.createElement('canvas'));
+    const corr = (a: Uint8ClampedArray, b: Uint8ClampedArray) => {
+      const g = (d: Uint8ClampedArray, i: number) => d[i * 4] + d[i * 4 + 1] + d[i * 4 + 2];
+      const n = a.length / 4;
+      let ma = 0, mb = 0;
+      for (let i = 0; i < n; i++) { ma += g(a, i); mb += g(b, i); }
+      ma /= n; mb /= n;
+      let sab = 0, saa = 0, sbb = 0;
+      for (let i = 0; i < n; i++) { const x = g(a, i) - ma, y = g(b, i) - mb; sab += x * y; saa += x * x; sbb += y * y; }
+      return sab / Math.sqrt(saa * sbb);
+    };
+    // each photo: its source turned to match the reference, and the reference in Lab
+    const photos: { name: string; turn: number; W: number; H: number; src: Source; refLab: number[][]; orig: HTMLImageElement; ref: HTMLImageElement }[] = [];
+    for (let k = 0; k < origUrls.length; k++) {
+      const orig = await load(origUrls[k]), ref = await load(refUrls[k]);
+      const long = 220;
+      const [W, H] = ref.naturalWidth >= ref.naturalHeight ? [long, Math.round((long * ref.naturalHeight) / ref.naturalWidth)] : [Math.round((long * ref.naturalWidth) / ref.naturalHeight), long];
+      const refPx = canvasOf(ref, W, H, 0).getContext('2d')!.getImageData(0, 0, W, H).data;
+      const sideways = orig.naturalWidth > orig.naturalHeight !== ref.naturalWidth > ref.naturalHeight;
+      let turn = 0, best = -2;
+      for (const t of sideways ? [1, 3] : [0, 2]) {
+        const c = corr(canvasOf(orig, W, H, t).getContext('2d')!.getImageData(0, 0, W, H).data, refPx);
+        if (c > best) { best = c; turn = t; }
+      }
+      const big = canvasOf(orig, W * 3, H * 3, turn);
+      photos.push({ name: origUrls[k].split('/').pop()!, turn, W, H, src: peng.sourceFromImage(big, W * 3, H * 3), refLab: Array.from({ length: W * H }, (_, i) => lab(refPx[i * 4], refPx[i * 4 + 1], refPx[i * 4 + 2])), orig, ref });
+    }
+    out.alignment = photos.map((p) => p.name);
+    // ?floor: the best any per-pixel colour transform could do, by pooling every photo's pixels
+    // into 16^3 cells of original colour; also after a 5 px box blur of both images.
+    if (q.has('floor')) {
+      const floor = (blur: number) => {
+        const cells = new Map<number, { n: number; sum: number[] }>();
+        const pairs: { cell: number; lab: number[] }[] = [];
+        for (const p of photos) {
+          const W = p.W, H = p.H;
+          const oc = canvasOf(p.orig, W, H, p.turn), rc = canvasOf(p.ref, W, H, 0);
+          if (blur) for (const c of [oc, rc]) { const x = c.getContext('2d')!; x.filter = `blur(${blur}px)`; x.drawImage(c, 0, 0); }
+          const o = oc.getContext('2d')!.getImageData(0, 0, W, H).data, r = rc.getContext('2d')!.getImageData(0, 0, W, H).data;
+          for (let i = 0; i < W * H; i++) {
+            const cell = (o[i * 4] >> 4) * 256 + (o[i * 4 + 1] >> 4) * 16 + (o[i * 4 + 2] >> 4);
+            const l = lab(r[i * 4], r[i * 4 + 1], r[i * 4 + 2]);
+            const e = cells.get(cell) ?? { n: 0, sum: [0, 0, 0] };
+            e.n++; e.sum = e.sum.map((v, k) => v + l[k]);
+            cells.set(cell, e);
+            pairs.push({ cell, lab: l });
+          }
+        }
+        let err = 0;
+        for (const { cell, lab: l } of pairs) { const e = cells.get(cell)!; err += Math.hypot(...l.map((v, k) => v - e.sum[k] / e.n)); }
+        return err / pairs.length;
+      };
+      out.floor = { sharp: floor(0), blurred: floor(5) };
+      throw new Error('floor only');
+    }
+    const s = STOCK[stockId];
+    const start = { contrast: s.contrast, crossover: [...s.crossover], balance: [...s.balance], matrix: s.matrix.map((r) => [...r]), saturation: s.saturation, fade: s.fade, grade: s.grade ? { ...s.grade } : undefined };
+    const N = photos.length;
+    // stock: contrast, crossover r g b, balance r b (g fixed), saturation, fade, 6 off-diagonals (0-13);
+    // grade (with ?grade): the three wheels as cartesian chroma (14-19), their luminances (20-22),
+    // saturation and chroma by tone (23-26); then one exposure per photo
+    const useGrade = q.has('grade');
+    const NG = useGrade ? 13 : 0;
+    const wheel = (a: number, b: number) => ({ C: Math.hypot(a, b), H: ((Math.atan2(b, a) * 180) / Math.PI + 360) % 360 });
+    const toStock = (v: number[]) => {
+      const m = [[0, v[8], v[9]], [v[10], 0, v[11]], [v[12], v[13], 0]];
+      for (let r = 0; r < 3; r++) m[r][r] = 1 - m[r].reduce((a, x, c) => (c === r ? a : a + x), 0);
+      const st: Record<string, unknown> = { contrast: v[0], crossover: [v[1], v[2], v[3]], balance: [v[4], 1, v[5]], saturation: v[6], fade: Math.max(0, v[7]), matrix: m };
+      if (useGrade) {
+        const sh = wheel(v[14], v[15]), mi = wheel(v[16], v[17]), hi = wheel(v[18], v[19]);
+        st.grade = {
+          shadows_C: sh.C, shadows_H: sh.H, midtones_C: mi.C, midtones_H: mi.H, highlights_C: hi.C, highlights_H: hi.H,
+          shadows_Y: v[20], midtones_Y: v[21], highlights_Y: v[22],
+          saturation_shadows: v[23], saturation_highlights: v[24], chroma_shadows: v[25], chroma_highlights: v[26],
+        };
+      }
+      return st;
+    };
+    const x0 = [start.contrast, ...start.crossover, start.balance[0] / start.balance[1], start.balance[2] / start.balance[1], start.saturation, start.fade,
+      start.matrix[0][1], start.matrix[0][2], start.matrix[1][0], start.matrix[1][2], start.matrix[2][0], start.matrix[2][1], ...new Array(NG).fill(0), ...photos.map(() => 0)];
+    const E0 = 14 + NG;
+    // A gentle grade: each unit of grade costs this much mean colour difference.
+    const PENALTY = Number(q.get('penalty') ?? 4);
+    const errOf = (px: Uint8Array, p: (typeof photos)[number]) => {
+      let e = 0;
+      for (let i = 0; i < p.W * p.H; i++) { const a = lab(px[i * 4], px[i * 4 + 1], px[i * 4 + 2]), b = p.refLab[i]; e += Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]); }
+      return e / (p.W * p.H);
+    };
+    const perPhoto = (v: number[]) => {
+      Object.assign(STOCK[stockId], toStock(v));
+      return photos.map((p, k) => errOf(peng.readPixels(p.src, { ...defaultRecipe(stockId), exposure: v[E0 + k] }, p.W, p.H, 1), p));
+    };
+    const err = (v: number[]) => perPhoto(v).reduce((a, e) => a + e, 0) / N + PENALTY * v.slice(14, E0).reduce((a, x) => a + x * x, 0);
+    const errNow = perPhoto(x0);
+    Object.assign(STOCK[stockId], start);
+    const neutral = photos.map((p) => errOf(peng.readPixels(p.src, defaultRecipe('neutral'), p.W, p.H, 1), p));
+    const nm = (xs: number[], steps: number[], maxEvals: number) => {
+      const n = xs.length;
+      let simplex = [xs, ...steps.map((st, i) => xs.map((v, j) => (j === i ? v + st : v)))].map((x) => ({ x, f: err(x) }));
+      let evals = simplex.length;
+      while (evals < maxEvals) {
+        simplex.sort((a, b) => a.f - b.f);
+        if (simplex[n].f - simplex[0].f < 1e-4) break;
+        const c = xs.map((_, j) => simplex.slice(0, n).reduce((a, p) => a + p.x[j], 0) / n);
+        const at = (t: number) => c.map((v, j) => v + t * (simplex[n].x[j] - v));
+        const xr = at(-1), fr = err(xr); evals++;
+        if (fr < simplex[0].f) { const xe = at(-2), fe = err(xe); evals++; simplex[n] = fe < fr ? { x: xe, f: fe } : { x: xr, f: fr }; }
+        else if (fr < simplex[n - 1].f) simplex[n] = { x: xr, f: fr };
+        else {
+          const xc = at(fr < simplex[n].f ? -0.5 : 0.5), fc = err(xc); evals++;
+          if (fc < Math.min(fr, simplex[n].f)) simplex[n] = { x: xc, f: fc };
+          else { simplex = simplex.map((p, k) => (k === 0 ? p : { x: p.x.map((v, j) => simplex[0].x[j] + 0.5 * (v - simplex[0].x[j])), f: 0 })); simplex.slice(1).forEach((p) => { p.f = err(p.x); evals++; }); }
+        }
+      }
+      simplex.sort((a, b) => a.f - b.f);
+      return { ...simplex[0], evals };
+    };
+    const steps = [0.1, 0.03, 0.03, 0.03, 0.05, 0.05, 0.1, 0.02, 0.03, 0.03, 0.03, 0.03, 0.03, 0.03, ...new Array(NG).fill(0.05), ...photos.map(() => 0.2)];
+    const budget = Number(q.get('evals') ?? 2500);
+    // ?show: no fitting, just the board for the stock as it stands.
+    const first = q.has('show') ? { x: x0, f: err(x0), evals: 1 } : nm(x0, steps, budget);
+    const second = q.has('show') ? first : nm(first.x, steps.map((v) => v / 2), budget);
+    const bestX = second.f < first.f ? second.x : first.x;
+    const fitted = toStock(bestX);
+    const errFit = perPhoto(bestX);
+    out.evals = first.evals + second.evals;
+    out.error = { now: errNow, neutral, fitted: errFit, meanNow: errNow.reduce((a, b) => a + b) / N, meanNeutral: neutral.reduce((a, b) => a + b) / N, meanFitted: errFit.reduce((a, b) => a + b) / N };
+    out.fitted = fitted;
+    out.exposures = photos.map((p, k) => [p.name, bestX[E0 + k]]);
+
+    // board: a row per photo
+    const BOX = 380;
+    const board = document.createElement('canvas');
+    board.width = 4 * (BOX + 10); board.height = N * (BOX + 28);
+    board.style.cssText = 'position:fixed;left:0;top:0;z-index:99999;background:#111';
+    const bx = board.getContext('2d')!;
+    bx.fillStyle = '#ddd'; bx.font = '14px sans-serif';
+    photos.forEach((p, k) => {
+      const [bw, bh] = p.W >= p.H ? [BOX, Math.round((BOX * p.H) / p.W)] : [Math.round((BOX * p.W) / p.H), BOX];
+      const src2 = peng.sourceFromImage(canvasOf(p.orig, bw * 2, bh * 2, p.turn), bw * 2, bh * 2);
+      const y = k * (BOX + 28);
+      const put = (n: number, label: string, px: Uint8Array | null, c?: HTMLCanvasElement) => {
+        if (px) bx.putImageData(new ImageData(new Uint8ClampedArray(px.buffer.slice(0) as ArrayBuffer), bw, bh), n * (BOX + 10), y + 24);
+        else bx.drawImage(c!, n * (BOX + 10), y + 24, bw, bh);
+        bx.fillText(label, n * (BOX + 10) + 4, y + 17);
+      };
+      put(0, `${p.name}: original`, peng.readPixels(src2, defaultRecipe('neutral'), bw, bh, 1, true));
+      put(1, 'Reference (Lightroom 400H)', null, canvasOf(p.ref, bw, bh, 0));
+      Object.assign(STOCK[stockId], start);
+        put(2, `${STOCK[stockId].name} now (ΔE ${errNow[k].toFixed(1)})`, peng.readPixels(src2, defaultRecipe(stockId), bw, bh, 1));
+      Object.assign(STOCK[stockId], fitted);
+      put(3, `fitted (ΔE ${errFit[k].toFixed(1)}, ${bestX[E0 + k] >= 0 ? '+' : ''}${bestX[E0 + k].toFixed(2)} EV)`, peng.readPixels(src2, { ...defaultRecipe(stockId), exposure: bestX[E0 + k] }, bw, bh, 1));
+    });
+    Object.assign(STOCK[stockId], start);
+    document.body.append(board);
+  } catch (e) {
+    out.error = String(e) + (e instanceof Error ? e.stack : '');
+  }
+  const p = document.createElement('pre');
+  p.id = 'fit';
+  p.textContent = JSON.stringify(out);
+  document.body.append(p);
+  console.log('FIT ' + JSON.stringify(out));
+})();
+
+// One stock on one photo, filling the window, for saving a look as a reference image:
+// ?render=<JPEG URL>&stock=<id>&long=<px>. Use --window-size=<the image size>.
+(async () => {
+  const q = new URLSearchParams(location.search);
+  const img = q.get('render');
+  if (!img) return;
+  const im = new Image();
+  im.src = img;
+  await im.decode();
+  const long = Number(q.get('long') ?? 300);
+  const [W, H] = im.naturalWidth >= im.naturalHeight ? [long, Math.round((long * im.naturalHeight) / im.naturalWidth)] : [Math.round((long * im.naturalWidth) / im.naturalHeight), long];
+  const big = document.createElement('canvas');
+  big.width = W * 3; big.height = H * 3;
+  big.getContext('2d')!.drawImage(im, 0, 0, W * 3, H * 3);
+  const peng = new Engine(document.createElement('canvas'));
+  const src = peng.sourceFromImage(big, W * 3, H * 3);
+  const stock = (q.get('stock') ?? 'neutral') as Recipe['stock'];
+  const px = peng.readPixels(src, defaultRecipe(stock), W, H, 1);
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  c.style.cssText = 'position:fixed;left:0;top:0;z-index:999999';
+  c.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(px.buffer.slice(0) as ArrayBuffer), W, H), 0, 0);
+  document.body.style.margin = '0';
+  document.body.append(c);
 })();

@@ -18,6 +18,11 @@ import {
   yToLStar,
   yrgToLms,
   type ColorBalance,
+  CB_DEFAULTS,
+  cbCommit,
+  colorBalanceRgb,
+  sliderParams,
+  type CbParams,
 } from './colorbalance';
 import { SRGB_TO_REC2020, mulMat, mulVec } from './color';
 
@@ -147,5 +152,52 @@ describe('shadows lift', () => {
       const [x1, y1] = xy(out);
       expect(Math.abs(x1 - x0) + Math.abs(y1 - y0)).toBeLessThan(2e-4);
     }
+  });
+});
+
+describe("darktable colour balance rgb's full controls (the stock grade)", () => {
+  const grade = (p: Partial<CbParams>, c: Vec3) => colorBalanceRgb(c, cbCommit({ ...CB_DEFAULTS, ...p }));
+  const dark: Vec3 = [0.02, 0.02, 0.02];
+  const bright: Vec3 = [0.8, 0.8, 0.8];
+
+  it('does nothing at its defaults', () => {
+    for (const c of [dark, bright, [0.3, 0.17, 0.11], [0.06, 0.1, 0.25]] as Vec3[]) expect(close(grade({}, c), c, 1e-4)).toBe(true);
+  });
+
+  it('tints the shadows through the shadows wheel and leaves the highlights nearly alone', () => {
+    const p = { shadows_C: 0.3, shadows_H: 220 }; // a blue
+    const d = grade(p, dark), b = grade(p, bright);
+    expect(d[2] - d[0]).toBeGreaterThan(0.005);
+    expect(Math.abs(b[2] - b[0]) / b[1]).toBeLessThan((d[2] - d[0]) / d[1] / 4);
+  });
+
+  it('warms the highlights through the highlights wheel', () => {
+    const b = grade({ highlights_C: 0.3, highlights_H: 60 }, bright);
+    expect(b[0]).toBeGreaterThan(b[2]);
+  });
+
+  it('lifts every tone with the global offset luminance, most in the shadows', () => {
+    const p = { global_Y: 0.01 };
+    expect(grade(p, dark)[1] / dark[1]).toBeGreaterThan(grade(p, bright)[1] / bright[1]);
+    expect(grade(p, [0, 0, 0])[1]).toBeGreaterThan(0);
+  });
+
+  it('turns hues with the hue shift and keeps greys grey', () => {
+    expect(close(grade({ hue_angle: 40 }, [0.18, 0.18, 0.18]), [0.18, 0.18, 0.18], 1e-4)).toBe(true);
+    const red: Vec3 = [0.3, 0.08, 0.06];
+    const turned = grade({ hue_angle: 40 }, red);
+    expect(Math.abs(turned[1] - red[1])).toBeGreaterThan(0.01);
+  });
+
+  it('brightens with brilliance and changes chroma with the chroma controls by tone', () => {
+    const c: Vec3 = [0.3, 0.17, 0.11];
+    expect(grade({ brilliance_global: 0.3 }, c)[1]).toBeGreaterThan(c[1]);
+    expect(yrgChroma(grade({ chroma_highlights: 0.5 }, [1.2, 0.8, 0.6]))).toBeGreaterThan(yrgChroma([1.2, 0.8, 0.6]));
+  });
+
+  it('runs the recipe sliders through the same code as before', () => {
+    const p: ColorBalance = { contrast: 0.2, vibrance: 0.3, saturation: -0.2, shadows: 0.4 };
+    const c: Vec3 = [0.3, 0.17, 0.11];
+    expect(close(colorBalance(c, p), colorBalanceRgb(c, cbCommit(sliderParams(p))), 1e-12)).toBe(true);
   });
 });

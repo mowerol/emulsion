@@ -3,10 +3,10 @@
 // darktable Uniform Color Space 2022 © Aurélien Pierre.
 // Ported from darktable src/iop/colorbalancergb.c, src/common/colorspaces_inline_conversions.h
 // and src/common/darktable_ucs_22_helpers.h at commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773
-// (release 5.6.2). Translated from C to GLSL; only the global controls (contrast, vibrance,
-// saturation with the darktable UCS formula) and the luminance of the shadows lift are kept,
-// the working space is D65 Rec.2020,
-// and negative output is clipped. Mirrors src/engine/colorbalance.ts.
+// (release 5.6.2). Translated from C to GLSL: process() with the darktable UCS saturation
+// formula (hue shift, chroma, vibrance, the four ways, luminance power, contrast, saturation and
+// brilliance by tone, gamut mapping); the working space is D65 Rec.2020, and negative output is
+// clipped. Mirrors src/engine/colorbalance.ts, whose cbUniform() packs the constants.
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Colour balance, in scene light: vibrance and the shadows lift in Filmlight Yrg, contrast on
@@ -19,12 +19,14 @@ uniform mat3 uCbXyzToRgb;
 // LMS to Filmlight grading RGB and back.
 uniform mat3 uCbLmsToGrading;
 uniform mat3 uCbGradingToLms;
-// x: 1 + contrast, y: vibrance, z: saturation, w: shadows lift
-uniform vec4 uCbParams;
-// x: contrast fulcrum (Yrg luminance), y: L* of the white fulcrum
-uniform vec2 uCbRef;
-// The luminance masks: x: middle grey fulcrum (on Y^0.41), y: shadows weight, z: highlights weight
-uniform vec3 uCbMask;
+// An instance's constants (cbUniform in colorbalance.ts): [0] contrast, vibrance, grey and white
+// fulcrums; [1-3] chroma, saturation and brilliance (global, shadows, mid-tones, highlights);
+// [4-7] the global offset, shadows lift, highlights gain and mid-tones power in grading RGB;
+// [8] mid-tones luminance power and the masks' weights; [9] mask grey, hue shift cos and sin, L* white.
+// The recipe sliders' instance runs as Colour balance; the stock's own runs before Emulsion.
+uniform vec4 uCbP[10];
+uniform vec4 uCbS[10];
+uniform float uCbSOn;
 // Squared colourfulness of the working gamut boundary for 512 hues in [-pi, pi), packed in fours.
 uniform vec4 uCbGamut[128];
 
@@ -123,20 +125,31 @@ float cbLookupGamut(float hue) {
   return y0 + (i0 != i1 ? (x - x0) * (cbGamutAt(i1) - y0) : 0.0);
 }
 
-vec3 stageColorBalance(vec3 rgb) {
-  float lWhite = uCbRef.y;
-
-  // Vibrance: linear chroma in Yrg at constant luminance and hue.
+vec3 colorBalanceRgb(vec3 rgb, vec4 P[10]) {
+  float lWhite = P[9].w;
   vec3 yrg = cbLmsToYrg(uCbRgbToLms * max(rgb, vec3(0.0)));
   float Y = max(yrg.x, 0.0);
   vec2 rg = yrg.yz - vec2(CB_D65_R, CB_D65_G);
   float c = length(rg);
   float cosH = c != 0.0 ? rg.x / c : 1.0;
   float sinH = c != 0.0 ? rg.y / c : 0.0;
-  // pow(0, 0) is undefined in GLSL, so skip the term when vibrance is zero.
-  float vib = uCbParams.y == 0.0 ? 0.0 : uCbParams.y * (1.0 - pow(c, abs(uCbParams.y)));
-  c *= max(1.0 + vib, 0.0);
-  // Keep the chroma inside Yrg.
+
+  // Opacities of the shadows, mid-tones and highlights masks.
+  float off = pow(Y, 0.4101205819200422) - P[9].x;
+  float offN = off / P[9].x;
+  float alpha = 1.0 / (1.0 + exp(offN * P[8].y));
+  float beta = 1.0 / (1.0 + exp(-offN * P[8].z));
+  float gamma = exp(-off * off * P[8].w / 4.0) * (1.0 - alpha) * (1.0 - alpha) * (1.0 - beta) * (1.0 - beta) * 8.0;
+  vec3 op = vec3(alpha, gamma, beta);
+
+  // Hue shift.
+  vec2 h = vec2(P[9].y * cosH - P[9].z * sinH, P[9].z * cosH + P[9].y * sinH);
+  cosH = h.x;
+  sinH = h.y;
+
+  // Linear chroma and vibrance at constant luminance and hue. pow(0, 0) is undefined in GLSL.
+  float vib = P[0].y == 0.0 ? 0.0 : P[0].y * (1.0 - pow(c, abs(P[0].y)));
+  c *= max(1.0 + P[1].x + dot(op, P[1].yzw) + vib, 0.0);
   vec2 trial = c * vec2(cosH, sinH) + vec2(CB_D65_R, CB_D65_G);
   float maxC = c;
   if (trial.x < 0.0) maxC = min(-CB_D65_R / cosH, maxC);
@@ -144,28 +157,31 @@ vec3 stageColorBalance(vec3 rgb) {
   if (trial.x + trial.y > 1.0) maxC = min((1.0 - CB_D65_R - CB_D65_G) / (cosH + sinH), maxC);
   yrg = vec3(Y, maxC * vec2(cosH, sinH) + vec2(CB_D65_R, CB_D65_G));
 
-  // Shadows lift: one gain on luminance from darktable's shadows and highlights masks.
-  float offset = (pow(Y, 0.4101205819200422) - uCbMask.x) / uCbMask.x;
-  float alpha = 1.0 / (1.0 + exp(offset * uCbMask.y));
-  float beta = 1.0 / (1.0 + exp(-offset * uCbMask.z));
-  yrg.x *= (1.0 - beta) * (1.0 - alpha + alpha * (1.0 + uCbParams.w)) + beta;
+  // The four ways in grading RGB: offset, shadows lift and highlights gain, mid-tones power.
+  vec3 g = uCbLmsToGrading * cbYrgToLms(yrg);
+  g += P[4].xyz;
+  g *= (1.0 - op.z) * (1.0 - op.x + op.x * P[5].xyz) + op.z * P[6].xyz;
+  g = sign(g) * pow(abs(g) / P[0].w, P[7].xyz) * P[0].w;
+  yrg = cbLmsToYrg(uCbGradingToLms * g);
 
-  // Contrast on luminance alone, around middle grey.
-  yrg.x = uCbRef.x * pow(yrg.x / uCbRef.x, uCbParams.x);
+  // Luminance power, then contrast around the grey fulcrum.
+  yrg.x = pow(max(yrg.x / P[0].w, 0.0), P[8].x) * P[0].w;
+  yrg.x = P[0].z * pow(yrg.x / P[0].z, P[0].x);
   vec3 xyz = uCbLmsToXyz * cbYrgToLms(yrg);
 
-  // Saturation in darktable UCS, at constant hue.
+  // Saturation and brilliance in darktable UCS, at constant hue.
   vec3 jch = cbXyYToJCH(cbXyzToXyY(xyz), lWhite);
   vec3 hcb = vec3(jch.z, jch.y, jch.x * (pow(jch.y, CB_HK) + 1.0));
   float radius = length(hcb.yz);
   float sinT = radius > 0.0 ? hcb.y / radius : 0.0;
   float cosT = radius > 0.0 ? hcb.z / radius : 0.0;
-  float P = max(CB_TINY, hcb.y);
+  float Pp0 = max(CB_TINY, hcb.y);
   float W = sinT * hcb.y + cosT * hcb.z;
-  float maxA = length(vec2(P, W)) / P;
-  float a = cbSoftClip(max(1.0 + uCbParams.z, 0.0), 0.5 * maxA, maxA);
-  float Pp = (a - 1.0) * P;
-  float Wp = sqrt(max(P * P * (1.0 - a * a) + W * W, 0.0));
+  float maxA = length(vec2(Pp0, W)) / Pp0;
+  float a = cbSoftClip(max(1.0 + P[2].x + dot(op, P[2].yzw), 0.0), 0.5 * maxA, maxA);
+  float b = max(1.0 + P[3].x + dot(op, P[3].yzw), 0.0);
+  float Pp = (a - 1.0) * Pp0;
+  float Wp = sqrt(max(Pp0 * Pp0 * (1.0 - a * a) + W * W, 0.0)) * b;
   hcb.y = max(cosT * Pp + sinT * Wp, 0.0);
   hcb.z = max(-sinT * Pp + cosT * Wp, 0.0);
   jch = vec3(hcb.z / (pow(hcb.y, CB_HK) + 1.0), hcb.y, hcb.x);
@@ -181,3 +197,9 @@ vec3 stageColorBalance(vec3 rgb) {
   jch = vec3(hcb.z / (pow(Cs, CB_HK) + 1.0), Cs, hcb.x);
   return max(uCbXyzToRgb * cbXyYToXyz(cbJCHToXyY(jch, lWhite)), vec3(0.0));
 }
+
+// The recipe's Colour balance sliders.
+vec3 stageColorBalance(vec3 rgb) { return colorBalanceRgb(rgb, uCbP); }
+
+// The stock's own grade (its style), before Emulsion.
+vec3 stageStockGrade(vec3 rgb) { return uCbSOn > 0.5 ? colorBalanceRgb(rgb, uCbS) : rgb; }

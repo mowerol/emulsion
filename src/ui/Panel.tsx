@@ -3,6 +3,8 @@
 
 import { Fragment, memo, useEffect, useRef, useState } from 'react';
 import { useLutVersion } from '../engine/lutstore';
+import { useStockTuningVersion } from '../film/stocktuning';
+import { StockTuning } from './StockTuning';
 import { PACK, PACKS, type PackId } from '../film/looks';
 import { BRIGHT_RANGE, COLOR_CHANNELS, DEFAULT_STOCK, HUE_DEGREES, SAT_RANGE, PUSHES, SLIDER, SLIDERS, defaultRecipe, tidyColor, type ColorAdjust, resetAdjustments, resetSection, sectionChanged, sliderDefault, withSettingsFrom, withStock, type Push, type Recipe, type SectionId, type SliderDef } from '../film/recipe';
 import { SCANNER, SCANNERS, type ScannerId } from '../film/scanners';
@@ -34,6 +36,7 @@ const StockPicker = memo(function StockPicker({ photo, current, pack, onPick }: 
   const canvases = useRef<Partial<Record<StockId, HTMLCanvasElement | null>>>({});
   const path = photo?.path;
   const lutVersion = useLutVersion();
+  const tuningVersion = useStockTuningVersion();
   const recipe = photo?.recipe ?? null;
   const seed = photo?.seed ?? 0;
   const white = photo?.white ?? null;
@@ -93,7 +96,7 @@ const StockPicker = memo(function StockPicker({ photo, current, pack, onPick }: 
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [path, recipe, seed, white, lutVersion]);
+  }, [path, recipe, seed, white, lutVersion, tuningVersion]);
 
   return (
     <div className="stocks">
@@ -396,6 +399,16 @@ export function Panel() {
         {PACK[base.pack].looks[base.stock] && <SliderRow def={SLIDER.lookAmount} recipe={base} onChange={setSlider} />}
         <StockPicker photo={photo} current={base.stock} pack={base.pack} onPick={pickStock} />
       </Section>
+
+      {import.meta.env.DEV && view === 'develop' && (
+        <Section id="stock-tuning" title="Stock tuning" summary="Development build">
+          {PACK[base.pack].looks[base.stock] ? (
+            <p className="hint">{STOCK[base.stock].name} is rendered by the {PACK[base.pack].name} LUT here. Switch Looks to Emulsion to tune its own look.</p>
+          ) : (
+            <StockTuning stock={base.stock} />
+          )}
+        </Section>
+      )}
 
       <Section id="development" title="Development" summary={PUSHES.find((p) => p.value === base.push)!.label} onReset={resetFor('development', 'Development')}>
         <Segmented label="Push or pull processing" options={PUSHES.map((p) => ({ value: p.value, label: p.label }))} value={base.push} onChange={pickPush} />
