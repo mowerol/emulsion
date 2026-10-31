@@ -4,19 +4,18 @@
 import { create } from 'zustand';
 
 export const CONTROL_GROUPS = [
-  { id: 'prepare', name: 'Prepare', hint: 'Start with the source', sections: ['lens', 'whitebalance'] },
-  { id: 'look', name: 'Look', hint: 'Choose the character', sections: ['stock', 'development', 'scanner'] },
-  { id: 'tone', name: 'Tone', hint: 'Shape the light', sections: ['adjust', 'curve'] },
-  { id: 'colour', name: 'Colour', hint: 'Refine the palette', sections: ['colour-basics', 'color', 'grading'] },
-  { id: 'finish', name: 'Finish', hint: 'Texture and atmosphere', sections: ['detail', 'optics', 'grain'] },
+  { id: 'develop', name: 'Develop', sections: ['stock', 'whitebalance', 'exposure', 'hdr', 'curve'] },
+  { id: 'colour', name: 'Colour Grading', sections: ['color', 'grading'] },
+  { id: 'refine', name: 'Refine', sections: ['detail', 'optics', 'grain', 'lens'] },
 ] as const;
 export type ControlGroupId = typeof CONTROL_GROUPS[number]['id'];
 export type ControlSectionId = typeof CONTROL_GROUPS[number]['sections'][number];
 export interface WorkspacePreferences { layout: 'workflow' | 'classic'; imageColumns: 1 | 2; group: ControlGroupId }
-export const WORKSPACE_DEFAULTS: WorkspacePreferences = { layout: 'workflow', imageColumns: 2, group: 'tone' };
+export const WORKSPACE_DEFAULTS: WorkspacePreferences = { layout: 'workflow', imageColumns: 2, group: 'develop' };
 export function normalizeWorkspace(input: unknown): WorkspacePreferences {
-  const p = input && typeof input === 'object' ? input as Partial<WorkspacePreferences> : {};
-  return { layout: p.layout === 'classic' ? 'classic' : 'workflow', imageColumns: p.imageColumns === 1 ? 1 : 2, group: CONTROL_GROUPS.find(g => g.id === p.group)?.id ?? WORKSPACE_DEFAULTS.group };
+  const p = input && typeof input === 'object' ? input as Partial<Omit<WorkspacePreferences, 'group'>> & { group?: string } : {};
+  const group = p.group === 'finish' ? 'refine' : ['prepare', 'look', 'tone'].includes(p.group ?? '') ? 'develop' : p.group;
+  return { layout: p.layout === 'classic' ? 'classic' : 'workflow', imageColumns: p.imageColumns === 1 ? 1 : 2, group: CONTROL_GROUPS.find(g => g.id === group)?.id ?? WORKSPACE_DEFAULTS.group };
 }
 const KEY = 'emulsion.workspace';
 function read(): WorkspacePreferences {

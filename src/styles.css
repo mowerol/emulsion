@@ -411,12 +411,10 @@ input[type='range']:disabled { opacity: 0.35; cursor: default; }
 .images-pane > footer { padding:10px 12px; border-top:1px solid var(--line); color:var(--faint); font-size:10px; }
 .panel-workflow { display:flex; flex-direction:column; overflow:hidden; padding-bottom:0; }
 .panel-workflow .histogram { position:static; flex-shrink:0; }
-.control-panel-title { font-size:12px; font-weight:600; margin:12px 0 0; }
 .panel-workflow .order { padding:8px 0 10px; flex-shrink:0; }.panel-workflow .order-line { font-size:12px; font-weight:500; }.panel-workflow .order-frame { font-size:10px; }
 .control-stages { flex-shrink:0; display:flex; gap:4px; border-bottom:1px solid var(--line); }
 .control-stages button { flex:1; min-width:0; background:none; border:0; border-bottom:2px solid transparent; color:var(--faint); padding:10px 0; font-size:11px; cursor:pointer; }
 .control-stages button[aria-pressed=true] { color:var(--accent); border-bottom-color:var(--accent); }
-.control-stage-heading { display:flex; flex-direction:column; gap:5px; padding:14px 0; flex-shrink:0; }.control-stage-heading > span { color:var(--faint); font-size:10px; letter-spacing:.08em; }.control-stage-heading > strong { font-size:14px; font-weight:500; }
 .grouped-controls-body { flex:1; min-height:0; overflow-y:auto; scrollbar-gutter:stable; }
 .classic-controls-body { display:contents; }
 .panel-workflow .panel-actions { flex-shrink:0; margin-top:0; padding:12px 0; border-top:1px solid var(--line); max-height:150px; overflow-y:auto; }.panel-workflow .panel-actions .btn { font-size:11px; padding:4px 7px; }
@@ -426,4 +424,9 @@ input[type='range']:disabled { opacity: 0.35; cursor: default; }
 .photo-info-bar .order-frame { flex:1 1 200px; min-width:0; font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .photo-info-bar .mark-controls { margin-top:0; flex-shrink:0; }
 .photo-info-bar .order-note { flex-basis:100%; font-size:10px; }
-.panel-workflow .control-panel-title { margin-bottom:8px; }
+
+.control-section-slot { display:contents; }
+.preset-browse { font-size:11px; color:var(--muted); }
+.preset-browse > summary { cursor:pointer; padding:4px 0; }
+.preset-browse > .stocks { margin-top:10px; }
+.preset-browse > .group:last-child { border-bottom:0; padding-bottom:0; }

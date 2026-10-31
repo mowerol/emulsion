@@ -2,6 +2,18 @@
 
 Rewritten at the end of each session. Last updated 2026-10-31 (late morning).
 
+## Right-panel tabs revised (2026-10-31)
+
+Oli disliked the five workflow stages and supplied a Capture One-style grouping reference. The Workflow panel now has three tabs:
+
+- **Develop:** Presets (existing film looks/Amount; visual browse and Development/Scanner under disclosures), White Balance, Exposure, High Dynamic Range, Tone curve. Presets starts collapsed and remembers opening. Exposure = Exposure/Contrast/Saturation/Vibrance; HDR = Highlights/Shadows/Whites/Blacks. No new Brightness algorithm was added; that screenshot control has no existing engine counterpart.
+- **Colour Grading:** HSL (the existing colour equalizer) and Colour wheels.
+- **Refine:** Detail (Texture/Clarity/sharpening/Capture), Optics (Fade/halation/glow/vignette), Grain, Lens corrections.
+
+Stable section configuration now controls order as well as membership through a keyed panel registry; module view state survives tab switches. Numbered step/hint headings removed. Classic remains flat. Old saved Prepare/Look/Tone preferences migrate to Develop, Finish to Refine. New section resets isolate Exposure, HDR and Refine optics. Sidecar/rendering values unchanged.
+
+234 tests and the production build pass; browser checks confirm section order and tab contents. The previous workspace change is committed/pushed as `8411ddc`; Oli authorised committing these tab refinements, including removal of the “Controls” heading. They have not been pushed. See `docs/plans/workspace-layouts.md`. Future user-defined arrangements remain planned, not implemented.
+
 ## Workspace layouts (2026-10-31)
 
 Oli chose prototype A and added: **switch between one and two photo columns**. Implemented with real controls; Oli authorised committing and pushing the workspace changes, including the fixed photo-info bar. The push also includes lens correction commit `2421a94`.

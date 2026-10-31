@@ -5,19 +5,20 @@
 import { useState, type ReactNode } from 'react';
 
 const KEY = 'emulsion.folded';
+const OPEN_KEY = 'emulsion.unfolded';
 
-function readFolded(): Set<string> {
+function readFolded(key = KEY): Set<string> {
   try {
-    const v = JSON.parse(localStorage.getItem(KEY) ?? '[]');
+    const v = JSON.parse(localStorage.getItem(key) ?? '[]');
     return new Set(Array.isArray(v) ? v.filter((x) => typeof x === 'string') : []);
   } catch {
     return new Set();
   }
 }
 
-function writeFolded(s: Set<string>) {
+function writeFolded(s: Set<string>, key = KEY) {
   try {
-    localStorage.setItem(KEY, JSON.stringify([...s]));
+    localStorage.setItem(key, JSON.stringify([...s]));
   } catch {
     /* folding is a convenience; it just won't be remembered */
   }
@@ -30,6 +31,7 @@ export function Section({
   onReset,
   children,
   hidden = false,
+  defaultOpen = true,
 }: {
   id: string;
   title: string;
@@ -38,13 +40,17 @@ export function Section({
   onReset?: () => void;
   children: ReactNode;
   hidden?: boolean;
+  defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(() => !readFolded().has(id));
+  const [open, setOpen] = useState(() => !readFolded().has(id) && (defaultOpen || readFolded(OPEN_KEY).has(id)));
   const toggle = () => {
     const s = readFolded();
     if (open) s.add(id);
     else s.delete(id);
     writeFolded(s);
+    const opened = readFolded(OPEN_KEY);
+    if (open) opened.delete(id); else opened.add(id);
+    writeFolded(opened, OPEN_KEY);
     setOpen(!open);
   };
   const body = `section-${id}`;

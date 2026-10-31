@@ -233,7 +233,7 @@ export function resetAdjustments(recipe: Recipe): Recipe {
 export const withSettingsFrom = (from: Recipe, target: Recipe | null): Recipe => ({ ...from, crop: target?.crop ?? null });
 
 /** Panel sections that can be reset on their own. */
-export type SectionId = 'development' | 'scanner' | 'crop' | 'adjust' | 'curve' | 'color' | 'grading' | 'lens' | 'whitebalance' | 'colour-basics' | 'tone' | 'detail' | 'optics' | 'grain';
+export type SectionId = 'development' | 'scanner' | 'crop' | 'adjust' | 'curve' | 'color' | 'grading' | 'lens' | 'whitebalance' | 'colour-basics' | 'tone' | 'exposure' | 'hdr' | 'refine-optics' | 'detail' | 'optics' | 'grain';
 
 const SECTION_FIELDS: Record<SectionId, (keyof Recipe)[]> = {
   development: ['push'],
@@ -245,6 +245,9 @@ const SECTION_FIELDS: Record<SectionId, (keyof Recipe)[]> = {
   grading: ['grading', 'shadows', 'saturation'],
   lens: ['lens'],
   whitebalance: ['wb'],
+  exposure: ['exposure', 'contrast', 'saturation', 'vibrance'],
+  hdr: ['highlights', 'shadows', 'whites', 'blacks'],
+  'refine-optics': ['fade', ...SLIDERS.filter(d => d.group === 'optics').map(d => d.key)],
   'colour-basics': ['vibrance', 'saturation'],
   tone: SLIDERS.filter(d => d.group === 'adjust' && d.key !== 'vibrance' && d.key !== 'saturation').map(d => d.key),
   detail: SLIDERS.filter((d) => d.group === 'detail').map((d) => d.key),

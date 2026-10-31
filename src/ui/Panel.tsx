@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The lab order: what this frame is developed with.
 
-import { Fragment, memo, useEffect, useRef, useState } from 'react';
+import { type ReactNode, memo, useEffect, useRef, useState } from 'react';
 import { useLutVersion } from '../engine/lutstore';
 import { useStockTuningVersion } from '../film/stocktuning';
 import { LensControls } from './LensControls';
@@ -20,7 +20,7 @@ import { framePixels } from '../film/crop';
 import { PhotoInfo } from './PhotoInfo';
 import { Histogram } from './Histogram';
 import { CurveEditor } from './CurveEditor';
-import { CONTROL_GROUPS, groupHasSection, setWorkspace, useWorkspace, type ControlSectionId } from './workspace';
+import { CONTROL_GROUPS, setWorkspace, useWorkspace } from './workspace';
 import { CropControls, cropSummary } from './CropControls';
 import { Section } from './Section';
 import { ISOS } from '../engine/grain';
@@ -279,7 +279,6 @@ export function Panel() {
   const controlsBody = useRef<HTMLDivElement>(null);
   const grouped = view === 'develop' && workspace.layout === 'workflow';
   useEffect(() => { if (grouped && controlsBody.current) controlsBody.current.scrollTop = 0; }, [workspace.group, grouped]);
-  const show = (id: ControlSectionId) => !grouped || groupHasSection(workspace.group, id);
 
   // Stock, development and scanner apply to every selected frame.
   const applyToTargets = (change: (r: Recipe | null) => Recipe) => {
@@ -302,106 +301,72 @@ export function Panel() {
 
   if (!photo) return <aside className="panel" aria-label="Lab order" />;
 
-  const groups: [string, Exclude<SliderDef['group'], 'look'>][] = [
-    ['Adjustments', 'adjust'],
-    ['Detail', 'detail'],
-    ['Optics', 'optics'],
-    ['Grain', 'grain'],
-  ];
+  const rows = (keys: readonly string[]) => <div className="sliders">{keys.map(key => SLIDER[key as SliderDef['key']]).map(d => <SliderRow key={d.key} def={d} recipe={base} onChange={setSlider} />)}</div>;
+  const sliderGroup = (group: SliderDef['group']) => SLIDERS.filter(d => d.group === group).map(d => d.key);
+  const development = <Section id="development" title="Development" summary={PUSHES.find(p => p.value === base.push)!.label} onReset={resetFor('development', 'Development')}>
+    <Segmented label="Push or pull processing" options={PUSHES.map(p => ({ value: p.value, label: p.label }))} value={base.push} onChange={pickPush} />
+    <p className="hint">{PUSHES.find(p => p.value === base.push)!.hint}</p>
+  </Section>;
+  const scanner = <Section id="scanner" title="Scanner" summary={SCANNER[base.scanner].name} onReset={resetFor('scanner', 'Scanner')}>
+    <Segmented label="Scanner" options={SCANNERS.map(s => ({ value: s.id, label: s.name }))} value={base.scanner} onChange={pickScanner} />
+    <p className="hint">{SCANNER[base.scanner].hint}</p>
+  </Section>;
+  const sections: Record<string, ReactNode> = {
+    stock: <Section defaultOpen={!grouped} id="stock" title={grouped ? 'Presets' : 'Film stock'} summary={recipe ? STOCK[recipe.stock].name : 'None'}>
+      <div className="grain-speed"><label htmlFor="look-pack">Looks</label><select id="look-pack" value={base.pack} onChange={e => pickPack(e.target.value as PackId)}>
+        {PACKS.filter(p => p.id !== 'emulsion' || base.pack === 'emulsion').map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+      </select></div>
+      {grouped ? <div className="grain-speed"><label htmlFor="film-preset">Film stock</label><select id="film-preset" value={base.stock} onChange={e => pickStock(e.target.value as StockId)}>
+        {!PACK.t3mujinpack.looks[base.stock] && <option value={base.stock}>{recipe ? STOCK[base.stock].name : 'Original'}</option>}
+        {STOCKS.filter(s => PACK.t3mujinpack.looks[s.id]).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+      </select></div> : <p className="hint">{PACK[base.pack].hint}</p>}
+      {PACK[base.pack].looks[base.stock] && <SliderRow def={SLIDER.lookAmount} recipe={base} onChange={setSlider} />}
+      {grouped ? <>
+        <details className="preset-browse"><summary>Browse film looks</summary><StockPicker photo={photo} current={base.stock} pack={base.pack} onPick={pickStock} /></details>
+        <details className="preset-browse"><summary>Film options</summary>{development}{scanner}</details>
+      </> : <StockPicker photo={photo} current={base.stock} pack={base.pack} onPick={pickStock} />}
+    </Section>,
+    development: !grouped && development,
+    scanner: !grouped && scanner,
+    whitebalance: grouped && <Section id="whitebalance" title="White Balance" onReset={resetFor('whitebalance', 'White balance')}><WhiteBalanceControls recipe={base} white={photo.white} /></Section>,
+    exposure: grouped && <Section id="exposure" title="Exposure" onReset={resetFor('exposure', 'Exposure')}>{rows(['exposure', 'contrast', 'saturation', 'vibrance'])}</Section>,
+    hdr: grouped && <Section id="hdr" title="High Dynamic Range" onReset={resetFor('hdr', 'High Dynamic Range')}>{rows(['highlights', 'shadows', 'whites', 'blacks'])}</Section>,
+    adjust: !grouped && <Section id="adjust" title="Adjustments" onReset={resetFor('adjust', 'Adjustments')}>
+      <WhiteBalanceControls recipe={base} white={photo.white} />{rows(sliderGroup('adjust'))}
+    </Section>,
+    curve: <Section id="curve" title="Tone curve" summary={recipe?.curve ? 'Edited' : 'Straight'} onReset={resetFor('curve', 'Tone curve')}>
+      <CurveEditor curve={base.curve} disabled={false} onChange={curve => editActive(r => ({ ...(r ?? defaultRecipe()), curve }))} />
+    </Section>,
+    color: <Section id="color" title={grouped ? 'HSL' : 'Colour'} summary={recipe?.color ? 'Edited' : 'As shot'} onReset={resetFor('color', 'Colour')}><ColorControls recipe={base} /></Section>,
+    grading: <Section id="grading" title={grouped ? 'Colour wheels' : 'Colour Grading'} summary={sectionChanged(recipe, 'grading') ? 'Edited' : 'Neutral'} onReset={resetFor('grading', 'Colour Grading')}><ColourGradingControls recipe={base} /></Section>,
+    detail: <Section id="detail" title="Detail" onReset={resetFor('detail', 'Detail')}>
+      {rows(sliderGroup('detail'))}<p className="hint">Sharpening shows best at 100%; hold ⌥ on Masking to see where it reaches. Capture undoes the lens and sensor blur of RAW files, at the pixel level.</p>
+    </Section>,
+    optics: <Section id="optics" title="Optics" onReset={resetFor(grouped ? 'refine-optics' : 'optics', 'Optics')}>{rows(grouped ? [...sliderGroup('optics'), 'fade'] : sliderGroup('optics'))}</Section>,
+    grain: <Section id="grain" title="Grain" onReset={resetFor('grain', 'Grain')}><GrainSpeed recipe={base} />{rows(sliderGroup('grain'))}</Section>,
+    lens: photo.raw && <Section id="lens" title="Lens corrections" summary={photo.lens?.correction ? (base.lens?.enabled === false ? 'Off' : 'Embedded profile') : 'No profile'} onReset={resetFor('lens', 'Lens')}><LensControls recipe={base} metadata={photo.lens} /></Section>,
+    crop: !grouped && <Section id="crop" title="Crop" summary={cropSummary(recipe?.crop ?? null)} onReset={resetFor('crop', 'Crop')}><CropControls recipe={recipe} /></Section>,
+  };
+  const classic = view === 'develop' ? ['stock', 'development', 'scanner', 'lens', 'crop', 'adjust', 'curve', 'color', 'grading', 'detail', 'optics', 'grain'] : ['stock', 'development', 'scanner'];
+  const visible: readonly string[] = grouped ? CONTROL_GROUPS.find(g => g.id === workspace.group)!.sections : classic;
+  // Group configuration owns both membership and ordering. Keep other sections mounted so
+  // switching tabs preserves each colour module's local view state.
+  const ordered = [...visible, ...Object.keys(sections).filter(id => !visible.includes(id))];
 
   return (
     <aside className={`panel${grouped ? ' panel-workflow' : ''}`} aria-label={grouped ? 'Controls' : 'Lab order'}>
       {view === 'develop' && <Histogram />}
-      {grouped && <h2 className="control-panel-title">Controls</h2>}
       {!grouped && <PhotoInfo />}
 
       {grouped && <>
         <nav className="control-stages" aria-label="Control stages">
           {CONTROL_GROUPS.map(g => <button type="button" key={g.id} aria-pressed={workspace.group === g.id} onClick={() => setWorkspace({ group: g.id })}>{g.name}</button>)}
         </nav>
-        <div className="control-stage-heading"><span>{String(CONTROL_GROUPS.findIndex(g => g.id === workspace.group) + 1).padStart(2, '0')} / {CONTROL_GROUPS.length}</span><strong>{CONTROL_GROUPS.find(g => g.id === workspace.group)!.hint}</strong></div>
       </>}
 
       <div className={grouped ? 'grouped-controls-body' : 'classic-controls-body'} ref={controlsBody}>
-      <Section hidden={!show('stock')} id="stock" title="Film stock" summary={recipe ? STOCK[recipe.stock].name : 'None'}>
-        <div className="grain-speed">
-          <label htmlFor="look-pack">Looks</label>
-          <select id="look-pack" value={base.pack} onChange={(e) => pickPack(e.target.value as PackId)}>
-            {PACKS.filter((p) => p.id !== 'emulsion' || base.pack === 'emulsion').map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-        </div>
-        <p className="hint">{PACK[base.pack].hint}</p>
-        {PACK[base.pack].looks[base.stock] && <SliderRow def={SLIDER.lookAmount} recipe={base} onChange={setSlider} />}
-        <StockPicker photo={photo} current={base.stock} pack={base.pack} onPick={pickStock} />
-      </Section>
-
-      <Section hidden={!show('development')} id="development" title="Development" summary={PUSHES.find((p) => p.value === base.push)!.label} onReset={resetFor('development', 'Development')}>
-        <Segmented label="Push or pull processing" options={PUSHES.map((p) => ({ value: p.value, label: p.label }))} value={base.push} onChange={pickPush} />
-        <p className="hint">{PUSHES.find((p) => p.value === base.push)!.hint}</p>
-      </Section>
-
-      <Section hidden={!show('scanner')} id="scanner" title="Scanner" summary={SCANNER[base.scanner].name} onReset={resetFor('scanner', 'Scanner')}>
-        <Segmented label="Scanner" options={SCANNERS.map((s) => ({ value: s.id, label: s.name }))} value={base.scanner} onChange={pickScanner} />
-        <p className="hint">{SCANNER[base.scanner].hint}</p>
-      </Section>
-
-      {view === 'develop' && photo.raw && (
-        <Section hidden={!show('lens')} id="lens" title="Lens" summary={photo.lens?.correction ? (base.lens?.enabled === false ? 'Off' : 'Embedded profile') : 'No profile'} onReset={resetFor('lens', 'Lens')}>
-          <LensControls recipe={base} metadata={photo.lens} />
-        </Section>
-      )}
-
-      {grouped && <>
-        <Section hidden={!show('whitebalance')} id="whitebalance" title="White balance" onReset={resetFor('whitebalance', 'White balance')}><WhiteBalanceControls recipe={base} white={photo.white} /></Section>
-        <Section hidden={!show('colour-basics')} id="colour-basics" title="Colour basics" onReset={resetFor('colour-basics', 'Colour basics')}>
-          <div className="sliders">{SLIDERS.filter(d => d.key === 'vibrance' || d.key === 'saturation').map(d => <SliderRow key={d.key} def={d} recipe={base} onChange={setSlider} />)}</div>
-        </Section>
-      </>}
-
-      {view === 'develop' && !grouped && (
-        <Section id="crop" title="Crop" summary={cropSummary(recipe?.crop ?? null)} onReset={resetFor('crop', 'Crop')}>
-          <CropControls recipe={recipe} />
-        </Section>
-      )}
-
-      {view === 'develop' ? (
-        groups.map(([title, group]) => (
-          <Fragment key={group}>
-            <Section hidden={!show(group)} id={group} title={grouped && group === 'adjust' ? 'Exposure & tone' : title} onReset={resetFor(grouped && group === 'adjust' ? 'tone' : group, grouped && group === 'adjust' ? 'Exposure & tone' : title)}>
-              {group === 'adjust' && !grouped && <WhiteBalanceControls recipe={base} white={photo.white} />}
-              {group === 'grain' && <GrainSpeed recipe={base} />}
-              <div className="sliders">
-                {SLIDERS.filter((d) => d.group === group && !(grouped && group === 'adjust' && (d.key === 'vibrance' || d.key === 'saturation'))).map((d) => (
-                  <SliderRow key={d.key} def={d} recipe={base} onChange={setSlider} />
-                ))}
-              </div>
-              {group === 'detail' && <p className="hint">Sharpening shows best at 100%; hold ⌥ on Masking to see where it reaches. Capture undoes the lens and sensor blur of RAW files, at the pixel level.</p>}
-            </Section>
-            {group === 'adjust' && (
-              <Section hidden={!show('curve')} id="curve" title="Tone curve" summary={recipe?.curve ? 'Edited' : 'Straight'} onReset={resetFor('curve', 'Tone curve')}>
-                <CurveEditor curve={base.curve} disabled={false} onChange={(curve) => editActive((r) => ({ ...(r ?? defaultRecipe()), curve }))} />
-              </Section>
-            )}
-            {group === 'adjust' && (
-              <Section hidden={!show('color')} id="color" title="Colour" summary={recipe?.color ? 'Edited' : 'As shot'} onReset={resetFor('color', 'Colour')}>
-                <ColorControls recipe={base} />
-              </Section>
-            )}
-            {group === 'adjust' && (
-              <Section hidden={!show('grading')} id="grading" title="Colour Grading" summary={sectionChanged(recipe, 'grading') ? 'Edited' : 'Neutral'} onReset={resetFor('grading', 'Colour Grading')}>
-                <ColourGradingControls recipe={base} />
-              </Section>
-            )}
-          </Fragment>
-        ))
-      ) : (
-        <p className="hint panel-note">Open Develop to fine-tune exposure, colour, halation and grain.</p>
-      )}
-
+        {ordered.map(id => <div className="control-section-slot" key={id} hidden={!visible.includes(id)}>{sections[id]}</div>)}
+        {view !== 'develop' && <p className="hint panel-note">Open Develop to fine-tune exposure, colour, halation and grain.</p>}
       </div>
 
       <div className="panel-actions">

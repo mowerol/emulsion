@@ -11,17 +11,19 @@ Oli chose prototype A (stage tabs, images left, selected photo centre, controls 
 - Crop, Zoom, Before and Split live in a top toolbar. Crop settings open from the Crop tool and share the existing draft, overlay, reset, Done/Cancel and keyboard behavior. The toolbar stays inside Develop's controller and spans the workspace grid; no second zoom/crop state or renderer is introduced.
 - The canvas stays mounted when changing layouts; zoom/pan, compare state and crop drafts survive. Edits and history belong to the photo regardless of layout.
 
-## Default control stages
+## Default control tabs (revised after Oli's feedback)
 
-| Stage | Sections |
+| Tab | Sections |
 | --- | --- |
-| Prepare | Lens, White balance |
-| Look | Film stock / Amount, Development, Scanner |
-| Tone | Exposure & tone (including Fade), Tone curve |
-| Colour | Colour basics (Vibrance/Saturation), Colour, Colour Grading |
-| Finish | Detail, Optics, Grain |
+| Develop | Presets, White Balance, Exposure, High Dynamic Range, Tone curve |
+| Colour Grading | HSL, Colour wheels |
+| Refine | Detail, Optics (including Fade/vignette), Grain, Lens corrections |
 
-`src/ui/workspace.ts` owns stable group/section identifiers and default membership. Presentation groups do not change engine processing order. White balance and Colour basics are presented separately in Workflow; Classic's Adjustments section still uses the same recipe values. Resets target their own fields rather than wiping another stage.
+Presets contains the existing film look picker and Amount, with visual browsing and Development/Scanner under disclosures. It starts collapsed to keep White Balance and Exposure in view, and remembers opening/closing. This does not add the future saved recipe-preset system.
+
+Exposure holds Exposure, Contrast, Saturation and Vibrance. HDR holds Highlights, Shadows, Whites and Blacks. The screenshot's separate Brightness control is not implemented in the engine; this revision reuses existing tools rather than adding a new algorithm. Each section resets only its own fields.
+
+`src/ui/workspace.ts` owns stable group/section identifiers and default membership/order. A keyed section registry renders that configuration and keeps other sections mounted so module view state survives tab changes. Presentation groups do not change engine processing order. Saved Prepare/Look/Tone selections migrate to Develop, Finish to Refine, and Colour stays Colour Grading. The old numbered step headings have been removed.
 
 User-defined groups remain later work: named configurations, rename/reorder stages, move sections, hide optional sections and restore defaults. Build on these stable section IDs and preserve newly introduced tools when reading older configurations. No custom-group editor is implemented yet.
 
@@ -38,3 +40,6 @@ User-defined groups remain later work: named configurations, rename/reorder stag
 Full project check passes: TypeScript, 232 TypeScript tests, 36 Rust tests (4 optional tests ignored), production and probe builds. Browser checks with the real React app and a stubbed file backend cover one/two columns and persisted choice; switching Classic/Workflow without remounting the canvas or losing 100% zoom; toolbar crop/actual overlay and a crop draft surviving layout changes; real stage visibility and unique control IDs; select keyboard isolation; range/modifier selection and shared photo filtering. The browser tests use local RAW/thumbnail data but never write real sidecars.
 
 Local screenshots: `/private/tmp/emulsion-workspace-live.png` and `/private/tmp/emulsion-workspace-one-column.png`. These contain Oli's photo and are not repository assets. Native Tauri use and drag feel still need Oli's assessment.
+
+
+The initial Workflow implementation was committed/pushed as `8411ddc`. Oli authorised committing this three-tab revision, including removal of the “Controls” heading; it has not been pushed. 234 tests and the production build pass. Validation adds legacy preference migration and isolated Exposure/HDR/Optics resets, plus browser checks of exact section order, three-tab navigation and Refine's lens/detail/optics visibility.
