@@ -38,7 +38,7 @@ uniform vec3 uGeoV;
 uniform vec3 uOutside;
 // Renders a multi-scale filter's input instead, over the whole source: 1, the print's
 // lightness for clarity (0 to 1); 2, the scene's L* for texture; 3, the print's lightness
-// after clarity and print, for sharpening (0 to 1); 4, the colour equalizer's analysis (ceAnalyse).
+// after clarity, for sharpening (0 to 1); 4, the colour equalizer's analysis (ceAnalyse).
 uniform float uTap;
 // 1 shows Sharpening's contrast mask as grey instead of the photo.
 uniform float uUsmShowMask;
@@ -84,7 +84,7 @@ void main() {
     outColor = vec4(clarityLightness(e), 0.0, 0.0, 1.0);
     return;
   }
-  e = stagePrint(stageClarity(e, uv));
+  e = stageClarity(e, uv);
   if (uTap > 2.5 && uTap < 3.5) {
     outColor = vec4(clarityLightness(e), 0.0, 0.0, 1.0);
     return;

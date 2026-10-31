@@ -4,11 +4,12 @@
 // writes the stock's entry for src/film/stocks.ts. Nothing here reaches a public build's looks.
 
 import { useSyncExternalStore } from 'react';
-import { STOCK, type Mat3, type Stock, type StockId, type Vec3 } from './stocks';
+import { STOCK, type Stock, type StockId, type Vec3 } from './stocks';
 import { CB_DEFAULTS, type CbParams } from '../engine/colorbalance';
+import type { SigmoidPrimaries } from '../engine/primaries';
 
 /** The numbers that make a stock's look. */
-export type TunedFields = Pick<Stock, 'contrast' | 'crossover' | 'balance' | 'matrix' | 'saturation' | 'fade'> & { bwWeights?: Vec3; grade?: Partial<CbParams> };
+export type TunedFields = Pick<Stock, 'contrast'> & { primaries?: SigmoidPrimaries; bwWeights?: Vec3; grade?: Partial<CbParams> };
 
 const KEY = 'emulsion.stockTuning';
 const originals = new Map<StockId, TunedFields>();
@@ -17,11 +18,7 @@ let version = 0;
 
 const copy = (s: Stock): TunedFields => ({
   contrast: s.contrast,
-  crossover: [...s.crossover] as Vec3,
-  balance: [...s.balance] as Vec3,
-  matrix: s.matrix.map((r) => [...r]) as Mat3,
-  saturation: s.saturation,
-  fade: s.fade,
+  ...(s.primaries ? { primaries: { inset: [...s.primaries.inset] as Vec3, rotation: [...s.primaries.rotation] as Vec3, purity: s.primaries.purity } } : {}),
   ...(s.bwWeights ? { bwWeights: [...s.bwWeights] as Vec3 } : {}),
   ...(s.grade ? { grade: { ...s.grade } } : {}),
 });
@@ -59,17 +56,11 @@ export function resetStock(id: StockId) {
   const o = originals.get(id);
   if (!o) return;
   Object.assign(STOCK[id], copy({ ...STOCK[id], ...o }));
+  if (!o.primaries) delete STOCK[id].primaries;
   if (!o.bwWeights) delete STOCK[id].bwWeights;
   if (!o.grade) delete STOCK[id].grade;
   originals.delete(id);
   changed();
-}
-
-/** A matrix row with its diagonal set so the row sums to 1 (greys stay grey). */
-export function balancedRow(row: Vec3, diagonal: number): Vec3 {
-  const out = [...row] as Vec3;
-  out[diagonal] = 1 - row.reduce((a, v, i) => (i === diagonal ? a : a + v), 0);
-  return out;
 }
 
 const num = (v: number) => {
@@ -77,26 +68,34 @@ const num = (v: number) => {
   return String(Object.is(r, -0) ? 0 : r);
 };
 const vec = (v: readonly number[]) => `[${v.map(num).join(', ')}]`;
-const isIdentity = (m: Mat3) => m.every((r, i) => r.every((v, j) => Math.abs(v - (i === j ? 1 : 0)) < 5e-4));
 
-/** A grade's settings away from darktable's defaults, as code; null when it does nothing. */
+/** Sigmoid primaries as code; null when they do nothing. */
+function primariesCode(p: SigmoidPrimaries | undefined): string | null {
+  if (!p || [...p.inset, ...p.rotation].every((v) => Math.abs(v) < 5e-4)) return null;
+  return `{ inset: ${vec(p.inset)}, rotation: [${p.rotation.map(deg).join(', ')}], purity: ${num(p.purity)} }`;
+}
+
+/** Angles in degrees, to a tenth. */
+const deg = (v: number) => num(Math.round(v * 10) / 10);
+
+/** A grade's settings away from darktable's defaults, as code (a wheel's hue only when it has chroma); null when it does nothing. */
 function gradeCode(g: Partial<CbParams> | undefined): string | null {
-  const set = Object.entries(g ?? {}).filter(([k, v]) => v !== undefined && Math.abs((v as number) - CB_DEFAULTS[k as keyof CbParams]) >= 5e-4);
-  return set.length ? `{ ${set.map(([k, v]) => `${k}: ${num(v as number)}`).join(', ')} }` : null;
+  const away = (k: string, v: number | undefined) => v !== undefined && Math.abs(v - CB_DEFAULTS[k as keyof CbParams]) >= 5e-4;
+  const set = Object.entries(g ?? {}).filter(([k, v]) => away(k, v) && (!k.endsWith('_H') || away(k.replace(/_H$/, '_C'), g?.[k.replace(/_H$/, '_C') as keyof CbParams])));
+  return set.length ? `{ ${set.map(([k, v]) => `${k}: ${k.endsWith('_H') ? deg(v as number) : num(v as number)}`).join(', ')} }` : null;
 }
 
 /** The stock's entry in src/film/stocks.ts, in that file's layout. */
 export function stockCode(id: StockId): string {
   const s = STOCK[id];
-  const matrix = isIdentity(s.matrix) ? 'I' : `[${s.matrix.map(vec).join(', ')}]`;
-  const look = `    contrast: ${num(s.contrast)}, crossover: ${vec(s.crossover)}, balance: ${vec(s.balance)}`;
+  const primaries = primariesCode(s.primaries);
+  const grade = gradeCode(s.grade);
   return [
     '  {',
     `    id: '${s.id}', iso: ${s.iso}, name: '${s.name}', maker: '${s.maker}', edge: '${s.edge}', bw: ${s.bw},`,
-    s.bw || matrix === 'I' ? `${look}, matrix: ${matrix}${s.bwWeights ? `, bwWeights: ${vec(s.bwWeights)}` : ''},` : `${look},\n    matrix: ${matrix},`,
-    `    saturation: ${num(s.saturation)}, fade: ${num(s.fade)}, halation: ${s.halation}, halationColor: ${vec(s.halationColor)},`,
-    `    grain: ${s.grain},`,
-    ...(gradeCode(s.grade) ? [`    grade: ${gradeCode(s.grade)},`] : []),
+    `    contrast: ${num(s.contrast)}${s.bwWeights ? `, bwWeights: ${vec(s.bwWeights)}` : ''}, halation: ${s.halation}, halationColor: ${vec(s.halationColor)}, grain: ${s.grain},`,
+    ...(primaries ? [`    primaries: ${primaries},`] : []),
+    ...(grade ? [`    grade: ${grade},`] : []),
     '  },',
   ].join('\n');
 }

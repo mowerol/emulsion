@@ -11,7 +11,7 @@ Every port is listed here with its source, upstream licence, the upstream commit
 - Licence: GPL-3.0-or-later
 - Copyright: Copyright (C) 2020-2026 darktable developers. Copyright (C) 2017-2023 darktable developers (colour space conversions). darktable Uniform Color Space 2022 © Aurélien Pierre
 - Ported to: `src/engine/colorbalance.ts` (reference and gamut table) and `src/engine/shaders/stages/colorbalance.glsl`
-- Changes: translated from C to TypeScript and GLSL. Only the global contrast, vibrance and saturation (darktable UCS formula) and the luminance of the shadows lift are kept, the lift with darktable's default masks (middle grey 0.1845, fall-offs 1); the lift colour and other colour wheels, brilliance, chroma and hue shift are left out. The working space is D65 Rec.2020, so darktable's D50 adaptation drops out. Contrast pivots on Emulsion's middle grey. Negative output is clipped, and FLT_MIN guards are 1e-30 so they cannot overflow on a GPU
+- Changes: translated from C to TypeScript and GLSL. The whole module with the darktable UCS saturation formula, run as two instances: the recipe's sliders (contrast, vibrance, saturation, the shadows lift's luminance) and a stock's grade (every control). The working space is D65 Rec.2020, so darktable's D50 adaptation drops out. Contrast pivots on Emulsion's middle grey. Negative output is clipped, and FLT_MIN guards are 1e-30 so they cannot overflow on a GPU
 
 <!--
 Template:
@@ -25,11 +25,11 @@ Template:
 -->
 
 ### Sigmoid, from darktable
-- Upstream: https://github.com/darktable-org/darktable, `src/iop/sigmoid.c`, commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release 5.6.2)
+- Upstream: https://github.com/darktable-org/darktable, `src/iop/sigmoid.c`, `src/common/custom_primaries.c` and `dt_make_transposed_matrices_from_primaries_and_whitepoint` in `src/common/colorspaces.c`, commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release 5.6.2)
 - Licence: GPL-3.0-or-later
-- Copyright: Copyright (C) 2020-2026 darktable developers.
-- Ported to: `src/engine/tone.ts` (reference and curve constants) and `src/engine/shaders/stages/tone.glsl`
-- Changes: translated from C to TypeScript and GLSL. Per-channel processing with full hue preservation only; Rec.2020 base primaries without inset or rotation, which is an identity. Added an exact inverse of the per-channel curve for display-referred input, a per-channel ratio for film stock crossover, and sRGB encoding of the output. Emulsion's neutral settings are contrast 1.15, skew 0.11 and display black 0. Blacks below zero use the black level of darktable's exposure module (`src/iop/exposure.c`, same commit, Copyright (C) 2009-2026 darktable developers)
+- Copyright: Copyright (C) 2020-2026 darktable developers. Copyright (C) 2023 darktable developers (custom primaries). Copyright (C) 2010-2026 darktable developers (colour spaces)
+- Ported to: `src/engine/tone.ts` (reference and curve constants), `src/engine/primaries.ts` (the primaries' matrices) and `src/engine/shaders/stages/tone.glsl`
+- Changes: translated from C to TypeScript and GLSL. Per-channel processing with full hue preservation only, with the module's primaries (attenuation, rotation, recover purity) on darktable's linear Rec.2020 base primaries, Emulsion's working space, so the pipe to base matrix is the identity; rotation is kept in degrees, as darktable's sliders show it. Added an exact inverse of the per-channel curve for display-referred input, and sRGB encoding of the output. Emulsion's neutral settings are contrast 1.15, skew 0.11 and display black 0. Blacks below zero use the black level of darktable's exposure module (`src/iop/exposure.c`, same commit, Copyright (C) 2009-2026 darktable developers)
 
 ### Tone equalizer, from darktable
 - Upstream: https://github.com/darktable-org/darktable, `src/iop/toneequal.c`, `src/common/eigf.h`, `src/common/luminance_mask.h` and `src/iop/choleski.h`, commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release 5.6.2)

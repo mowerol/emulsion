@@ -68,7 +68,13 @@ describe('recipes', () => {
         expect(r[d.key]).toBeGreaterThanOrEqual(d.min);
         expect(r[d.key]).toBeLessThanOrEqual(d.max);
       }
-      for (const row of s.matrix) expect(row.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 6);
+      // Sigmoid primaries inside darktable's ranges.
+      const p = s.primaries;
+      if (p) {
+        expect(p.inset.every((v) => v >= 0 && v <= 0.99)).toBe(true);
+        expect(p.rotation.every((v) => Math.abs(v) <= (0.4 * 180) / Math.PI)).toBe(true);
+        expect(p.purity >= 0 && p.purity <= 1).toBe(true);
+      }
     }
     expect(SCANNERS.every((sc) => sc.white > sc.black)).toBe(true);
   });

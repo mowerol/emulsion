@@ -28,6 +28,12 @@ users later. Nothing here is built yet beyond step 0.
 
 ## 1. Remove Emulsion's own stock controls
 
+**Status (2026-10-31):** done except the refit. Sigmoid primaries are ported (`engine/primaries.ts`,
+tests, `tone.glsl`; probe `tone` within 1.2e-6, cases `smooth` and `strong`); the old controls are gone
+from the engine, `Stock`, the tuning panel and Copy as code. The before renders are saved (see the
+handoff for where). **Not done:** writing the refitted numbers into `stocks.ts` (each colour stock
+currently has only its old contrast; Pro 400H keeps its old grade), and the before/after boards.
+
 Replace each with a darktable control, then delete the old code:
 
 | Own control (where) | darktable replacement |

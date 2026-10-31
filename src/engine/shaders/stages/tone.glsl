@@ -1,9 +1,9 @@
 // Copyright (C) 2020-2026 darktable developers.
 // Ported from darktable src/iop/sigmoid.c at commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773
 // (release 5.6.2). Translated from C to GLSL; per-channel processing with full hue
-// preservation, Rec.2020 base primaries without inset or rotation (an identity), plus an exact
-// inverse of the per-channel curve, a per-channel crossover ratio for film stocks, and sRGB
-// encoding of the output. Mirrors src/engine/tone.ts, which computes the curve constants.
+// preservation and the module's primaries on Rec.2020 base primaries, plus an exact inverse of
+// the per-channel curve and sRGB encoding of the output. Mirrors src/engine/tone.ts, which
+// computes the curve constants, and src/engine/primaries.ts, which computes the primaries' matrices.
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Tone: scene-linear light to a display-encoded print.
@@ -11,15 +11,13 @@
 // Curves as (paper exposure, film fog, film power, paper power).
 // Neutral curve, magnitude 1: the input stage's inverse and the original.
 uniform vec4 uSigN;
-// The look's shared curve, and each channel's own curve for crossover.
+// The look's curve.
 uniform vec4 uSigS;
-uniform vec4 uSigR;
-uniform vec4 uSigG;
-uniform vec4 uSigB;
-// Display white the look's curves approach (1 = 100%).
+// Display white the look's curve approaches (1 = 100%).
 uniform float uSigMag;
-uniform float uSat;
-uniform float uStockFade;
+// The look's primaries: working space into the rendering primaries, and back after the curve.
+uniform mat3 uPrimIn;
+uniform mat3 uPrimOut;
 
 float srgbEotf1(float v) { return v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4); }
 float srgbOetf1(float l) { l = max(l, 0.0); return l <= 0.0031308 ? l * 12.92 : 1.055 * pow(l, 1.0 / 2.4) - 0.055; }
@@ -92,15 +90,12 @@ vec3 preserveHue(vec3 inp, vec3 per) {
   return out3;
 }
 
-// The look: shared curve with hue preservation, then each channel scaled by its
-// own curve over the shared one (the stock's crossover).
+// The look, as darktable's process_loglogistic_per_channel: into the primaries, the curve per
+// channel with hue preservation, and back.
 vec3 stageTone(vec3 x) {
-  vec3 pos = desaturateNegative(x);
-  vec3 per = vec3(sigmoid(pos.r, uSigS, uSigMag), sigmoid(pos.g, uSigS, uSigMag), sigmoid(pos.b, uSigS, uSigMag));
-  vec3 kept = preserveHue(pos, per);
-  vec3 own = vec3(sigmoid(pos.r, uSigR, uSigMag), sigmoid(pos.g, uSigG, uSigMag), sigmoid(pos.b, uSigB, uSigMag));
-  vec3 ratio = vec3(per.r > 0.0 ? own.r / per.r : 1.0, per.g > 0.0 ? own.g / per.g : 1.0, per.b > 0.0 ? own.b / per.b : 1.0);
-  vec3 lin = max(kept * ratio, vec3(0.0));
+  vec3 r = uPrimIn * desaturateNegative(x);
+  vec3 per = vec3(sigmoid(r.r, uSigS, uSigMag), sigmoid(r.g, uSigS, uSigMag), sigmoid(r.b, uSigS, uSigMag));
+  vec3 lin = uPrimOut * preserveHue(r, per);
   return vec3(srgbOetf1(lin.r), srgbOetf1(lin.g), srgbOetf1(lin.b));
 }
 
@@ -108,13 +103,4 @@ vec3 stageTone(vec3 x) {
 float sCurve(float v, float c, float p) {
   v = clamp(v, 0.0, 1.0);
   return v < p ? p * pow(v / p, c) : 1.0 - (1.0 - p) * pow((1.0 - v) / (1.0 - p), c);
-}
-
-// Print saturation and the stock's black lift.
-vec3 stagePrint(vec3 e) {
-  if (uBW < 0.5) {
-    float y = dot(e, LUMA_W);
-    e = clamp(mix(vec3(y), e, uSat), 0.0, 1.0);
-  }
-  return uStockFade + e * (1.0 - uStockFade);
 }

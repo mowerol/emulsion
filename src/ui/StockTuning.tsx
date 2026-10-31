@@ -2,9 +2,10 @@
 // Development builds only: live sliders for the current stock's own numbers, and its entry for
 // src/film/stocks.ts to paste in (see film/stocktuning.ts).
 import { useState } from 'react';
-import { STOCK, type Mat3, type StockId, type Vec3 } from '../film/stocks';
-import { balancedRow, fileValues, isTuned, resetStock, stockCode, tuneStock, useStockTuningVersion } from '../film/stocktuning';
+import { STOCK, type StockId, type Vec3 } from '../film/stocks';
+import { fileValues, isTuned, resetStock, stockCode, tuneStock, useStockTuningVersion } from '../film/stocktuning';
 import { CB_DEFAULTS, type CbParams } from '../engine/colorbalance';
+import { NO_PRIMARIES, type SigmoidPrimaries } from '../engine/primaries';
 
 /** The grade's controls in the panel: darktable colour balance rgb parameters and their ranges. */
 const GRADE: { title: string; rows: [keyof CbParams, string, number, number, number][] }[] = [
@@ -13,12 +14,14 @@ const GRADE: { title: string; rows: [keyof CbParams, string, number, number, num
   { title: 'Highlights wheel', rows: [['highlights_H', 'Hue', 0, 360, 1], ['highlights_C', 'Chroma', 0, 0.5, 0.005], ['highlights_Y', 'Luminance', -0.5, 0.5, 0.005]] },
   { title: 'Global offset', rows: [['global_H', 'Hue', 0, 360, 1], ['global_C', 'Chroma', 0, 0.1, 0.001], ['global_Y', 'Luminance', -0.05, 0.05, 0.0005]] },
   { title: 'Chroma', rows: [['chroma_global', 'Global', -0.5, 0.5, 0.005], ['chroma_shadows', 'Shadows', -0.5, 0.5, 0.005], ['chroma_midtones', 'Mid-tones', -0.5, 0.5, 0.005], ['chroma_highlights', 'Highlights', -0.5, 0.5, 0.005]] },
-  { title: 'Saturation', rows: [['saturation_shadows', 'Shadows', -0.5, 0.5, 0.005], ['saturation_midtones', 'Mid-tones', -0.5, 0.5, 0.005], ['saturation_highlights', 'Highlights', -0.5, 0.5, 0.005]] },
+  { title: 'Saturation', rows: [['saturation_global', 'Global', -0.5, 0.5, 0.005], ['saturation_shadows', 'Shadows', -0.5, 0.5, 0.005], ['saturation_midtones', 'Mid-tones', -0.5, 0.5, 0.005], ['saturation_highlights', 'Highlights', -0.5, 0.5, 0.005]] },
   { title: 'Brilliance', rows: [['brilliance_shadows', 'Shadows', -0.5, 0.5, 0.005], ['brilliance_midtones', 'Mid-tones', -0.5, 0.5, 0.005], ['brilliance_highlights', 'Highlights', -0.5, 0.5, 0.005]] },
   { title: 'Hue', rows: [['hue_angle', 'Hue shift', -30, 30, 0.5]] },
 ];
 
 const CH = ['R', 'G', 'B'] as const;
+/** darktable's rotation limit, ±0.4 rad, in degrees. */
+const MAX_ROTATION = (0.4 * 180) / Math.PI;
 
 function Row({ label, value, min, max, step, file, onChange }: { label: string; value: number; min: number; max: number; step: number; file: number; onChange: (v: number) => void }) {
   const id = `tune-${label.replace(/\W+/g, '-')}`;
@@ -43,17 +46,17 @@ export function StockTuning({ stock }: { stock: StockId }) {
   const f = fileValues(stock);
   if (stock === 'neutral') return <p className="hint">Neutral has no look to tune. Pick a stock.</p>;
 
-  const vec3 = (key: 'crossover' | 'balance' | 'bwWeights', i: number, v: number) => {
-    const next = [...(s[key] as Vec3)] as Vec3;
+  const weight = (i: number, v: number) => {
+    const next = [...(s.bwWeights ?? [0, 0, 0])] as Vec3;
     next[i] = v;
-    tuneStock(stock, { [key]: next });
+    tuneStock(stock, { bwWeights: next });
   };
-  // Crosstalk: the off-diagonal entries; each row's diagonal follows so the row sums to 1.
-  const cross = (r: number, c: number, v: number) => {
-    const m = s.matrix.map((row) => [...row]) as Mat3;
-    m[r][c] = v;
-    m[r] = balancedRow(m[r], r);
-    tuneStock(stock, { matrix: m });
+  const p = s.primaries ?? NO_PRIMARIES;
+  const fp = f.primaries ?? NO_PRIMARIES;
+  const primary = (key: 'inset' | 'rotation', i: number, v: number) => {
+    const next: SigmoidPrimaries = { inset: [...p.inset], rotation: [...p.rotation], purity: p.purity };
+    next[key][i] = v;
+    tuneStock(stock, { primaries: next });
   };
   const code = stockCode(stock);
   const copy = async () => {
@@ -70,27 +73,22 @@ export function StockTuning({ stock }: { stock: StockId }) {
       </p>
       <div className="sliders">
         <Row label="Contrast" value={s.contrast} min={0.5} max={1.6} step={0.01} file={f.contrast} onChange={(v) => tuneStock(stock, { contrast: v })} />
-        {CH.map((c, i) => (
-          <Row key={`x${c}`} label={`Crossover ${c}`} value={s.crossover[i]} min={-0.2} max={0.2} step={0.005} file={f.crossover[i]} onChange={(v) => vec3('crossover', i, v)} />
-        ))}
-        {CH.map((c, i) => (
-          <Row key={`b${c}`} label={`Balance ${c}`} value={s.balance[i]} min={0.7} max={1.3} step={0.005} file={f.balance[i]} onChange={(v) => vec3('balance', i, v)} />
-        ))}
-        {s.bw
-          ? CH.map((c, i) => (
-              <Row key={`w${c}`} label={`B&W weight ${c}`} value={s.bwWeights?.[i] ?? 0} min={0} max={1} step={0.005} file={f.bwWeights?.[i] ?? 0} onChange={(v) => vec3('bwWeights', i, v)} />
-            ))
-          : CH.flatMap((into, r) =>
-              CH.map((from, c) =>
-                r === c ? null : (
-                  <Row key={`m${r}${c}`} label={`${from} into ${into}`} value={s.matrix[r][c]} min={-0.2} max={0.3} step={0.005} file={f.matrix[r][c]} onChange={(v) => cross(r, c, v)} />
-                ),
-              ),
-            )}
-        {!s.bw && <Row label="Saturation" value={s.saturation} min={0.5} max={1.6} step={0.01} file={f.saturation} onChange={(v) => tuneStock(stock, { saturation: v })} />}
-        <Row label="Fade" value={s.fade} min={0} max={0.1} step={0.001} file={f.fade} onChange={(v) => tuneStock(stock, { fade: v })} />
+        {s.bw &&
+          CH.map((c, i) => (
+            <Row key={`w${c}`} label={`B&W weight ${c}`} value={s.bwWeights?.[i] ?? 0} min={0} max={1} step={0.005} file={f.bwWeights?.[i] ?? 0} onChange={(v) => weight(i, v)} />
+          ))}
       </div>
-      <p className="hint">Grade: darktable colour balance rgb on the scene, before the stock's crosstalk and tone curve.</p>
+      <div className="sliders">
+        <span className="tuning-group">Primaries (sigmoid)</span>
+        {CH.map((c, i) => (
+          <Row key={`i${c}`} label={`${c} attenuation`} value={p.inset[i]} min={0} max={0.99} step={0.005} file={fp.inset[i]} onChange={(v) => primary('inset', i, v)} />
+        ))}
+        {CH.map((c, i) => (
+          <Row key={`r${c}`} label={`${c} rotation (°)`} value={p.rotation[i]} min={-MAX_ROTATION} max={MAX_ROTATION} step={0.1} file={fp.rotation[i]} onChange={(v) => primary('rotation', i, v)} />
+        ))}
+        <Row label="Recover purity" value={p.purity} min={0} max={1} step={0.01} file={fp.purity} onChange={(v) => tuneStock(stock, { primaries: { ...p, purity: v } })} />
+      </div>
+      <p className="hint">Grade: darktable colour balance rgb on the scene, before the stock's tone curve.</p>
       {GRADE.map((g) => (
         <div key={g.title} className="sliders">
           <span className="tuning-group">{g.title}</span>

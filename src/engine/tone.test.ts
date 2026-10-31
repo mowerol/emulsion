@@ -19,6 +19,7 @@ import {
   toneRgb,
 } from './tone';
 import { srgbEotf } from './color';
+import { SMOOTH_PRIMARIES } from './primaries';
 
 describe('sigmoid', () => {
   it('meets its targets: grey to grey, zero to black, white approached but never clipped', () => {
@@ -93,13 +94,16 @@ describe('tone stage', () => {
     expect(ratio(out)).toBeCloseTo(ratio(x), 2);
   });
 
-  it('tints greys with crossover', () => {
-    const look = { ...NEUTRAL_LOOK, channels: [1, 1, 0.93] as Vec3 };
-    const dark = toneRgb([0.03, 0.03, 0.03], look);
-    const bright = toneRgb([0.8, 0.8, 0.8], look);
-    // Lower blue contrast lifts blue in the shadows and lowers it in the highlights.
-    expect(dark[2]).toBeGreaterThan(dark[1]);
-    expect(bright[2]).toBeLessThan(bright[1]);
+  it("keeps greys grey through any primaries, and desaturates bright colours with darktable's smooth preset", () => {
+    const smooth = { ...NEUTRAL_LOOK, primaries: SMOOTH_PRIMARIES };
+    for (const g of [0.01, 0.18, 2]) {
+      const out = toneRgb([g, g, g], { ...NEUTRAL_LOOK, primaries: { inset: [0.3, 0.05, 0.2], rotation: [5, -8, 3], purity: 0.4 } });
+      expect(out[0]).toBeCloseTo(out[1], 5);
+      expect(out[2]).toBeCloseTo(out[1], 5);
+      expect(out[1]).toBeCloseTo(toneRgb([g, g, g], NEUTRAL_LOOK)[1], 5);
+    }
+    const spread = (p: Vec3) => Math.max(...p) - Math.min(...p);
+    expect(spread(toneRgb([4, 0.2, 0.05], smooth))).toBeLessThan(spread(toneRgb([4, 0.2, 0.05], NEUTRAL_LOOK)));
   });
 
   it('brightens highlights with whites and lifts shadows with blacks', () => {

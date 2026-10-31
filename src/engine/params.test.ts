@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
 import { defaultRecipe } from '../film/recipe';
-import { LUMA_REC2020 } from './color';
+import { STOCK } from '../film/stocks';
+import { columnMajor } from './color';
+import { SMOOTH_PRIMARIES, adjustedPrimaries } from './primaries';
 import { InputMode, developUniforms, needsPasses } from './params';
 
 const ctx = { width: 1600, height: 1067, seed: 3, inputMode: InputMode.DisplayLinear, store: 1 };
@@ -13,8 +15,7 @@ describe('develop uniforms', () => {
     const u = developUniforms(r, { ...ctx, look: lut });
     expect(u.uLutOn).toBe(1);
     expect(u.uLutAmount).toBeCloseTo(0.4, 12);
-    expect(u.uWB).toEqual([1, 1, 1]);
-    expect(u.uStockFade).toBe(0);
+    expect(developUniforms({ ...r, stock: 'pro400h' }, { ...ctx, look: lut }).uCbSOn).toBe(0);
     const own = developUniforms(r, ctx);
     expect(own.uLutOn).toBe(0);
     expect(own.uLutAmount).toBeUndefined();
@@ -26,9 +27,17 @@ describe('develop uniforms', () => {
     expect(needsPasses(developUniforms(null, ctx))).toEqual({ highlights: false, sharpen: false, toneEqualizer: false, clarity: false, texture: false, usm: false, colorEq: false });
   });
 
-  it('keeps luminance in the stock balance', () => {
-    const wb = developUniforms(defaultRecipe('gold200'), ctx).uWB as number[];
-    expect(wb[0] * LUMA_REC2020[0] + wb[1] * LUMA_REC2020[1] + wb[2] * LUMA_REC2020[2]).toBeCloseTo(1, 9);
+  it("sends the stock's sigmoid primaries to the tone stage, and none for Neutral", () => {
+    expect(developUniforms(defaultRecipe(), ctx).uPrimIn).toEqual([1, 0, 0, 0, 1, 0, 0, 0, 1].map((v) => expect.closeTo(v, 9)));
+    const s = { ...STOCK.portra400, primaries: SMOOTH_PRIMARIES };
+    const m = columnMajor(adjustedPrimaries(SMOOTH_PRIMARIES).input);
+    const was = STOCK.portra400;
+    STOCK.portra400 = s;
+    try {
+      expect(developUniforms(defaultRecipe('portra400'), ctx).uPrimIn).toEqual(m);
+    } finally {
+      STOCK.portra400 = was;
+    }
   });
 
   it('leaves white balance alone until it is set, then adapts from the photo\'s as-shot white', () => {
@@ -49,7 +58,7 @@ describe('develop uniforms', () => {
     expect(P[20]).toBeCloseTo(1.6, 6);
     expect((base.uCbP as number[]).slice(0, 2)).toEqual([1, 0]);
     expect(u.uSigS).toEqual(base.uSigS);
-    expect(u.uSat).toEqual(base.uSat);
+    expect(u.uPrimIn).toEqual(base.uPrimIn);
     expect((u.uCbGamut as number[]).length).toBe(512);
   });
 
@@ -64,12 +73,6 @@ describe('develop uniforms', () => {
     const zoom = (u: ReturnType<typeof at>) => (u.uGrain as number[])[1];
     expect(zoom(at(2))).toBeGreaterThan(zoom(at(0)));
     expect(zoom(at(-1))).toBeLessThan(zoom(at(0)));
-  });
-
-  it('applies crossover per channel', () => {
-    const u = developUniforms(defaultRecipe('superia400'), ctx);
-    const power = (k: string) => (u[k] as number[])[2];
-    expect(power('uSigG')).toBeLessThan(power('uSigR'));
   });
 
   it('runs the clarity filter only when Clarity is set, at darktable\'s preset at +100', () => {

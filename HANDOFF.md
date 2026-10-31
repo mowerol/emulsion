@@ -1,26 +1,59 @@
 # Handoff
 
-Rewritten at the end of each session. Last updated 2026-10-30 (night).
+Rewritten at the end of each session. Last updated 2026-10-31 (morning).
 
-## This session (2026-10-30/31): Looks, stock tuning, the full colour balance, and stocks as darktable styles (in progress, uncommitted)
+## This session (2026-10-31): stocks as darktable styles, step 1 (committed, refit not finished)
 
-Committed and pushed earlier this session: `ee8179e`, the Looks dropdown (Emulsion default, t3mujinpack), Amount, and the LUT engine ported from darktable lut3d (spektrafilm was ported, baked and then dropped at Oli's request; none of it is kept).
+**Important: the colour stocks' looks are interim in this commit.** Emulsion's own stock controls are
+removed, but the refitted numbers that bring each look back are not in `stocks.ts` yet: every colour stock
+has only its old contrast (Pro 400H also keeps its old grade), so Portra, Gold, Ektar, Superia, Pro 400H,
+CineStill and HP5 render flatter and plainer than before. Neutral and Tri-X are unchanged (they used none
+of the removed controls). Finishing the refit is the first job.
 
-**Uncommitted, all passing `npm run check` (208 tests):**
-- **Stock tuning panel** (`ui/StockTuning.tsx`, `film/stocktuning.ts`; development builds only): live sliders for the current stock, ticks at the file value, Copy as code (a test checks it reproduces `stocks.ts` exactly), Back to stocks.ts, remembered across reloads (dev only).
-- **Colour balance rgb, whole module** ported (darktable `colorbalancergb.c` at `20891f6c`): two instances, the recipe sliders (unchanged behaviour) and the stock's **grade** (`Stock.grade`, before Emulsion). Panel has a Grade group. Probe `colorGrade` within 5e-5.
-- **Pro 400H refitted** to Oli's four Lightroom reference edits (`~/Desktop/edits`; they came from a commercial preset pack, used as a direction only): ΔE 9.5 → 5.4 (floor 4.3). Before/after board not rendered yet.
-- **Fitting tool** in the probe (`?fit`, `&grade`, `&floor`, `&show`, `?render`): see the plan.
+Done and committed:
+- **Sigmoid primaries ported** (darktable `sigmoid.c` `_calculate_adjusted_primaries`, `custom_primaries.c`,
+  `colorspaces.c` matrix from primaries, at `20891f6c`): `src/engine/primaries.ts` with tests (attenuation,
+  rotation in degrees as darktable's sliders show it, recover purity; base = darktable's linear Rec.2020
+  profile as lcms writes it, Bradford-adapted colorants and D50 white). `toneRgb` and `stageTone` follow
+  darktable's `process_loglogistic_per_channel` (desaturate negatives, into the primaries, curve per channel,
+  hue preservation, back). Probe `tone` within 1.2e-6 (cases `smooth` = darktable's preset, `strong`).
+- **Removed:** crosstalk `matrix`, `crossover` (uSigR/G/B), `balance` (uWB), print `saturation` and `fade`
+  (`stagePrint` is gone), push's saturation step. `Stock` is now `contrast`, `primaries?`, `grade?`,
+  `bwWeights?` (B&W kept until colour calibration's gray tab is ported, per the plan).
+- **Tuning panel / Copy as code** follow: a Primaries group, global saturation in the grade; code writes
+  `primaries: { ... }` when it does something, hues and rotations to 0.1°, and leaves out a wheel's hue
+  when its chroma is 0. The "code equals stocks.ts" test passes.
+- **Probe:** `?renders=<jpeg>…` (every stock, PNGs as data in `<pre id="renders">`, no screenshot),
+  `?board=<jpeg>…&before=<folder>/` (before/after boards per stock with ΔE, as PNG data in
+  `<pre id="boards">`; built, not yet run), `?fit` rewritten for the new style (contrast, primaries, grade;
+  `&noexp`, `&penalty`, `&reflabel`; the board also comes back as `out.board`, and `out.code` is the
+  stocks.ts entry). **Reliable screenshots:** don't screenshot; read PNG data out of the dumped DOM and retry
+  when the `<pre>` is missing (Chrome sometimes dumps before the work ends; one retry was always enough).
+- Docs: ARCHITECTURE stage table (Stock grade row, Emulsion, Tone), NOTICE (sigmoid sources; colour balance
+  entry corrected to the whole-module port), the plan's step 1 status.
 
-**Oli's decisions, being carried out:** remove Emulsion's own stock controls (crosstalk, crossover, balance, print saturation, fade) in favour of darktable ones (sigmoid primaries, the colour balance grade), keeping every stock's look by refitting; then plan the style controls as an advanced user option, plus anything else worth adding and UX improvements. Claude creates looks from Oli's reference photos. **The full plan, with darktable sources and the step-by-step: [docs/plans/stock-styles.md](docs/plans/stock-styles.md).** Stopped at the start of step 1 (a probe `?render` mode for saving the current looks exists; no references saved yet).
+Files for the refit (session scratchpad, `/private/tmp/claude-502/-Users-oli-Dev-emulsion/69a7d63b-1358-4f1a-9faf-dc7119fa922f/scratchpad`):
+- `photos/` the six sample JPEGs; `before/<photo>_<stock>.png` the 60 saved looks from before the change
+  (300 px long edge). **These are the targets; keep them.** Remade only from the commit before this one.
+- `probe.mjs '<query>' <preId> [budget]` runs headless Chrome and prints the `<pre>`; `savepngs.mjs` writes
+  a `?renders` result to PNGs; `fit.sh <stock> <evals>` fits one stock to its before renders into
+  `fit_<stock>.json` (`code` holds the entry to paste).
+- Fits with 3000 evaluations (×2 restarts) were running for all colour stocks and HP5 when the session ended
+  (~0.15 s per evaluation; 4 in parallel). A 200-evaluation trial took Portra 400 from 4.3 ΔE (contrast only)
+  to 2.6 to its old look.
 
 ### Prompt for the next session
 
-> Read HANDOFF.md and docs/plans/stock-styles.md. Carry out step 1 of the plan: first render every stock's current look on the six sample photos with the probe's `?render` mode and save them; then port darktable sigmoid's primaries (inset, rotation, purity; TypeScript reference with tests, GLSL, probe check), remove Emulsion's own stock controls (crosstalk matrix, crossover, balance, print saturation, fade, push's saturation step) and move stocks to darktable-only styles (contrast, primaries, colour balance grade), refitting each stock to its saved look with `?fit`. Keep the stock tuning panel, Copy as code and its tests working. Show me before/after boards for every stock (find a reliable way to screenshot boards; see the plan's notes). Then propose step 2 (the advanced option) and the UX items, and ask me before building them. Don't commit until I say so.
+> Read HANDOFF.md and docs/plans/stock-styles.md. Finish step 1: check the fits in the scratchpad named in
+> the handoff (`fit_<stock>.json`; rerun `fit.sh` for any that are empty, with more evaluations if the
+> error is still high), paste each `code` into src/film/stocks.ts, run `npm run check`, then make
+> before/after boards for every stock with the probe's `?board` mode and show them to me with each stock's
+> mean ΔE. Then propose step 2 (the advanced option) and the UX items, and ask me before building them.
+> Don't commit until I say so.
 
 ## Earlier work
 
-Everything below is committed and pushed on `main` (last: `961aab1`).
+Everything below is committed on `main` (last before this session: `fbe908d`).
 
 - **Filmstrip** (`970ceae`): every frame sits on the `#281f18` film base; edited frames show the stock in amber edge print, unedited ones a dimmed "ORIGINAL", as the Library grid does.
 - **Workspace colour** (`970ceae`): right-click the Develop stage for Black, Dark grey (default), Mid grey (18%) or White, as Lightroom offers (`StageMenu.tsx`, remembered as `stageColor`).
@@ -82,7 +115,7 @@ Camera colour is already covered for every LibRaw camera through its matrices; D
 
 ## Next
 
-0. **Stocks as darktable styles**: follow [docs/plans/stock-styles.md](docs/plans/stock-styles.md) (step 1 next; see the prompt above). Then LUT import for users and Whites/Blacks on LUT stocks.
+0. **Stocks as darktable styles**: follow [docs/plans/stock-styles.md](docs/plans/stock-styles.md) (finish step 1's refit first; see the prompt above). Then LUT import for users and Whites/Blacks on LUT stocks.
 1. **Lens correction** (see the findings above). Oli: every camera treated equally, nothing built around his own. Order: (a) all four embedded formats together (Fuji, Olympus/OM, Sony, DNG; readers are per file format, so every body of those makers is covered, and new ones on day one), tested on Oli's files plus public samples from raw.pixls.us for Sony and DNG; then darktable's v2 maths. (b) lensfun auto-matching for every other maker (coverage arrives as database updates, not code). (c) A remembered per camera+lens assignment: when a lens is not recognised, the Lens section lets Oli pick a lensfun entry or load an Adobe LCP profile, applied to every photo from that camera and lens from then on (also fixes adapted and misnamed lenses).
 2. Oli tries the speed work (GPU-paced rendering), Colour, grain and RAW+JPEG folding in the real app.
 3. **Batch 3, part 2:** user presets (save and apply looks).

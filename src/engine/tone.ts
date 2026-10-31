@@ -1,9 +1,9 @@
 // Copyright (C) 2020-2026 darktable developers.
 // Ported from darktable src/iop/sigmoid.c at commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773
 // (release 5.6.2). Translated from C to TypeScript; per-channel processing with full hue
-// preservation, Rec.2020 base primaries without inset or rotation (an identity), plus an exact
-// inverse of the per-channel curve, a per-channel crossover ratio for film stocks, and sRGB
-// encoding of the output.
+// preservation and the module's primaries (inset, rotation, recover purity; primaries.ts) on
+// Rec.2020 base primaries, plus an exact inverse of the per-channel curve and sRGB encoding of the
+// output.
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Reference implementation of the tone stage (stages/tone.glsl). The shader
@@ -17,7 +17,8 @@
 // light, so a frame with no look applied comes back out unchanged.
 
 import type { Vec3 } from '../film/stocks';
-import { srgbEotf, srgbOetf } from './color';
+import { mulVec, srgbEotf, srgbOetf } from './color';
+import { NO_PRIMARIES, adjustedPrimaries, type SigmoidPrimaries } from './primaries';
 
 export const TONE = {
   /** Scene-linear middle grey used across Emulsion. */
@@ -154,15 +155,15 @@ export function sCurve(v: number, c: number, p: number): number {
 export interface ToneLook {
   /** Print contrast relative to neutral (stock contrast and push). */
   contrast: number;
-  /** Per-channel contrast relative to neutral, for crossover. */
-  channels: Vec3;
+  /** The stock's sigmoid primaries. */
+  primaries: SigmoidPrimaries;
   /** Whites slider, -100 to 100. */
   whites: number;
   /** Blacks slider, -100 to 100; above zero lifts the display black. */
   blacks: number;
 }
 
-export const NEUTRAL_LOOK: ToneLook = { contrast: 1, channels: [1, 1, 1], whites: 0, blacks: 0 };
+export const NEUTRAL_LOOK: ToneLook = { contrast: 1, primaries: NO_PRIMARIES, whites: 0, blacks: 0 };
 
 /** Display white target for the Whites slider: ±100 is half a stop of display white. */
 export const whiteTargetFor = (whites: number) => NEUTRAL.whiteTarget * Math.pow(2, (0.5 * whites) / 100);
@@ -188,21 +189,16 @@ export const toneForward = (x: number): number => srgbOetf(sigmoid(x, NEUTRAL_CU
 export const toneInverse = (e: number): number => sigmoidInverse(srgbEotf(Math.min(Math.max(e, 0), 1)), NEUTRAL_CURVE);
 
 /**
- * One scene-linear Rec.2020 pixel to display-encoded Rec.2020. The shared curve
- * runs per channel with full hue preservation, as in darktable; each channel is
- * then scaled by its own curve over the shared one, which is the stock's
- * crossover (a tint that varies with brightness, as in real film).
+ * One scene-linear Rec.2020 pixel to display-encoded Rec.2020, as darktable's
+ * process_loglogistic_per_channel: negatives desaturated away, into the look's
+ * primaries, the curve per channel with full hue preservation, and back.
  */
 export function toneRgb(x: Vec3, look: ToneLook): Vec3 {
-  const shared = curveFor(look.contrast, look);
-  const pos = desaturateNegative(x);
-  const per = pos.map((v) => sigmoid(v, shared)) as Vec3;
-  const kept = preserveHue(pos, per, 1);
-  return kept.map((v, i) => {
-    const own = sigmoid(pos[i], curveFor(look.contrast * look.channels[i], look));
-    const ratio = per[i] > 0 ? own / per[i] : 1;
-    return srgbOetf(Math.max(v * ratio, 0));
-  }) as Vec3;
+  const curve = curveFor(look.contrast, look);
+  const m = adjustedPrimaries(look.primaries);
+  const rendering = mulVec(m.input, desaturateNegative(x));
+  const per = rendering.map((v) => sigmoid(v, curve)) as Vec3;
+  return mulVec(m.output, preserveHue(rendering, per, 1)).map((v) => srgbOetf(Math.max(v, 0))) as Vec3;
 }
 
 /** Neutral per-channel render without hue preservation: the exact inverse of the input stage. */

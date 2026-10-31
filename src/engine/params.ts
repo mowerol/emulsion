@@ -4,9 +4,9 @@
 import { STOCK } from '../film/stocks';
 import { SCANNER } from '../film/scanners';
 import type { Recipe } from '../film/recipe';
-import type { Stock, Vec3 } from '../film/stocks';
 import { LUMA_REC2020, REC2020_TO_SRGB, SRGB_TO_REC2020, columnMajor, mulVec } from './color';
 import { NEUTRAL, curveFor, packCurve, sigmoidCurve, whiteTargetFor, type ToneLook } from './tone';
+import { NO_PRIMARIES, adjustedPrimaries } from './primaries';
 import {
   CB_DEFAULTS,
   GRADING_TO_LMS,
@@ -93,12 +93,12 @@ export function grainUniform(recipe: Recipe, seed: number): number[] {
   return [recipe.grain / 100, zoomForIso(effectiveIso(recipe.grainIso, recipe.push)), d, seed];
 }
 
-/** The tone stage's look: stock contrast with push, crossover, whites and blacks. */
+/** The tone stage's look: stock contrast with push, the stock's primaries, whites and blacks. */
 export function toneLookFor(recipe: Recipe): ToneLook {
   const s = STOCK[recipe.stock];
   return {
     contrast: s.contrast * (1 + 0.09 * recipe.push),
-    channels: s.crossover.map((d) => Math.max(0.2, 1 + d)) as Vec3,
+    primaries: s.primaries ?? NO_PRIMARIES,
     whites: recipe.whites,
     blacks: recipe.blacks,
   };
@@ -119,22 +119,18 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uLutOn: 0,
   };
   if (!recipe || ctx.compare) {
-    return { ...base, uCompare: 1, uExposure: 0, uExpBlack: 0, uWbMat: IDENTITY, uWB: [1, 1, 1], uBW: 0, uTeqOn: 0, uCurveOn: 0, uClarityOn: 0, uTextureOn: 0, uUsmOn: 0, uCeOn: 0 };
+    return { ...base, uCompare: 1, uExposure: 0, uExpBlack: 0, uWbMat: IDENTITY, uBW: 0, uTeqOn: 0, uCurveOn: 0, uClarityOn: 0, uTextureOn: 0, uUsmOn: 0, uCeOn: 0 };
   }
 
+  // A stock rendered by a LUT takes its colour and tone from the LUT, not its style (the LUT holds
+  // push, where the pack has it).
   const lut = ctx.look ?? null;
-  // A stock rendered by a LUT takes its colour and tone from the LUT: no balance, crosstalk,
-  // print saturation or stock fade of ours (the LUT holds push, where the pack has it).
-  const s = lut ? { ...STOCK[recipe.stock], balance: [1, 1, 1] as Vec3, matrix: [[1, 0, 0], [0, 1, 0], [0, 0, 1]] as Stock['matrix'], saturation: 1, fade: 0 } : STOCK[recipe.stock];
+  const s = STOCK[recipe.stock];
   const sc = SCANNER[recipe.scanner];
-  const push = lut ? 0 : recipe.push;
-
-  // The stock's own colour balance, normalised to keep luminance.
-  const gains = s.balance;
-  const lum = gains[0] * LUMA_REC2020[0] + gains[1] * LUMA_REC2020[1] + gains[2] * LUMA_REC2020[2];
   const wbMat = recipe.wb ? columnMajor(whiteBalanceMatrix(ctx.white ?? D65_XY, whiteXy(recipe.wb.temperature, recipe.wb.tint))) : IDENTITY;
 
   const look = toneLookFor(recipe);
+  const prim = adjustedPrimaries(look.primaries);
   const teqOn = recipe.highlights !== 0;
   const teq = teqOn ? bandFactors(bandGains(recipe.highlights)) : [0, 0, 0, 0, 0, 0, 0, 0];
   const cb = colorBalanceParams(recipe.contrast, recipe.vibrance, recipe.saturation, recipe.shadows);
@@ -161,22 +157,17 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uTeqParams: [EXPOSURE_BOOST, FEATHERING, 2 * SMOOTHING * SMOOTHING],
     uExpBlack: recipe.blacks < 0 ? (-recipe.blacks / 100) * MAX_BLACK_LEVEL : 0,
     uSigS: packCurve(curveFor(look.contrast, look)),
-    uSigR: packCurve(curveFor(look.contrast * look.channels[0], look)),
-    uSigG: packCurve(curveFor(look.contrast * look.channels[1], look)),
-    uSigB: packCurve(curveFor(look.contrast * look.channels[2], look)),
+    uPrimIn: columnMajor(prim.input),
+    uPrimOut: columnMajor(prim.output),
     uSigMag: whiteTargetFor(recipe.whites) / 100,
     uWbMat: wbMat,
-    uWB: gains.map((g) => g / lum),
     uVig: recipe.vignette / 100,
     uSharp: sc.sharpness,
     uHal: recipe.halation / 100,
     uHalCol: s.halationColor,
     uGlow: recipe.glow / 100,
-    uMat: columnMajor(s.matrix),
     uBW: s.bw ? 1 : 0,
     uBWw: s.bwWeights ?? LUMA_REC2020,
-    uSat: Math.max(0, s.saturation * (1 + 0.04 * push)),
-    uStockFade: s.fade,
     uGrain: grainUniform(recipe, ctx.seed),
     uScC: sc.contrast,
     uScSat: sc.saturation,

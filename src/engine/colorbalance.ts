@@ -3,10 +3,10 @@
 // darktable Uniform Color Space 2022 © Aurélien Pierre.
 // Ported from darktable src/iop/colorbalancergb.c, src/common/colorspaces_inline_conversions.h
 // and src/common/darktable_ucs_22_helpers.h at commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773
-// (release 5.6.2). Translated from C to TypeScript; only the global controls (contrast,
-// vibrance, saturation with the darktable UCS formula) and the luminance of the shadows lift,
-// with its mask at darktable's defaults, are kept. The working space is D65 Rec.2020,
-// so darktable's D50 adaptation drops out, and negative output is clipped because later
+// (release 5.6.2). Translated from C to TypeScript: the whole module with the darktable UCS
+// saturation formula (hue shift, chroma, vibrance, the four ways, luminance power, contrast,
+// saturation and brilliance by tone, mask fall-offs, gamut mapping). The working space is D65
+// Rec.2020, so darktable's D50 adaptation drops out, and negative output is clipped because later
 // Emulsion stages expect non-negative light.
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
