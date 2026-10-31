@@ -353,3 +353,16 @@ input[type='range']:disabled { opacity: 0.35; cursor: default; }
 .tuning-actions button:disabled { opacity: 0.45; cursor: default; }
 .tuning-code { margin: 0; padding: 8px; background: var(--strip); border: 1px solid var(--line); border-radius: 6px; font-size: 10.5px; line-height: 1.45; white-space: pre-wrap; word-break: break-word; user-select: text; }
 .tuning-group { font-size: 11px; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); padding-top: 4px; }
+
+/* Colour balance rgb, shared by every look. Numeric fields also provide keyboard access. */
+.colour-grading { display:flex; flex-direction:column; gap:10px; }
+.grade-wheel { position:relative; width:200px; height:200px; margin:10px auto; touch-action:none; cursor:crosshair; }
+.grade-wheel canvas { width:100%; height:100%; border-radius:50%; }
+.grade-wheel-center { position:absolute; left:50%; top:50%; width:4px; height:4px; border-radius:50%; background:#555; transform:translate(-50%,-50%); pointer-events:none; }
+.grade-wheel-dot { position:absolute; width:12px; height:12px; border:2px solid white; border-radius:50%; box-shadow:0 0 0 1px #111; transform:translate(-50%,-50%); pointer-events:none; }
+.grade-row { display:grid; grid-template-columns:90px minmax(0,1fr) 62px; gap:8px; align-items:center; font-size:11px; }
+.grade-row input { min-width:0; width:100%; accent-color:var(--accent); }
+.grade-row input[type=number] { padding:3px; background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:3px; }
+.grade-details { border-top:1px solid var(--line); padding-top:10px; }
+.grade-details summary { cursor:pointer; font-size:12px; font-weight:600; margin-bottom:12px; }
+.grade-details .grade-row { margin:10px 0; }

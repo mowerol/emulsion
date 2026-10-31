@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Look packs: sets of LUTs that render the stocks. The Emulsion pack has none: every stock uses
-// Emulsion's own rendering (the hand-tuned parameters in stocks.ts). In another pack, a stock it
-// has no LUT for keeps Emulsion's own rendering too.
+// Look packs: sets of LUTs that render the stocks. New looks use t3mujinpack.
+// Emulsion remains readable for legacy edits; its stocks use the style in stocks.ts.
+// A missing LUT retains that style for backwards compatibility.
 
 import type { Push } from './recipe';
 import type { StockId } from './stocks';
@@ -33,17 +33,17 @@ const T3M: Partial<Record<StockId, string>> = {
 };
 
 export const PACKS: LookPack[] = [
-  { id: 'emulsion', name: 'Emulsion', hint: "Emulsion's own film looks.", looks: {} },
+  { id: 'emulsion', name: 'Emulsion (legacy)', hint: "Emulsion's own film looks.", looks: {} },
   {
     id: 't3mujinpack',
     name: 't3mujinpack',
-    hint: 'Film looks made by eye in darktable by João Almeida, applied as LUTs. Stocks marked Emulsion have none here and use Emulsion\'s own look.',
+    hint: 'Film looks made by eye in darktable by João Almeida, applied as LUTs.',
     looks: Object.fromEntries(Object.entries(T3M).map(([s, name]) => [s, { file: `t3mujinpack - ${name}.png` }])),
   },
 ];
 
 export const PACK: Record<PackId, LookPack> = Object.fromEntries(PACKS.map((p) => [p.id, p])) as Record<PackId, LookPack>;
-export const DEFAULT_PACK: PackId = 'emulsion';
+export const DEFAULT_PACK: PackId = 't3mujinpack';
 export const isPackId = (v: unknown): v is PackId => typeof v === 'string' && v in PACK;
 
 /** The LUT file (relative to public/looks/) a stock uses in a pack, or null for Emulsion's own rendering. */

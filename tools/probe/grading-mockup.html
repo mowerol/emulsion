@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><title>Colour Grading — proposal</title>
+<link rel="stylesheet" href="../../src/styles.css">
+<style>
+body{margin:0;padding:28px;display:flex;gap:36px;align-items:flex-start;font:13px var(--font);background:var(--bg);color:var(--fg)}
+aside{width:340px;background:var(--panel);border:1px solid var(--line);flex:none}header,section{padding:16px 18px;border-bottom:1px solid var(--line)}
+h2{font-size:14px;margin:0}small,p{color:var(--muted);line-height:1.6}header{display:flex;justify-content:space-between}button{cursor:pointer}
+.context{color:var(--muted);display:flex;justify-content:space-between}.tabs{display:flex;justify-content:space-between;margin:16px 0}.tabs button{font-size:11px;padding:6px;border:0;background:transparent;color:var(--muted)}.tabs button.active{color:var(--accent);border-bottom:2px solid var(--accent)}
+.wheel{position:relative;margin:20px auto;width:194px;height:194px;border-radius:50%;background:radial-gradient(circle,#aaa 0%,#9999 30%,transparent 100%),conic-gradient(#e45959,#d7cf64,#67c681,#65c8cf,#6f7bd7,#bb6dc5,#e45959);box-shadow:inset 0 0 0 1px #ffffff22}
+.wheel:before,.wheel:after{content:'';position:absolute;background:#ffffff28}.wheel:before{width:1px;top:0;bottom:0;left:50%}.wheel:after{height:1px;left:0;right:0;top:50%}.dot{position:absolute;left:calc(50% - 6px);top:calc(50% - 6px);width:12px;height:12px;border:2px solid white;border-radius:50%;box-shadow:0 0 0 1px #111}
+.values{display:flex;justify-content:space-between;color:var(--muted);font-size:12px;margin:14px 0}.row{display:grid;grid-template-columns:85px 1fr 30px;gap:10px;align-items:center;margin:13px 0;font-size:12px}.row input{width:100%;accent-color:var(--accent)}.row output{text-align:right;color:var(--muted)}details{border-top:1px solid var(--line);padding-top:12px;margin-top:14px}summary{cursor:pointer;font-weight:600}.note{max-width:360px;padding-top:6px}.note h1{font-size:22px}.note p{font-size:14px}.reset{border:0;background:none;color:var(--accent);font-size:12px}
+</style>
+<aside aria-label="Proposed Develop panel">
+<section class="context"><span>▸ Tone curve</span><span>Straight</span></section>
+<section class="context"><span>▸ Colour</span><span>As shot</span></section>
+<header><h2>▾ Colour Grading</h2><button class="reset" onclick="location.reload()">Reset</button></header>
+<section>
+<div class="tabs" role="tablist"><button class="active">Shadows</button><button>Mid-tones</button><button>Highlights</button><button>Global</button></div>
+<div class="wheel" aria-label="Hue and chroma layout illustration"><span class="dot"></span></div>
+<div class="values"><span>Hue <b>0°</b></span><span>Chroma <b>0</b></span><button class="reset">Reset wheel</button></div>
+<div class="row"><span>Luminance</span><input type="range" min="-100" max="100" value="0"><output>0</output></div>
+<small id="wheel-note">Linked to Shadows in Adjustments.</small>
+<details open><summary>By tone</summary>
+<div class="tabs tones"><button>Global</button><button class="active">Shadows</button><button>Mid-tones</button><button>Highlights</button></div>
+<div class="row"><span>Saturation</span><input type="range" min="-100" max="100" value="0"><output>0</output></div>
+<div class="row"><span>Chroma</span><input type="range" min="-100" max="100" value="0"><output>0</output></div>
+<div class="row"><span>Brilliance</span><input type="range" min="-100" max="100" value="0"><output>0</output></div>
+</details>
+<details><summary>Hue shift &amp; tonal ranges</summary>
+<div id="ranges"></div><small>Controls the module’s tone masks and fulcrums.</small>
+</details>
+</section>
+<section class="context"><span>▸ Detail</span><span></span></section>
+</aside>
+<div class="note"><small>PROBE · DESIGN PROPOSAL</small><h1>Colour Grading</h1><p>One full-size wheel at a time keeps the pad usable in the existing 340 px panel.</p><p>Select Shadows, Mid-tones, Highlights or Global. Hue runs around the wheel; chroma increases from its centre. Luminance sits underneath.</p><p>By tone exposes saturation, chroma and brilliance separately. Tonal ranges stay folded until needed.</p><p>This mock-up previews layout only. Sliders and tabs can be explored; it does not grade an image.</p></div>
+<script type="module">
+document.querySelectorAll('.tabs').forEach(group=>group.querySelectorAll('button').forEach(button=>button.onclick=()=>{group.querySelectorAll('button').forEach(b=>b.classList.toggle('active',b===button));if(group===document.querySelector('.tabs'))document.querySelector('#wheel-note').textContent=button.textContent==='Shadows'?'Linked to Shadows in Adjustments.':' ';}));
+document.querySelectorAll('input').forEach(input=>input.oninput=()=>input.nextElementSibling.textContent=input.value);
+document.querySelector('#ranges').innerHTML=['Hue shift','Shadows fall-off','Highlights fall-off','Mask grey fulcrum','White fulcrum','Contrast fulcrum'].map(label=>`<div class="row"><span>${label}</span><input type="range" disabled><output>—</output></div>`).join('');
+</script></html>

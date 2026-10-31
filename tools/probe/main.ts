@@ -3,10 +3,11 @@
 // browser and reports pixel values, so stage changes and ports can be checked
 // numerically. See docs/ARCHITECTURE.md, "Testing".
 import { Engine, colorEqParams, type Source } from '../../src/engine/engine';
+import { updateGrade } from '../../src/film/grading';
 import { defaultRecipe, type Recipe } from '../../src/film/recipe';
 import { assemble } from '../../src/engine/glsl';
 import { SHADERS, SHADER_FILES } from '../../src/engine/shaders';
-import { cbCommit, cbUniform, colorBalance, colorBalanceRgb, sliderParams, CB_DEFAULTS, type CbParams, type ColorBalance } from '../../src/engine/colorbalance';
+import { cbCommit, cbUniform, colorBalanceParams, colorBalance, colorBalanceRgb, sliderParams, CB_DEFAULTS, type CbParams, type ColorBalance } from '../../src/engine/colorbalance';
 import { FULL, bounds, framePixels, setAngle, setAspect, sourcePoint, type Crop } from '../../src/film/crop';
 import { CropOverlay } from '../../src/ui/CropOverlay';
 import { developUniforms, InputMode, llParams } from '../../src/engine/params';
@@ -476,6 +477,34 @@ view.width = W; view.height = H;
 document.body.append(view);
 const out: Record<string, unknown> = {};
 try {
+  if (new URLSearchParams(location.search).has('gradingpanel')) {
+    document.body.style.background = '#1c1b19';
+    const style = document.createElement('style');
+    style.textContent = 'body > pre { display: none; }';
+    document.head.append(style);
+    const eng = new Engine(view);
+    const cases: Record<string, Partial<CbParams>> = {
+      wheels: { shadows_H: 220, shadows_C: 0.2, midtones_H: 80, midtones_C: 0.05, midtones_Y: 0.1, highlights_H: 30, highlights_C: 0.08, global_C: 0.008, global_H: 160 },
+      tone: { chroma_global: 0.2, saturation_midtones: 0.3, brilliance_global: 0.15, brilliance_shadows: 0.1, brilliance_highlights: -0.1, hue_angle: 10 },
+      masks: { mask_grey_fulcrum: 0.3, shadows_weight: 2, highlights_weight: 0.5, white_fulcrum: 1, grey_fulcrum: 0.22, shadows_C: 0.2, shadows_H: 260 },
+    };
+    out.recipeGrade = probeStage(eng, ['stages/colorbalance.glsl'], 'stageColorBalance(c)', COLOURS, Object.fromEntries(Object.entries(cases).map(([name, patch]) => {
+      const recipe = updateGrade({ ...defaultRecipe('portra400'), contrast: 20, vibrance: 10, shadows: 12, saturation: 15 }, patch);
+      const data = cbCommit({ ...sliderParams(colorBalanceParams(recipe.contrast, recipe.vibrance, recipe.saturation, recipe.shadows)), ...recipe.grading });
+      return [name, { uniforms: developUniforms(recipe, { ...stageCtx, look: { level: 2, data: new Float32Array(24), id: 1, eightBit: true } }), ref: (rgb: Vec3) => colorBalanceRgb(rgb, data) }];
+    })));
+    out.err = eng.gpu.gl.getError();
+    useApp.setState({ photos: [{ path: '/probe/frame.jpg', rel: 'frame.jpg', name: 'frame.jpg', size: 1, modified: 0, recipe: defaultRecipe('portra400'), seed: 1, white: null, rating: 0, label: null, heart: false, raw: false, pair: null }], active: 0, view: 'develop' });
+    localStorage.setItem('emulsion.folded', JSON.stringify(['stock', 'development', 'scanner', 'stock-tuning', 'crop', 'adjust', 'curve', 'color', 'detail', 'optics', 'grain']));
+    const host = document.createElement('div');
+    host.style.cssText = 'position:fixed;inset:0 auto 0 0;width:340px;display:grid;z-index:100';
+    document.body.append(host);
+    createRoot(host).render(createElement(Panel));
+    setTimeout(() => {
+      const panel = host.querySelector('.panel') as HTMLElement;
+      panel.scrollTop = (panel.querySelector('#section-grading')?.parentElement?.offsetTop ?? 0) - 170;
+    }, 300);
+  } else {
   const eng = new Engine(view);
   out.hdr = eng.gpu.hdr;
   const src = eng.sourceFromImage(c, W, H);
@@ -498,6 +527,13 @@ try {
       masks: { shadows_weight: 2, highlights_weight: 0.5, mask_grey_fulcrum: 0.3, white_fulcrum: 1, shadows_C: 0.2, shadows_H: 300 },
     };
     const gu = developUniforms(defaultRecipe(), stageCtx);
+    out.recipeGrade = probeStage(eng, ['stages/colorbalance.glsl'], 'stageColorBalance(c)', COLOURS, Object.fromEntries(
+      Object.entries(grades).map(([key, patch]) => {
+        const recipe = updateGrade(defaultRecipe('portra400'), patch);
+        const d = cbCommit({ ...sliderParams(colorBalanceParams(recipe.contrast, recipe.vibrance, recipe.saturation, recipe.shadows)), ...recipe.grading });
+        return [key, { uniforms: developUniforms(recipe, { ...stageCtx, look: { level: 2, data: new Float32Array(24), id: 1, eightBit: true } }), ref: (c: Vec3) => colorBalanceRgb(c, d) }];
+      }),
+    ));
     out.colorGrade = probeStage(eng, ['stages/colorbalance.glsl'], 'colorBalanceRgb(c, uCbS)', COLOURS, Object.fromEntries(
       Object.entries(grades).map(([k, p]) => {
         const d = cbCommit({ ...CB_DEFAULTS, ...p });
@@ -784,7 +820,7 @@ try {
       history: { undo: 'Exposure', redo: null },
     });
     // ?stockpanel keeps the frame's Portra 400 edit, to show the Looks dropdown and Amount.
-    if (!new URLSearchParams(location.search).has('stockpanel')) useApp.setState((st) => ({ photos: st.photos.map((p) => ({ ...p, recipe: null })) }));
+    if (!new URLSearchParams(location.search).has('stockpanel') && !new URLSearchParams(location.search).has('grading')) useApp.setState((st) => ({ photos: st.photos.map((p) => ({ ...p, recipe: null })) }));
     const host = document.createElement('div');
     host.id = 'panel-host';
     host.style.cssText = 'position:fixed;top:0;left:0;width:340px;height:640px;display:grid;z-index:100';
@@ -821,7 +857,10 @@ try {
     createRoot(menuHost).render(createElement(StageMenu, { x: 400, y: 30, onClose: () => {} }));
     setTimeout(() => {
       const panel = host.querySelector('.panel') as HTMLElement | null;
-      if (panel) panel.scrollTop = Number(new URLSearchParams(location.search).get('scroll') ?? 900);
+      if (panel) {
+        const grading = new URLSearchParams(location.search).has('grading') ? panel.querySelector('#section-grading')?.parentElement : null;
+        panel.scrollTop = grading ? (grading as HTMLElement).offsetTop - 110 : Number(new URLSearchParams(location.search).get('scroll') ?? 900);
+      }
       // ?tab=Hue|Brightness opens that tab of the Colour section.
       const tab = new URLSearchParams(location.search).get('tab');
       if (tab) [...host.querySelectorAll('button')].find((b) => b.textContent === tab)?.click();
@@ -830,6 +869,7 @@ try {
   const gl = eng.gpu.gl;
   out.err = gl.getError();
   out.ext = gl.getSupportedExtensions();
+  }
 } catch (e) {
   out.error = String(e);
 }
@@ -840,6 +880,7 @@ fetch('/report?' + encodeURIComponent(JSON.stringify(report))).catch(() => {});
 // Also in the page, for `chrome --headless --dump-dom` without a server.
 const pre = document.createElement('pre');
 pre.id = 'result';
+if (new URLSearchParams(location.search).has('gradingpanel')) pre.style.display = 'none';
 pre.textContent = JSON.stringify(report);
 document.body.append(pre);
 

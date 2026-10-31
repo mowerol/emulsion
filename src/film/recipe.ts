@@ -2,6 +2,7 @@
 // A recipe is everything Emulsion knows about how one frame is developed.
 // It is what gets saved to the photo's sidecar.
 
+import { normalizeGrading, type ColourGrading } from './grading';
 import { STOCK, isStockId, type StockId } from './stocks';
 import { isScannerId, type ScannerId } from './scanners';
 import { normalizeCurve, type ToneCurve } from './curve';
@@ -56,6 +57,8 @@ export interface Recipe {
   crop: Crop | null;
   /** Colour (darktable's color equalizer) per hue node, red to magenta; null leaves every colour. */
   color: ColorAdjust | null;
+  /** Additional controls for the recipe colour balance instance, in upstream units. */
+  grading: ColourGrading | null;
 }
 
 /**
@@ -101,7 +104,7 @@ function normalizeColor(input: unknown): ColorAdjust | null {
   return tidyColor({ hue: list(o.hue, -HUE_MAX, HUE_MAX), sat: list(o.sat, -100, 100), bright: list(o.bright, -100, 100) });
 }
 
-export type SliderKey = Exclude<keyof Recipe, 'v' | 'stock' | 'pack' | 'push' | 'scanner' | 'curve' | 'wb' | 'crop' | 'color'>;
+export type SliderKey = Exclude<keyof Recipe, 'v' | 'stock' | 'pack' | 'push' | 'scanner' | 'curve' | 'wb' | 'crop' | 'color' | 'grading'>;
 
 export interface SliderDef {
   key: SliderKey;
@@ -200,6 +203,7 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
     wb: null,
     crop: null,
     color: null,
+    grading: null,
   };
 }
 
@@ -226,7 +230,7 @@ export function resetAdjustments(recipe: Recipe): Recipe {
 export const withSettingsFrom = (from: Recipe, target: Recipe | null): Recipe => ({ ...from, crop: target?.crop ?? null });
 
 /** Panel sections that can be reset on their own. */
-export type SectionId = 'development' | 'scanner' | 'crop' | 'adjust' | 'curve' | 'color' | 'detail' | 'optics' | 'grain';
+export type SectionId = 'development' | 'scanner' | 'crop' | 'adjust' | 'curve' | 'color' | 'grading' | 'detail' | 'optics' | 'grain';
 
 const SECTION_FIELDS: Record<SectionId, (keyof Recipe)[]> = {
   development: ['push'],
@@ -235,6 +239,7 @@ const SECTION_FIELDS: Record<SectionId, (keyof Recipe)[]> = {
   adjust: ['wb', ...SLIDERS.filter((d) => d.group === 'adjust').map((d) => d.key)],
   curve: ['curve'],
   color: ['color'],
+  grading: ['grading', 'shadows', 'saturation'],
   detail: SLIDERS.filter((d) => d.group === 'detail').map((d) => d.key),
   optics: SLIDERS.filter((d) => d.group === 'optics').map((d) => d.key),
   grain: SLIDERS.filter((d) => d.group === 'grain').map((d) => d.key),
@@ -273,8 +278,8 @@ export function normalizeRecipe(input: unknown): Recipe | null {
   const scanner: ScannerId = isScannerId(o.scanner) ? o.scanner : 'frontier';
   const base = defaultRecipe(stock, scanner);
   const push = typeof o.push === 'number' && [-1, 0, 1, 2].includes(o.push) ? (o.push as Push) : 0;
-  const pack: PackId = isPackId(o.pack) ? o.pack : DEFAULT_PACK;
-  const out: Recipe = { ...base, pack, push, curve: normalizeCurve(o.curve), wb: normalizeWhiteBalance(o.wb), crop: normalizeCrop(o.crop), color: normalizeColor(o.color) };
+  const pack: PackId = isPackId(o.pack) ? o.pack : 'emulsion';
+  const out: Recipe = { ...base, pack, push, curve: normalizeCurve(o.curve), wb: normalizeWhiteBalance(o.wb), crop: normalizeCrop(o.crop), color: normalizeColor(o.color), grading: normalizeGrading(o.grading) };
   // Capture sharpening was saved as `sharpening` before the unsharp mask came.
   const read = (key: string) => (key === 'captureSharpening' && o.captureSharpening === undefined ? o.sharpening : o[key]);
   for (const def of SLIDERS) {

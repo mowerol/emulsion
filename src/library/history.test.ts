@@ -77,3 +77,20 @@ suite('history', () => {
     expect(describe(r0, { ...r0, exposure: 1, contrast: 10 })).toBe('Several settings');
   });
 });
+
+
+suite('continuous gestures', () => {
+  it('keeps a wheel drag in one undo step across pauses and separates the next drag', () => {
+    const history = new History();
+    const before = defaultRecipe();
+    const middle = { ...before, grading: { shadows_H: 220, shadows_C: 0.05 } };
+    const after = { ...middle, grading: { shadows_H: 220, shadows_C: 0.15 } };
+    history.record('Colour Grading', [{ path: 'a', before, after: middle }], 0, 'wheel-1', true);
+    history.record('Colour Grading', [{ path: 'a', before: middle, after }], 5000, 'wheel-1', true);
+    history.record('Colour Grading', [{ path: 'a', before: after, after: before }], 5001, 'wheel-2', true);
+    expect(history.undo()?.changes).toEqual([{ path: 'a', before: after, after: before }]);
+    expect(history.undo()?.changes).toEqual([{ path: 'a', before, after }]);
+    expect(history.canUndo).toBe(false);
+    expect(history.redo()?.changes).toEqual([{ path: 'a', before, after }]);
+  });
+});

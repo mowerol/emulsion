@@ -2,6 +2,20 @@
 
 Rewritten at the end of each session. Last updated 2026-10-31 (late morning).
 
+## Update: Colour Grading implemented (2026-10-31)
+
+Oli approved the plan and wheel mock-up in `docs/plans/colour-grading.md`, authorised implementation, then authorised committing the completed work.
+
+- LUTs replace styles as default looks; t3mujinpack for now. Neutral and CineStill removed from the picker; eight existing bundled LUT stocks remain. No additional LUTs selected yet. Legacy sidecars keep their stock and pack; missing pack still reads as Emulsion, new recipes default to t3. Neutral stays internal for unedited adjustments and LUT Amount.
+- `ui/ColourGrading.tsx`: after Colour, before Detail; one wheel at a time, numeric hue/chroma and luminance, By tone saturation/chroma/brilliance, folded hue shift/tonal ranges. Darktable Yrg wheel display conversion and soft ranges; full native ranges via numeric input (singular zero fulcrums and midtones luminance -1 guarded).
+- `film/grading.ts`: sparse native-unit `grading` recipe object, null at rest. Shadows luminance and global saturation share the original fields. Contrast/Vibrance remain owned by Adjustments. Reset grading resets Shadows/Saturation, leaves Contrast/Vibrance. Recipe normalisation, copy/paste, reset, undo all covered; wheel gestures get one undo step across pauses.
+- The developer Stock tuning section was removed at Oli's request.
+- Recipe grading merges into the existing `uCbP` parameters. Stock grade stays separate, skipped for LUTs. Advanced styles layer remains future work.
+- `?gradingpanel` probe provides a focused GPU/reference check with a LUT marked active and renders the real panel. The isolated earlier design mock-up is still `tools/probe/grading-mockup.html`.
+- Tests: 219 pass; production and probe builds pass. See plan for final probe results and screenshot.
+
+Earlier notes below describe the previous state; the three stock questions have now been answered above. Do not resume fitting the old looks.
+
 ## This session (2026-10-31): stocks as darktable styles, step 1 (committed in `68bacbd`), then a change of direction
 
 **Oli's new direction (decided at the end of this session, nothing built yet):**
@@ -58,10 +72,8 @@ Files for the refit (session scratchpad, `/private/tmp/claude-502/-Users-oli-Dev
 - `probe.mjs '<query>' <preId> [budget]` runs headless Chrome and prints the `<pre>`; `savepngs.mjs` writes
   a `?renders` result to PNGs; `fit.sh <stock> <evals>` fits one stock to its before renders into
   `fit_<stock>.json` (`code` holds the entry to paste).
-- Fits with 3000 evaluations (×2 restarts) for all colour stocks and HP5 were started in the background
-  and had not finished when the session ended; their `fit_<stock>.json` may be complete, empty or missing.
-  A 200-evaluation trial took Portra 400 from 4.3 ΔE (contrast only) to 2.6 to its old look. Only worth
-  finishing if Oli keeps the styles as the Emulsion pack's looks.
+- The refit fits finished after the commit (mean ΔE to the old looks about 2-3 per stock; results in each
+  `fit_<stock>.json`). Not needed now that LUTs replace the styles.
 
 ### Prompt for the next session
 

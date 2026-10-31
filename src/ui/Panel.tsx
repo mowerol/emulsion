@@ -4,7 +4,7 @@
 import { Fragment, memo, useEffect, useRef, useState } from 'react';
 import { useLutVersion } from '../engine/lutstore';
 import { useStockTuningVersion } from '../film/stocktuning';
-import { StockTuning } from './StockTuning';
+import { ColourGradingControls } from './ColourGrading';
 import { PACK, PACKS, type PackId } from '../film/looks';
 import { BRIGHT_RANGE, COLOR_CHANNELS, DEFAULT_STOCK, HUE_DEGREES, SAT_RANGE, PUSHES, SLIDER, SLIDERS, defaultRecipe, tidyColor, type ColorAdjust, resetAdjustments, resetSection, sectionChanged, sliderDefault, withSettingsFrom, withStock, type Push, type Recipe, type SectionId, type SliderDef } from '../film/recipe';
 import { SCANNER, SCANNERS, type ScannerId } from '../film/scanners';
@@ -84,7 +84,7 @@ const StockPicker = memo(function StockPicker({ photo, current, pack, onPick }: 
         const ch = Math.max(1, Math.round((cw * h) / w));
         if (c.width !== cw) c.width = cw;
         if (c.height !== ch) c.height = ch;
-        const r = withStock(recipe, s.id);
+        const r = { ...withStock(recipe, s.id), pack: 't3mujinpack' as const };
         await eng.prepare(r);
         if (cancelled) return;
         eng.renderToCanvas(src, r, c, seed);
@@ -100,7 +100,7 @@ const StockPicker = memo(function StockPicker({ photo, current, pack, onPick }: 
 
   return (
     <div className="stocks">
-      {STOCKS.map((s) => (
+      {STOCKS.filter((s) => !!PACK.t3mujinpack.looks[s.id]).map((s) => (
         <button key={s.id} type="button" className="stock" aria-pressed={current === s.id} onClick={() => onPick(s.id)}>
           <canvas ref={(el) => { canvases.current[s.id] = el; }} width={192} height={128} aria-hidden="true" />
           <span className="stock-name">{s.name}</span>
@@ -350,8 +350,11 @@ export function Panel() {
   const applyToTargets = (change: (r: Recipe | null) => Recipe) => {
     editRecipes(targets().map((p) => p.path), (r) => change(r));
   };
-  const pickStock = (id: StockId) => applyToTargets((r) => withStock(r, id));
-  const pickPack = (pack: PackId) => applyToTargets((r) => ({ ...(r ?? defaultRecipe()), pack }));
+  const pickStock = (id: StockId) => applyToTargets((r) => ({ ...withStock(r, id), pack: 't3mujinpack' }));
+  const pickPack = (pack: PackId) => applyToTargets((r) => {
+    const base = r ?? defaultRecipe();
+    return { ...withStock(base, PACK[pack].looks[base.stock] ? base.stock : 'portra400'), pack };
+  });
   // An unedited photo shows Neutral's settings, and any change starts a Neutral edit.
   const base = recipe ?? defaultRecipe();
   const pickPush = (push: Push) => applyToTargets((r) => ({ ...(r ?? defaultRecipe()), push }));
@@ -388,7 +391,7 @@ export function Panel() {
         <div className="grain-speed">
           <label htmlFor="look-pack">Looks</label>
           <select id="look-pack" value={base.pack} onChange={(e) => pickPack(e.target.value as PackId)}>
-            {PACKS.map((p) => (
+            {PACKS.filter((p) => p.id !== 'emulsion' || base.pack === 'emulsion').map((p) => (
               <option key={p.id} value={p.id}>
                 {p.name}
               </option>
@@ -399,16 +402,6 @@ export function Panel() {
         {PACK[base.pack].looks[base.stock] && <SliderRow def={SLIDER.lookAmount} recipe={base} onChange={setSlider} />}
         <StockPicker photo={photo} current={base.stock} pack={base.pack} onPick={pickStock} />
       </Section>
-
-      {import.meta.env.DEV && view === 'develop' && (
-        <Section id="stock-tuning" title="Stock tuning" summary="Development build">
-          {PACK[base.pack].looks[base.stock] ? (
-            <p className="hint">{STOCK[base.stock].name} is rendered by the {PACK[base.pack].name} LUT here. Switch Looks to Emulsion to tune its own look.</p>
-          ) : (
-            <StockTuning stock={base.stock} />
-          )}
-        </Section>
-      )}
 
       <Section id="development" title="Development" summary={PUSHES.find((p) => p.value === base.push)!.label} onReset={resetFor('development', 'Development')}>
         <Segmented label="Push or pull processing" options={PUSHES.map((p) => ({ value: p.value, label: p.label }))} value={base.push} onChange={pickPush} />
@@ -447,6 +440,11 @@ export function Panel() {
             {group === 'adjust' && (
               <Section id="color" title="Colour" summary={recipe?.color ? 'Edited' : 'As shot'} onReset={resetFor('color', 'Colour')}>
                 <ColorControls recipe={base} />
+              </Section>
+            )}
+            {group === 'adjust' && (
+              <Section id="grading" title="Colour Grading" summary={sectionChanged(recipe, 'grading') ? 'Edited' : 'Neutral'} onReset={resetFor('grading', 'Colour Grading')}>
+                <ColourGradingControls recipe={base} />
               </Section>
             )}
           </Fragment>

@@ -382,7 +382,7 @@ const historyState = () => ({ history: { undo: history.undoLabel, redo: history.
  * Change the recipes of `paths`. Every change is an undoable step, named by
  * `label`, or after what changed.
  */
-export function editRecipes(paths: string[], change: (r: Recipe | null, p: Photo) => Recipe | null, label?: string) {
+export function editRecipes(paths: string[], change: (r: Recipe | null, p: Photo) => Recipe | null, label?: string, grouping?: { key: string; continuous: boolean }) {
   const wanted = new Set(paths);
   const changes: Change[] = [];
   const photos = get().photos.map((p) => {
@@ -396,14 +396,14 @@ export function editRecipes(paths: string[], change: (r: Recipe | null, p: Photo
   if (changes.length) {
     const first = changes[0] as { before: Recipe | null; after: Recipe | null };
     const name = label ?? describe(first.before, first.after);
-    history.record(changes.length > 1 && !label ? `${name} on ${changes.length} photos` : name, changes, performance.now());
+    history.record(changes.length > 1 && !label ? `${name} on ${changes.length} photos` : name, changes, performance.now(), grouping?.key, grouping?.continuous);
   }
   set({ photos, ...historyState() });
 }
 
-export const editActive = (change: (r: Recipe | null, p: Photo) => Recipe | null, label?: string) => {
+export const editActive = (change: (r: Recipe | null, p: Photo) => Recipe | null, label?: string, grouping?: { key: string; continuous: boolean }) => {
   const a = activePhoto();
-  if (a) editRecipes([a.path], change, label);
+  if (a) editRecipes([a.path], change, label, grouping);
 };
 
 /**

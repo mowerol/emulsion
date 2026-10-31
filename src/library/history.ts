@@ -43,11 +43,11 @@ export class History {
     return this.future[this.future.length - 1]?.label ?? null;
   }
 
-  record(label: string, changes: Change[], now: number, key = `${label}|${changes.map((c) => c.path).join('|')}`) {
+  record(label: string, changes: Change[], now: number, key = `${label}|${changes.map((c) => c.path).join('|')}`, continuous = false) {
     if (!changes.length) return;
     this.future = [];
     const last = this.past[this.past.length - 1];
-    if (last && last.key === key && now - last.at < MERGE_MS) {
+    if (last && last.key === key && (continuous || now - last.at < MERGE_MS)) {
       // Keep the first "before" of each photo and the latest "after".
       const byPath = new Map(last.changes.map((c) => [c.path, c]));
       for (const c of changes) {
@@ -92,6 +92,7 @@ const FIELD_LABELS: Partial<Record<keyof Recipe, string>> = {
   wb: 'White balance',
   crop: 'Crop',
   color: 'Colour',
+  grading: 'Colour Grading',
   captureSharpening: 'Capture sharpening',
   sharpen: 'Sharpening',
   sharpenRadius: 'Sharpening radius',

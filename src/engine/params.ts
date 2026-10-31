@@ -138,7 +138,7 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
   return {
     ...base,
     ...colorBalanceUniforms(),
-    uCbP: cbUniform(cbCommit(sliderParams(cb))),
+    uCbP: cbUniform(cbCommit({ ...sliderParams(cb), ...recipe.grading })),
     // The stock's own grade (its style), off for a stock a LUT renders.
     uCbS: s.grade && !lut ? cbUniform(cbCommit({ ...CB_DEFAULTS, ...s.grade })) : CB_NONE,
     uCbSOn: s.grade && !lut ? 1 : 0,
