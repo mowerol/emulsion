@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { defaultRecipe } from '../film/recipe';
 import { STOCK } from '../film/stocks';
 import { columnMajor } from './color';
+import { curveFor, packCurve, NEUTRAL_LOOK } from './tone';
 import { SMOOTH_PRIMARIES, adjustedPrimaries } from './primaries';
 import { InputMode, developUniforms, needsPasses } from './params';
 
@@ -118,5 +119,21 @@ describe('develop uniforms', () => {
     expect(needsPasses(developUniforms(r, ctx)).highlights).toBe(false);
     expect(needsPasses(developUniforms({ ...r, glow: 10 }, ctx)).highlights).toBe(true);
     expect(needsPasses(developUniforms({ ...r, scanner: 'straight' }, ctx)).sharpen).toBe(false);
+  });
+});
+
+
+describe('LUT white and black targets', () => {
+  const lut = { level: 2, data: new Float32Array(24), id: 1, eightBit: true };
+  it('enables target adjustments for either Whites direction and lifted Blacks, preserving the zero path', () => {
+    const r = defaultRecipe('portra400');
+    const at = (whites: number, blacks: number) => developUniforms({ ...r, whites, blacks }, { ...ctx, look: lut });
+    expect(at(0, 0).uLutTargetsOn).toBe(0);
+    for (const whites of [-100, 100]) expect(at(whites, 0).uLutTargetsOn).toBe(1);
+    expect(at(0, 100).uLutTargetsOn).toBe(1);
+    expect(at(0, -100).uLutTargetsOn).toBe(0);
+    expect(at(0, -100).uExpBlack).toBeCloseTo(0.008, 9);
+    expect(at(50, 25).uSigS).toEqual(packCurve(curveFor(1, { ...NEUTRAL_LOOK, whites: 50, blacks: 25 })));
+    expect(developUniforms({ ...r, whites: 50, blacks: 25 }, ctx).uSigS).not.toEqual(at(50, 25).uSigS);
   });
 });

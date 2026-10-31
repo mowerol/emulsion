@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Vec3 } from '../film/stocks';
 import {
+  lutToneTargets,
   NEUTRAL,
   NEUTRAL_LOOK,
   SIGMOID_GREY,
@@ -128,5 +129,24 @@ describe('tone stage', () => {
   it('keeps the scanner S-curve', () => {
     expect(sCurve(0.46, 1.4, 0.46)).toBeCloseTo(0.46, 9);
     expect(sCurve(0.3, 1, 0.46)).toBeCloseTo(0.3, 9);
+  });
+});
+
+
+describe('sigmoid targets on LUT prints', () => {
+  it('leaves the LUT exactly unchanged at rest, including when Blacks only cuts scene light upstream', () => {
+    const pixel: Vec3 = [0.1, 0.5, 0.99];
+    expect(lutToneTargets(pixel, 0, 0)).toBe(pixel);
+    expect(lutToneTargets(pixel, 0, -100)).toBe(pixel);
+  });
+  it('moves the white target in either direction, lifts black to 2% linear, and preserves middle grey', () => {
+    const white: Vec3 = [1, 1, 1], black: Vec3 = [0, 0, 0];
+    expect(lutToneTargets(white, -100, 0)[0]).toBeLessThan(1);
+    expect(lutToneTargets(white, 100, 0)[0]).toBeGreaterThan(1);
+    expect(srgbEotf(lutToneTargets(black, 0, 100)[0])).toBeCloseTo(0.02, 8);
+    const grey = toneForward(SIGMOID_GREY);
+    for (const whites of [-100, 0, 100]) for (const blacks of [0, 50, 100]) {
+      expect(lutToneTargets([grey, grey, grey], whites, blacks)[0]).toBeCloseTo(grey, 6);
+    }
   });
 });

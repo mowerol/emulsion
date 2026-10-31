@@ -206,3 +206,12 @@ export const toneNeutralRgb = (x: Vec3): Vec3 => x.map(toneForward) as Vec3;
 
 /** Pack a curve as [paperExp, fog, filmPower, paperPower] for the shader. */
 export const packCurve = (c: SigmoidCurve): [number, number, number, number] => [c.paperExp, c.fog, c.filmPower, c.paperPower];
+
+
+/** Sigmoid display targets on a LUT print (encoded Rec.2020), with neutral contrast and
+ * hue preservation at zero. The neutral inverse makes this an identity at rest. */
+export function lutToneTargets(e: Vec3, whites: number, blacks: number): Vec3 {
+  if (whites === 0 && blacks <= 0) return e;
+  const curve = curveFor(1, { ...NEUTRAL_LOOK, whites, blacks });
+  return e.map(v => srgbOetf(sigmoid(toneInverse(v), curve))) as Vec3;
+}

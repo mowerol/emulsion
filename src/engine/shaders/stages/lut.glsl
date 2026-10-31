@@ -11,6 +11,8 @@ uniform float uLutOn;
 // How much of the LUT, 0 to 1: a blend with the original's display image (Emulsion's addition,
 // as Lightroom profiles' Amount; darktable's lut3d has none).
 uniform float uLutAmount;
+// Sigmoid display targets after the LUT blend; zero leaves existing looks byte-for-byte alone.
+uniform float uLutTargetsOn;
 // level^3, x red, y green, z blue.
 uniform highp sampler3D uLutTex;
 
@@ -38,5 +40,13 @@ vec3 stageLut(vec3 d) {
 vec3 stageLook(vec3 x) {
   vec3 d0 = stageOutput(stageToneNeutral(x));
   vec3 d = mix(d0, stageLut(d0), uLutAmount);
-  return srgbOetf(clamp(uToWorking * srgbEotf(d), 0.0, 1.0));
+  vec3 e = srgbOetf(clamp(uToWorking * srgbEotf(d), 0.0, 1.0));
+  if (uLutTargetsOn < 0.5) return e;
+  // Return the LUT's print to scene light through the neutral inverse, then use darktable's
+  // per-channel sigmoid with neutral contrast and hue preservation at zero. This makes the
+  // unadjusted transform an identity, while Whites/positive Blacks set its display targets.
+  vec3 scene = vec3(toneInverse(e.r), toneInverse(e.g), toneInverse(e.b));
+  return vec3(srgbOetf1(sigmoid(scene.r, uSigS, uSigMag)),
+              srgbOetf1(sigmoid(scene.g, uSigS, uSigMag)),
+              srgbOetf1(sigmoid(scene.b, uSigS, uSigMag)));
 }

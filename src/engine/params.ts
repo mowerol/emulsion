@@ -5,7 +5,7 @@ import { STOCK } from '../film/stocks';
 import { SCANNER } from '../film/scanners';
 import type { Recipe } from '../film/recipe';
 import { LUMA_REC2020, REC2020_TO_SRGB, SRGB_TO_REC2020, columnMajor, mulVec } from './color';
-import { NEUTRAL, curveFor, packCurve, sigmoidCurve, whiteTargetFor, type ToneLook } from './tone';
+import { NEUTRAL, NEUTRAL_LOOK, curveFor, packCurve, sigmoidCurve, whiteTargetFor, type ToneLook } from './tone';
 import { NO_PRIMARIES, adjustedPrimaries } from './primaries';
 import {
   CB_DEFAULTS,
@@ -129,7 +129,7 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
   const sc = SCANNER[recipe.scanner];
   const wbMat = recipe.wb ? columnMajor(whiteBalanceMatrix(ctx.white ?? D65_XY, whiteXy(recipe.wb.temperature, recipe.wb.tint))) : IDENTITY;
 
-  const look = toneLookFor(recipe);
+  const look = lut ? { ...NEUTRAL_LOOK, whites: recipe.whites, blacks: recipe.blacks } : toneLookFor(recipe);
   const prim = adjustedPrimaries(look.primaries);
   const teqOn = recipe.highlights !== 0;
   const teq = teqOn ? bandFactors(bandGains(recipe.highlights)) : [0, 0, 0, 0, 0, 0, 0, 0];
@@ -156,6 +156,7 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uTeqF1: teq.slice(4, 8),
     uTeqParams: [EXPOSURE_BOOST, FEATHERING, 2 * SMOOTHING * SMOOTHING],
     uExpBlack: recipe.blacks < 0 ? (-recipe.blacks / 100) * MAX_BLACK_LEVEL : 0,
+    uLutTargetsOn: lut && (recipe.whites !== 0 || recipe.blacks > 0) ? 1 : 0,
     uSigS: packCurve(curveFor(look.contrast, look)),
     uPrimIn: columnMajor(prim.input),
     uPrimOut: columnMajor(prim.output),

@@ -2,6 +2,17 @@
 
 Rewritten at the end of each session. Last updated 2026-10-31 (late morning).
 
+## Latest direction (2026-10-31): Whites/Blacks on LUTs, then lens correction
+
+Oli tried Colour Grading: **"looks good"**. He asked to finish Whites/Blacks on LUT stocks only, leave LUT import/selection for later, then move to lens correction.
+
+- Whites and positive Blacks previously changed the style sigmoid that LUT rendering bypasses. They now adjust the LUT print after Amount blending, through the existing neutral inverse and darktable per-channel sigmoid display targets (neutral contrast, hue preservation zero). At zero, this extra step is bypassed exactly. Negative Blacks keeps the existing scene black subtraction before the LUT. No new recipe fields or UI controls.
+- Regression tests cover neutral targets for LUT rendering, both Whites directions, black lift and negative cut; TypeScript reference `lutToneTargets`, GPU checks in `?lutlevels` with bundled Portra at Amount 0/50/100. Production and probe builds pass, 222 tests pass.
+- GPU `?lutlevels` check on Chrome Metal: 15 target/Amount combinations against the TypeScript reference, worst relative error 2.43e-6. Use a real-time CDP wait for `#looks`; virtual-time DOM dumps can finish before LUT decoding completes.
+- Oli authorised committing and pushing this follow-up, then starting lens correction.
+- **Next: lens correction**, following the research below: embedded Fuji/Sony/Olympus/DNG together, then lensfun and remembered camera/lens assignments and user LCP loading. On by default for RAWs, with per-correction switches and fine tuning.
+- **Return to LUTs later:** importing .cube/Hald looks, choosing better packs and expanding the stock catalogue. Keep t3mujinpack for now. Advanced styles and saved profiles/presets also remain later work.
+
 ## Update: Colour Grading implemented (2026-10-31)
 
 Oli approved the plan and wheel mock-up in `docs/plans/colour-grading.md`, authorised implementation, then authorised committing the completed work.
@@ -167,7 +178,7 @@ Camera colour is already covered for every LibRaw camera through its matrices; D
 
 ## Next
 
-0. **Colour Grading, LUT looks, styles as advanced** (Oli's new direction, see the top and the prompt). Then LUT import for users and Whites/Blacks on LUT stocks. [docs/plans/stock-styles.md](docs/plans/stock-styles.md) is the background; its steps 2-4 (advanced option, more style modules, UX for wheels) mostly carry over to the advanced layer and the Colour Grading panel.
+0. **Colour Grading and Whites/Blacks on LUTs: implemented.** Oli approved Colour Grading after trying it. LUT import, pack selection, stock expansion and advanced styles are deferred until after lens correction. [docs/plans/stock-styles.md](docs/plans/stock-styles.md) is the background; its steps 2-4 (advanced option, more style modules, UX for wheels) mostly carry over to the advanced layer and the Colour Grading panel.
 1. **Lens correction** (see the findings above). Oli: every camera treated equally, nothing built around his own. Order: (a) all four embedded formats together (Fuji, Olympus/OM, Sony, DNG; readers are per file format, so every body of those makers is covered, and new ones on day one), tested on Oli's files plus public samples from raw.pixls.us for Sony and DNG; then darktable's v2 maths. (b) lensfun auto-matching for every other maker (coverage arrives as database updates, not code). (c) A remembered per camera+lens assignment: when a lens is not recognised, the Lens section lets Oli pick a lensfun entry or load an Adobe LCP profile, applied to every photo from that camera and lens from then on (also fixes adapted and misnamed lenses).
 2. Oli tries the speed work (GPU-paced rendering), Colour, grain and RAW+JPEG folding in the real app.
 3. **Your own profiles and presets** (Oli; Batch 3, part 2), kept distinct the way Lightroom keeps them:

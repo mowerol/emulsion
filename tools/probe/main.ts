@@ -12,6 +12,7 @@ import { FULL, bounds, framePixels, setAngle, setAspect, sourcePoint, type Crop 
 import { CropOverlay } from '../../src/ui/CropOverlay';
 import { developUniforms, InputMode, llParams } from '../../src/engine/params';
 import type { Vec3 } from '../../src/film/stocks';
+import { lutToneTargets, toneForward } from '../../src/engine/tone';
 import { toneRgb } from '../../src/engine/tone';
 import { NO_PRIMARIES, SMOOTH_PRIMARIES, type SigmoidPrimaries } from '../../src/engine/primaries';
 import { histogram } from '../../src/engine/histogram';
@@ -21,7 +22,7 @@ import { createRoot } from 'react-dom/client';
 import { CurveEditor } from '../../src/ui/CurveEditor';
 import { WhiteBalanceControls } from '../../src/ui/WhiteBalanceControls';
 import { whiteBalanceMatrix, whiteXy, type Xy } from '../../src/engine/whitebalance';
-import { mulVec } from '../../src/engine/color';
+import { mulVec, srgbEotf, srgbOetf, SRGB_TO_REC2020, REC2020_TO_SRGB } from '../../src/engine/color';
 import { STOCK, type Stock } from '../../src/film/stocks';
 import { stockCode } from '../../src/film/stocktuning';
 import { toneInverse } from '../../src/engine/tone';
@@ -477,7 +478,9 @@ view.width = W; view.height = H;
 document.body.append(view);
 const out: Record<string, unknown> = {};
 try {
-  if (new URLSearchParams(location.search).has('gradingpanel')) {
+  if (new URLSearchParams(location.search).has('lutlevels')) {
+    // Only the focused LUT tests below; skip unrelated image filters and timing.
+  } else if (new URLSearchParams(location.search).has('gradingpanel')) {
     document.body.style.background = '#1c1b19';
     const style = document.createElement('style');
     style.textContent = 'body > pre { display: none; }';
@@ -970,7 +973,25 @@ if (photoArg) {
     };
     check(bent, false, 'halfFloat17');
     const hald = await loadLut(lookFile('t3mujinpack', 'portra400', 0)!);
-    if (hald) check(hald, true, 't3mujinPortra400');
+    if (hald) {
+      check(hald, true, 't3mujinPortra400');
+      const settings: Record<string, { uniforms: Record<string, unknown>; ref: (c: Vec3) => Vec3 }> = {};
+      const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
+      for (const amount of [0, 50, 100]) for (const [label, whites, blacks] of [['rest', 0, 0], ['whiteDown', -100, 0], ['whiteUp', 100, 0], ['blackUp', 0, 100], ['both', -60, 50]] as const) {
+        const recipe = { ...defaultRecipe('portra400'), whites, blacks, lookAmount: amount };
+        settings[`${label}_${amount}`] = {
+          uniforms: developUniforms(recipe, { ...stageCtx, look: hald }),
+          ref: (c: Vec3) => {
+            const d0 = mulVec(REC2020_TO_SRGB, c.map(toneForward).map(v => srgbEotf(clamp01(v))) as Vec3).map(v => srgbOetf(clamp01(v))) as Vec3;
+            const table = tetrahedral(hald, d0);
+            const blend = d0.map((v, i) => v + amount / 100 * (table[i] - v)) as Vec3;
+            const print = mulVec(SRGB_TO_REC2020, blend.map(srgbEotf) as Vec3).map(v => srgbOetf(clamp01(v))) as Vec3;
+            return lutToneTargets(print, whites, blacks);
+          },
+        };
+      }
+      res.lutTargets = probeStage(leng, ['stages/tone.glsl', 'stages/input.glsl', 'stages/output.glsl', 'stages/lut.glsl'], 'stageLook(c)', COLOURS, settings);
+    } else throw new Error('Bundled Portra LUT failed to load');
   } catch (e) {
     res.error = String(e) + (e instanceof Error ? e.stack : '');
   }
