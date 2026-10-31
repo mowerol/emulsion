@@ -7,6 +7,19 @@ import { InputMode, developUniforms, needsPasses } from './params';
 const ctx = { width: 1600, height: 1067, seed: 3, inputMode: InputMode.DisplayLinear, store: 1 };
 
 describe('develop uniforms', () => {
+  it("applies a look LUT at the recipe's Amount, with the stock's own colour switched off", () => {
+    const lut = { level: 2, data: new Float32Array(24), id: 7, eightBit: true };
+    const r = { ...defaultRecipe('portra400'), lookAmount: 40 };
+    const u = developUniforms(r, { ...ctx, look: lut });
+    expect(u.uLutOn).toBe(1);
+    expect(u.uLutAmount).toBeCloseTo(0.4, 12);
+    expect(u.uWB).toEqual([1, 1, 1]);
+    expect(u.uStockFade).toBe(0);
+    const own = developUniforms(r, ctx);
+    expect(own.uLutOn).toBe(0);
+    expect(own.uLutAmount).toBeUndefined();
+  });
+
   it('renders the original when there is no recipe or when comparing', () => {
     expect(developUniforms(null, ctx).uCompare).toBe(1);
     expect(developUniforms(defaultRecipe(), { ...ctx, compare: true }).uCompare).toBe(1);

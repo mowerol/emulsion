@@ -5,6 +5,17 @@ import { STOCK, STOCKS } from './stocks';
 import { SCANNERS } from './scanners';
 
 describe('recipes', () => {
+  it('reads the look pack and Amount, defaulting old sidecars to Emulsion\'s own looks at full strength', () => {
+    const old = normalizeRecipe({ stock: 'portra400' })!;
+    expect(old.pack).toBe('emulsion');
+    expect(old.lookAmount).toBe(100);
+    const r = normalizeRecipe({ stock: 'portra400', pack: 't3mujinpack', lookAmount: 140 })!;
+    expect(r.pack).toBe('t3mujinpack');
+    expect(r.lookAmount).toBe(100);
+    expect(normalizeRecipe({ pack: 'nope', lookAmount: 35 })!).toMatchObject({ pack: 'emulsion', lookAmount: 35 });
+    expect(resetAdjustments({ ...defaultRecipe('portra400'), pack: 't3mujinpack', lookAmount: 60, exposure: 1 })).toMatchObject({ pack: 't3mujinpack', lookAmount: 60, exposure: 0 });
+  });
+
   it('rejects things that are not recipes', () => {
     for (const v of [null, undefined, 3, 'portra', [], true]) expect(normalizeRecipe(v)).toBeNull();
   });

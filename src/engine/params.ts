@@ -4,7 +4,7 @@
 import { STOCK } from '../film/stocks';
 import { SCANNER } from '../film/scanners';
 import type { Recipe } from '../film/recipe';
-import type { Vec3 } from '../film/stocks';
+import type { Stock, Vec3 } from '../film/stocks';
 import { LUMA_REC2020, REC2020_TO_SRGB, SRGB_TO_REC2020, columnMajor, mulVec } from './color';
 import { NEUTRAL, curveFor, packCurve, sigmoidCurve, whiteTargetFor, type ToneLook } from './tone';
 import {
@@ -28,6 +28,7 @@ import { D65_XY, whiteBalanceMatrix, whiteXy, type Xy } from './whitebalance';
 import { effectiveIso, zoomForIso } from './grain';
 import { EXPOSURE_BOOST, FEATHERING, SMOOTHING, bandFactors, bandGains } from './toneequalizer';
 import { clarityParams } from './locallaplacian';
+import type { LoadedLut } from './lutstore';
 
 export type UniformValue = number | number[];
 export type Uniforms = Record<string, UniformValue>;
@@ -55,7 +56,12 @@ export interface RenderContext {
   compare?: boolean;
   /** The source's as-shot white point; D65 when unknown or not a RAW. */
   white?: Xy | null;
+  /** The stock's LUT in the recipe's pack, when it has one and it has loaded. */
+  look?: LoadedLut | null;
 }
+
+/** Texture unit of the look LUT (0-6 and 8-10 are taken, 7 is for uploads). */
+export const LUT_UNIT = 11;
 
 const WORKING = columnMajor(SRGB_TO_REC2020);
 const IDENTITY = [1, 0, 0, 0, 1, 0, 0, 0, 1];
@@ -110,14 +116,19 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uStore: ctx.store,
     uSeed: ctx.seed,
     uHalThreshold: HALATION_THRESHOLD,
+    uLutTex: LUT_UNIT,
+    uLutOn: 0,
   };
   if (!recipe || ctx.compare) {
     return { ...base, uCompare: 1, uExposure: 0, uExpBlack: 0, uWbMat: IDENTITY, uWB: [1, 1, 1], uBW: 0, uTeqOn: 0, uCurveOn: 0, uClarityOn: 0, uTextureOn: 0, uUsmOn: 0, uCeOn: 0 };
   }
 
-  const s = STOCK[recipe.stock];
+  const lut = ctx.look ?? null;
+  // A stock rendered by a LUT takes its colour and tone from the LUT: no balance, crosstalk,
+  // print saturation or stock fade of ours (the LUT holds push, where the pack has it).
+  const s = lut ? { ...STOCK[recipe.stock], balance: [1, 1, 1] as Vec3, matrix: [[1, 0, 0], [0, 1, 0], [0, 0, 1]] as Stock['matrix'], saturation: 1, fade: 0 } : STOCK[recipe.stock];
   const sc = SCANNER[recipe.scanner];
-  const push = recipe.push;
+  const push = lut ? 0 : recipe.push;
 
   // The stock's own colour balance, normalised to keep luminance.
   const gains = s.balance;
@@ -173,6 +184,7 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uScShadow: sc.shadowTint,
     uScHigh: sc.highlightTint,
     uFade: (recipe.fade / 100) * 0.16,
+    ...(lut ? { uLutOn: 1, uLutId: lut.id, uLutAmount: recipe.lookAmount / 100 } : {}),
   };
 }
 

@@ -47,6 +47,7 @@ export async function exportPhotos(
       const src = engine.sourceFromHalf(img);
       if ((p.recipe?.captureSharpening ?? 0) > 0) await ensureCapture(engine, src, p.path);
       const [w, h] = framePixels(p.recipe?.crop ?? null, img.width, img.height);
+      await engine.prepare(p.recipe);
       let px: Uint8Array;
       try {
         px = engine.readPixels(src, p.recipe, w, h, p.seed);

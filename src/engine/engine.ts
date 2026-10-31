@@ -9,7 +9,10 @@
 import type { Recipe } from '../film/recipe';
 import { FULL, cropAffine, type Rect } from '../film/crop';
 import { Gpu, GpuError, Lru, type Program, type Target } from './gpu';
-import { InputMode, colorBalanceUniforms, developUniforms, needsPasses, type Uniforms } from './params';
+import { InputMode, LUT_UNIT, colorBalanceUniforms, developUniforms, needsPasses, type Uniforms } from './params';
+import { textureData } from './lut3d';
+import { type LoadedLut, loadLut, lutFor, lutPending } from './lutstore';
+import { lookFile } from '../film/looks';
 import { GLOW_SIGMA, HALATION_SIGMA, blurPlan, pyramidFor, type Pyramid } from './pyramid';
 import { MASK_SIGMA } from './toneequalizer';
 import { GAMMAS, levelSize, numLevels } from './locallaplacian';
@@ -108,7 +111,7 @@ const uniformsOf = (file: string) => [...SHADER_FILES[file].matchAll(/uniform\s+
 const BEFORE_TEXTURE = ['stages/input.glsl', 'stages/exposure.glsl', 'stages/toneequalizer.glsl'].flatMap(uniformsOf).concat('uSharp', 'uStore');
 const TEXTURE_STAGE = uniformsOf('stages/texture.glsl').concat('uTextureMix');
 const COLOR_STAGE = uniformsOf('stages/colorequal.glsl');
-const BEFORE_CLARITY = ['stages/colorbalance.glsl', 'stages/lens.glsl', 'stages/emulsion.glsl', 'stages/tone.glsl'].flatMap(uniformsOf).concat('uHal', 'uHalCol', 'uGlow', 'uBW');
+const BEFORE_CLARITY = ['stages/colorbalance.glsl', 'stages/lens.glsl', 'stages/emulsion.glsl', 'stages/tone.glsl', 'stages/lut.glsl'].flatMap(uniformsOf).concat('uHal', 'uHalCol', 'uGlow', 'uBW', 'uLutId');
 const CLARITY_STAGE = uniformsOf('stages/clarity.glsl').concat('uLl');
 const pick = (u: Uniforms, names: string[]) => JSON.stringify(names.map((n) => u[n] ?? null));
 
@@ -121,6 +124,8 @@ export class Engine {
   /** The point curve's lookup table, re-uploaded only when the curve changes. */
   private curveTex: WebGLTexture | null = null;
   private curveKey = '';
+  /** Look LUTs on the GPU, by LUT id; a few are kept so the stock tiles do not re-upload. */
+  private lutTex: Lru<WebGLTexture>;
   private blurP: Program;
   private down: Program;
   private chains: Lru<Chain>;
@@ -159,6 +164,7 @@ export class Engine {
     this.blurP = this.gpu.program(SHADERS.vertex, SHADERS.blur);
     this.down = this.gpu.program(SHADERS.vertex, SHADERS.down);
     this.store = this.gpu.hdr ? 1 : 0.25;
+    this.lutTex = new Lru<WebGLTexture>(10, (t) => this.gpu.gl.deleteTexture(t));
     this.chains = new Lru<Chain>(6, (c) => [...c.levels, c.halTmp, c.glowTmp, c.hA, c.hB, ...(c.teq ?? []), ...(c.teqTmp ? [c.teqTmp] : [])].forEach((t) => this.gpu.free(t)));
     this.outs = new Lru<Target>(12, (t) => this.gpu.free(t));
     this.llCurve = this.gpu.program(SHADERS.vertex, SHADERS.llcurve);
@@ -680,6 +686,23 @@ export class Engine {
     return this.curveTex;
   }
 
+  /** A look LUT as a 3D texture (Gpu.lutTexture makes it on the scratch unit), kept by id. */
+  private lutTexture(lut: LoadedLut): WebGLTexture {
+    return this.lutTex.get(String(lut.id), () => this.gpu.lutTexture(textureData(lut), lut.level, lut.eightBit));
+  }
+
+  /** Whether a recipe's look LUT is still loading (draw nothing new until it arrives). */
+  waiting(recipe: Recipe | null): boolean {
+    const file = recipe ? lookFile(recipe.pack, recipe.stock, recipe.push) : null;
+    return !!file && lutPending(file);
+  }
+
+  /** Wait for whatever a recipe needs that loads separately (its look LUT); call before export. */
+  async prepare(recipe: Recipe | null) {
+    const file = recipe ? lookFile(recipe.pack, recipe.stock, recipe.push) : null;
+    if (file) await loadLut(file);
+  }
+
   private blur(a: Target, b: Target, spread: number, iterations: number) {
     const g = this.gpu;
     for (let i = 0; i < iterations; i++) {
@@ -725,8 +748,9 @@ export class Engine {
     const frame = opts.frame ?? recipe?.crop ?? FULL;
     // Effects that belong to the film (grain, vignette) see the whole uncropped
     // frame at the size it is shown, so cropping enlarges them as it would a negative.
+    const look = recipe && !opts.compare ? lookLut(recipe) : null;
     const u = developUniforms(recipe, {
-      width: opts.width / view.w / frame.w, height: opts.height / view.h / frame.h, seed: opts.seed, inputMode: src.mode, store: this.store, compare: opts.compare, white: src.white,
+      width: opts.width / view.w / frame.w, height: opts.height / view.h / frame.h, seed: opts.seed, inputMode: src.mode, store: this.store, compare: opts.compare, white: src.white, look,
     });
     const [a, b, c, d, e, f] = cropAffine({ ...FULL, ...frame }, src.w, src.h);
     u.uGeoU = [a, b, e];
@@ -746,6 +770,7 @@ export class Engine {
     // disturb a binding (see Gpu.scratch).
     const teq = teqLocal ? this.toneEqualizerMap(src, u) : g.blackTexture;
     const curve = u.uCurveOn === 1 && recipe ? this.curveTexture(recipe) : g.blackTexture;
+    const lutTex = look ? this.lutTexture(look) : null;
     // Clarity needs float targets and at least two pyramid levels.
     const ll = passes.clarity && g.hdr && numLevels(src.w, src.h) >= 2 ? this.llPyramids(src.w, src.h) : null;
     // Texture needs float targets and at least one wavelet scale.
@@ -801,6 +826,7 @@ export class Engine {
       g.bind(8, texture);
       g.bind(9, usm);
       g.bind(10, ceTex);
+      g.bind3d(LUT_UNIT, lutTex);
     };
     // A pass over the whole source that stops at a filter's input (see uTap in develop.frag).
     const tap = (t: Target, uTap: number, extra: Uniforms) => {
@@ -933,6 +959,7 @@ export class Engine {
   dispose() {
     if (this.curveTex) this.gpu.gl.deleteTexture(this.curveTex);
     this.curveTex = null;
+    this.lutTex.clear();
     this.chains.clear();
     this.outs.clear();
   }
@@ -940,6 +967,12 @@ export class Engine {
 
 /** A recipe's colour adjustment (percent and degrees) as darktable's color equalizer parameters. */
 export const colorEqParams = (c: ColorAdjust): ColorEqParams => ({ hue: c.hue.map((v) => (v * HUE_DEGREES) / HUE_MAX), sat: c.sat.map((v) => 1 + (SAT_RANGE * v) / 100), bright: c.bright.map((v) => 1 + (BRIGHT_RANGE * v) / 100) });
+
+/** A recipe's look LUT: null when its pack has none for the stock, or until it has loaded. */
+export function lookLut(recipe: Recipe): LoadedLut | null {
+  const file = lookFile(recipe.pack, recipe.stock, recipe.push);
+  return file ? lutFor(file) : null;
+}
 
 /** A stable per-photo seed so grain is fixed for each frame. */
 export function seedFor(path: string): number {

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useLutVersion } from '../engine/lutstore';
 import { loadImage, logToTerminal } from '../backend/api';
 import { Engine, type Source } from '../engine/engine';
 import { histogram } from '../engine/histogram';
@@ -66,6 +67,7 @@ export function Develop() {
   const stageId = useApp((s) => s.stageColor);
   const stage = STAGE_COLORS.find((c) => c.id === stageId)!;
   const path = photo?.path;
+  const lutVersion = useLutVersion();
 
   // Start the GPU engine for this canvas.
   useLayoutEffect(() => {
@@ -224,6 +226,8 @@ export function Develop() {
       const l = loadedRef.current;
       const canvas = canvasRef.current;
       if (!engine || !l || !canvas || l.path !== path || !canvas.width || !current) return;
+      // Keep the last frame until the look's LUT has loaded (this effect reruns when it does).
+      if (!compare && engine.waiting(recipe)) return;
       if (!engine.idle()) {
         id = requestAnimationFrame(tick);
         return;
@@ -237,7 +241,7 @@ export function Develop() {
     id = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recipe, seed, compare, loadedVersion, viewKey, path, clipping, split, JSON.stringify(frame), stage, sharpenMask]);
+  }, [recipe, seed, compare, loadedVersion, viewKey, path, clipping, split, JSON.stringify(frame), stage, sharpenMask, lutVersion]);
 
   // Count the histogram from a small render of the whole frame, once changes settle.
   useEffect(() => {

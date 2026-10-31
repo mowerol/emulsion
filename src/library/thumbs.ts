@@ -217,6 +217,7 @@ async function developBlob(blob: Blob, recipe: Recipe | null, seed: number, edge
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(w * s));
     canvas.height = Math.max(1, Math.round(h * s));
+    await eng.prepare(recipe);
     eng.renderToCanvas(src, recipe, canvas, seed);
     const out = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/jpeg', 0.88));
     if (!out) throw new Error('Could not encode thumbnail');

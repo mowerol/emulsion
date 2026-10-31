@@ -8,6 +8,7 @@ import { normalizeCurve, type ToneCurve } from './curve';
 import { clampWhiteBalance, type WhiteBalance } from '../engine/whitebalance';
 import { normalizeCrop, type Crop } from './crop';
 import { ISO_MAX, ISO_MIN } from '../engine/grain';
+import { DEFAULT_PACK, isPackId, type PackId } from './looks';
 
 export const RECIPE_VERSION = 1;
 
@@ -16,6 +17,10 @@ export type Push = -1 | 0 | 1 | 2;
 export interface Recipe {
   v: typeof RECIPE_VERSION;
   stock: StockId;
+  /** The look pack whose LUT renders the stock (Emulsion's own rendering where it has none). */
+  pack: PackId;
+  /** How much of the pack's LUT to apply, 0 to 100: a blend with Neutral (as Lightroom profiles' Amount). */
+  lookAmount: number;
   push: Push;
   scanner: ScannerId;
   exposure: number;
@@ -96,12 +101,12 @@ function normalizeColor(input: unknown): ColorAdjust | null {
   return tidyColor({ hue: list(o.hue, -HUE_MAX, HUE_MAX), sat: list(o.sat, -100, 100), bright: list(o.bright, -100, 100) });
 }
 
-export type SliderKey = Exclude<keyof Recipe, 'v' | 'stock' | 'push' | 'scanner' | 'curve' | 'wb' | 'crop' | 'color'>;
+export type SliderKey = Exclude<keyof Recipe, 'v' | 'stock' | 'pack' | 'push' | 'scanner' | 'curve' | 'wb' | 'crop' | 'color'>;
 
 export interface SliderDef {
   key: SliderKey;
   label: string;
-  group: 'adjust' | 'detail' | 'optics' | 'grain';
+  group: 'look' | 'adjust' | 'detail' | 'optics' | 'grain';
   min: number;
   max: number;
   step: number;
@@ -121,6 +126,7 @@ export const formatSigned = (v: number) => (v > 0 ? `+${v}` : v < 0 ? `${MINUS}$
 export const formatEv = (v: number) => `${v > 0 ? '+' : v < 0 ? MINUS : ''}${Math.abs(v).toFixed(2)} EV`;
 
 export const SLIDERS: SliderDef[] = [
+  { key: 'lookAmount', label: 'Amount', group: 'look', min: 0, max: 100, step: 1, default: 100, hint: "How strongly the look's LUT applies: 0 is Neutral, 100 the full look.", format: (v) => `${v}%` },
   { key: 'exposure', label: 'Exposure', group: 'adjust', min: -3, max: 3, step: 0.05, format: formatEv },
   { key: 'contrast', label: 'Contrast', group: 'adjust', min: -50, max: 50, step: 1, format: formatSigned },
   { key: 'highlights', label: 'Highlights', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
@@ -165,6 +171,8 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
   return {
     v: RECIPE_VERSION,
     stock,
+    pack: DEFAULT_PACK,
+    lookAmount: 100,
     push: 0,
     scanner,
     exposure: 0,
@@ -208,7 +216,7 @@ export function withStock(recipe: Recipe | null, stock: StockId): Recipe {
 
 /** Reset the sliders, keeping stock, development, scanner and crop. */
 export function resetAdjustments(recipe: Recipe): Recipe {
-  return { ...defaultRecipe(recipe.stock, recipe.scanner), push: recipe.push, crop: recipe.crop };
+  return { ...defaultRecipe(recipe.stock, recipe.scanner), pack: recipe.pack, lookAmount: recipe.lookAmount, push: recipe.push, crop: recipe.crop };
 }
 
 /**
@@ -265,7 +273,8 @@ export function normalizeRecipe(input: unknown): Recipe | null {
   const scanner: ScannerId = isScannerId(o.scanner) ? o.scanner : 'frontier';
   const base = defaultRecipe(stock, scanner);
   const push = typeof o.push === 'number' && [-1, 0, 1, 2].includes(o.push) ? (o.push as Push) : 0;
-  const out: Recipe = { ...base, push, curve: normalizeCurve(o.curve), wb: normalizeWhiteBalance(o.wb), crop: normalizeCrop(o.crop), color: normalizeColor(o.color) };
+  const pack: PackId = isPackId(o.pack) ? o.pack : DEFAULT_PACK;
+  const out: Recipe = { ...base, pack, push, curve: normalizeCurve(o.curve), wb: normalizeWhiteBalance(o.wb), crop: normalizeCrop(o.crop), color: normalizeColor(o.color) };
   // Capture sharpening was saved as `sharpening` before the unsharp mask came.
   const read = (key: string) => (key === 'captureSharpening' && o.captureSharpening === undefined ? o.sharpening : o[key]);
   for (const def of SLIDERS) {

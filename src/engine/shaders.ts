@@ -28,6 +28,7 @@ import texture from './shaders/stages/texture.glsl?raw';
 import usmStage from './shaders/stages/usm.glsl?raw';
 import usm from './shaders/usm.frag.glsl?raw';
 import colorequal from './shaders/stages/colorequal.glsl?raw';
+import lut from './shaders/stages/lut.glsl?raw';
 import ce from './shaders/ce.frag.glsl?raw';
 import eq from './shaders/eq.frag.glsl?raw';
 import cs from './shaders/cs.frag.glsl?raw';
@@ -55,6 +56,7 @@ export const SHADER_FILES: Record<string, string> = {
   'stages/texture.glsl': texture,
   'stages/usm.glsl': usmStage,
   'stages/colorequal.glsl': colorequal,
+  'stages/lut.glsl': lut,
 };
 
 export const SHADERS = {

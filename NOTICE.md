@@ -73,6 +73,13 @@ Template:
 - Ported to: `src/engine/whitebalance.ts`, and the as-shot white point in `src-tauri/src/raw.rs` (from `WB_coeffs_to_illuminant_xy`)
 - Changes: translated from C to TypeScript and Rust. CAT16 with full adaptation between two whites in Rec.2020 rather than to D65 or D50; the as-shot white is not adapted to D50, as Emulsion works in D65. Tint moves the white towards green for positive values so the image turns magenta, as in Lightroom (the opposite sign to `blackbody_xy_to_tinted_xy`). Added a numeric inverse from a white point to temperature and tint, and solving the white that makes a sample neutral
 
+### 3D lookup tables (lut3d), from darktable
+- Upstream: https://github.com/darktable-org/darktable, `src/iop/lut3d.c`, commit f38e304ce78e4332cc4528443e242dcd815c45a2
+- Licence: GPL-3.0-or-later
+- Copyright: Copyright (C) 2019-2026 darktable developers. (Its tetrahedral interpolation is credited upstream to OpenColorIO.)
+- Ported to: `src/engine/lut3d.ts` (readers and reference) and `src/engine/shaders/stages/lut.glsl`
+- Changes: translated from C to TypeScript and GLSL. The .cube, .3dl and Hald CLUT readers and tetrahedral interpolation only (no trilinear or pyramid, no compressed .gmz). Every LUT is applied to the sRGB display image of the original (the scene through Emulsion's neutral curve) instead of in a chosen colour space within the scene-referred pipe; Hald images are read through the browser, so at 8 bits
+
 ## Methods from published work
 
 Implemented from the papers, not from code.
@@ -99,6 +106,11 @@ Implemented from the papers, not from code.
 ### Archivo typeface
 - Copyright 2020 The Archivo Project Authors (https://github.com/Omnibus-Type/Archivo)
 - Licence: SIL Open Font License 1.1, bundled through `@fontsource-variable/archivo`
+
+### t3mujinpack look pack
+- Source: https://github.com/t3mujin/t3mujinpack, `haldcluts/`, commit 0b421f3e25209ed78253d1724a29cc6255c5e7fe; eight of its Hald CLUTs, unmodified
+- Licence: MIT, Copyright (c) 2017 João Almeida (`public/looks/t3mujinpack/LICENSE.txt`)
+- In: `public/looks/t3mujinpack/`
 
 ## Main dependencies
 

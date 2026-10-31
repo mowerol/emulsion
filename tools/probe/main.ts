@@ -37,8 +37,13 @@ import { colorEqualize } from '../../src/engine/colorequal';
 import { equalize, scales } from '../../src/engine/equalizer';
 import { autoContrast, blendMask, deconvolve } from '../../src/engine/capture';
 import { labL, labShiftL } from '../../src/engine/lab';
-import { toneLookFor } from '../../src/engine/params';
+import { toneLookFor, LUT_UNIT } from '../../src/engine/params';
+import { loadLut, setLooksBase } from '../../src/engine/lutstore';
+import { tetrahedral, textureData, type Clut } from '../../src/engine/lut3d';
+import { PACKS, lookFile } from '../../src/film/looks';
 
+
+setLooksBase(new URL('../../../public/looks/', location.href).href);
 const COLOURS: Vec3[] = [
   [0.18, 0.18, 0.18], [0.001, 0.001, 0.001], [2.5, 2.5, 2.5], [0, 0, 0],
   [0.3, 0.17, 0.11], [0.06, 0.1, 0.25], [0.05, 0.11, 0.03], [0.5, 0.45, 0.4],
@@ -755,7 +760,8 @@ try {
       histogram: { path: '/probe/frame.jpg', data: counted },
       history: { undo: 'Exposure', redo: null },
     });
-    useApp.setState((st) => ({ photos: st.photos.map((p) => ({ ...p, recipe: null })) }));
+    // ?stockpanel keeps the frame's Portra 400 edit, to show the Looks dropdown and Amount.
+    if (!new URLSearchParams(location.search).has('stockpanel')) useApp.setState((st) => ({ photos: st.photos.map((p) => ({ ...p, recipe: null })) }));
     const host = document.createElement('div');
     host.id = 'panel-host';
     host.style.cssText = 'position:fixed;top:0;left:0;width:340px;height:640px;display:grid;z-index:100';
@@ -871,3 +877,84 @@ if (photoArg) {
     document.body.append(p);
   })();
 }
+
+// Look LUTs: the GPU stage against lut3d.ts (in <pre id="looks">), and with ?looks=<file URL of a
+// JPEG>[&push=1], the photo as Neutral and through each pack's Portra 400 and our own, side by side.
+(async () => {
+  const q = new URLSearchParams(location.search);
+  const res: Record<string, unknown> = {};
+  try {
+    const leng = new Engine(document.createElement('canvas'));
+    const g = leng.gpu;
+    // a bent 17^3 table (half floats) and a shipped Hald (8 bits)
+    const level = 17;
+    const bent: Clut = { level, data: new Float32Array(level ** 3 * 3) };
+    for (let b = 0; b < level; b++) for (let gg = 0; gg < level; gg++) for (let r = 0; r < level; r++) {
+      const [x, y, z] = [r, gg, b].map((v) => v / (level - 1));
+      bent.data.set([Math.pow(x, 0.7) * 0.9 + 0.05 * z, y * y, 0.3 * x + 0.6 * z * z], ((b * level + gg) * level + r) * 3);
+    }
+    const inputs: Vec3[] = [];
+    for (let i = 0; i < 60; i++) inputs.push([((i * 37) % 61) / 60, ((i * 13) % 59) / 58, ((i * 29) % 53) / 52]);
+    inputs.push([0, 0, 0], [1, 1, 1], [1, 0, 0.5]);
+    const check = (lut: Clut, eightBit: boolean, name: string) => {
+      const tex = g.lutTexture(textureData(lut), lut.level, eightBit);
+      g.bind3d(LUT_UNIT, tex);
+      g.scratch();
+      res[name] = probeStage(leng, ['stages/tone.glsl', 'stages/input.glsl', 'stages/output.glsl', 'stages/lut.glsl'], 'stageLut(c)', inputs.slice(0, 64), {
+        [name]: { uniforms: { uLutTex: LUT_UNIT }, ref: (c: Vec3) => tetrahedral(lut, c) },
+      });
+    };
+    check(bent, false, 'halfFloat17');
+    const hald = await loadLut(lookFile('t3mujinpack', 'portra400', 0)!);
+    if (hald) check(hald, true, 't3mujinPortra400');
+  } catch (e) {
+    res.error = String(e) + (e instanceof Error ? e.stack : '');
+  }
+  const pre = document.createElement('pre');
+  pre.id = 'looks';
+  pre.textContent = JSON.stringify(res);
+  document.body.append(pre);
+
+  const img = q.get('looks');
+  if (!img) return;
+  const out: Record<string, unknown> = {};
+  try {
+    const im = new Image();
+    im.src = img;
+    await im.decode();
+    const pw = im.naturalWidth, ph = im.naturalHeight;
+    const W = 720, H = Math.round((W * ph) / pw);
+    const peng = new Engine(document.createElement('canvas'));
+    const psrc = peng.sourceFromImage(im, pw, ph);
+    const push = Number(q.get('push') ?? 0) as Recipe['push'];
+    const stock = (q.get('stock') ?? 'portra400') as Recipe['stock'];
+    const amount = Number(q.get('amount') ?? 100);
+    const panels: [string, Recipe | null][] = [
+      ['Original', null],
+      ...PACKS.map((p): [string, Recipe] => [`${STOCK[stock].name}, ${p.name}${push ? `, push ${push}` : ''}${amount !== 100 ? `, ${amount}%` : ''}`, { ...defaultRecipe(stock, 'straight'), pack: p.id, push, lookAmount: amount }]),
+    ];
+    const board = document.createElement('canvas');
+    board.width = panels.length * (W + 10); board.height = H + 28;
+    board.style.cssText = 'position:fixed;left:0;top:0;z-index:99999;background:#111';
+    const bx = board.getContext('2d')!;
+    bx.fillStyle = '#ddd';
+    bx.font = '15px sans-serif';
+    let n = 0;
+    const draw = (label: string, px: Uint8Array) => {
+      bx.putImageData(new ImageData(new Uint8ClampedArray(px.buffer.slice(0) as ArrayBuffer), W, H), n * (W + 10), 28);
+      bx.fillText(label, n * (W + 10) + 6, 19);
+      n++;
+    };
+    for (const [label, r] of panels) {
+      await peng.prepare(r);
+      draw(label, peng.readPixels(psrc, r ?? defaultRecipe(), W, H, 1, r === null));
+    }
+    document.body.append(board);
+  } catch (e) {
+    out.error = String(e);
+  }
+  const p2 = document.createElement('pre');
+  p2.id = 'looksPhoto';
+  p2.textContent = JSON.stringify(out);
+  document.body.append(p2);
+})();

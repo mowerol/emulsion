@@ -16,6 +16,7 @@
 #include "stages/lens.glsl"
 #include "stages/emulsion.glsl"
 #include "stages/output.glsl"
+#include "stages/lut.glsl"
 #include "stages/grain.glsl"
 #include "stages/scanner.glsl"
 #include "stages/curve.glsl"
@@ -77,9 +78,8 @@ void main() {
   x = stageColorBalance(x);
   x = stageLens(x, uv);
   x = stageOptics(x, uv);
-  x = stageEmulsion(x);
-  // Print
-  vec3 e = stageTone(x);
+  // Print: the pack's LUT for the stock, or our own emulsion and tone curve
+  vec3 e = uLutOn > 0.5 ? stageLook(x) : stageTone(stageEmulsion(x));
   if (uTap > 0.5 && uTap < 1.5) {
     outColor = vec4(clarityLightness(e), 0.0, 0.0, 1.0);
     return;

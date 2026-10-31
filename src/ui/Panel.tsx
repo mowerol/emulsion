@@ -2,7 +2,9 @@
 // The lab order: what this frame is developed with.
 
 import { Fragment, memo, useEffect, useRef, useState } from 'react';
-import { BRIGHT_RANGE, COLOR_CHANNELS, DEFAULT_STOCK, HUE_DEGREES, SAT_RANGE, PUSHES, SLIDERS, defaultRecipe, tidyColor, type ColorAdjust, resetAdjustments, resetSection, sectionChanged, sliderDefault, withSettingsFrom, withStock, type Push, type Recipe, type SectionId, type SliderDef } from '../film/recipe';
+import { useLutVersion } from '../engine/lutstore';
+import { PACK, PACKS, type PackId } from '../film/looks';
+import { BRIGHT_RANGE, COLOR_CHANNELS, DEFAULT_STOCK, HUE_DEGREES, SAT_RANGE, PUSHES, SLIDER, SLIDERS, defaultRecipe, tidyColor, type ColorAdjust, resetAdjustments, resetSection, sectionChanged, sliderDefault, withSettingsFrom, withStock, type Push, type Recipe, type SectionId, type SliderDef } from '../film/recipe';
 import { SCANNER, SCANNERS, type ScannerId } from '../film/scanners';
 import { STOCK, STOCKS, type StockId } from '../film/stocks';
 import {
@@ -23,13 +25,15 @@ function summary(r: Recipe | null) {
   if (!r) return 'Neutral, unedited';
   const push = PUSHES.find((p) => p.value === r.push)!.phrase;
   const scan = r.scanner === 'straight' ? 'with no scanner profile' : `scanned on a ${SCANNER[r.scanner].name}`;
-  return `${STOCK[r.stock].name} ${push}, ${scan}`;
+  const lut = PACK[r.pack].looks[r.stock] ? ` (${PACK[r.pack].name})` : '';
+  return `${STOCK[r.stock].name}${lut} ${push}, ${scan}`;
 }
 
 /** Stock buttons, each previewing the active frame through that stock. */
-const StockPicker = memo(function StockPicker({ photo, current, onPick }: { photo: Photo | null; current: StockId | null; onPick: (id: StockId) => void }) {
+const StockPicker = memo(function StockPicker({ photo, current, pack, onPick }: { photo: Photo | null; current: StockId | null; pack: PackId; onPick: (id: StockId) => void }) {
   const canvases = useRef<Partial<Record<StockId, HTMLCanvasElement | null>>>({});
   const path = photo?.path;
+  const lutVersion = useLutVersion();
   const recipe = photo?.recipe ?? null;
   const seed = photo?.seed ?? 0;
   const white = photo?.white ?? null;
@@ -77,7 +81,10 @@ const StockPicker = memo(function StockPicker({ photo, current, onPick }: { phot
         const ch = Math.max(1, Math.round((cw * h) / w));
         if (c.width !== cw) c.width = cw;
         if (c.height !== ch) c.height = ch;
-        eng.renderToCanvas(src, withStock(recipe, s.id), c, seed);
+        const r = withStock(recipe, s.id);
+        await eng.prepare(r);
+        if (cancelled) return;
+        eng.renderToCanvas(src, r, c, seed);
         // Let input through between tiles, so a slider stays responsive while they redraw.
         await new Promise((r) => setTimeout(r, 0));
       }
@@ -86,7 +93,7 @@ const StockPicker = memo(function StockPicker({ photo, current, onPick }: { phot
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [path, recipe, seed, white]);
+  }, [path, recipe, seed, white, lutVersion]);
 
   return (
     <div className="stocks">
@@ -94,7 +101,10 @@ const StockPicker = memo(function StockPicker({ photo, current, onPick }: { phot
         <button key={s.id} type="button" className="stock" aria-pressed={current === s.id} onClick={() => onPick(s.id)}>
           <canvas ref={(el) => { canvases.current[s.id] = el; }} width={192} height={128} aria-hidden="true" />
           <span className="stock-name">{s.name}</span>
-          <span className="stock-maker">{s.bw ? `${s.maker} B&W` : s.maker}</span>
+          <span className="stock-maker">
+            {s.bw ? `${s.maker} B&W` : s.maker}
+            {pack !== 'emulsion' && s.id !== 'neutral' && !PACK[pack].looks[s.id] ? ' · Emulsion' : ''}
+          </span>
         </button>
       ))}
     </div>
@@ -338,6 +348,7 @@ export function Panel() {
     editRecipes(targets().map((p) => p.path), (r) => change(r));
   };
   const pickStock = (id: StockId) => applyToTargets((r) => withStock(r, id));
+  const pickPack = (pack: PackId) => applyToTargets((r) => ({ ...(r ?? defaultRecipe()), pack }));
   // An unedited photo shows Neutral's settings, and any change starts a Neutral edit.
   const base = recipe ?? defaultRecipe();
   const pickPush = (push: Push) => applyToTargets((r) => ({ ...(r ?? defaultRecipe()), push }));
@@ -350,7 +361,7 @@ export function Panel() {
 
   if (!photo) return <aside className="panel" aria-label="Lab order" />;
 
-  const groups: [string, SliderDef['group']][] = [
+  const groups: [string, Exclude<SliderDef['group'], 'look'>][] = [
     ['Adjustments', 'adjust'],
     ['Detail', 'detail'],
     ['Optics', 'optics'],
@@ -367,11 +378,23 @@ export function Panel() {
         </span>
         <span className="order-line">{summary(recipe)}</span>
         <MarkControls photo={photo} />
-        {multi && <span className="order-note">Stock, development, scanner, stars, tags and hearts apply to the {selectedCount} selected frames.</span>}
+        {multi && <span className="order-note">Looks, stock, development, scanner, stars, tags and hearts apply to the {selectedCount} selected frames.</span>}
       </div>
 
       <Section id="stock" title="Film stock" summary={recipe ? STOCK[recipe.stock].name : 'None'}>
-        <StockPicker photo={photo} current={base.stock} onPick={pickStock} />
+        <div className="grain-speed">
+          <label htmlFor="look-pack">Looks</label>
+          <select id="look-pack" value={base.pack} onChange={(e) => pickPack(e.target.value as PackId)}>
+            {PACKS.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+        </div>
+        <p className="hint">{PACK[base.pack].hint}</p>
+        {PACK[base.pack].looks[base.stock] && <SliderRow def={SLIDER.lookAmount} recipe={base} onChange={setSlider} />}
+        <StockPicker photo={photo} current={base.stock} pack={base.pack} onPick={pickStock} />
       </Section>
 
       <Section id="development" title="Development" summary={PUSHES.find((p) => p.value === base.push)!.label} onReset={resetFor('development', 'Development')}>

@@ -1,22 +1,18 @@
 # Handoff
 
-Rewritten at the end of each session. Last updated 2026-10-30 (evening).
+Rewritten at the end of each session. Last updated 2026-10-30 (night).
 
-## This session: research on grounding the film stocks (no code changed)
+## This session: Looks dropdown and a LUT engine (spektrafilm tried and dropped), not committed
 
-Oli asked how the stocks are made. Answer: they are hand-tuned numbers in `src/film/stocks.ts` (balance, crosstalk matrix, sigmoid contrast and crossover, saturation, fade), from before the porting rule, with no source. Two research notes, **not committed yet**:
+What happened: spektrafilm was ported (darktable's `spektra_sim.c`, tested against darktable's own C) and run live, then baked into LUTs that matched it like for like. Oli judged the looks too strong (Superia worst) even with an Amount slider, and had **all spektrafilm code, data and LUTs removed**. What stays:
 
-- `docs/research/spektrafilm.md`: can spektrafilm (Andrea Volpato's spectral negative → print → scan model from manufacturer data sheets) come in as a contained stage? Yes: it takes scene-linear light (Rec.2020 accepted, grey 0.184), and for film stocks it replaces Emulsion (crosstalk), the Tone sigmoid and the print saturation and fade; Neutral keeps darktable sigmoid. Its halation, grain and scanner sharpening can be switched off so ours stay in charge.
-- `docs/research/film-stock-options.md`: the alternatives. Every free film CLUT pack and darktable style is made by eye (t3mujinpack, RawTherapee/G'MIC). spectral_film_lut (MIT, data-sheet based, simpler model) is the runner-up. darktable's colour calibration has an HP5+ B&W preset from Ilford's data. Section 8: **darktable master has a native spektrafilm module** (`src/iop/spektrafilm.c`, `src/common/spektra_sim.c` per-pixel colour, `spektra_core.c` spatial effects, `data/kernels/spektrafilm.cl`, unit tests; merged 2026-09-05 in #21967, last seen at `f38e304`; not in darktable 5.6.2). A faithful port of spektrafilm 0.3.x within 1e-4 of the Python, used *instead of* sigmoid; data shipped separately from darktable-org/darktable-spektrafilm (CC BY-SA 4.0 profiles). Section 9: filmic rgb and "tone mapper plus a parametric look layer" (that is our current design; it does not say where the numbers come from).
+- **Looks dropdown** at the top of the Film stock section (`recipe.pack`, `film/looks.ts`): **Emulsion** (default; our hand-tuned stocks, exactly as before this session) and **t3mujinpack** (8 Hald CLUTs, MIT, by eye, `public/looks/t3mujinpack`, 9 MB). In a pack, a stock without a LUT keeps Emulsion's own look (tiles say "· Emulsion"; t3mujinpack lacks CineStill 800T). Old sidecars read as Emulsion.
+- **Amount** slider (`recipe.lookAmount`, 0-100, default 100), shown under the dropdown when the stock has a LUT: a blend of the LUT with the original's display image. Emulsion's addition (Oli approved; darktable's lut3d has none).
+- **Look stage** (`stages/lut.glsl`, `engine/lut3d.ts`): port of darktable `src/iop/lut3d.c` at `f38e304` (.cube, .3dl, Hald readers; tetrahedral). Input: the scene through the neutral curve per channel to sRGB (the original); output back to the print encoding before Clarity/Sharpening/Grain/Output/Scanner/Curve/Fade. Replaces Emulsion+Tone for LUT stocks (our balance, matrix, print saturation, fade and push contrast off there). Unit 11; 8-bit Halds as RGBA8, .cube as RGBA16F; LRU of 10. Probe `<pre id="looks">`: GPU vs reference 6e-7 (8-bit), 4e-4 (half float). Photo board: `?looks=<file URL of a JPEG>[&stock=…&push=…&amount=…]`; `?stockpanel` keeps an edit on the probe panel.
+- `lutstore.ts` loads LUTs on first use; Develop keeps its last frame until the LUT arrives (`Engine.waiting`); tiles, thumbnails and export `await Engine.prepare(recipe)`. `readLut` already reads any user file: **user LUT import is the next step** ("we'll make some another way").
+- Nothing else in the pipeline changed: the tone curve, Neutral and Compare are untouched. Homebrew packages installed for the golden harness were removed.
 
-**Oli's decision:** try spektrafilm, next session. Discussed and agreed:
-- Port **darktable's** module (the porting rule; it already turned the Python into per-pixel code with tests), crediting spektrafilm and darktable in `NOTICE.md`.
-- Prefer a **live per-pixel GLSL port of the colour path** over baked LUTs: no grid, so no banding, no clipped highlights, and live controls (film exposure, push/pull, print exposure and contrast, enlarger filtration). A scene-referred float LUT (log input, 65³) is acceptable only as a quick prototype.
-- Oli's worries about LUTs were banding and destroyed highlights; both come from display-referred 8-bit LUTs, not LUTs as such.
-- Caveat raised: the "Portra look" most people know is a Frontier/Noritsu lab scan; spektrafilm's default is an optical print. Oli should judge its look on his photos early.
-- Lightroom creative profiles are LUTs in an XMP wrapper with an Amount slider; an Amount slider would be our addition (needs Oli's approval).
-
-Open decisions for Oli (in both notes): which pinned darktable commit; print paper per stock; what happens to stocks with no data (Superia 400 → X-TRA 400? CineStill 800T → Vision3 500T? HP5 → darktable's HP5+ weights? Tri-X: darktable's `kodak_trix` is the 7266 reversal stock, not Tri-X 400); Whites/Blacks for film stocks (no sigmoid to move: map to print exposure?); push/pull (darktable's `push_pull_stops`); whether our Scanner presets stay on top; bundling the data pack vs downloading it.
+**Known gaps:** Whites and positive Blacks do nothing on LUT stocks (the LUT's input is the fixed neutral rendering); scene colours outside sRGB are clipped before a LUT; Hald images load at 8 bits through the browser. Untested in the real app: the dropdown, Amount, tiles per pack, switching with several frames selected, export with a LUT. The research notes `docs/research/spektrafilm.md` and `film-stock-options.md` (committed earlier) are kept as the record.
 
 ## Earlier work
 
@@ -82,10 +78,15 @@ Camera colour is already covered for every LibRaw camera through its matrices; D
 
 ## Next
 
-0. **spektrafilm** (Oli's pick for the next session): read both research notes, then port darktable's spektrafilm colour path as a film-stock stage (see "This session" above). Lens correction follows.
+0. **Looks**: Oli to say how the new looks will be made; then LUT import for users (.cube, .3dl, Hald; where they are kept) and Whites/Blacks on LUT stocks. Oli tries the dropdown and Amount in the app (Cmd+R). Lens correction follows.
 1. **Lens correction** (see the findings above). Oli: every camera treated equally, nothing built around his own. Order: (a) all four embedded formats together (Fuji, Olympus/OM, Sony, DNG; readers are per file format, so every body of those makers is covered, and new ones on day one), tested on Oli's files plus public samples from raw.pixls.us for Sony and DNG; then darktable's v2 maths. (b) lensfun auto-matching for every other maker (coverage arrives as database updates, not code). (c) A remembered per camera+lens assignment: when a lens is not recognised, the Lens section lets Oli pick a lensfun entry or load an Adobe LCP profile, applied to every photo from that camera and lens from then on (also fixes adapted and misnamed lenses).
 2. Oli tries the speed work (GPU-paced rendering), Colour, grain and RAW+JPEG folding in the real app.
 3. **Batch 3, part 2:** user presets (save and apply looks).
-4. Oli's roadmap ideas: right-click the tone curve for preset curves (a subtle S curve first) and saving his own curves; export with borders; several photos on one canvas separated by borders (social media posts); more film stocks; Fuji film simulations and recipes (darktable's color equalizer presets, e.g. bleach bypass, may help here).
-5. UX ideas offered and not yet picked: hover a stock to preview it on the main image; slider edits applying to every selected frame; a `?` shortcut sheet.
-6. Later: an EXIF info overlay.
+4. **Tuning Emulsion's own stock looks** (the hand-tuned numbers in `src/film/stocks.ts`: contrast, crossover, balance, matrix, saturation, fade; Oli's own tuning, not a port). Two ways, both wanted:
+   - **Developer panel**: live sliders for the current stock's numbers in the app, with a "copy as code" button that gives the line for `stocks.ts` (about an hour).
+   - **Tuning from samples**: Oli supplies reference images (a photo and how he wants it to look, or film scans of similar scenes); Claude adjusts the numbers to match and shows before/after renders with the probe.
+5. **Virtual copies** (Oli, as Lightroom and darktable's duplicates): several edits of one photo, each its own frame in the Library and filmstrip, without copying the file. Needs: the sidecar holding several recipes (or one sidecar per copy, as darktable's `photo_01.xmp`), copy-aware selection, ratings and tags per copy, export naming, and deleting a copy. Check darktable's duplicate manager for the model before designing.
+6. **Masks** (Oli): local adjustments, as Lightroom's masking. Likely parts: drawn shapes (brush, linear and radial gradients), masks by colour or brightness range, combined (add, subtract, intersect), each carrying its own adjustments (exposure, contrast, white balance, saturation...). Upstream to port per the rule: darktable's drawn and parametric masks (`src/develop/masks/`, `src/develop/blend.c`); research what darktable and RawTherapee/ART offer before designing, and whether any open-source subject or sky detection is good enough to port. Big job: needs mask storage in the recipe, an overlay editor in the Develop view, and per-mask passes in the engine.
+7. Oli's roadmap ideas: right-click the tone curve for preset curves (a subtle S curve first) and saving his own curves; export with borders; several photos on one canvas separated by borders (social media posts); more film stocks; Fuji film simulations and recipes (darktable's color equalizer presets, e.g. bleach bypass, may help here).
+8. UX ideas offered and not yet picked: hover a stock to preview it on the main image; slider edits applying to every selected frame; a `?` shortcut sheet.
+9. Later: an EXIF info overlay.
