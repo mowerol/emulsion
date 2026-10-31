@@ -1,5 +1,10 @@
 # Plan: stocks as darktable styles
 
+> **Direction changed (2026-10-31, end of session):** Colour Grading for users comes next; stocks get their
+> looks from LUT packs where a good LUT exists; the style tools (sigmoid primaries, the grade) become an
+> advanced layer. Finishing step 1's refit waits on Oli's answer to whether styles stay as the Emulsion
+> pack's looks. See HANDOFF.md. Sections 2 and 4 below still apply to the advanced layer and the wheels UI.
+
 Oli's decisions (2026-10-31): Emulsion's own stock controls go; a stock becomes a *style* made only of
 darktable modules' settings. Claude creates the looks from reference photos Oli shares (a direction, not
 a clone; never read or reuse commercial preset files). The style controls become an advanced option for

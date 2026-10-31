@@ -1,14 +1,34 @@
 # Handoff
 
-Rewritten at the end of each session. Last updated 2026-10-31 (morning).
+Rewritten at the end of each session. Last updated 2026-10-31 (late morning).
 
-## This session (2026-10-31): stocks as darktable styles, step 1 (committed, refit not finished)
+## This session (2026-10-31): stocks as darktable styles, step 1 (committed in `68bacbd`), then a change of direction
 
-**Important: the colour stocks' looks are interim in this commit.** Emulsion's own stock controls are
-removed, but the refitted numbers that bring each look back are not in `stocks.ts` yet: every colour stock
-has only its old contrast (Pro 400H also keeps its old grade), so Portra, Gold, Ektar, Superia, Pro 400H,
-CineStill and HP5 render flatter and plainer than before. Neutral and Tri-X are unchanged (they used none
-of the removed controls). Finishing the refit is the first job.
+**Oli's new direction (decided at the end of this session, nothing built yet):**
+1. **Colour Grading for users, next.** Colour balance rgb is already ported whole
+   (`engine/colorbalance.ts`, `stages/colorbalance.glsl`), but the recipe uses only four of its sliders
+   (Contrast, Vibrance, Saturation, Shadows). Expose its grading controls as a Colour Grading section
+   for every photo, whatever the stock, as Lightroom's Color Grading: shadows / mid-tones / highlights wheels
+   and global offset (hue, chroma, luminance), saturation and chroma by tone, brilliance, hue shift,
+   the masks' fulcrums. It is the same module the stocks' grade uses, so no new port is needed; it needs
+   recipe fields (sidecar, `normalizeRecipe`, undo, copy/paste), the panel, and the TypeScript/GLSL check
+   through the probe (`colorGrade` already covers every control).
+2. **Stocks get their looks from LUT packs** where a good LUT exists (the Looks dropdown and darktable
+   lut3d port already do this; t3mujinpack covers every stock but CineStill 800T and Neutral).
+3. **The style tools become the advanced layer**: sigmoid primaries (ported this session) and the stock's
+   grade as an Advanced option, on top of whatever renders the stock.
+
+**Open questions to ask Oli before acting on them (he has not answered yet):**
+- Do LUTs *replace* the styles as the default stock looks? If so, the refit below is moot; and since this
+  commit left most stocks plainer than before, should the old looks come back in the meantime (e.g. by
+  restoring them from `fbe908d`), or is the Emulsion pack retired in favour of a LUT pack as default?
+- Which LUTs: t3mujinpack's look as the direction, another pack, or LUTs baked by us?
+- What Neutral and CineStill 800T (no t3mujinpack LUT) should do.
+
+**State of the stocks in this commit:** Emulsion's own stock controls are removed, but the refitted
+numbers are not in `stocks.ts`: every colour stock has only its old contrast (Pro 400H also keeps its old
+grade), so Portra, Gold, Ektar, Superia, Pro 400H, CineStill and HP5 render plainer than before with the
+Emulsion pack. Neutral and Tri-X are unchanged. LUT-pack looks are unaffected (a LUT replaces the style).
 
 Done and committed:
 - **Sigmoid primaries ported** (darktable `sigmoid.c` `_calculate_adjusted_primaries`, `custom_primaries.c`,
@@ -38,18 +58,38 @@ Files for the refit (session scratchpad, `/private/tmp/claude-502/-Users-oli-Dev
 - `probe.mjs '<query>' <preId> [budget]` runs headless Chrome and prints the `<pre>`; `savepngs.mjs` writes
   a `?renders` result to PNGs; `fit.sh <stock> <evals>` fits one stock to its before renders into
   `fit_<stock>.json` (`code` holds the entry to paste).
-- Fits with 3000 evaluations (×2 restarts) were running for all colour stocks and HP5 when the session ended
-  (~0.15 s per evaluation; 4 in parallel). A 200-evaluation trial took Portra 400 from 4.3 ΔE (contrast only)
-  to 2.6 to its old look.
+- Fits with 3000 evaluations (×2 restarts) for all colour stocks and HP5 were started in the background
+  and had not finished when the session ended; their `fit_<stock>.json` may be complete, empty or missing.
+  A 200-evaluation trial took Portra 400 from 4.3 ΔE (contrast only) to 2.6 to its old look. Only worth
+  finishing if Oli keeps the styles as the Emulsion pack's looks.
 
 ### Prompt for the next session
 
-> Read HANDOFF.md and docs/plans/stock-styles.md. Finish step 1: check the fits in the scratchpad named in
-> the handoff (`fit_<stock>.json`; rerun `fit.sh` for any that are empty, with more evaluations if the
-> error is still high), paste each `code` into src/film/stocks.ts, run `npm run check`, then make
-> before/after boards for every stock with the probe's `?board` mode and show them to me with each stock's
-> mean ΔE. Then propose step 2 (the advanced option) and the UX items, and ask me before building them.
-> Don't commit until I say so.
+> Read HANDOFF.md first, then docs/plans/stock-styles.md for background.
+>
+> **Where we were going:** Emulsion's film stocks were built from controls we invented (a crosstalk
+> matrix, per-channel crossover, balance gains, print saturation, fade), which breaks the rule of porting
+> the community's best tools. The plan was to rebuild every stock as a "style" made only of darktable
+> module settings (sigmoid contrast and primaries, plus a colour balance rgb grade) and fit each style to
+> the stock's old look. The last session ported sigmoid's primaries, removed our own controls and
+> committed (`68bacbd`), but the refit never finished, so most stocks now look plainer than before.
+>
+> **How we corrected course:** that mixed up two jobs, how a stock gets its look and what grading tools I
+> get. We separated them:
+> 1. **Colour Grading for every photo comes next.** Colour balance rgb is already ported in full, but the
+>    panel only uses four of its sliders. Expose its grading controls (shadow, mid-tone and highlight wheels,
+>    global offset, saturation and chroma by tone, brilliance, hue shift) as a Colour Grading section,
+>    whatever the stock.
+> 2. **Stocks get their looks from LUT packs** where a good LUT exists (the Looks dropdown and darktable's
+>    lut3d port already do this).
+> 3. **The style tools become an advanced layer** on top: sigmoid primaries and the stock's grade.
+>
+> **What to do now:** first ask me the open questions in the handoff: do LUTs replace the styles as the
+> default looks, and what happens to the stocks the last commit left plainer; which LUTs; what Neutral and
+> CineStill 800T get. Then plan the Colour Grading section: which controls to show and how (wheels like
+> darktable's hue/chroma pads, or sliders), where it sits in the panel, the recipe fields, and how it relates
+> to the Contrast, Vibrance, Saturation and Shadows sliders that already use the same module. Show me the
+> plan and a mock-up from the probe before building anything. Don't commit until I say so.
 
 ## Earlier work
 
@@ -115,10 +155,21 @@ Camera colour is already covered for every LibRaw camera through its matrices; D
 
 ## Next
 
-0. **Stocks as darktable styles**: follow [docs/plans/stock-styles.md](docs/plans/stock-styles.md) (finish step 1's refit first; see the prompt above). Then LUT import for users and Whites/Blacks on LUT stocks.
+0. **Colour Grading, LUT looks, styles as advanced** (Oli's new direction, see the top and the prompt). Then LUT import for users and Whites/Blacks on LUT stocks. [docs/plans/stock-styles.md](docs/plans/stock-styles.md) is the background; its steps 2-4 (advanced option, more style modules, UX for wheels) mostly carry over to the advanced layer and the Colour Grading panel.
 1. **Lens correction** (see the findings above). Oli: every camera treated equally, nothing built around his own. Order: (a) all four embedded formats together (Fuji, Olympus/OM, Sony, DNG; readers are per file format, so every body of those makers is covered, and new ones on day one), tested on Oli's files plus public samples from raw.pixls.us for Sony and DNG; then darktable's v2 maths. (b) lensfun auto-matching for every other maker (coverage arrives as database updates, not code). (c) A remembered per camera+lens assignment: when a lens is not recognised, the Lens section lets Oli pick a lensfun entry or load an Adobe LCP profile, applied to every photo from that camera and lens from then on (also fixes adapted and misnamed lenses).
 2. Oli tries the speed work (GPU-paced rendering), Colour, grain and RAW+JPEG folding in the real app.
-3. **Batch 3, part 2:** user presets (save and apply looks).
+3. **Your own profiles and presets** (Oli; Batch 3, part 2), kept distinct the way Lightroom keeps them:
+   - **Profiles** (like Lightroom's profiles): the base rendering of a photo, i.e. what a stock is. Users save
+     their own: import a LUT (.cube or Hald PNG, through the lut3d engine), or save the current stock's style
+     (sigmoid primaries and grade, from the advanced layer) as a new stock, optionally baked to a LUT. A
+     profile sits in the stock picker beside the built-in stocks, has its own Amount, and does not touch the
+     sliders.
+   - **Presets** (like Lightroom's presets): saved slider settings applied on top of whatever profile the
+     photo has (exposure, tone, Colour Grading, detail, grain...), with a choice of which groups to include;
+     a preset may also name a profile. Applying one changes the sliders, so it is undoable and editable after.
+   - Both kept in the app's config (not the sidecar); a photo's sidecar stores the values it uses, so it
+     still renders the same where the profile or preset is missing. Decide the folder layout, import/export
+     for sharing, and how they appear in the panel (Lightroom: a profile browser, and a presets list).
 4. **Tuning Emulsion's own stock looks** (the hand-tuned numbers in `src/film/stocks.ts`: contrast, crossover, balance, matrix, saturation, fade; Oli's own tuning, not a port). Two ways, both wanted:
    - **Developer panel: built** (not committed). A **Stock tuning** section under Film stock, in development builds only (`npm run tauri dev`; `import.meta.env.DEV`), for the current stock when Looks is Emulsion: contrast, crossover R/G/B, balance R/G/B, crosstalk (the six off-diagonal entries; each row's diagonal follows so rows sum to 1), saturation, fade; B&W stocks get their three weights instead of crosstalk and saturation. Changes are live everywhere (they edit `STOCK` in memory, `film/stocktuning.ts`), remembered across reloads in localStorage (`emulsion.stockTuning`, dev builds only), each track's tick marks the file's value (double-click resets one), **Copy as code** gives the stock's whole entry in `stocks.ts`'s layout (a test checks every untouched stock's code is exactly what the file has), **Back to stocks.ts** drops the tuning. Untested by Claude: the sliders in the real app, the clipboard. HP5's `contrast: 1.0` was written `1` to match.
    - **Tuning from samples**: Oli supplies reference images (a photo and how he wants it to look, or film scans of similar scenes); Claude adjusts the numbers to match and shows before/after renders with the probe.
