@@ -366,3 +366,8 @@ input[type='range']:disabled { opacity: 0.35; cursor: default; }
 .grade-details { border-top:1px solid var(--line); padding-top:10px; }
 .grade-details summary { cursor:pointer; font-size:12px; font-weight:600; margin-bottom:12px; }
 .grade-details .grade-row { margin:10px 0; }
+
+.lens-toggle { display:flex; align-items:center; gap:8px; font-size:12px; }
+.lens-toggle input { accent-color:var(--accent); }
+.lens-toggle .hint { margin-left:auto; }
+.lens-name { margin:0; font-size:12px; color:var(--fg); }

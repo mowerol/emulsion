@@ -2,6 +2,19 @@
 
 Rewritten at the end of each session. Last updated 2026-10-31 (late morning).
 
+## Lens correction: embedded layer implemented (2026-10-31)
+
+Oli asked to commit/push Whites/Blacks, then start lens correction. **`f11759a` is committed and pushed to origin/main.** Oli subsequently authorised committing the embedded lens layer below; it has not been pushed.
+
+- Implemented all four embedded formats together: Fuji RAF (old/new tables), Olympus/OM ORF, Sony ARW and centred radial DNG WarpRectilinear/FixVignetteRadial. Pinned darktable v2 maths; default on for RAWs. No camera-specific allowlist.
+- New Lens section shows camera/lens and embedded profile, enables/disables distortion, CA and vignette, and fine-tunes strengths 0–200%. DNG uses upstream's combined geometry/colour-alignment warp; off-centre/tangential and unsupported mandatory opcodes are explicitly unavailable. Identity ORF profiles are recognised as requiring no correction.
+- `src-tauri/src/lens.rs`: bounded TIFF/maker-note parsing, including Fuji raw TIFF and JPEG EXIF, large ORF notes and padded signed Sony arrays. Payload flag 2 carries aligned JSON metadata. `raw.rs`/decoder retain signed working values and camera matrix for CA reconstruction.
+- `engine/lenscorrection.ts` + `lenscorrect.frag.glsl`: cached full-source correction before analysis maps/crop/creative adjustments (after capture sharpening); source vignette before channel resampling, camera RGB/Rec.2020 matrix round-trip, auto-scale and orientation-aware centre. WB sampling/export use it too. Edited RAW thumbnails and stock tiles use small RAW decodes; unedited thumbnails remain camera previews.
+- Tests and source/samples are recorded in `docs/plans/lens-correction.md`. Regenerate numeric fixtures with `python3 tools/probe/lens-reference.py /path/to/pinned/darktable`. `?lensprobe` is the focused GPU/cache check; optional `&lenspanel&lensimg=<decoded-payload-url>` shows the panel and real-RAW before/after. Real decoded payload test instructions are in `lens.rs`.
+- Checks: 229 TypeScript tests and 36 Rust tests pass (4 optional tests ignored); TypeScript/production/probe builds pass. GPU reference error ~4.24e-6, no WebGL errors, detail-map cache returns identical pixels after toggling. Real metadata and decode exercised for Fuji/OM/Sony FX3/two DNGs. Sony 7M5 metadata parses, but LibRaw currently rejects decoding that newer sample.
+- Still needs Oli's assessment in the real app: profile toggles/fine-tuning, speed, portrait RAWs, 100% and exports. The lens pass adds one half-float image target with mipmaps; edited RAW thumbnails now incur a RAW decode (two small decoded images cached).
+- **Continue lens correction next:** lensfun matching/database and models, then remembered manual assignments and Adobe LCP loading. These are not implemented, so cameras/lenses without supported embedded profiles remain uncorrected. Keep LUT import/pack selection deferred until afterwards.
+
 ## Latest direction (2026-10-31): Whites/Blacks on LUTs, then lens correction
 
 Oli tried Colour Grading: **"looks good"**. He asked to finish Whites/Blacks on LUT stocks only, leave LUT import/selection for later, then move to lens correction.

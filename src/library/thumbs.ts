@@ -3,11 +3,11 @@
 // rendered on the GPU from those originals, only for frames that are on screen.
 
 import { useEffect, useSyncExternalStore } from 'react';
-import { captureInfo, logToTerminal, thumbnail } from '../backend/api';
+import { captureInfo, loadImage, logToTerminal, thumbnail } from '../backend/api';
 import { recipeKey, type Recipe } from '../film/recipe';
 import { framePixels } from '../film/crop';
 import type { Xy } from '../engine/whitebalance';
-import { Engine, InputMode, type Source } from '../engine/engine';
+import { Engine, InputMode, type Source, type HalfImage } from '../engine/engine';
 
 const THUMB_EDGE = 512;
 const DEVELOPED_EDGE = 384;
@@ -38,7 +38,7 @@ class ThumbStore {
   private waiting: (() => void)[] = [];
   private running = 0;
   private developed = new Map<string, Developed>();
-  private wanted = new Map<string, { recipe: Recipe | null; seed: number; white: Xy | null }>();
+  private wanted = new Map<string, { recipe: Recipe | null; seed: number; white: Xy | null; raw: boolean }>();
   private developing = false;
   private failed = new Set<string>();
   private listeners = new Set<() => void>();
@@ -102,10 +102,10 @@ class ThumbStore {
    * has a developed thumbnail is redeveloped once its edits pause, not on every
    * step of a slider drag, where it would compete with the main render.
    */
-  want(path: string, recipe: Recipe | null, seed: number, white: Xy | null) {
+  want(path: string, recipe: Recipe | null, seed: number, white: Xy | null, raw = false) {
     if (!this.originals.has(path) && !this.failed.has(path)) this.original(path).catch(() => {});
     if (recipe && this.developed.get(path)?.key !== thumbKey(recipe, white)) {
-      this.wanted.set(path, { recipe, seed, white });
+      this.wanted.set(path, { recipe, seed, white, raw });
       if (!this.developed.has(path)) {
         this.pump();
         return;
@@ -135,7 +135,7 @@ class ThumbStore {
         if (this.developed.get(path)?.key === key) continue;
         try {
           const orig = await this.original(path);
-          const url = await developBlob(orig.blob, job.recipe, job.seed, DEVELOPED_EDGE, job.white);
+          const url = await developBlob(orig.blob, job.recipe, job.seed, DEVELOPED_EDGE, job.white, path, job.raw);
           const prev = this.developed.get(path);
           if (prev) URL.revokeObjectURL(prev.url);
           this.developed.set(path, { key, url });
@@ -166,6 +166,7 @@ class ThumbStore {
     for (const o of this.originals.values()) URL.revokeObjectURL(o.url);
     for (const d of this.developed.values()) URL.revokeObjectURL(d.url);
     this.originals.clear();
+    rawPreviews.clear();
     this.developed.clear();
     this.wanted.clear();
     for (const t of this.settling.values()) clearTimeout(t);
@@ -207,10 +208,10 @@ export async function sourceFromBlob(eng: Engine, blob: Blob, white: Xy | null =
   }
 }
 
-async function developBlob(blob: Blob, recipe: Recipe | null, seed: number, edge: number, white: Xy | null): Promise<string> {
+async function developBlob(blob: Blob, recipe: Recipe | null, seed: number, edge: number, white: Xy | null, path: string, raw: boolean): Promise<string> {
   const eng = offscreenEngine();
   if (!eng) throw new Error('No GPU');
-  const { src, w: sw, h: sh } = await sourceFromBlob(eng, blob, white);
+  const { src, w: sw, h: sh } = await sourceForPreview(eng, path, blob, white, raw);
   try {
     const [w, h] = framePixels(recipe?.crop ?? null, sw, sh);
     const s = Math.min(1, edge / Math.max(w, h));
@@ -228,10 +229,25 @@ async function developBlob(blob: Blob, recipe: Recipe | null, seed: number, edge
 }
 
 /** The best thumbnail URL for a frame; requests it while `visible`. */
-export function useThumb(path: string, recipe: Recipe | null, seed: number, visible: boolean, white: Xy | null) {
+export function useThumb(path: string, recipe: Recipe | null, seed: number, visible: boolean, white: Xy | null, raw = false) {
   useSyncExternalStore(thumbs.subscribe, thumbs.snapshot);
   useEffect(() => {
-    if (visible) thumbs.want(path, recipe, seed, white);
-  }, [path, recipe, seed, visible, white]);
+    if (visible) thumbs.want(path, recipe, seed, white, raw);
+  }, [path, recipe, seed, visible, white, raw]);
   return { url: thumbs.url(path, recipe), failed: thumbs.hasFailed(path) };
+}
+
+
+// Camera JPEG previews already contain lens corrections. Edited RAW thumbnails and stock
+// tiles must instead use the actual RAW so toggles/strengths agree with Develop and export.
+const rawPreviews = new Map<string, HalfImage>();
+export async function sourceForPreview(eng: Engine, path: string, blob: Blob, white: Xy | null, raw: boolean) {
+  if (!raw) return sourceFromBlob(eng, blob, white);
+  let img = rawPreviews.get(path);
+  if (!img) {
+    img = await loadImage(path, THUMB_EDGE);
+    rawPreviews.set(path, img);
+    while (rawPreviews.size > 2) rawPreviews.delete(rawPreviews.keys().next().value!);
+  }
+  return { src: eng.sourceFromHalf(img), w: img.width, h: img.height };
 }

@@ -7,6 +7,7 @@ mod commands;
 mod decode;
 mod export;
 mod library;
+mod lens;
 mod raw;
 mod sidecar;
 mod thumbs;

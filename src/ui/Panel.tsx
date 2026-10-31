@@ -4,6 +4,7 @@
 import { Fragment, memo, useEffect, useRef, useState } from 'react';
 import { useLutVersion } from '../engine/lutstore';
 import { useStockTuningVersion } from '../film/stocktuning';
+import { LensControls } from './LensControls';
 import { ColourGradingControls } from './ColourGrading';
 import { PACK, PACKS, type PackId } from '../film/looks';
 import { BRIGHT_RANGE, COLOR_CHANNELS, DEFAULT_STOCK, HUE_DEGREES, SAT_RANGE, PUSHES, SLIDER, SLIDERS, defaultRecipe, tidyColor, type ColorAdjust, resetAdjustments, resetSection, sectionChanged, sliderDefault, withSettingsFrom, withStock, type Push, type Recipe, type SectionId, type SliderDef } from '../film/recipe';
@@ -12,7 +13,7 @@ import { STOCK, STOCKS, type StockId } from '../film/stocks';
 import {
   activePhoto, copySettings, editActive, editRecipes, finishCrop, pasteSettings, redo, setCropDraft, showToast, startCrop, targets, undo, useApp, type Photo,
 } from '../library/store';
-import { offscreenEngine, sourceFromBlob, thumbs } from '../library/thumbs';
+import { offscreenEngine, sourceForPreview, thumbs } from '../library/thumbs';
 import type { Source } from '../engine/engine';
 import { MOD, MarkControls, Segmented } from './common';
 import { ASPECTS, FULL, MAX_ANGLE, framePixels, pixelRatio, rotateFrame, setAngle, setAspect, type AspectId, type Crop } from '../film/crop';
@@ -66,7 +67,7 @@ const StockPicker = memo(function StockPicker({ photo, current, pack, onPick }: 
           return;
         }
         if (cancelled) return;
-        const made = await sourceFromBlob(eng, orig.blob, white);
+        const made = await sourceForPreview(eng, path, orig.blob, white, photo?.raw ?? false);
         if (cancelled) {
           eng.release(made.src);
           return;
@@ -412,6 +413,12 @@ export function Panel() {
         <Segmented label="Scanner" options={SCANNERS.map((s) => ({ value: s.id, label: s.name }))} value={base.scanner} onChange={pickScanner} />
         <p className="hint">{SCANNER[base.scanner].hint}</p>
       </Section>
+
+      {view === 'develop' && photo.raw && (
+        <Section id="lens" title="Lens" summary={photo.lens?.correction ? (base.lens?.enabled === false ? 'Off' : 'Embedded profile') : 'No profile'} onReset={resetFor('lens', 'Lens')}>
+          <LensControls recipe={base} metadata={photo.lens} />
+        </Section>
+      )}
 
       {view === 'develop' && (
         <Section id="crop" title="Crop" summary={cropSummary(recipe?.crop ?? null)} onReset={resetFor('crop', 'Crop')}>

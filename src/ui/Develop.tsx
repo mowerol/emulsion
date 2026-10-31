@@ -7,7 +7,7 @@ import { Engine, type Source } from '../engine/engine';
 import { histogram } from '../engine/histogram';
 import { defaultRecipe } from '../film/recipe';
 import { D65_XY, clampWhiteBalance, neutralizingWhite, temperatureTint } from '../engine/whitebalance';
-import { STAGE_COLORS, activePhoto, editActive, finishCrop, setCropDraft, setPhotoWhite, showToast, startCrop, useApp } from '../library/store';
+import { STAGE_COLORS, activePhoto, editActive, finishCrop, setCropDraft, setPhotoWhite, setPhotoLens, showToast, startCrop, useApp } from '../library/store';
 import { StageMenu } from './StageMenu';
 import { FULL, bounds, framePixels, rotateFrame, sourcePoint } from '../film/crop';
 import { CropOverlay } from './CropOverlay';
@@ -122,6 +122,7 @@ export function Develop() {
       try {
         const img = await loadImage(path, Math.min(PREVIEW_EDGE, engine.maxTextureSize));
         if (img.white) setPhotoWhite(path, img.white);
+        setPhotoLens(path, img.lens ?? null);
         swap(engine.sourceFromHalf(img), 'preview');
       } catch (err) {
         if (cancelled) return;
@@ -356,7 +357,7 @@ export function Develop() {
     if (!engine || !l || l.path !== path || !current) return;
     const [fu, fv] = imagePoint(current.view, fx, fy);
     const [u, v] = sourcePoint({ ...FULL, ...frame }, l.source.w, l.source.h, fu, fv);
-    const sample = engine.sampleScene(l.source, u, v);
+    const sample = engine.sampleScene(l.source, u, v, photo?.recipe ?? null);
     const w = neutralizingWhite(sample, l.source.white ?? D65_XY);
     useApp.setState({ picking: false });
     if (!w) {

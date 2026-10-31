@@ -7,6 +7,7 @@
 //           └────────────────────────────────────────────── develop ─ output
 
 import type { Recipe } from '../film/recipe';
+import { lensCenter, lensColourUniforms, lensSpline, lensUniforms, type LensMetadata } from './lenscorrection';
 import { FULL, cropAffine, type Rect } from '../film/crop';
 import { Gpu, GpuError, Lru, type Program, type Target } from './gpu';
 import { InputMode, LUT_UNIT, colorBalanceUniforms, developUniforms, needsPasses, type Uniforms } from './params';
@@ -31,6 +32,7 @@ export { GpuError, InputMode };
 
 /** Pixels decoded by the backend: RGBA half floats. */
 export interface HalfImage {
+  lens?: LensMetadata | null;
   width: number;
   height: number;
   mode: InputMode;
@@ -53,6 +55,7 @@ export interface View {
 export const FULL_VIEW: View = { x: 0, y: 0, w: 1, h: 1 };
 
 export interface Source {
+  lens?: LensMetadata | null;
   tex: WebGLTexture;
   w: number;
   h: number;
@@ -154,9 +157,12 @@ export class Engine {
   private ceLuts: { key: string; luts: ColorEqLuts } | null = null;
   private outs: Lru<Target>;
   private store: number;
+  private lensP: Program;
+  private lensMade: { input: WebGLTexture; key: string; out: Target } | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.gpu = new Gpu(canvas);
+    this.lensP = this.gpu.program(SHADERS.vertex, SHADERS.lenscorrect);
     this.develop = this.gpu.program(SHADERS.vertex, SHADERS.develop);
     this.extract = this.gpu.program(SHADERS.vertex, SHADERS.extract);
     this.teqMask = this.gpu.program(SHADERS.vertex, SHADERS.toneeqmask);
@@ -207,7 +213,7 @@ export class Engine {
     const mips = this.gpu.hdr;
     if (mips) gl.generateMipmap(gl.TEXTURE_2D);
     this.gpu.params(mips);
-    return { tex, w: img.width, h: img.height, mode: img.mode, white: img.white, fullW: img.fullWidth, fullH: img.fullHeight };
+    return { tex, w: img.width, h: img.height, mode: img.mode, white: img.white, lens: img.lens, fullW: img.fullWidth, fullH: img.fullHeight };
   }
 
   /** Upload an sRGB image (a thumbnail), shot for `white` (a RAW's camera preview) or D65. */
@@ -227,6 +233,7 @@ export class Engine {
   release(src: Source | null | undefined) {
     if (!src) return;
     this.gpu.gl.deleteTexture(src.tex);
+    if (this.lensMade?.input === src.tex) { this.gpu.free(this.lensMade.out); this.lensMade = null; }
     if (src.capture) this.gpu.gl.deleteTexture(src.capture.clip);
   }
 
@@ -339,6 +346,7 @@ export class Engine {
 
   /** Free the intermediate buffers for one source size (after a large export). */
   dropBuffers(w: number, h: number) {
+    if (this.lensMade?.out.w === w && this.lensMade.out.h === h) { this.gpu.free(this.lensMade.out); this.lensMade = null; }
     if (this.csOut && this.csOut.w === w && this.csOut.h === h) {
       this.gpu.free(this.csOut);
       this.csOut = null;
@@ -715,6 +723,29 @@ export class Engine {
     }
   }
 
+  /** Correct the RAW once, before all analysis maps, crop and creative adjustments. Camera
+   * JPEG previews already have manufacturer corrections and never enter this pass. */
+  private lensCorrected(src: Source, recipe: Recipe | null): Source {
+    if (src.mode !== InputMode.SceneLinear || !src.lens?.correction || !this.gpu.hdr) return src;
+    const model = lensSpline(src.lens.correction, src.w, src.h, recipe?.lens ?? null);
+    if (!model) return src;
+    const key = JSON.stringify([model, src.lens.orientation]);
+    if (this.lensMade?.input === src.tex && this.lensMade.key === key) return { ...src, tex: this.lensMade.out.tex };
+    if (this.lensMade) this.gpu.free(this.lensMade.out);
+    const out = this.gpu.target(src.w, src.h, true);
+    this.gpu.bind(0, src.tex);
+    this.lensP.set({ uTex: 0, uLensCenter: lensCenter(src.lens.orientation ?? 1, src.fullW, src.fullH), ...lensUniforms(model), ...lensColourUniforms(src.lens) });
+    this.gpu.draw(this.lensP, out, src.w, src.h);
+    this.gpu.scratch();
+    this.gpu.gl.bindTexture(this.gpu.gl.TEXTURE_2D, out.tex);
+    this.gpu.gl.generateMipmap(this.gpu.gl.TEXTURE_2D);
+    this.gpu.params(true);
+    this.lensMade = { input: src.tex, key, out };
+    // The target's content changed; downstream maps must not reuse its old pixels.
+    this.eqMade = null; this.llMade = null; this.usmMade = null; this.ceMade = null;
+    return { ...src, tex: out.tex };
+  }
+
   /**
    * Develop `src` with `recipe` (null = original) into `target`, or onto the
    * canvas when `target` is 'screen'.
@@ -744,6 +775,7 @@ export class Engine {
     // Capture sharpening replaces the source for everything after it.
     const iterations = recipe && !opts.compare && src.capture && g.hdr && g.float32 ? iterationsFor(recipe.captureSharpening) : 0;
     if (iterations > 0) src = { ...src, tex: this.captureSharpened(src, iterations) };
+    src = this.lensCorrected(src, recipe);
     const view = opts.view ?? FULL_VIEW;
     const frame = opts.frame ?? recipe?.crop ?? FULL;
     // Effects that belong to the film (grain, vignette) see the whole uncropped
@@ -903,9 +935,10 @@ export class Engine {
    * over a small patch around (u, v), with v = 0 at the top of the photo.
    * The patch spans about 0.4% of the frame, whatever the source size.
    */
-  sampleScene(src: Source, u: number, v: number): [number, number, number] {
+  sampleScene(src: Source, u: number, v: number, recipe: Recipe | null = null): [number, number, number] {
     const g = this.gpu;
     const gl = g.gl;
+    src = this.lensCorrected(src, recipe);
     const t = g.target(1, 1, g.hdr, g.float32);
     try {
       const step = 0.002 * Math.max(src.w, src.h);
@@ -957,6 +990,8 @@ export class Engine {
   }
 
   dispose() {
+    if (this.lensMade) this.gpu.free(this.lensMade.out);
+    this.lensMade = null;
     if (this.curveTex) this.gpu.gl.deleteTexture(this.curveTex);
     this.curveTex = null;
     this.lutTex.clear();

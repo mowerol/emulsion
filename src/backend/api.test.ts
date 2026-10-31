@@ -26,3 +26,17 @@ describe('image payload', () => {
     expect(() => parsePayload(new ArrayBuffer(4))).toThrow(/short/);
   });
 });
+
+it('reads aligned lens metadata without shifting the half-float pixels, and rejects truncation', () => {
+  const meta = { camera: 'Camera', lens: 'Lens', correction: null, unsupported: null };
+  const json = new TextEncoder().encode(JSON.stringify(meta));
+  const offset = Math.ceil((HEADER_BYTES+4+json.length)/4)*4;
+  const buf = new ArrayBuffer(offset+8), view = new DataView(buf);
+  view.setUint32(0,1,true);view.setUint32(4,1,true);view.setUint32(8,2,true);view.setUint32(12,2,true);
+  view.setUint32(HEADER_BYTES,json.length,true);new Uint8Array(buf,HEADER_BYTES+4,json.length).set(json);
+  new Uint16Array(buf,offset)[0]=0x3c00;
+  expect(parsePayload(buf).lens).toEqual(meta);
+  expect(parsePayload(buf).data[0]).toBe(0x3c00);
+  view.setUint32(HEADER_BYTES,1_048_577,true);
+  expect(()=>parsePayload(buf)).toThrow(/metadata length/);
+});

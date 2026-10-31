@@ -2,6 +2,9 @@
 // Engine probe: renders a synthetic frame through the real engine in any
 // browser and reports pixel values, so stage changes and ports can be checked
 // numerically. See docs/ARCHITECTURE.md, "Testing".
+import { parsePayload } from '../../src/backend/api';
+import lensFixtures from '../../src/engine/fixtures/lens-metadata.json';
+import { LENS_DEFAULTS, lensCenter, lensColourUniforms, lensCorrectPixels, lensSpline, lensUniforms, type LensMetadata } from '../../src/engine/lenscorrection';
 import { Engine, colorEqParams, type Source } from '../../src/engine/engine';
 import { updateGrade } from '../../src/film/grading';
 import { defaultRecipe, type Recipe } from '../../src/film/recipe';
@@ -478,7 +481,59 @@ view.width = W; view.height = H;
 document.body.append(view);
 const out: Record<string, unknown> = {};
 try {
-  if (new URLSearchParams(location.search).has('lutlevels')) {
+  if (new URLSearchParams(location.search).has('lensprobe')) {
+    const engine = new Engine(view), g=engine.gpu, gl=g.gl;
+    const width=37,height=23,pixels=new Float32Array(width*height*4);
+    for(let y=0;y<height;y++)for(let x=0;x<width;x++)pixels.set([0.1+x/width,0.2+y/height,0.05+((x*7+y*3)%17)/20,1],(y*width+x)*4);
+    const tex=gl.createTexture()!;
+    g.scratch();gl.bindTexture(gl.TEXTURE_2D,tex);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA32F,width,height,0,gl.RGBA,gl.FLOAT,pixels);g.params(false);
+    const prog=g.program(SHADERS.vertex,SHADERS.lenscorrect),target=g.target(width,height,true,true);
+    const cases: Record<string,number>={};
+    for(const [index,metadata] of (lensFixtures as LensMetadata[]).entries()) {
+      for(const orientation of [1,8]) for(const enabled of [true,false]) {
+        const model=lensSpline(metadata.correction!,width,height,{...LENS_DEFAULTS,distortion:enabled})!;
+        if(!model)continue;
+        const center=lensCenter(orientation,width,height);
+        const colour={...metadata,cameraToWorking:[[0.8,0.15,0.05],[0.05,0.9,0.05],[0.1,0.05,0.85]] as import('../../src/film/stocks').Mat3};
+        g.bind(0,tex);prog.set({uTex:0,uLensCenter:center,...lensUniforms(model),...lensColourUniforms(colour)});g.draw(prog,target,width,height);
+        const got=new Float32Array(pixels.length);gl.readPixels(0,0,width,height,gl.RGBA,gl.FLOAT,got);
+        const reference=lensCorrectPixels(pixels,width,height,model,center,colour.cameraToWorking);
+        let error=0;for(let i=0;i<got.length;i++)error=Math.max(error,Math.abs(got[i]-reference[i]));
+        cases[`${index}_${orientation}_${enabled}`]=error;
+      }
+    }
+    out.lens={worstAbsoluteError:Math.max(...Object.values(cases)),byCase:cases,glError:gl.getError()};
+    // Corrected-source cache must be invalidated when a profile changes, including after
+    // the same source is rendered with different switches then returned to its defaults.
+    const source={tex,w:width,h:height,mode:InputMode.SceneLinear,white:null,fullW:width,fullH:height,lens:(lensFixtures as LensMetadata[])[0]};
+    const recipe={...defaultRecipe('neutral','straight'),texture:20,clarity:20,sharpen:20};
+    const first=engine.readPixels(source,recipe,width,height,1);
+    engine.readPixels(source,{...recipe,lens:{...LENS_DEFAULTS,vignette:false}},width,height,1);
+    const again=engine.readPixels(source,recipe,width,height,1);
+    out.lensCache={equal:first.every((v,i)=>v===again[i]),glError:gl.getError()};
+    if(new URLSearchParams(location.search).has('lenspanel')) {
+      useApp.setState({ photos:[{path:'/probe/lens.raw',rel:'lens.raw',name:'Lens test',size:1,modified:0,recipe:defaultRecipe('neutral','straight'),seed:1,white:null,rating:0,label:null,heart:false,raw:true,pair:null,lens:(lensFixtures as LensMetadata[])[0]}],active:0,view:'develop' });
+      localStorage.setItem('emulsion.folded',JSON.stringify(['stock','development','scanner','crop','adjust','curve','color','grading','detail','optics','grain']));
+      const host=document.createElement('div');host.style.cssText='position:fixed;inset:0 auto 0 0;width:340px;display:grid;z-index:100';document.body.append(host);createRoot(host).render(createElement(Panel));
+      setTimeout(()=>{const panel=host.querySelector('.panel') as HTMLElement;panel.scrollTop=(panel.querySelector('#section-lens')?.parentElement?.offsetTop??0)-170;},300);
+    }
+    const sampleFile=new URLSearchParams(location.search).get('lensimg');
+    if(sampleFile) void (async()=>{
+      const img=parsePayload(await(await fetch(sampleFile)).arrayBuffer());
+      const source=engine.sourceFromHalf(img),r=defaultRecipe('neutral','straight');
+      const board=document.createElement('canvas');board.width=img.width*2;board.height=img.height+36;
+      const bx=board.getContext('2d')!;bx.fillStyle='#201f1d';bx.fillRect(0,0,board.width,board.height);bx.fillStyle='#ece7dd';bx.font='16px system-ui';
+      for(const [i,enabled] of [false,true].entries()) {
+        const px=engine.readPixels(source,{...r,lens:{...LENS_DEFAULTS,enabled}},img.width,img.height,1);
+        bx.putImageData(new ImageData(new Uint8ClampedArray(px.buffer),img.width,img.height),i*img.width,36);
+        bx.fillText(enabled?'Embedded correction':'Correction off',i*img.width+14,24);
+      }
+      board.style.cssText='position:fixed;left:360px;top:20px;width:1000px;height:auto;z-index:100';document.body.append(board);
+      const pre=document.createElement('pre');pre.id='lensPhoto';pre.textContent=JSON.stringify({board:board.toDataURL('image/png'),lens:img.lens});document.body.append(pre);
+      engine.release(source);
+    })();
+  } else if (new URLSearchParams(location.search).has('lutlevels')) {
     // Only the focused LUT tests below; skip unrelated image filters and timing.
   } else if (new URLSearchParams(location.search).has('gradingpanel')) {
     document.body.style.background = '#1c1b19';

@@ -16,6 +16,7 @@ import { applyMark, describeMark, hasMark, normalizeMarks, type Label, type Mark
 import { History, describe, type Change, type Step } from './history';
 
 export interface Photo {
+  lens?: import('../engine/lenscorrection').LensMetadata | null;
   path: string;
   rel: string;
   name: string;
@@ -545,4 +546,10 @@ export function finishCrop(keep: boolean) {
     (r) => (JSON.stringify(r?.crop ?? null) === JSON.stringify(crop) ? r : { ...(r ?? defaultRecipe()), crop }),
     'Crop',
   );
+}
+
+
+/** Lens metadata belongs to the file, not its recipe. */
+export function setPhotoLens(path: string, lens: import('../engine/lenscorrection').LensMetadata | null) {
+  set({ photos: get().photos.map(p => p.path === path ? { ...p, lens } : p) });
 }

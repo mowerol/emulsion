@@ -153,6 +153,7 @@ pub struct Decoded {
     pub white: Option<[f32; 2]>,
     /// Size of a full-resolution decode, oriented.
     pub full_size: (u32, u32),
+    pub camera_to_working: Mat3,
 }
 
 /// Chromaticity of the light the camera balanced for: a surface recorded as
@@ -244,14 +245,16 @@ pub fn decode(path: &Path, half: bool) -> Result<Decoded, String> {
     out.par_chunks_mut(3).zip(src.par_chunks(3)).for_each(|(o, s)| {
         let c = [s[0] as f32 * scale, s[1] as f32 * scale, s[2] as f32 * scale];
         for (i, v) in o.iter_mut().enumerate() {
-            *v = (m[i][0] * c[0] + m[i][1] * c[1] + m[i][2] * c[2]).max(0.0);
+            // Keep out-of-gamut values until lens CA has resampled the camera channels.
+            // The GPU input stage clips them after correction (as before for other RAWs).
+            *v = m[i][0] * c[0] + m[i][1] * c[1] + m[i][2] * c[2];
         }
     });
     unsafe { emu_raw_free(img) };
 
     let buf = ImageBuffer::<Rgb<f32>, _>::from_raw(w, h, out).ok_or("RAW image has the wrong size")?;
     let full_size = if info.full_width > 0 && info.full_height > 0 { (info.full_width as u32, info.full_height as u32) } else { (w, h) };
-    Ok(Decoded { image: DynamicImage::ImageRgb32F(buf), white: white_for(&info), full_size })
+    Ok(Decoded { image: DynamicImage::ImageRgb32F(buf), white: white_for(&info), full_size, camera_to_working: m })
 }
 
 fn file_name(path: &Path) -> String {

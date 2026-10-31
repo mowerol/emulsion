@@ -30,6 +30,8 @@ Input modes (`engine/params.ts`, `InputMode`):
 
 ### Stages
 
+RAW sources first pass through cached embedded lens correction (`engine/lenscorrection.ts`, `lenscorrect.frag.glsl`), after capture sharpening but before all analysis maps and creative edits. Rust's bounded TIFF/maker-note reader supplies Fuji/Sony/Olympus/DNG profiles in the decoder payload. The pass recovers white-balanced camera RGB with the decoder's matrix, applies source-space vignette gain and per-channel radial bilinear resampling, then returns to Rec.2020. RAW working values retain their sign until after this pass so camera channels can be reconstructed. The correction is on by default, independently switchable per photo; DNG's combined warp has one switch/strength as upstream. Camera JPEG previews are never corrected twice: edited RAW thumbnails and stock previews decode a small RAW instead.
+
 Each stage is one GLSL file in `src/engine/shaders/stages/`, included into `develop.frag.glsl` in this order. Its parameters come from the recipe through `engine/params.ts`.
 
 | Stage | File | Domain | What it does | Planned replacement |
@@ -42,7 +44,7 @@ Each stage is one GLSL file in `src/engine/shaders/stages/`, included into `deve
 | Texture | `texture.glsl` | scene | Texture: darktable's contrast equalizer (its "sharpen" preset, with darktable's mix as the slider) on CIE L*, from a map the `eq` passes make over the whole photo; keeps Lab a and b. **Ported from darktable contrast equalizer** | |
 | Colour | `colorequal.glsl` | scene | Colour: hue, saturation and brightness for eight colours, red to magenta, from a map the `ce` passes make over the whole photo (darktable's two guided filters keep the changes even across an area and off greys). Skipped when every value is 0. **Ported from darktable color equalizer** | |
 | Colour balance | `colorbalance.glsl` | scene | Contrast, vibrance, saturation and shadows plus the recipe's Colour Grading: four hue/chroma/luminance wheels, chroma/saturation/brilliance by tone, hue shift and mask/contrast fulcrums. Shared controls feed one instance; `film/grading.ts` normalises additional recipe fields. **Ported from darktable colour balance rgb** | |
-| Lens | `lens.glsl` | scene | Vignetting | |
+| Creative vignette | `lens.glsl` | scene | Manual light falloff, separate from embedded lens correction | |
 | Optics | `optics.glsl` | scene | Halation and glow, added back from blurred highlights | |
 | Stock grade | `colorbalance.glsl` (`stageStockGrade`) | scene | The stock's grade, part of its style: a second instance of darktable colour balance rgb with every control (four ways, chroma, saturation and brilliance by tone, hue shift). Off when a LUT renders the stock. **Ported from darktable colour balance rgb** | |
 | Emulsion | `emulsion.glsl` | scene | Black and white sensitivity; colour stocks pass through | Measured stock data or CLUTs |

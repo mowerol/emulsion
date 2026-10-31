@@ -98,6 +98,10 @@ const ONE: u16 = 0x3C00; // f16 1.0
 
 /// RGBA half floats (little-endian bytes), linear light, alpha forced to 1.
 pub fn linear_f16_rgba(img: &DynamicImage) -> Vec<u8> {
+    linear_f16_rgba_impl(img, false)
+}
+
+fn linear_f16_rgba_impl(img: &DynamicImage, preserve_negative: bool) -> Vec<u8> {
     let px = img.width() as usize * img.height() as usize;
     let mut out = vec![0u8; px * 8];
     match img {
@@ -106,7 +110,7 @@ pub fn linear_f16_rgba(img: &DynamicImage) -> Vec<u8> {
             let src = img.to_rgba32f();
             out.par_chunks_mut(8).zip(src.as_raw().par_chunks(4)).for_each(|(o, s)| {
                 for c in 0..3 {
-                    o[c * 2..c * 2 + 2].copy_from_slice(&f16::from_f32(s[c].max(0.0)).to_bits().to_le_bytes());
+                    o[c * 2..c * 2 + 2].copy_from_slice(&f16::from_f32(if preserve_negative { s[c] } else { s[c].max(0.0) }).to_bits().to_le_bytes());
                 }
                 o[6..8].copy_from_slice(&ONE.to_le_bytes());
             });
@@ -141,6 +145,7 @@ pub fn linear_f16_rgba(img: &DynamicImage) -> Vec<u8> {
 /// Header followed by pixels. The header is width, height, mode and flags as
 /// little-endian u32 (flag 1: a white point follows), the as-shot white point x
 /// and y as little-endian f32, then the size of a full-resolution decode as u32.
+/// Flag 2 appends a u32 JSON length and lens metadata (padded to a 4-byte boundary) before pixels.
 pub fn payload(w: u32, h: u32, mode: InputMode, white: Option<[f32; 2]>, full: (u32, u32), pixels: Vec<u8>) -> Vec<u8> {
     let mut out = Vec::with_capacity(HEADER_BYTES + pixels.len());
     out.extend_from_slice(&w.to_le_bytes());
@@ -163,7 +168,16 @@ pub fn load_for_engine(path: &Path, max_edge: Option<u32>) -> Result<Vec<u8>, St
         let raw = raw::decode(path, half)?;
         let img = resize_to(raw.image, max_edge);
         let (w, h) = (img.width(), img.height());
-        return Ok(payload(w, h, InputMode::SceneLinear, raw.white, raw.full_size, linear_f16_rgba(&img)));
+        let mut bytes = payload(w, h, InputMode::SceneLinear, raw.white, raw.full_size, vec![]);
+        if let Some(lens) = crate::lens::read(path).and_then(|mut m| { m.camera_to_working = Some(raw.camera_to_working); serde_json::to_vec(&m).ok() }) {
+            let flags = u32::from_le_bytes(bytes[12..16].try_into().unwrap()) | 2;
+            bytes[12..16].copy_from_slice(&flags.to_le_bytes());
+            bytes.extend_from_slice(&(lens.len() as u32).to_le_bytes());
+            bytes.extend_from_slice(&lens);
+            while bytes.len() % 4 != 0 { bytes.push(0); }
+        }
+        bytes.extend_from_slice(&linear_f16_rgba_impl(&img, true));
+        return Ok(bytes);
     }
     let original = open_oriented(path)?;
     let full = (original.width(), original.height());
@@ -184,6 +198,14 @@ mod tests {
             v[c] = f16::from_bits(u16::from_le_bytes([bytes[o + c * 2], bytes[o + c * 2 + 1]])).to_f32();
         }
         v
+    }
+
+    #[test]
+    fn raw_payload_preserves_signed_working_values_for_camera_channel_reconstruction() {
+        let image=DynamicImage::ImageRgb32F(ImageBuffer::<Rgb<f32>, _>::from_raw(1,1,vec![-0.25,0.2,0.7]).unwrap());
+        let first=|bytes:Vec<u8>|f16::from_bits(u16::from_le_bytes([bytes[0],bytes[1]])).to_f32();
+        assert_eq!(first(linear_f16_rgba_impl(&image,true)),-0.25);
+        assert_eq!(first(linear_f16_rgba(&image)),0.0);
     }
 
     #[test]
