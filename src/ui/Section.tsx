@@ -29,6 +29,7 @@ export function Section({
   summary,
   onReset,
   children,
+  hidden = false,
 }: {
   id: string;
   title: string;
@@ -36,6 +37,7 @@ export function Section({
   /** Shown as a Reset link in the heading when the section differs from its defaults. */
   onReset?: () => void;
   children: ReactNode;
+  hidden?: boolean;
 }) {
   const [open, setOpen] = useState(() => !readFolded().has(id));
   const toggle = () => {
@@ -47,7 +49,7 @@ export function Section({
   };
   const body = `section-${id}`;
   return (
-    <section className={`group${open ? '' : ' folded'}`}>
+    <section hidden={hidden} className={`group${open ? '' : ' folded'}`}>
       <h2>
         <button type="button" className="section-head" aria-expanded={open} aria-controls={body} onClick={toggle}>
           <span className="chevron" aria-hidden="true" />

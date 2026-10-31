@@ -11,26 +11,21 @@ import { BRIGHT_RANGE, COLOR_CHANNELS, DEFAULT_STOCK, HUE_DEGREES, SAT_RANGE, PU
 import { SCANNER, SCANNERS, type ScannerId } from '../film/scanners';
 import { STOCK, STOCKS, type StockId } from '../film/stocks';
 import {
-  activePhoto, copySettings, editActive, editRecipes, finishCrop, pasteSettings, redo, setCropDraft, showToast, startCrop, targets, undo, useApp, type Photo,
+  activePhoto, copySettings, editActive, editRecipes, pasteSettings, redo, showToast, targets, undo, useApp, type Photo,
 } from '../library/store';
 import { offscreenEngine, sourceForPreview, thumbs } from '../library/thumbs';
 import type { Source } from '../engine/engine';
-import { MOD, MarkControls, Segmented } from './common';
-import { ASPECTS, FULL, MAX_ANGLE, framePixels, pixelRatio, rotateFrame, setAngle, setAspect, type AspectId, type Crop } from '../film/crop';
+import { MOD, Segmented } from './common';
+import { framePixels } from '../film/crop';
+import { PhotoInfo } from './PhotoInfo';
 import { Histogram } from './Histogram';
 import { CurveEditor } from './CurveEditor';
+import { CONTROL_GROUPS, groupHasSection, setWorkspace, useWorkspace, type ControlSectionId } from './workspace';
+import { CropControls, cropSummary } from './CropControls';
 import { Section } from './Section';
 import { ISOS } from '../engine/grain';
 import { WhiteBalanceControls } from './WhiteBalanceControls';
 import { sliderGradient } from '../engine/colorequal';
-
-function summary(r: Recipe | null) {
-  if (!r) return 'Neutral, unedited';
-  const push = PUSHES.find((p) => p.value === r.push)!.phrase;
-  const scan = r.scanner === 'straight' ? 'with no scanner profile' : `scanned on a ${SCANNER[r.scanner].name}`;
-  const lut = PACK[r.pack].looks[r.stock] ? ` (${PACK[r.pack].name})` : '';
-  return `${STOCK[r.stock].name}${lut} ${push}, ${scan}`;
-}
 
 /** Stock buttons, each previewing the active frame through that stock. */
 const StockPicker = memo(function StockPicker({ photo, current, pack, onPick }: { photo: Photo | null; current: StockId | null; pack: PackId; onPick: (id: StockId) => void }) {
@@ -246,71 +241,6 @@ function GrainSpeed({ recipe }: { recipe: Recipe | null }) {
   );
 }
 
-const cropSummary = (c: Crop | null) => {
-  if (!c) return 'Whole frame';
-  const aspect = c.aspect === 'free' ? 'Free' : ASPECTS.find((a) => a.id === c.aspect)!.label;
-  return c.angle ? `${aspect}, ${c.angle > 0 ? '+' : '−'}${Math.abs(c.angle).toFixed(1)}°` : aspect;
-};
-
-/** Crop and straighten: a button to start, then the aspect and angle while cropping. */
-function CropControls({ recipe }: { recipe: Recipe | null }) {
-  const edit = useApp((s) => s.cropEdit);
-  const canStart = useApp((s) => s.developSize?.path === activePhoto(s)?.path);
-  if (!edit) {
-    return (
-      <button type="button" className="btn" disabled={!canStart} onClick={startCrop} title="R">
-        {recipe?.crop ? 'Edit crop' : 'Crop and straighten'}
-      </button>
-    );
-  }
-  const { draft, W, H } = edit;
-  const change = (f: (c: Crop) => Crop) => setCropDraft(f);
-  const portrait = pixelRatio(draft, W, H) < 1;
-  return (
-    <>
-      <Segmented<AspectId>
-        label="Aspect ratio"
-        options={ASPECTS.map((a) => ({ value: a.id, label: a.label }))}
-        value={draft.aspect}
-        onChange={(aspect) => change((c) => setAspect(c, aspect, W, H))}
-      />
-      <button type="button" className="btn" onClick={() => change((c) => rotateFrame(c, W, H))} title="X">
-        {portrait ? 'Make landscape' : 'Make portrait'}
-      </button>
-      <div className="slider">
-        <label htmlFor="slider-straighten" onDoubleClick={() => change((c) => setAngle(c, 0, W, H))} title="Double-click the name or the handle to reset">
-          Straighten
-        </label>
-        <output htmlFor="slider-straighten">{`${draft.angle > 0 ? '+' : draft.angle < 0 ? '−' : ''}${Math.abs(draft.angle).toFixed(1)}°`}</output>
-        <div className="track">
-          <input
-            id="slider-straighten"
-            type="range"
-            min={-MAX_ANGLE}
-            max={MAX_ANGLE}
-            step={0.1}
-            value={draft.angle}
-            onChange={(e) => change((c) => setAngle(c, Number(e.target.value), W, H))}
-            onDoubleClick={() => change((c) => setAngle(c, 0, W, H))}
-          />
-        </div>
-      </div>
-      <p className="hint">Drag the corners to resize, inside to move and outside to straighten.</p>
-      <div className="crop-actions">
-        <button type="button" className="btn" onClick={() => change(() => ({ ...FULL, aspect: draft.aspect === 'free' ? 'original' : draft.aspect }))}>
-          Reset
-        </button>
-        <button type="button" className="btn" onClick={() => finishCrop(false)} title="Esc">
-          Cancel
-        </button>
-        <button type="button" className="btn primary" onClick={() => finishCrop(true)} title="Enter">
-          Done
-        </button>
-      </div>
-    </>
-  );
-}
-
 /** A button that asks for a second click before doing something broad. */
 function ConfirmButton({ label, confirm, onConfirm, disabled }: { label: string; confirm: string; onConfirm: () => void; disabled?: boolean }) {
   const [armed, setArmed] = useState(false);
@@ -339,13 +269,17 @@ function ConfirmButton({ label, confirm, onConfirm, disabled }: { label: string;
 export function Panel() {
   const view = useApp((s) => s.view);
   const photo = useApp(activePhoto);
-  const active = useApp((s) => s.active);
   const total = useApp((s) => s.photos.length);
   const selectedCount = useApp((s) => s.selected.size);
   const clipboard = useApp((s) => s.clipboard);
   const history = useApp((s) => s.history);
   const recipe = photo?.recipe ?? null;
   const multi = selectedCount > 1;
+  const workspace = useWorkspace();
+  const controlsBody = useRef<HTMLDivElement>(null);
+  const grouped = view === 'develop' && workspace.layout === 'workflow';
+  useEffect(() => { if (grouped && controlsBody.current) controlsBody.current.scrollTop = 0; }, [workspace.group, grouped]);
+  const show = (id: ControlSectionId) => !grouped || groupHasSection(workspace.group, id);
 
   // Stock, development and scanner apply to every selected frame.
   const applyToTargets = (change: (r: Recipe | null) => Recipe) => {
@@ -376,19 +310,20 @@ export function Panel() {
   ];
 
   return (
-    <aside className="panel" aria-label="Lab order">
+    <aside className={`panel${grouped ? ' panel-workflow' : ''}`} aria-label={grouped ? 'Controls' : 'Lab order'}>
       {view === 'develop' && <Histogram />}
-      <div className="order">
-        <span className="order-frame">
-          Frame {active + 1} of {total}, {photo.name}
-          {photo.pair ? ' (with its JPEG)' : ''}
-        </span>
-        <span className="order-line">{summary(recipe)}</span>
-        <MarkControls photo={photo} />
-        {multi && <span className="order-note">Looks, stock, development, scanner, stars, tags and hearts apply to the {selectedCount} selected frames.</span>}
-      </div>
+      {grouped && <h2 className="control-panel-title">Controls</h2>}
+      {!grouped && <PhotoInfo />}
 
-      <Section id="stock" title="Film stock" summary={recipe ? STOCK[recipe.stock].name : 'None'}>
+      {grouped && <>
+        <nav className="control-stages" aria-label="Control stages">
+          {CONTROL_GROUPS.map(g => <button type="button" key={g.id} aria-pressed={workspace.group === g.id} onClick={() => setWorkspace({ group: g.id })}>{g.name}</button>)}
+        </nav>
+        <div className="control-stage-heading"><span>{String(CONTROL_GROUPS.findIndex(g => g.id === workspace.group) + 1).padStart(2, '0')} / {CONTROL_GROUPS.length}</span><strong>{CONTROL_GROUPS.find(g => g.id === workspace.group)!.hint}</strong></div>
+      </>}
+
+      <div className={grouped ? 'grouped-controls-body' : 'classic-controls-body'} ref={controlsBody}>
+      <Section hidden={!show('stock')} id="stock" title="Film stock" summary={recipe ? STOCK[recipe.stock].name : 'None'}>
         <div className="grain-speed">
           <label htmlFor="look-pack">Looks</label>
           <select id="look-pack" value={base.pack} onChange={(e) => pickPack(e.target.value as PackId)}>
@@ -404,23 +339,30 @@ export function Panel() {
         <StockPicker photo={photo} current={base.stock} pack={base.pack} onPick={pickStock} />
       </Section>
 
-      <Section id="development" title="Development" summary={PUSHES.find((p) => p.value === base.push)!.label} onReset={resetFor('development', 'Development')}>
+      <Section hidden={!show('development')} id="development" title="Development" summary={PUSHES.find((p) => p.value === base.push)!.label} onReset={resetFor('development', 'Development')}>
         <Segmented label="Push or pull processing" options={PUSHES.map((p) => ({ value: p.value, label: p.label }))} value={base.push} onChange={pickPush} />
         <p className="hint">{PUSHES.find((p) => p.value === base.push)!.hint}</p>
       </Section>
 
-      <Section id="scanner" title="Scanner" summary={SCANNER[base.scanner].name} onReset={resetFor('scanner', 'Scanner')}>
+      <Section hidden={!show('scanner')} id="scanner" title="Scanner" summary={SCANNER[base.scanner].name} onReset={resetFor('scanner', 'Scanner')}>
         <Segmented label="Scanner" options={SCANNERS.map((s) => ({ value: s.id, label: s.name }))} value={base.scanner} onChange={pickScanner} />
         <p className="hint">{SCANNER[base.scanner].hint}</p>
       </Section>
 
       {view === 'develop' && photo.raw && (
-        <Section id="lens" title="Lens" summary={photo.lens?.correction ? (base.lens?.enabled === false ? 'Off' : 'Embedded profile') : 'No profile'} onReset={resetFor('lens', 'Lens')}>
+        <Section hidden={!show('lens')} id="lens" title="Lens" summary={photo.lens?.correction ? (base.lens?.enabled === false ? 'Off' : 'Embedded profile') : 'No profile'} onReset={resetFor('lens', 'Lens')}>
           <LensControls recipe={base} metadata={photo.lens} />
         </Section>
       )}
 
-      {view === 'develop' && (
+      {grouped && <>
+        <Section hidden={!show('whitebalance')} id="whitebalance" title="White balance" onReset={resetFor('whitebalance', 'White balance')}><WhiteBalanceControls recipe={base} white={photo.white} /></Section>
+        <Section hidden={!show('colour-basics')} id="colour-basics" title="Colour basics" onReset={resetFor('colour-basics', 'Colour basics')}>
+          <div className="sliders">{SLIDERS.filter(d => d.key === 'vibrance' || d.key === 'saturation').map(d => <SliderRow key={d.key} def={d} recipe={base} onChange={setSlider} />)}</div>
+        </Section>
+      </>}
+
+      {view === 'develop' && !grouped && (
         <Section id="crop" title="Crop" summary={cropSummary(recipe?.crop ?? null)} onReset={resetFor('crop', 'Crop')}>
           <CropControls recipe={recipe} />
         </Section>
@@ -429,28 +371,28 @@ export function Panel() {
       {view === 'develop' ? (
         groups.map(([title, group]) => (
           <Fragment key={group}>
-            <Section id={group} title={title} onReset={resetFor(group, title)}>
-              {group === 'adjust' && <WhiteBalanceControls recipe={base} white={photo.white} />}
+            <Section hidden={!show(group)} id={group} title={grouped && group === 'adjust' ? 'Exposure & tone' : title} onReset={resetFor(grouped && group === 'adjust' ? 'tone' : group, grouped && group === 'adjust' ? 'Exposure & tone' : title)}>
+              {group === 'adjust' && !grouped && <WhiteBalanceControls recipe={base} white={photo.white} />}
               {group === 'grain' && <GrainSpeed recipe={base} />}
               <div className="sliders">
-                {SLIDERS.filter((d) => d.group === group).map((d) => (
+                {SLIDERS.filter((d) => d.group === group && !(grouped && group === 'adjust' && (d.key === 'vibrance' || d.key === 'saturation'))).map((d) => (
                   <SliderRow key={d.key} def={d} recipe={base} onChange={setSlider} />
                 ))}
               </div>
               {group === 'detail' && <p className="hint">Sharpening shows best at 100%; hold ⌥ on Masking to see where it reaches. Capture undoes the lens and sensor blur of RAW files, at the pixel level.</p>}
             </Section>
             {group === 'adjust' && (
-              <Section id="curve" title="Tone curve" summary={recipe?.curve ? 'Edited' : 'Straight'} onReset={resetFor('curve', 'Tone curve')}>
+              <Section hidden={!show('curve')} id="curve" title="Tone curve" summary={recipe?.curve ? 'Edited' : 'Straight'} onReset={resetFor('curve', 'Tone curve')}>
                 <CurveEditor curve={base.curve} disabled={false} onChange={(curve) => editActive((r) => ({ ...(r ?? defaultRecipe()), curve }))} />
               </Section>
             )}
             {group === 'adjust' && (
-              <Section id="color" title="Colour" summary={recipe?.color ? 'Edited' : 'As shot'} onReset={resetFor('color', 'Colour')}>
+              <Section hidden={!show('color')} id="color" title="Colour" summary={recipe?.color ? 'Edited' : 'As shot'} onReset={resetFor('color', 'Colour')}>
                 <ColorControls recipe={base} />
               </Section>
             )}
             {group === 'adjust' && (
-              <Section id="grading" title="Colour Grading" summary={sectionChanged(recipe, 'grading') ? 'Edited' : 'Neutral'} onReset={resetFor('grading', 'Colour Grading')}>
+              <Section hidden={!show('grading')} id="grading" title="Colour Grading" summary={sectionChanged(recipe, 'grading') ? 'Edited' : 'Neutral'} onReset={resetFor('grading', 'Colour Grading')}>
                 <ColourGradingControls recipe={base} />
               </Section>
             )}
@@ -459,6 +401,8 @@ export function Panel() {
       ) : (
         <p className="hint panel-note">Open Develop to fine-tune exposure, colour, halation and grain.</p>
       )}
+
+      </div>
 
       <div className="panel-actions">
         <button type="button" className="btn" onClick={undo} disabled={!history.undo} title={history.undo ? `Undo ${history.undo} (${MOD}Z)` : 'Nothing to undo'}>

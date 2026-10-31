@@ -9,6 +9,8 @@ import { markForKey } from './library/marks';
 import {
   copySettings, markPhotos, openFolder, pasteSettings, redo, selectAll, setCompare, setExportOpen, setView, showToast, step, stepToEnd, undo, useApp, type View,
 } from './library/store';
+import { Images } from './ui/Images';
+import { useWorkspace } from './ui/workspace';
 import { Develop } from './ui/Develop';
 import { ExportDialog } from './ui/ExportDialog';
 import { Library, gridColumns } from './ui/Library';
@@ -19,7 +21,7 @@ import { Welcome } from './ui/Welcome';
 const typingIn = (t: EventTarget | null) => {
   const el = t as HTMLElement | null;
   if (!el) return false;
-  if (el.isContentEditable || el.tagName === 'TEXTAREA') return true;
+  if (el.isContentEditable || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT') return true;
   return el.tagName === 'INPUT' && (el as HTMLInputElement).type !== 'range' && (el as HTMLInputElement).type !== 'radio';
 };
 
@@ -38,7 +40,7 @@ function menuAction(id: string) {
   }
   if (id === 'undo') undo();
   else if (id === 'redo') redo();
-  else if (id === 'select-all' && useApp.getState().view === 'library') selectAll();
+  else if (id === 'select-all' && (useApp.getState().view === 'library' || (useApp.getState().view === 'develop' && useWorkspace.getState().layout === 'workflow'))) selectAll();
 }
 
 function useShortcuts() {
@@ -69,7 +71,7 @@ function useShortcuts() {
       if (mod && e.shiftKey && k === 'c') { e.preventDefault(); copySettings(); return; }
       if (mod && e.shiftKey && k === 'v') { e.preventDefault(); pasteSettings(); return; }
       if (mod && e.shiftKey && k === 'e') { e.preventDefault(); setExportOpen(true); return; }
-      if (!MENU_OWNS_EDIT_KEYS && mod && k === 'a' && s.view === 'library') { e.preventDefault(); selectAll(); return; }
+      if (!MENU_OWNS_EDIT_KEYS && mod && k === 'a' && (s.view === 'library' || (s.view === 'develop' && useWorkspace.getState().layout === 'workflow'))) { e.preventDefault(); selectAll(); return; }
       if (mod || e.altKey) return;
       if (k === 'g') setView('library');
       else if (k === 'd') setView('develop');
@@ -80,6 +82,8 @@ function useShortcuts() {
       else if (e.key === 'ArrowLeft') { e.preventDefault(); step(-1); }
       else if (e.key === 'ArrowDown' && s.view === 'library') { e.preventDefault(); step(gridColumns); }
       else if (e.key === 'ArrowUp' && s.view === 'library') { e.preventDefault(); step(-gridColumns); }
+      else if (e.key === 'ArrowDown' && s.view === 'develop' && useWorkspace.getState().layout === 'workflow') { e.preventDefault(); step(useWorkspace.getState().imageColumns); }
+      else if (e.key === 'ArrowUp' && s.view === 'develop' && useWorkspace.getState().layout === 'workflow') { e.preventDefault(); step(-useWorkspace.getState().imageColumns); }
       else if (e.key === 'Home') stepToEnd('first');
       else if (e.key === 'End') stepToEnd('last');
     };
@@ -136,6 +140,8 @@ export default function App() {
   const hasFolder = useApp((s) => s.folder !== null);
   useShortcuts();
   const dropping = useDesktop();
+  const layout = useWorkspace(s => s.layout);
+  const workflow = layout === 'workflow' && view === 'develop' && hasFolder;
 
   return (
     <div className="app">
@@ -143,9 +149,10 @@ export default function App() {
       {view === 'welcome' || !hasFolder ? (
         <Welcome />
       ) : (
-        <div className="workspace">
-          <div className="main">{view === 'develop' ? <Develop /> : <Library />}</div>
-          <Panel />
+        <div className={`workspace${workflow ? ' workspace-workflow' : ''}`}>
+          {workflow && <Images key="images" />}
+          <div className="main" key="main">{view === 'develop' ? <Develop /> : <Library />}</div>
+          <Panel key="controls" />
         </div>
       )}
       <ExportDialog />

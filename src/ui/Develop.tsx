@@ -1,4 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import { PhotoInfo } from './PhotoInfo';
+import { PhotoTools } from './PhotoTools';
+import { useWorkspace } from './workspace';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useLutVersion } from '../engine/lutstore';
 import { useStockTuningVersion } from '../film/stocktuning';
@@ -37,6 +40,7 @@ const dpr = () => Math.min(window.devicePixelRatio || 1, 2);
 const rgb = (hex: string): [number, number, number] => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255) as [number, number, number];
 
 export function Develop() {
+  const workflow = useWorkspace(s => s.layout === 'workflow');
   const boxRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
@@ -402,7 +406,10 @@ export function Develop() {
   const cursor = cropping ? 'default' : picking ? 'crosshair' : panning ? 'grabbing' : zoom.scale === null ? 'zoom-in' : 'grab';
 
   return (
-    <section className="develop">
+    <section className={`develop${workflow ? ' develop-workflow' : ''}`}>
+      {workflow && <div className="photo-tools-host"><PhotoTools ready={!!current} scale={zoom.scale} zoomLabel={current ? label(zoom, current) : 'Fit'}
+        onZoom={scale => scale === null ? setZoom(FIT) : zoomTo(scale, 0.5, 0.5)} before={before}
+        onBefore={() => setBefore(b => b === 'full' ? 'off' : 'full')} onSplit={() => setBefore(b => b === 'split' ? 'off' : 'split')} /></div>}
       <div
         className={`stage${stage.light ? ' light' : ''}`}
         style={{ background: stage.hex }}
@@ -440,7 +447,7 @@ export function Develop() {
         {photo && !showing && !error && <span className="stage-status">Opening {photo.name}</span>}
         {photo && showing && loaded!.res === 'thumb' && <span className="stage-status">Loading preview</span>}
         {photo && showing && loadingFull && <span className="stage-status">Loading full resolution</span>}
-        {current && !cropping && (
+        {!workflow && current && !cropping && (
           <div className="zoom-bar" role="group" aria-label="Zoom">
             <button type="button" aria-pressed={before === 'full'} onClick={() => setBefore((b) => (b === 'full' ? 'off' : 'full'))} title={'Show the original (or hold \\)'}>
               Before
@@ -461,7 +468,8 @@ export function Develop() {
           </div>
         )}
       </div>
-      <Filmstrip />
+      {workflow && <PhotoInfo toolbar />}
+      {!workflow && <Filmstrip />}
     </section>
   );
 }

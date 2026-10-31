@@ -2,9 +2,22 @@
 
 Rewritten at the end of each session. Last updated 2026-10-31 (late morning).
 
-## Lens correction: embedded layer implemented (2026-10-31)
+## Workspace layouts (2026-10-31)
 
-Oli asked to commit/push Whites/Blacks, then start lens correction. **`f11759a` is committed and pushed to origin/main.** Oli subsequently authorised committing the embedded lens layer below; it has not been pushed.
+Oli chose prototype A and added: **switch between one and two photo columns**. Implemented with real controls; Oli authorised committing and pushing the workspace changes, including the fixed photo-info bar. The push also includes lens correction commit `2421a94`.
+
+- Workflow is the new default Develop layout: Images browser left, shared photo canvas centre, control stages right, Crop/Zoom/Before/Split toolbar above. Classic retains the existing bottom filmstrip, flat panel and floating zoom/crop placement.
+- Frame/file info and heart/stars/tags moved below the photo into a fixed bottom bar at Oli's request; the stock/development/scanner sentence was removed.
+- Top-bar Workspace selector; Images header has a remembered 1/2-column switch. `ui/workspace.ts` stores layout, columns and stage in app preferences, never in photo recipes.
+- Default stages: Prepare (Lens/WB), Look (stock/development/scanner), Tone (exposure/tone/curve), Colour (Vibrance/Saturation, Colour, Colour Grading), Finish (Detail/Optics/Grain). Stable section IDs and membership are data, preparing for custom groups later; the custom-group editor is not built.
+- Renderer remains mounted during layout changes. Crop and zoom stay inside Develop; toolbar spans the workspace grid using CSS, with shared CropControls in a popover. Existing selections, filters, marks, pair folding, undo/copy/paste remain available.
+- Validation: 232 TypeScript tests, 36 Rust tests (4 optional tests ignored), TypeScript/production/probe builds pass. Browser integration checks cover columns/persistence, canvas and zoom preservation, crop draft preservation, stage visibility, unique IDs, select keyboard isolation, selection/filter reuse. Unit tests cover preference fallback/partial updates and stage-reset isolation. See `docs/plans/workspace-layouts.md`.
+- Prototype variations archived locally outside main (`/private/tmp/emulsion-workspace-prototypes-A-B-C.tar.gz`); no prototype code or private photo is included in the production implementation. Screenshots are local in `/private/tmp`.
+- Next: Oli tries/refines the workspace. Custom stage arrangements later. Resume lensfun/LCP coverage when returning to lens correction; LUT import and pack selection remain deferred.
+
+## Lens correction: embedded layer committed (2026-10-31)
+
+Oli asked to commit/push Whites/Blacks, then start lens correction. **`f11759a` is committed and pushed to origin/main.** Embedded lens correction is committed as `2421a94` and included in the workspace push.
 
 - Implemented all four embedded formats together: Fuji RAF (old/new tables), Olympus/OM ORF, Sony ARW and centred radial DNG WarpRectilinear/FixVignetteRadial. Pinned darktable v2 maths; default on for RAWs. No camera-specific allowlist.
 - New Lens section shows camera/lens and embedded profile, enables/disables distortion, CA and vignette, and fine-tunes strengths 0–200%. DNG uses upstream's combined geometry/colour-alignment warp; off-centre/tangential and unsupported mandatory opcodes are explicitly unavailable. Identity ORF profiles are recognised as requiring no correction.
