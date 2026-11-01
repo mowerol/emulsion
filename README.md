@@ -89,6 +89,7 @@ npm run probe     # build the engine probe (see docs/ARCHITECTURE.md, Testing)
 2. Real stock characterisations, starting with GPL-compatible Hald CLUT packs.
 3. Presets, 16-bit TIFF export, colour-managed input and output (Display P3).
 4. Move the pipeline to WebGPU (WGSL), so it can later be shared with a native Rust core.
+5. Persistent develop-preview cache: store bounded 2560px decoded previews on disk, keyed by source identity and decode settings, with invalidation and cleanup.
 
 ## License
 

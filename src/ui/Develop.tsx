@@ -5,7 +5,7 @@ import { useWorkspace } from './workspace';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useProfileVersion } from '../engine/profilestore';
 import { useLutVersion } from '../engine/lutstore';
-import { loadImage, logToTerminal } from '../backend/api';
+import { logToTerminal } from '../backend/api';
 import { Engine, type Source } from '../engine/engine';
 import { histogram } from '../engine/histogram';
 import { defaultRecipe } from '../film/recipe';
@@ -14,7 +14,7 @@ import { STAGE_COLORS, activePhoto, editActive, finishCrop, setCropDraft, setPho
 import { StageMenu } from './StageMenu';
 import { FULL, bounds, framePixels, rotateFrame, sourcePoint } from '../film/crop';
 import { CropOverlay } from './CropOverlay';
-import { ensureCapture, sourceFromBlob, thumbs } from '../library/thumbs';
+import { ensureCapture, loadCachedImage, sourceFromBlob, thumbs } from '../library/thumbs';
 import { Filmstrip } from './Filmstrip';
 import { FIT, imagePoint, label, layout, pan, step, zoomAt, type Layout, type Zoom } from './zoom';
 import { MaskOverlay } from './MaskOverlay';
@@ -49,6 +49,7 @@ export function Develop() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
   const loadedRef = useRef<Loaded | null>(null);
+  const sourceCacheRef = useRef(new Map<string, Source>());
   const [error, setError] = useState<string | null>(null);
   const [loadedVersion, setLoadedVersion] = useState(0);
   const [box, setBox] = useState({ w: 0, h: 0 });
@@ -95,9 +96,11 @@ export function Develop() {
     return () => {
       const e = engineRef.current;
       if (e) {
-        e.release(loadedRef.current?.source);
+        for (const source of sourceCacheRef.current.values()) e.release(source);
+        if (loadedRef.current && !sourceCacheRef.current.has(`${loadedRef.current.path}:${loadedRef.current.res}`)) e.release(loadedRef.current.source);
         e.dispose();
       }
+      sourceCacheRef.current.clear();
       engineRef.current = null;
       loadedRef.current = null;
     };
@@ -105,10 +108,33 @@ export function Develop() {
 
   const swapSource = useCallback((p: string, source: Source, res: Res) => {
     const engine = engineRef.current!;
-    engine.release(loadedRef.current?.source);
+    const key = `${p}:${res}`;
+    const old = loadedRef.current;
+    if (old && !sourceCacheRef.current.has(`${old.path}:${old.res}`)) engine.release(old.source);
+    if (res !== 'thumb') {
+      sourceCacheRef.current.set(key, source);
+      while (sourceCacheRef.current.size > 4) {
+        const [evictedKey, evicted] = sourceCacheRef.current.entries().next().value as [string, Source];
+        if (old && evicted === old.source) {
+          sourceCacheRef.current.delete(evictedKey);
+          sourceCacheRef.current.set(evictedKey, evicted);
+          continue;
+        }
+        sourceCacheRef.current.delete(evictedKey);
+        engine.release(evicted);
+      }
+    }
     loadedRef.current = { path: p, source, res };
     setLoadedVersion((v) => v + 1);
   }, []);
+  const cachedSource = (key: string) => {
+    const source = sourceCacheRef.current.get(key);
+    if (source) {
+      sourceCacheRef.current.delete(key);
+      sourceCacheRef.current.set(key, source);
+    }
+    return source;
+  };
 
   // Load the active photo: the cached thumbnail first, then the preview.
   useEffect(() => {
@@ -124,17 +150,28 @@ export function Develop() {
     (async () => {
       let previewShown = false;
       try {
-        const orig = await thumbs.original(path);
-        if (!cancelled && loadedRef.current?.path !== path) {
-          const { src } = await sourceFromBlob(engine, orig.blob, useApp.getState().photos.find((p) => p.path === path)?.white ?? null);
-          swap(src, 'thumb');
+        const cached = cachedSource(`${path}:preview`);
+        if (cached) {
+          swap(cached, 'preview');
           previewShown = true;
+        } else {
+          const orig = await thumbs.original(path);
+          if (!cancelled && loadedRef.current?.path !== path) {
+            const { src } = await sourceFromBlob(engine, orig.blob, useApp.getState().photos.find((p) => p.path === path)?.white ?? null);
+            swap(src, 'thumb');
+            previewShown = true;
+          }
         }
       } catch {
         /* fall through to the decode */
       }
       try {
-        const img = await loadImage(path, Math.min(PREVIEW_EDGE, engine.maxTextureSize));
+        const cached = cachedSource(`${path}:preview`);
+        if (cached) {
+          swap(cached, 'preview');
+          return;
+        }
+        const img = await loadCachedImage(path, Math.min(PREVIEW_EDGE, engine.maxTextureSize));
         if (img.white) setPhotoWhite(path, img.white);
         setPhotoLens(path, img.lens ?? null);
         setPhotoCamera(path, img.camera ?? null);
@@ -219,7 +256,13 @@ export function Develop() {
     if (current.scale <= (src.w / src.fullW) * 1.05) return;
     setLoadingFull(true);
     let cancelled = false;
-    loadImage(path, engine.maxTextureSize)
+    const cached = cachedSource(`${path}:full`);
+    if (cached) {
+      swapSource(path, cached, 'full');
+      setLoadingFull(false);
+      return;
+    }
+    loadCachedImage(path, engine.maxTextureSize)
       .then((img) => {
         if (cancelled || loadedRef.current?.path !== path) return;
         swapSource(path, engine.sourceFromHalf(img), 'full');

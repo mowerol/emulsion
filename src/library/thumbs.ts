@@ -9,12 +9,22 @@ import { recipeKey, type Recipe } from '../film/recipe';
 import { framePixels } from '../film/crop';
 import type { Xy } from '../engine/whitebalance';
 import { Engine, InputMode, type Source, type HalfImage } from '../engine/engine';
+import { ImageLoadCache } from './imagecache';
 
 const THUMB_EDGE = 512;
 const DEVELOPED_EDGE = 384;
 /** How long edits must pause before an edited frame's thumbnail is redeveloped. */
 const SETTLE_MS = 400;
 const FETCH_CONCURRENCY = 4;
+const IMAGE_CACHE_BYTES = 512 * 1024 * 1024;
+
+// Decoded half-float images are expensive to produce, especially for RAWs.
+// Keep a bounded session cache so revisiting a photo does not decode it again.
+const decodedImages = new ImageLoadCache<HalfImage>(IMAGE_CACHE_BYTES, (img) => img.data.byteLength);
+
+export function loadCachedImage(path: string, maxEdge: number): Promise<HalfImage> {
+  return decodedImages.get(path, maxEdge, loadImage);
+}
 
 let engine: Engine | null | undefined;
 /** A shared offscreen engine for thumbnails, stock previews and export. */
@@ -168,6 +178,7 @@ class ThumbStore {
     for (const d of this.developed.values()) URL.revokeObjectURL(d.url);
     this.originals.clear();
     rawPreviews.clear();
+    decodedImages.clear();
     this.developed.clear();
     this.wanted.clear();
     for (const t of this.settling.values()) clearTimeout(t);
@@ -247,7 +258,7 @@ export async function sourceForPreview(eng: Engine, path: string, blob: Blob, wh
   if (!raw) return sourceFromBlob(eng, blob, white);
   let img = rawPreviews.get(path);
   if (!img) {
-    img = await loadImage(path, THUMB_EDGE);
+    img = await loadCachedImage(path, THUMB_EDGE);
     rawPreviews.set(path, img);
     while (rawPreviews.size > 2) rawPreviews.delete(rawPreviews.keys().next().value!);
   }
