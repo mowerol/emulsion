@@ -2,6 +2,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { activePhoto, finishCrop, startCrop, useApp } from '../library/store';
 import { CropControls } from './CropControls';
+import { FilterBar } from './FilterBar';
+import { ImageViewOptions } from './ImageViewOptions';
 
 export function PhotoTools({ scale, zoomLabel, onZoom, before, onBefore, onSplit, ready }: {
   scale: number | null; zoomLabel: string; onZoom: (scale: number | null) => void;
@@ -15,6 +17,11 @@ export function PhotoTools({ scale, zoomLabel, onZoom, before, onBefore, onSplit
   const presets = [0.25, 0.5, 1, 2, 4];
   const custom = scale !== null && !presets.includes(scale);
   return <div className="photo-tools" role="toolbar" aria-label="Photo tools">
+    <div className="photo-tools-filters">
+      <div className="photo-tools-images"><strong>Images</strong><ImageViewOptions /></div>
+      <FilterBar />
+    </div>
+    <div className="photo-tools-editing">
     <div className="crop-tool">
       <button ref={cropButton} type="button" disabled={!canCrop} aria-pressed={cropping} aria-expanded={cropping && settingsOpen} aria-controls="crop-tool-settings" onClick={() => {
         if (cropping) setSettingsOpen(!settingsOpen); else startCrop();
@@ -32,7 +39,7 @@ export function PhotoTools({ scale, zoomLabel, onZoom, before, onBefore, onSplit
     <span className="photo-tools-divider" aria-hidden="true" />
     <button type="button" disabled={!ready || cropping} aria-pressed={before === 'full'} onClick={onBefore} title="Show the original (or hold \\)">Before</button>
     <button type="button" disabled={!ready || cropping} aria-pressed={before === 'split'} onClick={onSplit} title="Before and after side by side (Y)">Split</button>
-    <span className="photo-tools-spacer" />
+    </div>
     <span className="photo-tools-frame">{photo?.name}</span>
   </div>;
 }

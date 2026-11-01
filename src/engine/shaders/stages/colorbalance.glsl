@@ -23,10 +23,10 @@ uniform mat3 uCbGradingToLms;
 // fulcrums; [1-3] chroma, saturation and brilliance (global, shadows, mid-tones, highlights);
 // [4-7] the global offset, shadows lift, highlights gain and mid-tones power in grading RGB;
 // [8] mid-tones luminance power and the masks' weights; [9] mask grey, hue shift cos and sin, L* white.
-// The recipe sliders' instance runs as Colour balance; the stock's own runs before Emulsion.
 uniform vec4 uCbP[10];
-uniform vec4 uCbS[10];
-uniform float uCbSOn;
+// A saved creative profile's hidden instance, run just before the photo's own (uCbLOn 0: none).
+uniform vec4 uCbL[10];
+uniform float uCbLOn;
 // Squared colourfulness of the working gamut boundary for 512 hues in [-pi, pi), packed in fours.
 uniform vec4 uCbGamut[128];
 
@@ -201,5 +201,6 @@ vec3 colorBalanceRgb(vec3 rgb, vec4 P[10]) {
 // The recipe's Colour balance sliders.
 vec3 stageColorBalance(vec3 rgb) { return colorBalanceRgb(rgb, uCbP); }
 
-// The stock's own grade (its style), before Emulsion.
-vec3 stageStockGrade(vec3 rgb) { return uCbSOn > 0.5 ? colorBalanceRgb(rgb, uCbS) : rgb; }
+// A saved creative profile's colour and tone, applied without moving the photo's sliders.
+vec3 stageProfileColorBalance(vec3 rgb) { return uCbLOn > 0.5 ? colorBalanceRgb(rgb, uCbL) : rgb; }
+

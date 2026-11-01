@@ -2,7 +2,9 @@
 // The look packs' LUT files, loaded on first use and kept, so switching back is instant.
 
 import { useSyncExternalStore } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { type Clut, parse3dl, parseCube, parseHald } from './lut3d';
+import { USER_LOOKS_DIR } from '../film/looks';
 
 /** A loaded LUT; `id` keys the GPU texture and the maps downstream, `eightBit` picks its format. */
 export interface LoadedLut extends Clut {
@@ -15,6 +17,8 @@ let base = 'looks/';
 let ids = 0;
 let version = 0;
 const luts = new Map<string, LoadedLut | 'loading' | 'failed'>();
+/** Loads in flight, so a second caller waits for the same file rather than getting nothing. */
+const inFlight = new Map<string, Promise<void>>();
 const listeners = new Set<() => void>();
 
 /** Load packs from somewhere else (the probe, from file://); call before rendering. */
@@ -32,6 +36,20 @@ function get(url: string, type: 'text' | 'blob'): Promise<unknown> {
     x.onerror = () => reject(new Error(`${url}: unreadable`));
     x.send();
   });
+}
+
+/** A file name with the right extension for a LUT's bytes: PNG by its signature, .cube by its size line, else .3dl. */
+export async function lutFormat(data: Blob): Promise<'png' | 'cube' | '3dl'> {
+  const head = new Uint8Array(await data.slice(0, 8).arrayBuffer());
+  if (head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47) return 'png';
+  return /^\s*LUT_3D_SIZE\b/m.test(await data.text()) ? 'cube' : '3dl';
+}
+
+/** An imported look's file, read through the app (it lives in the app's data folder). */
+async function userLook(file: string): Promise<{ name: string; blob: Blob }> {
+  const id = file.slice(USER_LOOKS_DIR.length);
+  const blob = new Blob([await invoke<ArrayBuffer>('read_user_look', { id })]);
+  return { name: `${id}.${await lutFormat(blob)}`, blob };
 }
 
 /** Read a LUT file's contents: .cube, .3dl or a Hald CLUT image. */
@@ -55,16 +73,26 @@ export async function loadLut(file: string): Promise<LoadedLut | null> {
   if (have && have !== 'loading' && have !== 'failed') return have;
   if (!have) {
     luts.set(file, 'loading');
-    try {
-      const blob = (await get(base + encodeURI(file), 'blob')) as Blob;
-      luts.set(file, await readLut(file, blob));
-    } catch (e) {
-      luts.set(file, 'failed');
-      console.error('look LUT', file, e);
-    }
-    version++;
-    listeners.forEach((l) => l());
+    inFlight.set(file, (async () => {
+      try {
+        if (file.startsWith(USER_LOOKS_DIR)) {
+          const { name, blob } = await userLook(file);
+          luts.set(file, await readLut(name, blob));
+        } else {
+          const url = file.startsWith('/local-looks/') ? encodeURI(file) : base + encodeURI(file);
+          const blob = (await get(url, 'blob')) as Blob;
+          luts.set(file, await readLut(file, blob));
+        }
+      } catch (e) {
+        luts.set(file, 'failed');
+        console.error('look LUT', file, e);
+      }
+      inFlight.delete(file);
+      version++;
+      listeners.forEach((l) => l());
+    })());
   }
+  await inFlight.get(file);
   const now = luts.get(file);
   return now && now !== 'loading' && now !== 'failed' ? now : null;
 }

@@ -1,0 +1,116 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Creative profiles' hidden settings. A saved profile carries colour and tone settings that apply
+// without moving the photo's sliders, plus optionally a look LUT it refers to; its Amount scales all
+// of it. The settings run at their usual places in the pipeline: the colour balance as a second
+// instance just before the photo's own, the curve composed in front of the photo's own curve.
+
+import { CB_DEFAULTS, colorBalanceParams, sliderParams, type CbParams } from '../engine/colorbalance';
+import { CURVE_RES, curveTable, isIdentity, normalizeCurve, type ToneCurve } from './curve';
+import { normalizeGrading } from './grading';
+import type { Recipe } from './recipe';
+
+/** A look LUT a profile refers to: a pack, the stock id it supplies, and how much of it (0 to 1). */
+export interface LookRef {
+  pack: string;
+  stock: string;
+  amount: number;
+}
+
+export interface ProfileSettings {
+  /** A colour balance rgb instance, darktable's units (the photo's own sliders and grading, combined). */
+  colorBalance: Partial<CbParams> | null;
+  curve: ToneCurve | null;
+  look: LookRef | null;
+}
+
+/** The recipe fields a profile takes over when it is saved from a photo. */
+export const PROFILE_FIELDS = ['contrast', 'vibrance', 'saturation', 'shadows', 'grading', 'curve'] as const;
+
+/** The colour balance settings Amount scales towards darktable's defaults. Hues, weights and fulcrums stay. */
+const SCALED = /(_Y|_C)$|^(chroma|saturation|brilliance)_|^(vibrance|contrast|hue_angle)$/;
+
+/** The photo's colour and tone settings, as a profile's hidden settings. */
+export function settingsFromRecipe(r: Recipe, look: LookRef | null): ProfileSettings {
+  const cb: CbParams = { ...sliderParams(colorBalanceParams(r.contrast, r.vibrance, r.saturation, r.shadows)), ...r.grading };
+  const changed = Object.fromEntries(
+    (Object.keys(cb) as (keyof CbParams)[]).filter((k) => cb[k] !== CB_DEFAULTS[k] && k !== 'grey_fulcrum').map((k) => [k, cb[k]]),
+  ) as Partial<CbParams>;
+  const any = Object.keys(changed).length > 0;
+  return {
+    // The contrast fulcrum is the photo's (Emulsion's middle grey unless Colour Grading moved it).
+    colorBalance: any ? { ...changed, grey_fulcrum: cb.grey_fulcrum } : null,
+    curve: isIdentity(r.curve) ? null : r.curve,
+    look,
+  };
+}
+
+/** The photo with the settings a profile took over back at rest (the profile now supplies them). */
+export function withoutProfileFields(r: Recipe): Recipe {
+  return { ...r, contrast: 0, vibrance: 0, saturation: 0, shadows: 0, grading: null, curve: null };
+}
+
+export const hasSettings = (s: ProfileSettings | null | undefined) => !!s && (!!s.colorBalance || !!s.curve);
+
+/** A profile's colour balance at `amount` (0 to 1), or null when it has none. */
+export function scaledColorBalance(s: ProfileSettings | null, amount: number): CbParams | null {
+  if (!s?.colorBalance) return null;
+  const out = { ...CB_DEFAULTS, ...s.colorBalance };
+  for (const k of Object.keys(out) as (keyof CbParams)[]) {
+    if (SCALED.test(k)) out[k] = CB_DEFAULTS[k] + (out[k] - CB_DEFAULTS[k]) * amount;
+  }
+  return out;
+}
+
+/** Linear interpolation in a 256-step table, as the GPU's filtered texture read does. */
+function at(table: Float32Array, k: number, v: number): number {
+  const s = Math.min(Math.max(v, 0), 1) * (CURVE_RES - 1);
+  const i = Math.min(Math.floor(s), CURVE_RES - 2);
+  const f = s - i;
+  return table[i * 4 + k] * (1 - f) + table[(i + 1) * 4 + k] * f;
+}
+
+/**
+ * The curve stage's table: the profile's curve at `amount` (a blend with the straight line), then the
+ * photo's own curve. Each channel's master-then-channel curve is folded into the channel's column;
+ * the master column is the straight line. Null when neither has a curve.
+ */
+export function composedCurveTable(own: ToneCurve | null, profile: ToneCurve | null, amount: number): Float32Array | null {
+  const p = profile && amount > 0 && !isIdentity(profile) ? curveTable(profile) : null;
+  const o = own && !isIdentity(own) ? curveTable(own) : null;
+  if (!p) return o;
+  const out = new Float32Array(CURVE_RES * 4);
+  for (let i = 0; i < CURVE_RES; i++) {
+    const x = i / (CURVE_RES - 1);
+    out[i * 4] = x;
+    for (let k = 1; k < 4; k++) {
+      const viaProfile = x + (at(p, k, at(p, 0, x)) - x) * amount;
+      out[i * 4 + k] = o ? at(o, k, at(o, 0, viaProfile)) : viaProfile;
+    }
+  }
+  return out;
+}
+
+const finite = (v: unknown) => typeof v === 'number' && Number.isFinite(v);
+
+/** Hidden settings read from a saved profile file; anything unreadable is dropped. */
+export function normalizeSettings(input: unknown): ProfileSettings | null {
+  if (!input || typeof input !== 'object') return null;
+  const o = input as Record<string, unknown>;
+  let colorBalance: Partial<CbParams> | null = null;
+  if (o.colorBalance && typeof o.colorBalance === 'object') {
+    const cb = o.colorBalance as Record<string, unknown>;
+    // The recipe's grading normaliser clamps darktable's ranges; it knows every key but the sliders'.
+    const graded = normalizeGrading(cb) ?? {};
+    const sliders = Object.fromEntries((['contrast', 'vibrance', 'saturation_global', 'shadows_Y', 'grey_fulcrum'] as const)
+      .filter((k) => finite(cb[k])).map((k) => [k, Math.min(Math.max(cb[k] as number, -1), 1)]));
+    if (finite(cb.grey_fulcrum)) sliders.grey_fulcrum = cb.grey_fulcrum as number;
+    const merged = { ...graded, ...sliders } as Partial<CbParams>;
+    colorBalance = Object.keys(merged).length ? merged : null;
+  }
+  const ref = o.look as Partial<LookRef> | null | undefined;
+  const look = ref && typeof ref === 'object' && typeof ref.pack === 'string' && typeof ref.stock === 'string'
+    ? { pack: ref.pack, stock: ref.stock, amount: finite(ref.amount) ? Math.min(Math.max(ref.amount as number, 0), 1) : 1 }
+    : null;
+  return { colorBalance, curve: normalizeCurve(o.curve), look };
+}
+

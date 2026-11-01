@@ -47,6 +47,7 @@ export const HEADER_BYTES = 32;
  * Parse the decoder's payload: width, height, mode and flags (u32), the as-shot
  * white point x and y (f32, when flag 1 is set), the full-resolution width and
  * height (u32), optional lens metadata (flag 2: u32 length, JSON, 4-byte alignment),
+ * optional camera metadata (flag 4: the same framing, independent of lens support),
  * then RGBA half floats.
  */
 export function parsePayload(buf: ArrayBuffer): HalfImage {
@@ -64,12 +65,20 @@ export function parsePayload(buf: ArrayBuffer): HalfImage {
     lens = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, HEADER_BYTES + 4, length)));
     pixelOffset = Math.ceil((HEADER_BYTES + 4 + length) / 4) * 4;
   }
+  let camera: import('../film/profiles').CameraMetadata | null = null;
+  if (dv.getUint32(12, true) & 4) {
+    if (buf.byteLength < pixelOffset + 4) throw new Error('Missing camera metadata length');
+    const length = dv.getUint32(pixelOffset, true);
+    if (length > 65536 || pixelOffset + 4 + length > buf.byteLength) throw new Error('Invalid camera metadata length');
+    camera = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, pixelOffset + 4, length)));
+    pixelOffset = Math.ceil((pixelOffset + 4 + length) / 4) * 4;
+  }
   const expected = pixelOffset + width * height * 8;
   if (buf.byteLength !== expected) throw new Error(`Image payload is ${buf.byteLength} bytes, expected ${expected}`);
   const white: [number, number] | null = dv.getUint32(12, true) & 1 ? [dv.getFloat32(16, true), dv.getFloat32(20, true)] : null;
   const fullWidth = dv.getUint32(24, true) || width;
   const fullHeight = dv.getUint32(28, true) || height;
-  return { width, height, mode, white, lens, fullWidth, fullHeight, data: new Uint16Array(buf, pixelOffset, width * height * 4) };
+  return { width, height, mode, white, lens, camera, fullWidth, fullHeight, data: new Uint16Array(buf, pixelOffset, width * height * 4) };
 }
 
 export async function loadImage(path: string, maxEdge?: number): Promise<HalfImage> {

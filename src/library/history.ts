@@ -85,7 +85,9 @@ export class History {
 }
 
 const FIELD_LABELS: Partial<Record<keyof Recipe, string>> = {
-  stock: 'Film stock',
+  profile: 'Camera profile',
+  lookEnabled: 'Look',
+  stock: 'Film look',
   push: 'Development',
   scanner: 'Scanner',
   curve: 'Tone curve',
@@ -110,7 +112,7 @@ export function describe(before: Recipe | null, after: Recipe | null): string {
     const keys = keysChanged(defaultRecipe(), after);
     return keys.length === 0 || keys.includes('stock') ? STOCK[after.stock].name : describe(defaultRecipe(), after);
   }
-  if (before && !after) return 'Remove look';
+  if (before && !after) return 'Reset photo';
   if (!before || !after) return 'Edit';
   const keys = keysChanged(before, after);
   if (keys.length === 0) return 'Edit';

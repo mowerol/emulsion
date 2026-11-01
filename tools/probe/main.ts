@@ -2,13 +2,16 @@
 // Engine probe: renders a synthetic frame through the real engine in any
 // browser and reports pixel values, so stage changes and ports can be checked
 // numerically. See docs/ARCHITECTURE.md, "Testing".
+import dcpNative from '../../src/engine/fixtures/dcp-native.json';
+import { dcpCommit, dcpEarly, dcpLate, toneCurve as dcpToneCurve, type DcpProfile } from '../../src/engine/dcp';
+import { ProfileGpu } from '../../src/engine/profilegpu';
 import { parsePayload } from '../../src/backend/api';
 import lensFixtures from '../../src/engine/fixtures/lens-metadata.json';
 import { LENS_DEFAULTS, lensCenter, lensColourUniforms, lensCorrectPixels, lensSpline, lensUniforms, type LensMetadata } from '../../src/engine/lenscorrection';
 import { useWorkspace } from '../../src/ui/workspace';
 import { Engine, colorEqParams, type Source } from '../../src/engine/engine';
 import { updateGrade } from '../../src/film/grading';
-import { defaultRecipe, type Recipe } from '../../src/film/recipe';
+import { defaultRecipe as recipeDefaults, type Recipe } from '../../src/film/recipe';
 import { assemble } from '../../src/engine/glsl';
 import { SHADERS, SHADER_FILES } from '../../src/engine/shaders';
 import { cbCommit, cbUniform, colorBalanceParams, colorBalance, colorBalanceRgb, sliderParams, CB_DEFAULTS, type CbParams, type ColorBalance } from '../../src/engine/colorbalance';
@@ -16,9 +19,7 @@ import { FULL, bounds, framePixels, setAngle, setAspect, sourcePoint, type Crop 
 import { CropOverlay } from '../../src/ui/CropOverlay';
 import { developUniforms, InputMode, llParams } from '../../src/engine/params';
 import type { Vec3 } from '../../src/film/stocks';
-import { lutToneTargets, toneForward } from '../../src/engine/tone';
-import { toneRgb } from '../../src/engine/tone';
-import { NO_PRIMARIES, SMOOTH_PRIMARIES, type SigmoidPrimaries } from '../../src/engine/primaries';
+import { toneForward, toneProfileRgb } from '../../src/engine/tone';
 import { histogram } from '../../src/engine/histogram';
 import { drawHistogram } from '../../src/ui/Histogram';
 import { createElement } from 'react';
@@ -28,7 +29,6 @@ import { WhiteBalanceControls } from '../../src/ui/WhiteBalanceControls';
 import { whiteBalanceMatrix, whiteXy, type Xy } from '../../src/engine/whitebalance';
 import { mulVec, srgbEotf, srgbOetf, SRGB_TO_REC2020, REC2020_TO_SRGB } from '../../src/engine/color';
 import { STOCK, type Stock } from '../../src/film/stocks';
-import { stockCode } from '../../src/film/stocktuning';
 import { toneInverse } from '../../src/engine/tone';
 import { effectiveIso, grainL } from '../../src/engine/grain';
 import { CURVE_RES, curveTable, type ToneCurve } from '../../src/film/curve';
@@ -45,11 +45,17 @@ import { colorEqualize } from '../../src/engine/colorequal';
 import { equalize, scales } from '../../src/engine/equalizer';
 import { autoContrast, blendMask, deconvolve } from '../../src/engine/capture';
 import { labL, labShiftL } from '../../src/engine/lab';
-import { toneLookFor, LUT_UNIT } from '../../src/engine/params';
+import { LUT_UNIT } from '../../src/engine/params';
 import { loadLut, setLooksBase } from '../../src/engine/lutstore';
 import { tetrahedral, textureData, type Clut } from '../../src/engine/lut3d';
-import { PACKS, lookFile } from '../../src/film/looks';
+import { PACKS, lookFile, registerUserLook, stockForPack, userLookId } from '../../src/film/looks';
+import { normalizeSettings, settingsFromRecipe, withoutProfileFields } from '../../src/film/creative';
 
+
+// Historical probe cases intentionally keep the pre-profile rendering contract.
+const defaultRecipe = (stock: Recipe['stock'] = 'neutral', scanner: Recipe['scanner'] = 'frontier'): Recipe => ({
+  ...recipeDefaults(stock, scanner), lookEnabled: stock !== 'neutral',
+});
 
 setLooksBase(new URL('../../../public/looks/', location.href).href);
 // Historical panel probes use the flat layout and their existing scroll targets.
@@ -94,6 +100,9 @@ void main() { vec3 c = uIn[int(gl_FragCoord.x)]; outColor = vec4(${call}, 1.0); 
   const target = { tex, fbo, w: n, h: 1, hdr: true };
   const report: Record<string, number> = {};
   let worst = 0;
+  let worstAbsoluteError = 0;
+  let sampleError = 0;
+  let worstSample: unknown = null;
   for (const [name, { uniforms, ref }] of Object.entries(cases)) {
     prog.set({ ...(uniforms as Record<string, number | number[]>), uIn: inputs.flat() });
     eng.gpu.draw(prog, target, n, 1);
@@ -102,7 +111,13 @@ void main() { vec3 c = uIn[int(gl_FragCoord.x)]; outColor = vec4(${call}, 1.0); 
     let err = 0;
     inputs.forEach((c, i) => {
       const r = ref(c);
-      for (let k = 0; k < 3; k++) err = Math.max(err, Math.abs(px[i * 4 + k] - r[k]) / Math.max(0.01, Math.abs(r[k])));
+      for (let k = 0; k < 3; k++) {
+        const absolute = Math.abs(px[i * 4 + k] - r[k]);
+        const relative = absolute / Math.max(0.01, Math.abs(r[k]));
+        if (relative > sampleError) { sampleError = relative; worstSample = { name, input: c, channel: k, expected: r[k], actual: px[i * 4 + k] }; }
+        err = Math.max(err, relative);
+        worstAbsoluteError = Math.max(worstAbsoluteError, absolute);
+      }
     });
     report[name] = err;
     worst = Math.max(worst, err);
@@ -110,7 +125,7 @@ void main() { vec3 c = uIn[int(gl_FragCoord.x)]; outColor = vec4(${call}, 1.0); 
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   gl.deleteFramebuffer(fbo);
   gl.deleteTexture(tex);
-  return { worstRelativeError: worst, byCase: report };
+  return { worstRelativeError: worst, worstAbsoluteError, worstSample, byCase: report };
 }
 
 const stageCtx = { width: 16, height: 1, seed: 1, inputMode: InputMode.SceneLinear, store: 1 };
@@ -136,26 +151,12 @@ function probeColorBalance(eng: Engine) {
 }
 
 function probeTone(eng: Engine) {
-  const looks: Record<string, [Recipe, SigmoidPrimaries?]> = {
-    neutral: [{ ...defaultRecipe('ektar100'), stock: 'neutral' }, NO_PRIMARIES],
-    smooth: [defaultRecipe('portra400'), SMOOTH_PRIMARIES],
-    strong: [defaultRecipe('portra400'), { inset: [0.3, 0.05, 0.22], rotation: [12, -6, 4], purity: 0.6 }],
-    stock: [defaultRecipe('gold200')],
-    pushed: [{ ...defaultRecipe('portra400'), push: 2 }],
-    whitesUp: [{ ...defaultRecipe('portra400'), whites: 80 }],
-    whitesDown: [{ ...defaultRecipe('portra400'), whites: -80 }],
-    blacksUp: [{ ...defaultRecipe('portra400'), blacks: 70 }],
-  };
-  const cases = Object.fromEntries(
-    Object.entries(looks).map(([k, [r, primaries]]) => {
-      const was = STOCK[r.stock].primaries;
-      if (primaries) STOCK[r.stock].primaries = primaries;
-      const uniforms = developUniforms(r, stageCtx), look = toneLookFor(r);
-      STOCK[r.stock].primaries = was;
-      return [k, { uniforms, ref: (c: Vec3) => toneRgb(c, look) }];
-    }),
-  );
-  const tone = probeStage(eng, ['stages/tone.glsl'], 'stageTone(c)', COLOURS, cases);
+  const settings = { neutral: [0, 0], whitesUp: [80, 0], whitesDown: [-80, 0], blacksUp: [0, 70], both: [-60, 50] };
+  const cases = Object.fromEntries(Object.entries(settings).map(([name, [whites, blacks]]) => [name, {
+    uniforms: developUniforms({ ...defaultRecipe(), whites, blacks }, stageCtx),
+    ref: (c: Vec3) => toneProfileRgb(c, whites, blacks),
+  }]));
+  const tone = probeStage(eng, ['stages/tone.glsl'], 'stageToneProfile(c)', COLOURS, cases);
   // The input stage's inverse followed by the original's neutral curve must give back the display value.
   const display: Vec3[] = Array.from({ length: 16 }, (_, i) => [i / 15, Math.min(1, (i * 0.37) % 1), 0.002 + (i / 15) * 0.9] as Vec3);
   const roundTrip = probeStage(eng, ['stages/tone.glsl'], 'stageToneNeutral(vec3(toneInverse(c.r), toneInverse(c.g), toneInverse(c.b)))', display, {
@@ -537,7 +538,7 @@ try {
       const pre=document.createElement('pre');pre.id='lensPhoto';pre.textContent=JSON.stringify({board:board.toDataURL('image/png'),lens:img.lens});document.body.append(pre);
       engine.release(source);
     })();
-  } else if (new URLSearchParams(location.search).has('lutlevels')) {
+  } else if (new URLSearchParams(location.search).has('lutlevels') || new URLSearchParams(location.search).has('profiles')) {
     // Only the focused LUT tests below; skip unrelated image filters and timing.
   } else if (new URLSearchParams(location.search).has('gradingpanel')) {
     document.body.style.background = '#1c1b19';
@@ -596,10 +597,10 @@ try {
         return [key, { uniforms: developUniforms(recipe, { ...stageCtx, look: { level: 2, data: new Float32Array(24), id: 1, eightBit: true } }), ref: (c: Vec3) => colorBalanceRgb(c, d) }];
       }),
     ));
-    out.colorGrade = probeStage(eng, ['stages/colorbalance.glsl'], 'colorBalanceRgb(c, uCbS)', COLOURS, Object.fromEntries(
+    out.colorGrade = probeStage(eng, ['stages/colorbalance.glsl'], 'colorBalanceRgb(c, uCbP)', COLOURS, Object.fromEntries(
       Object.entries(grades).map(([k, p]) => {
         const d = cbCommit({ ...CB_DEFAULTS, ...p });
-        return [k, { uniforms: { ...gu, uCbS: cbUniform(d) }, ref: (c: Vec3) => colorBalanceRgb(c, d) }];
+        return [k, { uniforms: { ...gu, uCbP: cbUniform(d) }, ref: (c: Vec3) => colorBalanceRgb(c, d) }];
       }),
     ));
   }
@@ -625,6 +626,27 @@ try {
       worst = Math.max(worst, d); sum += d;
     }
     out.neutral = { worstLevels: worst, meanLevels: sum / (256 * 3) };
+    // A saved creative profile renders the photo it was saved from the same (8-bit levels).
+    {
+      const graded: Recipe = {
+        ...defaultRecipe('neutral'), scanner: 'straight', contrast: 25, vibrance: 20, saturation: -15, shadows: 30,
+        grading: { shadows_C: 0.06, shadows_H: 230, highlights_C: 0.05, highlights_H: 45, brilliance_midtones: 0.1, hue_angle: 8 },
+        curve: { rgb: [[0, 0.04], [0.5, 0.45], [1, 0.97]], r: [[0, 0], [0.5, 0.56], [1, 1]], g: [[0, 0], [1, 1]], b: [[0, 0.05], [1, 1]] },
+      };
+      const hash = 'ef'.repeat(32);
+      registerUserLook(hash, 'Probe profile', false, normalizeSettings(JSON.parse(JSON.stringify(settingsFromRecipe(graded, null))))!);
+      const asProfile = withoutProfileFields({ ...graded, pack: 'mine', stock: userLookId(hash), lookEnabled: true, lookAmount: 100 });
+      const a = eng.readPixels(nsrc, graded, 256, 8, 1), b = eng.readPixels(nsrc, asProfile, 256, 8, 1);
+      const z = eng.readPixels(nsrc, { ...asProfile, lookAmount: 0 }, 256, 8, 1);
+      const plain = eng.readPixels(nsrc, { ...defaultRecipe('neutral'), scanner: 'straight' }, 256, 8, 1);
+      let w = 0, wz = 0, moved = 0;
+      for (let i = 0; i < a.length; i++) if (i % 4 !== 3) {
+        w = Math.max(w, Math.abs(a[i] - b[i]));
+        wz = Math.max(wz, Math.abs(z[i] - plain[i]));
+        moved = Math.max(moved, Math.abs(a[i] - plain[i]));
+      }
+      out.savedProfile = { worstLevels: w, amountZeroWorstLevels: wz, gradeMovesUpTo: moved };
+    }
     eng.release(nsrc);
   }
   // Split before/after: left of the line is the original, right is the edit.
@@ -1031,6 +1053,13 @@ if (photoArg) {
       });
     };
     check(bent, false, 'halfFloat17');
+    for (const pack of ['gmic-film', 'picturefx'] as const) {
+      const stock = stockForPack(pack, 'portra400');
+      const file = lookFile(pack, stock, 0)!;
+      const lut = await loadLut(file);
+      if (!lut) throw new Error(`Bundled look failed to load: ${file}`);
+      check(lut, false, pack);
+    }
     const hald = await loadLut(lookFile('t3mujinpack', 'portra400', 0)!);
     if (hald) {
       check(hald, true, 't3mujinPortra400');
@@ -1041,15 +1070,16 @@ if (photoArg) {
         settings[`${label}_${amount}`] = {
           uniforms: developUniforms(recipe, { ...stageCtx, look: hald }),
           ref: (c: Vec3) => {
-            const d0 = mulVec(REC2020_TO_SRGB, c.map(toneForward).map(v => srgbEotf(clamp01(v))) as Vec3).map(v => srgbOetf(clamp01(v))) as Vec3;
+            if (amount === 0) return toneProfileRgb(c, whites, blacks);
+            const d0 = mulVec(REC2020_TO_SRGB, toneProfileRgb(c, whites, blacks).map(v => srgbEotf(clamp01(v))) as Vec3).map(v => srgbOetf(clamp01(v))) as Vec3;
             const table = tetrahedral(hald, d0);
             const blend = d0.map((v, i) => v + amount / 100 * (table[i] - v)) as Vec3;
             const print = mulVec(SRGB_TO_REC2020, blend.map(srgbEotf) as Vec3).map(v => srgbOetf(clamp01(v))) as Vec3;
-            return lutToneTargets(print, whites, blacks);
+            return print;
           },
         };
       }
-      res.lutTargets = probeStage(leng, ['stages/tone.glsl', 'stages/input.glsl', 'stages/output.glsl', 'stages/lut.glsl'], 'stageLook(c)', COLOURS, settings);
+      res.lutTargets = probeStage(leng, ['stages/tone.glsl', 'stages/input.glsl', 'stages/output.glsl', 'stages/lut.glsl'], 'stageLookPrint(stageToneProfile(c))', COLOURS, settings);
     } else throw new Error('Bundled Portra LUT failed to load');
   } catch (e) {
     res.error = String(e) + (e instanceof Error ? e.stack : '');
@@ -1075,7 +1105,10 @@ if (photoArg) {
     const amount = Number(q.get('amount') ?? 100);
     const panels: [string, Recipe | null][] = [
       ['Original', null],
-      ...PACKS.map((p): [string, Recipe] => [`${STOCK[stock].name}, ${p.name}${push ? `, push ${push}` : ''}${amount !== 100 ? `, ${amount}%` : ''}`, { ...defaultRecipe(stock, 'straight'), pack: p.id, push, lookAmount: amount }]),
+      ...PACKS.map((p): [string, Recipe] => {
+        const selected = stockForPack(p.id, stock);
+        return [`${STOCK[selected].name}, ${p.name}${push ? `, push ${push}` : ''}${amount !== 100 ? `, ${amount}%` : ''}`, { ...defaultRecipe(selected, 'straight'), pack: p.id, push, lookAmount: amount }];
+      }),
     ];
     const board = document.createElement('canvas');
     board.width = panels.length * (W + 10); board.height = H + 28;
@@ -1101,234 +1134,6 @@ if (photoArg) {
   p2.id = 'looksPhoto';
   p2.textContent = JSON.stringify(out);
   document.body.append(p2);
-})();
-
-// Stock fitting (tuning from samples): ?fit=<original URL>&ref=<edited URL>, repeated for several
-// photos, [&stock=pro400h]. Renders each original through the real engine with candidate stock
-// numbers and minimises the mean CIE76 colour difference to its reference (Nelder-Mead, restarted
-// once). Each photo also gets its own exposure, a nuisance fitted alongside, so brightness
-// differences between a camera JPEG and the reference are reported rather than baked into the
-// stock. Reports the numbers; draws original | reference | stock now | stock fitted per photo.
-(async () => {
-  const q = new URLSearchParams(location.search);
-  const origUrls = q.getAll('fit'), refUrls = q.getAll('ref');
-  if (!origUrls.length) return;
-  const out: Record<string, unknown> = {};
-  try {
-    const load = async (u: string) => {
-      const im = new Image();
-      im.src = u;
-      await im.decode();
-      return im;
-    };
-    const stockId = (q.get('stock') ?? 'pro400h') as Recipe['stock'];
-    const canvasOf = (im: HTMLImageElement, w: number, h: number, turn: number) => {
-      const c = document.createElement('canvas');
-      c.width = w; c.height = h;
-      const x = c.getContext('2d')!;
-      x.translate(w / 2, h / 2);
-      x.rotate((turn * Math.PI) / 2);
-      const [dw, dh] = turn % 2 ? [h, w] : [w, h];
-      x.drawImage(im, -dw / 2, -dh / 2, dw, dh);
-      return c;
-    };
-    const lab = (r: number, g: number, b: number) => {
-      const lin = [r, g, b].map((v) => { v /= 255; return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); });
-      const X = (0.4124 * lin[0] + 0.3576 * lin[1] + 0.1805 * lin[2]) / 0.95047;
-      const Y = 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
-      const Z = (0.0193 * lin[0] + 0.1192 * lin[1] + 0.9505 * lin[2]) / 1.08883;
-      const f = (t: number) => (t > 216 / 24389 ? Math.cbrt(t) : (24389 / 27 * t + 16) / 116);
-      return [116 * f(Y) - 16, 500 * (f(X) - f(Y)), 200 * (f(Y) - f(Z))];
-    };
-    const peng = new Engine(document.createElement('canvas'));
-    const corr = (a: Uint8ClampedArray, b: Uint8ClampedArray) => {
-      const g = (d: Uint8ClampedArray, i: number) => d[i * 4] + d[i * 4 + 1] + d[i * 4 + 2];
-      const n = a.length / 4;
-      let ma = 0, mb = 0;
-      for (let i = 0; i < n; i++) { ma += g(a, i); mb += g(b, i); }
-      ma /= n; mb /= n;
-      let sab = 0, saa = 0, sbb = 0;
-      for (let i = 0; i < n; i++) { const x = g(a, i) - ma, y = g(b, i) - mb; sab += x * y; saa += x * x; sbb += y * y; }
-      return sab / Math.sqrt(saa * sbb);
-    };
-    // each photo: its source turned to match the reference, and the reference in Lab
-    const photos: { name: string; turn: number; W: number; H: number; src: Source; refLab: number[][]; orig: HTMLImageElement; ref: HTMLImageElement }[] = [];
-    for (let k = 0; k < origUrls.length; k++) {
-      const orig = await load(origUrls[k]), ref = await load(refUrls[k]);
-      const long = 220;
-      const [W, H] = ref.naturalWidth >= ref.naturalHeight ? [long, Math.round((long * ref.naturalHeight) / ref.naturalWidth)] : [Math.round((long * ref.naturalWidth) / ref.naturalHeight), long];
-      const refPx = canvasOf(ref, W, H, 0).getContext('2d')!.getImageData(0, 0, W, H).data;
-      const sideways = orig.naturalWidth > orig.naturalHeight !== ref.naturalWidth > ref.naturalHeight;
-      let turn = 0, best = -2;
-      for (const t of sideways ? [1, 3] : [0, 2]) {
-        const c = corr(canvasOf(orig, W, H, t).getContext('2d')!.getImageData(0, 0, W, H).data, refPx);
-        if (c > best) { best = c; turn = t; }
-      }
-      const big = canvasOf(orig, W * 3, H * 3, turn);
-      photos.push({ name: origUrls[k].split('/').pop()!, turn, W, H, src: peng.sourceFromImage(big, W * 3, H * 3), refLab: Array.from({ length: W * H }, (_, i) => lab(refPx[i * 4], refPx[i * 4 + 1], refPx[i * 4 + 2])), orig, ref });
-    }
-    out.alignment = photos.map((p) => p.name);
-    // ?floor: the best any per-pixel colour transform could do, by pooling every photo's pixels
-    // into 16^3 cells of original colour; also after a 5 px box blur of both images.
-    if (q.has('floor')) {
-      const floor = (blur: number) => {
-        const cells = new Map<number, { n: number; sum: number[] }>();
-        const pairs: { cell: number; lab: number[] }[] = [];
-        for (const p of photos) {
-          const W = p.W, H = p.H;
-          const oc = canvasOf(p.orig, W, H, p.turn), rc = canvasOf(p.ref, W, H, 0);
-          if (blur) for (const c of [oc, rc]) { const x = c.getContext('2d')!; x.filter = `blur(${blur}px)`; x.drawImage(c, 0, 0); }
-          const o = oc.getContext('2d')!.getImageData(0, 0, W, H).data, r = rc.getContext('2d')!.getImageData(0, 0, W, H).data;
-          for (let i = 0; i < W * H; i++) {
-            const cell = (o[i * 4] >> 4) * 256 + (o[i * 4 + 1] >> 4) * 16 + (o[i * 4 + 2] >> 4);
-            const l = lab(r[i * 4], r[i * 4 + 1], r[i * 4 + 2]);
-            const e = cells.get(cell) ?? { n: 0, sum: [0, 0, 0] };
-            e.n++; e.sum = e.sum.map((v, k) => v + l[k]);
-            cells.set(cell, e);
-            pairs.push({ cell, lab: l });
-          }
-        }
-        let err = 0;
-        for (const { cell, lab: l } of pairs) { const e = cells.get(cell)!; err += Math.hypot(...l.map((v, k) => v - e.sum[k] / e.n)); }
-        return err / pairs.length;
-      };
-      out.floor = { sharp: floor(0), blurred: floor(5) };
-      throw new Error('floor only');
-    }
-    const s = STOCK[stockId];
-    const start = { contrast: s.contrast, primaries: s.primaries, grade: s.grade ? { ...s.grade } : undefined };
-    const N = photos.length;
-    // The style: contrast (0), sigmoid primaries' inset r g b (1-3), rotation r g b in degrees (4-6),
-    // purity (7); the grade (colour balance rgb): global offset as cartesian chroma (8-9) and its
-    // luminance (10), the three wheels as cartesian chroma (11-16), their luminances (17-19), global
-    // saturation and chroma (20-21), saturation and chroma by tone (22-25). Black and white stocks fit
-    // contrast and the luminances only. Then one exposure per photo, unless &noexp.
-    const G0 = 8, E0 = 26;
-    const useExp = !q.has('noexp');
-    const free = s.bw ? [0, 10, 17, 18, 19] : Array.from({ length: E0 }, (_, i) => i);
-    const toCart = (C = 0, H = 0) => [C * Math.cos((H * Math.PI) / 180), C * Math.sin((H * Math.PI) / 180)];
-    const wheel = (a: number, b: number) => ({ C: Math.hypot(a, b), H: ((Math.atan2(b, a) * 180) / Math.PI + 360) % 360 });
-    const g0 = { ...CB_DEFAULTS, ...start.grade };
-    const p0 = start.primaries ?? { inset: [0, 0, 0], rotation: [0, 0, 0], purity: 0 };
-    const full0 = [start.contrast, ...p0.inset, ...p0.rotation, p0.purity,
-      ...toCart(g0.global_C, g0.global_H), g0.global_Y, ...toCart(g0.shadows_C, g0.shadows_H), ...toCart(g0.midtones_C, g0.midtones_H), ...toCart(g0.highlights_C, g0.highlights_H),
-      g0.shadows_Y, g0.midtones_Y, g0.highlights_Y, g0.saturation_global, g0.chroma_global, g0.saturation_shadows, g0.saturation_highlights, g0.chroma_shadows, g0.chroma_highlights];
-    // the search vector: the free style numbers, then the exposures
-    const expand = (v: number[]) => {
-      const f = [...full0];
-      free.forEach((k, i) => (f[k] = v[i]));
-      return { f, exp: photos.map((_, k) => (useExp ? v[free.length + k] : 0)) };
-    };
-    const toStock = (v: number[]) => {
-      const { f } = expand(v);
-      const gl = wheel(f[8], f[9]), sh = wheel(f[11], f[12]), mi = wheel(f[13], f[14]), hi = wheel(f[15], f[16]);
-      const st: Partial<Stock> = {
-        contrast: f[0],
-        primaries: { inset: [0, 1, 2].map((i) => Math.min(0.99, Math.max(0, f[1 + i]))) as Vec3, rotation: [f[4], f[5], f[6]], purity: Math.min(1, Math.max(0, f[7])) },
-        grade: {
-          global_C: gl.C, global_H: gl.H, global_Y: f[10],
-          shadows_C: sh.C, shadows_H: sh.H, midtones_C: mi.C, midtones_H: mi.H, highlights_C: hi.C, highlights_H: hi.H,
-          shadows_Y: f[17], midtones_Y: f[18], highlights_Y: f[19],
-          saturation_global: f[20], chroma_global: f[21],
-          saturation_shadows: f[22], saturation_highlights: f[23], chroma_shadows: f[24], chroma_highlights: f[25],
-        },
-      };
-      return st;
-    };
-    const x0 = [...free.map((k) => full0[k]), ...(useExp ? photos.map(() => 0) : [])];
-    // A gentle style: each unit of grade or primaries (rotation counted per 10 degrees) costs this much mean colour difference.
-    const PENALTY = Number(q.get('penalty') ?? 4);
-    const cost = (f: number[]) => f.slice(1, 4).reduce((a, x) => a + x * x, 0) + f.slice(4, 7).reduce((a, x) => a + (x / 10) ** 2, 0) + f.slice(G0, E0).reduce((a, x) => a + x * x, 0);
-    const errOf = (px: Uint8Array, p: (typeof photos)[number]) => {
-      let e = 0;
-      for (let i = 0; i < p.W * p.H; i++) { const a = lab(px[i * 4], px[i * 4 + 1], px[i * 4 + 2]), b = p.refLab[i]; e += Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]); }
-      return e / (p.W * p.H);
-    };
-    const perPhoto = (v: number[]) => {
-      Object.assign(STOCK[stockId], toStock(v));
-      const { exp } = expand(v);
-      return photos.map((p, k) => errOf(peng.readPixels(p.src, { ...defaultRecipe(stockId), exposure: exp[k] }, p.W, p.H, 1), p));
-    };
-    const err = (v: number[]) => perPhoto(v).reduce((a, e) => a + e, 0) / N + PENALTY * cost(expand(v).f);
-    const restore = () => {
-      STOCK[stockId].contrast = start.contrast;
-      if (start.primaries) STOCK[stockId].primaries = start.primaries; else delete STOCK[stockId].primaries;
-      if (start.grade) STOCK[stockId].grade = start.grade; else delete STOCK[stockId].grade;
-    };
-    restore();
-    const errNow = photos.map((p) => errOf(peng.readPixels(p.src, defaultRecipe(stockId), p.W, p.H, 1), p));
-    const neutral = photos.map((p) => errOf(peng.readPixels(p.src, defaultRecipe('neutral'), p.W, p.H, 1), p));
-    const nm = (xs: number[], steps: number[], maxEvals: number) => {
-      const n = xs.length;
-      let simplex = [xs, ...steps.map((st, i) => xs.map((v, j) => (j === i ? v + st : v)))].map((x) => ({ x, f: err(x) }));
-      let evals = simplex.length;
-      while (evals < maxEvals) {
-        simplex.sort((a, b) => a.f - b.f);
-        if (simplex[n].f - simplex[0].f < 1e-4) break;
-        const c = xs.map((_, j) => simplex.slice(0, n).reduce((a, p) => a + p.x[j], 0) / n);
-        const at = (t: number) => c.map((v, j) => v + t * (simplex[n].x[j] - v));
-        const xr = at(-1), fr = err(xr); evals++;
-        if (fr < simplex[0].f) { const xe = at(-2), fe = err(xe); evals++; simplex[n] = fe < fr ? { x: xe, f: fe } : { x: xr, f: fr }; }
-        else if (fr < simplex[n - 1].f) simplex[n] = { x: xr, f: fr };
-        else {
-          const xc = at(fr < simplex[n].f ? -0.5 : 0.5), fc = err(xc); evals++;
-          if (fc < Math.min(fr, simplex[n].f)) simplex[n] = { x: xc, f: fc };
-          else { simplex = simplex.map((p, k) => (k === 0 ? p : { x: p.x.map((v, j) => simplex[0].x[j] + 0.5 * (v - simplex[0].x[j])), f: 0 })); simplex.slice(1).forEach((p) => { p.f = err(p.x); evals++; }); }
-        }
-      }
-      simplex.sort((a, b) => a.f - b.f);
-      return { ...simplex[0], evals };
-    };
-    const STEP = [0.1, 0.05, 0.05, 0.05, 2, 2, 2, 0.1, 0.01, 0.01, 0.005, ...new Array(6).fill(0.03), 0.03, 0.03, 0.03, 0.05, 0.05, 0.05, 0.05, 0.05, 0.05];
-    const steps = [...free.map((k) => STEP[k]), ...(useExp ? photos.map(() => 0.2) : [])];
-    const budget = Number(q.get('evals') ?? 2500);
-    // ?show: no fitting, just the board for the stock as it stands.
-    const first = q.has('show') ? { x: x0, f: err(x0), evals: 1 } : nm(x0, steps, budget);
-    const second = q.has('show') ? first : nm(first.x, steps.map((v) => v / 2), budget);
-    const bestX = second.f < first.f ? second.x : first.x;
-    const fitted = toStock(bestX);
-    const errFit = perPhoto(bestX);
-    out.evals = first.evals + second.evals;
-    out.error = { now: errNow, neutral, fitted: errFit, meanNow: errNow.reduce((a, b) => a + b) / N, meanNeutral: neutral.reduce((a, b) => a + b) / N, meanFitted: errFit.reduce((a, b) => a + b) / N };
-    out.fitted = fitted;
-    out.code = stockCode(stockId);
-    const bestExp = expand(bestX).exp;
-    out.exposures = photos.map((p, k) => [p.name, bestExp[k]]);
-
-    // board: a row per photo
-    const BOX = 380;
-    const board = document.createElement('canvas');
-    board.width = 4 * (BOX + 10); board.height = N * (BOX + 28);
-    board.style.cssText = 'position:fixed;left:0;top:0;z-index:99999;background:#111';
-    const bx = board.getContext('2d')!;
-    bx.fillStyle = '#ddd'; bx.font = '14px sans-serif';
-    photos.forEach((p, k) => {
-      const [bw, bh] = p.W >= p.H ? [BOX, Math.round((BOX * p.H) / p.W)] : [Math.round((BOX * p.W) / p.H), BOX];
-      const src2 = peng.sourceFromImage(canvasOf(p.orig, bw * 2, bh * 2, p.turn), bw * 2, bh * 2);
-      const y = k * (BOX + 28);
-      const put = (n: number, label: string, px: Uint8Array | null, c?: HTMLCanvasElement) => {
-        if (px) bx.putImageData(new ImageData(new Uint8ClampedArray(px.buffer.slice(0) as ArrayBuffer), bw, bh), n * (BOX + 10), y + 24);
-        else bx.drawImage(c!, n * (BOX + 10), y + 24, bw, bh);
-        bx.fillText(label, n * (BOX + 10) + 4, y + 17);
-      };
-      put(0, `${p.name}: original`, peng.readPixels(src2, defaultRecipe('neutral'), bw, bh, 1, true));
-      put(1, q.get('reflabel') ?? 'Reference', null, canvasOf(p.ref, bw, bh, 0));
-      restore();
-      put(2, `${STOCK[stockId].name} now (ΔE ${errNow[k].toFixed(1)})`, peng.readPixels(src2, defaultRecipe(stockId), bw, bh, 1));
-      Object.assign(STOCK[stockId], fitted);
-      put(3, `fitted (ΔE ${errFit[k].toFixed(1)}, ${bestExp[k] >= 0 ? '+' : ''}${bestExp[k].toFixed(2)} EV)`, peng.readPixels(src2, { ...defaultRecipe(stockId), exposure: bestExp[k] }, bw, bh, 1));
-    });
-    restore();
-    document.body.append(board);
-    out.board = board.toDataURL('image/png');
-  } catch (e) {
-    out.error = String(e) + (e instanceof Error ? e.stack : '');
-  }
-  const p = document.createElement('pre');
-  p.id = 'fit';
-  p.textContent = JSON.stringify(out);
-  document.body.append(p);
-  console.log('FIT ' + JSON.stringify({ ...out, board: undefined }));
 })();
 
 // One stock on one photo, filling the window, for saving a look as a reference image:
@@ -1465,4 +1270,27 @@ if (photoArg) {
   p.id = 'boards';
   p.textContent = JSON.stringify(out);
   document.body.append(p);
+})();
+
+
+// Focused camera-profile processing check: ?profiles. Native fixtures independently
+// validate the TypeScript reference; this check verifies both GPU stages and texture layout.
+(async()=>{
+  if(!new URLSearchParams(location.search).has('profiles'))return;
+  const out:Record<string,unknown>={};
+  try{
+    const eng=new Engine(document.createElement('canvas')),gpu=new ProfileGpu(eng.gpu);
+    const t=dcpNative.tables[2];
+    const profile:DcpProfile={name:'Synthetic reference',camera:'Test',copyright:'GPL',matrix1:dcpNative.matrix1 as import('../../src/film/stocks').Mat3,matrix2:dcpNative.matrix2 as import('../../src/film/stocks').Mat3,forward1:dcpNative.forward1 as import('../../src/film/stocks').Mat3,forward2:dcpNative.forward2 as import('../../src/film/stocks').Mat3,temperature1:2850,temperature2:6500,map1:{dims:t.dims as Vec3,gamma:t.gamma,data:new Float32Array(t.data)},map2:null,look:null,curve:null,exposure:.25};
+    const camera={make:'Test',model:'Camera',cameraToWorking:[[1,0,0],[0,1,0],[0,0,1]] as import('../../src/film/stocks').Mat3,neutral:[.5,1,.7] as Vec3,baselineGain:1.8};
+    for(const [i,c]of dcpNative.step2.entries()){
+      const p={...profile,look:c.look?{dims:t.dims as Vec3,gamma:t.gamma,data:new Float32Array(t.data)}:null,curve:c.tone?dcpToneCurve(c.points):null};
+      const state=dcpCommit(p,camera,'case'+i);gpu.upload(state);gpu.bind(state);eng.gpu.scratch();
+      out['early'+i]=probeStage(eng,['stages/dcp.glsl'],'stageDcpEarly(c)',COLOURS,{reference:{uniforms:gpu.uniforms(state),ref:rgb=>dcpEarly(rgb,state)}});
+      gpu.bind(state);eng.gpu.scratch();
+      out['late'+i]=probeStage(eng,['stages/dcp.glsl'],'stageDcpLate(c)',COLOURS,{reference:{uniforms:gpu.uniforms(state),ref:rgb=>dcpLate(rgb,state)}});
+    }
+    out.errorCode=eng.gpu.gl.getError();gpu.dispose();eng.dispose();
+  }catch(e){out.error=String(e)+(e instanceof Error?e.stack:'');}
+  const pre=document.createElement('pre');pre.id='profiles';pre.textContent=JSON.stringify(out);document.body.append(pre);
 })();

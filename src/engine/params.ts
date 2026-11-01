@@ -4,9 +4,8 @@
 import { STOCK } from '../film/stocks';
 import { SCANNER } from '../film/scanners';
 import type { Recipe } from '../film/recipe';
-import { LUMA_REC2020, REC2020_TO_SRGB, SRGB_TO_REC2020, columnMajor, mulVec } from './color';
-import { NEUTRAL, NEUTRAL_LOOK, curveFor, packCurve, sigmoidCurve, whiteTargetFor, type ToneLook } from './tone';
-import { NO_PRIMARIES, adjustedPrimaries } from './primaries';
+import { REC2020_TO_SRGB, SRGB_TO_REC2020, columnMajor, mulVec } from './color';
+import { NEUTRAL, packCurve, sigmoidCurve, toneCurveFor, whiteTargetFor } from './tone';
 import {
   CB_DEFAULTS,
   GRADING_TO_LMS,
@@ -22,6 +21,8 @@ import {
   workingGamut,
 } from './colorbalance';
 import { isIdentity } from '../film/curve';
+import { scaledColorBalance } from '../film/creative';
+import { profileSettingsFor } from '../film/looks';
 import { D65_XY, whiteBalanceMatrix, whiteXy, type Xy } from './whitebalance';
 import { effectiveIso, zoomForIso } from './grain';
 import { EXPOSURE_BOOST, FEATHERING, SMOOTHING, bandFactors, bandGains } from './toneequalizer';
@@ -65,12 +66,11 @@ const WORKING = columnMajor(SRGB_TO_REC2020);
 const IDENTITY = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 const NEUTRAL_CURVE = packCurve(sigmoidCurve(NEUTRAL));
 
-/** A colour balance instance that does nothing (the stock grade when a stock has none). */
-const CB_NONE = cbUniform(cbCommit(CB_DEFAULTS));
-
 /** Lowering Blacks to -100 cuts scene light below this, about 4.5 stops under middle grey. */
 export const MAX_BLACK_LEVEL = 0.008;
 const DISPLAY = columnMajor(REC2020_TO_SRGB);
+/** A colour balance instance that does nothing (a saved profile's, when it has none). */
+const CB_NONE = cbUniform(cbCommit(CB_DEFAULTS));
 
 /** Colour balance constants: matrices, reference values and the gamut table. */
 let colorBalanceBase: Uniforms | null = null;
@@ -93,17 +93,6 @@ export function grainUniform(recipe: Recipe, seed: number): number[] {
   return [recipe.grain / 100, zoomForIso(effectiveIso(recipe.grainIso, recipe.push)), d, seed];
 }
 
-/** The tone stage's look: stock contrast with push, the stock's primaries, whites and blacks. */
-export function toneLookFor(recipe: Recipe): ToneLook {
-  const s = STOCK[recipe.stock];
-  return {
-    contrast: s.contrast * (1 + 0.09 * recipe.push),
-    primaries: s.primaries ?? NO_PRIMARIES,
-    whites: recipe.whites,
-    blacks: recipe.blacks,
-  };
-}
-
 /** What the develop shader needs, shared with the extraction pass. */
 export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Uniforms {
   const base: Uniforms = {
@@ -117,34 +106,35 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uHalThreshold: HALATION_THRESHOLD,
     uLutTex: LUT_UNIT,
     uLutOn: 0,
+    uDcpOn: 0,
+    uDcpHasCurve: 0,
   };
   if (!recipe || ctx.compare) {
-    return { ...base, uCompare: 1, uExposure: 0, uExpBlack: 0, uWbMat: IDENTITY, uBW: 0, uTeqOn: 0, uCurveOn: 0, uClarityOn: 0, uTextureOn: 0, uUsmOn: 0, uCeOn: 0 };
+    return { ...base, uCompare: 1, uExposure: 0, uExpBlack: 0, uWbMat: IDENTITY, uTeqOn: 0, uCurveOn: 0, uClarityOn: 0, uTextureOn: 0, uUsmOn: 0, uCeOn: 0 };
   }
 
-  // A stock rendered by a LUT takes its colour and tone from the LUT, not its style (the LUT holds
-  // push, where the pack has it).
-  const lut = ctx.look ?? null;
+  // The look's LUT, applied to the camera profile's print.
+  const lut = recipe.lookEnabled ? ctx.look ?? null : null;
   const s = STOCK[recipe.stock];
   const sc = SCANNER[recipe.scanner];
   const wbMat = recipe.wb ? columnMajor(whiteBalanceMatrix(ctx.white ?? D65_XY, whiteXy(recipe.wb.temperature, recipe.wb.tint))) : IDENTITY;
 
-  const look = lut ? { ...NEUTRAL_LOOK, whites: recipe.whites, blacks: recipe.blacks } : toneLookFor(recipe);
-  const prim = adjustedPrimaries(look.primaries);
   const teqOn = recipe.highlights !== 0;
   const teq = teqOn ? bandFactors(bandGains(recipe.highlights)) : [0, 0, 0, 0, 0, 0, 0, 0];
   const cb = colorBalanceParams(recipe.contrast, recipe.vibrance, recipe.saturation, recipe.shadows);
+  // A saved creative profile's hidden settings, scaled by its Amount.
+  const profile = profileSettingsFor(recipe);
+  const profileCb = scaledColorBalance(profile, recipe.lookAmount / 100);
 
   return {
     ...base,
     ...colorBalanceUniforms(),
     uCbP: cbUniform(cbCommit({ ...sliderParams(cb), ...recipe.grading })),
-    // The stock's own grade (its style), off for a stock a LUT renders.
-    uCbS: s.grade && !lut ? cbUniform(cbCommit({ ...CB_DEFAULTS, ...s.grade })) : CB_NONE,
-    uCbSOn: s.grade && !lut ? 1 : 0,
+    uCbL: profileCb ? cbUniform(cbCommit(profileCb)) : CB_NONE,
+    uCbLOn: profileCb ? 1 : 0,
     uCompare: 0,
     uExposure: recipe.exposure,
-    uCurveOn: isIdentity(recipe.curve) ? 0 : 1,
+    uCurveOn: isIdentity(recipe.curve) && (isIdentity(profile?.curve ?? null) || recipe.lookAmount === 0) ? 0 : 1,
     uTeqOn: teqOn ? 1 : 0,
     uClarityOn: recipe.clarity !== 0 ? 1 : 0,
     uTextureOn: recipe.texture !== 0 ? 1 : 0,
@@ -156,10 +146,8 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uTeqF1: teq.slice(4, 8),
     uTeqParams: [EXPOSURE_BOOST, FEATHERING, 2 * SMOOTHING * SMOOTHING],
     uExpBlack: recipe.blacks < 0 ? (-recipe.blacks / 100) * MAX_BLACK_LEVEL : 0,
-    uLutTargetsOn: lut && (recipe.whites !== 0 || recipe.blacks > 0) ? 1 : 0,
-    uSigS: packCurve(curveFor(look.contrast, look)),
-    uPrimIn: columnMajor(prim.input),
-    uPrimOut: columnMajor(prim.output),
+    uProfileTargetsOn: recipe.whites !== 0 || recipe.blacks > 0 ? 1 : 0,
+    uSigS: packCurve(toneCurveFor(recipe.whites, recipe.blacks)),
     uSigMag: whiteTargetFor(recipe.whites) / 100,
     uWbMat: wbMat,
     uVig: recipe.vignette / 100,
@@ -167,8 +155,6 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uHal: recipe.halation / 100,
     uHalCol: s.halationColor,
     uGlow: recipe.glow / 100,
-    uBW: s.bw ? 1 : 0,
-    uBWw: s.bwWeights ?? LUMA_REC2020,
     uGrain: grainUniform(recipe, ctx.seed),
     uScC: sc.contrast,
     uScSat: sc.saturation,
@@ -178,7 +164,8 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uScShadow: sc.shadowTint,
     uScHigh: sc.highlightTint,
     uFade: (recipe.fade / 100) * 0.16,
-    ...(lut ? { uLutOn: 1, uLutId: lut.id, uLutAmount: recipe.lookAmount / 100 } : {}),
+    // A saved profile's LUT at the share it was saved with, times the profile's Amount.
+    ...(lut ? { uLutOn: 1, uLutId: lut.id, uLutAmount: (recipe.lookAmount / 100) * (profile?.look?.amount ?? 1) } : {}),
   };
 }
 

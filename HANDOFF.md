@@ -1,6 +1,167 @@
 # Handoff
 
-Rewritten at the end of each session. Last updated 2026-10-31 (late morning).
+Rewritten at the end of each session. Last updated 2026-10-31 (night).
+
+## Images toolbar and View options (2026-10-31, uncommitted)
+
+Oli wanted the photo filters in the top toolbar, connected visually to the left
+Images pane, with workspace options separate from actual filtering. The toolbar
+now starts with a centered **Images / View** heading exactly aligned with the
+pane width. The shared FilterBar follows it; a divider separates Crop/Zoom/
+Before/Split. Photo captions, marks and the pane's footer count remain centered.
+
+`ImageViewOptions.tsx` provides the View dropdown: 1/2 photo columns and Fold
+JPEGs (disabled without RAW/JPEG pairs). These use the existing persistent
+workspace/folding setters and do not change filters or photo edits. The dropdown
+closes on outside click, focus leaving, or Escape, which restores button focus.
+There is no duplicate heading/column switch in `Images.tsx`. Classic and Library
+keep their existing filter placement.
+
+Browser checks passed for pane/header alignment, dropdown controls, both column
+layouts and persistence, Fold JPEGs, unchanged filters/recipes, Escape/focus,
+outside dismissal, filtering/Clear, and no overflow at 1440/1100 px. Screenshots:
+`/private/tmp/emulsion-image-view-menu.png` and
+`/private/tmp/emulsion-image-view-narrow.png`.
+`npm run check` passes: 246 TypeScript tests, build/typecheck, and 39 Rust tests
+(4 optional checks ignored). No commit or push requested.
+
+Camera-profile verification also completed: native reference fixtures regenerate,
+both DCP GPU stages match within 7e-7 absolute on the focused chart (zero WebGL
+errors); browser import, camera defaults, and adding/removing the creative LUT
+all passed. The earlier profile-only `npm run check` passed 241 TS/37 Rust tests.
+No manufacturer DCP pack is bundled; see the camera-profile reference note.
+
+## Legacy rendering removed (2026-10-31, uncommitted)
+
+Oli: "the legacy stuff needs to go. it's done at this point." He chose to remove both the Legacy camera profile and Emulsion's own parametric stocks. The model now is: **the camera profile renders the base print; a film look is an optional LUT on top of it.**
+
+- **Gone:** the `legacy` camera profile and its render path (`stageEmulsion`, `stageStockGrade`, stock primaries/hue-preserving `stageTone`, the LUT-as-rendering `stageLook` and `lutToneTargets`); the Emulsion pack; stock styles in `stocks.ts` (contrast, primaries, grade, B&W weights); `stocktuning.ts`, its test and `StockTuning.tsx`; `primaries.ts` (`invert3` moved to `color.ts`); `emulsion.glsl`; the `uBW` scanner mono; the probe's `?fit` mode.
+- **Kept:** `stocks.ts` still lists the films (names, ISO, halation colour, grain defaults); t3mujinpack keys its LUTs by those ids. `tone.ts`/`tone.glsl` are now only darktable's per-channel sigmoid with the Whites/Blacks targets (`toneCurveFor`, `toneProfileRgb`).
+- **Old sidecars:** no profile → Auto. A pack that doesn't supply the stock (no pack, or `emulsion`) → Neutral with the default pack. Recipes on a LUT pack keep their look.
+- **Push** now only changes grain size: no pack has push variants, and the stock contrast it used to scale is gone. Hints say so. Whether Push stays is an open question for Oli.
+- `lutstore.loadLut` bug fixed: a second caller during a load got `null`; loads in flight are now shared. It made the probe's t3mujinpack check fail.
+- NOTICE (sigmoid without primaries; colour balance one instance) and ARCHITECTURE updated.
+
+## Save as profile: creative profiles with hidden settings (2026-10-31, uncommitted)
+
+Step 4 of the profiles plan, Oli: "let's do it" with the proposed defaults. Film stock → **Save as profile…** stores the photo's look (LUT at its Amount), Colour Grading, Contrast, Vibrance, Saturation, Shadows and Curve in My looks ("Saved profiles"), switches the photo to it and zeroes those sliders. The hidden settings run as a second colour balance instance (`stageProfileColorBalance`) and a curve composed into the curve table; Amount scales all of it. Colour (equalizer) is not included in v1. `src/film/creative.ts` + tests; Rust `save_user_profile` (settings-only entries, no file). Probe `savedProfile`: worst 1/255 against the original grade, Amount 0 exact. **Not tried in the real app:** the name form, saving with/without a LUT, Amount on a saved profile, removing one that photos use.
+
+## Import LUT → My looks (2026-10-31, uncommitted)
+
+Steps 1-2 of [docs/plans/profiles-and-presets.md](docs/plans/profiles-and-presets.md), with Oli's go-ahead. Film stock section: **Import LUT…** (.cube, .3dl, Hald .png) adds the file to a **My looks** pack (shown once it has a look) and applies it to the selected photos; **Remove look** takes it out of My looks. Files live in `app_data_dir()/looks/`, named by content hash. The section is now "Film stock" in both layouts, its dropdown "Look". Tests cover the registry, sidecars naming a look not yet loaded or removed, and format detection; Rust tests cover storage. **Not tried in the real app:** the import dialog, a large Hald, removing a look other photos use, export and thumbnails with an imported look.
+
+## Camera profiles (DCP) — built by another agent alongside this session (uncommitted)
+
+Codex/opencode built RawTherapee DCP support in parallel: `src/engine/dcp.ts`, `profilegpu.ts`, `profilestore.ts`, `stages/dcp.glsl`, `dcp.frag.glsl`, `ui/CameraProfile.tsx`, `src-tauri/src/camera_profiles.rs`, commands in `commands.rs`, camera metadata in the decoder payload (flag 4), fixtures and `tools/probe/dcp-reference/`. Details in `docs/plans/camera-profiles-reference.md` and ARCHITECTURE. Its code arrived minified; it was reformatted (prettier/rustfmt/by hand) without changing behaviour. Not yet checked by Claude against the real app: importing a DCP, "Use as camera default", thumbnails/export with a DCP.
+
+Checks after both: `npm run check` passes (241 tests, build, 37 cargo tests); probe on Metal: tone 4.6e-7, LUT targets with t3mujinpack Portra at Amount 0/50/100 within 1.6e-6, all other stages as before.
+
+## Spektrafilm LUT pack installed locally (2026-10-31)
+
+Oli supplied eleven Negs/spektrafilm Cubes in `/Users/oli/Documents/Spektrafilm`: Kodak Gold 200, Portra 400, Portra 800, UltraMax 400 and Ektar 100 on Portra Endura; Fujifilm Pro 400H, C200 and Superia X-TRA 400 on Crystal Archive Type II; and the slides Ektachrome 100, Kodachrome 64 and Velvia 100 as direct scans. All are 33-point; the negatives share an exposure (mid-grey ~0.56 at input 15/32), the slides sit ~0.47 with near-zero blacks, as a direct reversal scan should. All installed unchanged. Installed as a DEV-only look pack: **Develop → Presets → LUT → Spektrafilm (local test)**, then **Preset** → the stock.
+
+- `tools/luts/install-spektrafilm.mjs` copies the Cubes byte-for-byte into ignored `local-looks/spektrafilm/`, hashes them and writes `catalogue.json`, `manifest.json` and `README.txt`. Re-run with `node tools/luts/install-spektrafilm.mjs "/Users/oli/Documents/Spektrafilm"`.
+- `src/film/local-looks.ts` now discovers every `/local-looks/*/catalogue.json`, and `src/film/looks.ts` builds a local pack per catalogue. The Fuji test pack is unchanged; production builds still register no local looks.
+- Domain: the Negs files expect sRGB-encoded input, which is exactly what Emulsion's display LUT stage feeds them (for a display-referred photo it is the source image; for RAW it is Emulsion's neutral rendering). Installed unchanged.
+- Portra 800's first export was ~1.7 EV hot (black 0.084 vs 0.060, mid-grey at input 0.234 vs 0.418). Oli regenerated it in Negs at 19:35; the new Cube matches Portra 400 within ~2.4/255 across the neutral axis and is installed unchanged.
+- Rejected a baked "scene-matched" wrapper: composing the neutral-curve inverse in front of the LUT is ill-conditioned near white, so small print differences become huge out-of-gamut scene chroma and a 65³ grid shows visible blocky artifacts in saturated highlights. A test chart confirmed it; direct application is clean.
+- Licensing: spektrafilm profile data is CC BY-SA 4.0 (Andrea Volpato). The Cubes are derivative data under the same licence. Local evaluation only; not in `public/`, not committed, not in release builds.
+
+No commit/push authorised. Oli still needs to judge the look on his own photos.
+
+## Planned: profiles and presets (not started)
+
+**Read [docs/plans/profiles-and-presets.md](docs/plans/profiles-and-presets.md) first.** It gathers every decision so far (Oli's hybrid-profile summary and the opencode session, plus the 2026-10-31 decisions: creative profiles adapt to the base, are JSON with hidden settings plus an optional LUT, one creative slot) and the questions still open. It overrides the opencode plan and the build prompt below wherever they disagree (notably: no `base` field in profile files).
+
+Full plan: `/Users/oli/.opencode/plan/profiles-and-presets.md` (written before those decisions). Build prompt:
+
+```
+Implement the profiles-and-presets plan in /Users/oli/.opencode/plan/profiles-and-presets.md.
+
+Read the plan first and follow it exactly. If anything contradicts it, stop and ask rather than
+improvising around it.
+
+Scope:
+- Rust: new src-tauri/src/saved.rs mirroring camera_profiles.rs (validation) and sidecar.rs
+  (atomic writes); commands saved_items, read_saved, save_saved, delete_saved, import_saved,
+  export_saved; register them and `mod saved;` in lib.rs.
+- Frontend model: src/film/saved.ts with PRESET_GROUPS, normalizers, savedProfileFromRecipe,
+  savedPresetFromRecipe, applyProfile, applyPreset, describeSavedProfile, describeSavedPreset;
+  tests in src/film/saved.test.ts.
+- Store: src/library/saved.ts (useSyncExternalStore, invoke wrappers, load on app start).
+- UI: one "Saved" section after Film stock, two lists (Profiles, Presets), Apply/Export/Delete,
+  Save current profile/preset dialogs, import/export via @tauri-apps/plugin-dialog.
+- Rename the film-stock picker from "Presets" to "Film stock" so "preset" means the saved grade.
+
+Invariants:
+- One creative slot: applying a profile or a preset's Profile group replaces the rendering; never
+  stack two LUTs.
+- lookAmount blends to Neutral, not to the previous profile.
+- One undo step per apply.
+- A preset copies only its `include` groups; `v` is never copied from a file.
+- Preset default groups: all except Geometry and Base profile; Profile group included by default.
+- Profile files reference installed renderings (pack/stock/push/amount/scanner); they do not embed
+  LUT bytes.
+- Group completeness test: every recipe key except `v` belongs to exactly one group.
+
+Platform notes:
+- Use a UUID v4 helper over crypto.getRandomValues, not crypto.randomUUID (the Tauri custom scheme
+  may not count as a secure context).
+- `save` from @tauri-apps/plugin-dialog is a first use in this repo; verify its signature.
+
+Run `npx tsc --noEmit`, `npm test`, `npm run build` and `cargo test` at each step. Do not commit or
+push.
+```
+
+## Fuji shadow correction, revision 2 (2026-10-31)
+
+Oli reported that every Fuji conversion starts too dark/shadowy, then asked whether this was the video/photo signal mismatch and whether we use HaldCLUTs. Answer: matching log/gamut/transfer is essential; JPEGs have rendered contrast, RAW data itself does not. Our adapter already reconstructs the neutral scene and encodes F-Log2. t3mujinpack uses PNG HaldCLUTs; G’MIC, PictureFX and Fuji use Cube, all through the same darktable tetrahedral lookup. Format is not the shadow cause.
+
+- Reproduced without scanner/grading on the actual Provia baked LUT: encoded grey 0.20 → 0.0881, 0.10 → 0.0103. Added a local-asset regression test that failed on those values before rebuilding.
+- Initial converter incorrectly inferred a signal transfer from Fuji’s gamma-2.2 **monitor recommendation**. Revision 2 adapts output using darktable’s **Gamma Rec709 RGB input profile** (piecewise inverse BT.709 OETF), from `colorspaces.c` at the pinned `20891f6c` commit. This is a standard photo-space adaptation; no invented exposure lift or shadow curve. Fuji’s full proprietary colour/contrast/encoding chain is not a guarantee of in-camera matching. Native LittleCMS independently verifies the exact profile values.
+- Build-time reference in `tools/luts/fuji-transform.ts`; `bake-fuji.mjs` uses it. Rebuilt all ten 65-point Cubes and installed into the existing **Fujifilm (local test)** dropdown. Stable stock IDs preserve edits; new `_r2_<hash>` filenames force fresh LUT loads. **Cmd+R**, then try them again. Scanner and user grading settings still apply normally.
+- Corrected Provia: 0.20 → 0.1750, 0.10 → 0.0906. Real GPU regression: inputs 26/51/128 (8-bit) → 23/44/141, within one level of the TypeScript reference; zero WebGL errors. All ten loads/previews/selection/Amount/copy checks pass. Acros remains monochrome with Straight scanner. Revision 2 preview visually checked on the existing local RAW bridge sample, with visibly restored shadows.
+- `npm run check`: 243 TS tests, 36 Rust checks (4 optional ignored), typecheck/build pass. Direct-chain interpolation RMS 0.087–0.417 8-bit levels over 12,000 off-grid samples per LUT, max <16.08 at sharp gamut/clipping boundaries. No runtime processing/shader changes; release build still excludes private assets and pack metadata.
+- New artifacts: `/Users/oli/Dev/emulsion-local-luts/fujifilm-2026-10-31-r2/` (Cubes, manifest, README, corrected preview, ZIP). Old first-version artifacts are preserved separately. Private installed catalogue/files remain ignored in `local-looks/fuji-test/`. Details in source-verification note and NOTICE.
+
+No commit/push authorised. Oli still needs to judge whether the corrected Fuji colour/contrast is useful; the broad first-version shadow loss is fixed under the chosen Rec.709 photo adaptation.
+
+## Fujifilm test pack now in the dropdown (2026-10-31)
+
+Oli asked to put the converted Fuji LUTs in the dropdown so he can test them on his photos. **Done in the local development app:** Develop → Presets → Looks → **Fujifilm (local test)**, then choose any of the ten simulations in Preset. Amount, photo previews, grading and copy/paste use the normal paths. Cmd+R if the running webview has not picked up the change.
+
+- Private files copied to ignored `local-looks/fuji-test/`: ten converted Cubes and `catalogue.json` containing names/IDs/hashes; original persistent copy remains in `/Users/oli/Dev/emulsion-local-luts/fujifilm-2026-10-31/`.
+- `src/film/local-looks.ts` discovers the optional catalogue only in DEV. Stocks/packs use stable `lut:fuji-test:*` IDs; the pack is present only when that local catalogue exists. The loader accepts `/local-looks/` URLs served by Vite. There are no shader/processing changes.
+- Private files are outside `public/`, ignored by git, and excluded from release builds. Verified production JS contains no Fuji test pack/metadata and dist has no converted Fuji Cube assets. A clone without the private catalogue offers no test pack. Do not move these files under public/ or commit them as part of the earlier open LUT additions.
+- Checks: `npm run check` passes (238 TS tests, 36 Rust passed/4 optional ignored, typecheck/build). Browser checked dropdown and all ten names, all ten actual 65-point file loads, selection/Amount, ten previews, and copied settings. Acros renders monochrome in the real app canvas; screenshot `/private/tmp/emulsion-fuji-dropdown.png`.
+
+No commit/push authorised. These are still experimental conversions for Oli to assess; release redistribution is separate.
+
+## Fuji conversion experiment completed locally (2026-10-31)
+
+Oli clarified that he wanted the official Fuji LUTs repurposed for our pipeline. Created `tools/luts/bake-fuji.mjs` (Node 24+) and generated **ten 65-point sRGB Cube test LUTs**: Provia, Velvia, Astia, Classic Chrome, Classic Neg, Reala Ace, Pro Neg Std, Eterna, Eterna Bleach Bypass and Acros.
+
+- Bakes inverse Emulsion neutral print → F-Log2 → official Fuji table → BT.709/gamma 2.2 display → sRGB. Reuses existing sigmoid/tetrahedral code; official data-sheet encoding and recommended display gamma. No runtime engine/shader changes. Built for our existing sRGB LUT slot; these are no longer log-input LUTs.
+- Local files only: `/Users/oli/Dev/emulsion-local-luts/fujifilm-2026-10-31/` (ten Cubes, hash/error manifest, README, preview board and ZIP). None bundled/in git or added to the normal app dropdown. Applicable redistribution rights still need resolution before shipping Fuji-derived assets.
+- Checks: official black/18%/90% F-Log2 anchors, neutral inverse, all Cube parsers/finite data, direct chain vs 12,000 off-grid samples per look (RMS <0.34 8-bit levels, worst <14.55 at gamut/clipping boundaries). Actual Engine photo renders: all 10 loaded/changed the photo, Acros exactly monochrome, zero WebGL errors. Preview visually inspected.
+- Approximation limits: gamut clipping in the existing display LUT stage cannot be recovered; this is not a guarantee of Fuji in-camera JPEG equivalence. A direct scene-linear path would preserve more RAW gamut. Full details in `docs/plans/lut-source-verification.md`.
+
+No commit/push authorised. Earlier G’MIC/PictureFX work below remains uncommitted. User’s latest question is whether we can repurpose Fuji’s official files; answer is yes, and the local test pack now demonstrates it.
+
+## LUT catalogue expanded (2026-10-31, uncommitted)
+
+Oli asked to add YahiaAngelo/G’MIC, Pat David, PictureFX/FreshLUTs and Spectrail, then said to leave Spectrail out. Added two packs using the existing darktable lut3d renderer:
+
+- **G’MIC / Pat David:** 269 unchanged 13-point Cube LUTs from YahiaAngelo/Film-Luts at `af957b631a304e6be94778b96cb3395de3438e9f`. These overlap Pat David’s original collection and appear together. Excluded Print and Fuji X-Trans III pending separate source/input verification.
+- **PictureFX (legacy):** 19 unchanged G’MIC Cube conversions corresponding to Marc Roovers’ preserved author-written CC BY-SA 4.0 README. Six additional Faux Infrared files excluded. The original author site is offline; the preserved README and official G’MIC distribution evidence are documented.
+- FreshLUTs CineStill 800T listing is explicitly CC0, but its actual download requires an account and has not been obtained. Current itch.io CineStill/SX-70 releases have different/unclear redistribution terms and were not substituted. Spectrail omitted.
+- `src/film/lut-catalogue.json` holds stable namespaced stock IDs, metadata and hashes. Seven exact common film mappings retain existing stock IDs across packs. Generated LUT profiles have neutral style parameters; the LUT supplies the look. t3mujinpack remains the default; previous recipes retain their rendering.
+- Presets dropdown is scoped/grouped by pack. Browse looks adds category filter, search and 12-preview pages; closed browse does not mount/render previews. Selecting a look keeps its pack; changing packs selects a supplied look if the previous film is unavailable. Classic uses the same pack-aware picker.
+- Assets (~37 MB total), source notes, original notices and full CC BY-SA text in `public/looks/gmic-film/` and `picturefx/`, separately licensed from app code. Import copy/catalogue script `tools/luts/import-packs.py` validates against reviewed hashes. See `docs/plans/lut-source-verification.md` and NOTICE.
+- Validation: 237 TS tests, typecheck, production/probe builds, 36 Rust tests (4 optional ignored); all 288 Cube parsers/hashes and recipe persistence/reset/paste checked. Browser checks pack counts/switching/search/paging/lazy previews and previews on a real decoded sample. GPU reference errors <0.000378 for new Cube packs (half float).
+- Oli then asked whether official Fujifilm film simulation LUTs could be repurposed. Answer: technically possible via a dedicated scene-linear→F-Log2→official LUT→BT.709 output path, requiring correct encoding/exposure/output handling and reference validation. Existing sRGB LUT path is unsuitable. Checked official GFX ETERNA 55 v1.10: ten simulations including Reala Ace/Classic Neg/Acros, but no Nostalgic Neg or Pro Neg Hi. No app-redistribution permission found; investigate user-supplied import or obtain permission before bundling. No Fuji assets or runtime transforms bundled; local conversion completed in the newer note above. Details and official links in source-verification note.
+
+**Do not commit/push this LUT work until Oli asks.** Previous panel regrouping is committed as `4b06d08` and not pushed. Next: Oli tries the expanded picker/looks; Fuji import feasibility is a potential follow-up, with generic LUT import, advanced style tools, lensfun/LCP and custom stage arrangements still future work.
 
 ## Right-panel tabs revised (2026-10-31)
 
@@ -63,94 +224,6 @@ Oli approved the plan and wheel mock-up in `docs/plans/colour-grading.md`, autho
 - `?gradingpanel` probe provides a focused GPU/reference check with a LUT marked active and renders the real panel. The isolated earlier design mock-up is still `tools/probe/grading-mockup.html`.
 - Tests: 219 pass; production and probe builds pass. See plan for final probe results and screenshot.
 
-Earlier notes below describe the previous state; the three stock questions have now been answered above. Do not resume fitting the old looks.
-
-## This session (2026-10-31): stocks as darktable styles, step 1 (committed in `68bacbd`), then a change of direction
-
-**Oli's new direction (decided at the end of this session, nothing built yet):**
-1. **Colour Grading for users, next.** Colour balance rgb is already ported whole
-   (`engine/colorbalance.ts`, `stages/colorbalance.glsl`), but the recipe uses only four of its sliders
-   (Contrast, Vibrance, Saturation, Shadows). Expose its grading controls as a Colour Grading section
-   for every photo, whatever the stock, as Lightroom's Color Grading: shadows / mid-tones / highlights wheels
-   and global offset (hue, chroma, luminance), saturation and chroma by tone, brilliance, hue shift,
-   the masks' fulcrums. It is the same module the stocks' grade uses, so no new port is needed; it needs
-   recipe fields (sidecar, `normalizeRecipe`, undo, copy/paste), the panel, and the TypeScript/GLSL check
-   through the probe (`colorGrade` already covers every control).
-2. **Stocks get their looks from LUT packs** where a good LUT exists (the Looks dropdown and darktable
-   lut3d port already do this; t3mujinpack covers every stock but CineStill 800T and Neutral).
-3. **The style tools become the advanced layer**: sigmoid primaries (ported this session) and the stock's
-   grade as an Advanced option, on top of whatever renders the stock.
-
-**Open questions to ask Oli before acting on them (he has not answered yet):**
-- Do LUTs *replace* the styles as the default stock looks? If so, the refit below is moot; and since this
-  commit left most stocks plainer than before, should the old looks come back in the meantime (e.g. by
-  restoring them from `fbe908d`), or is the Emulsion pack retired in favour of a LUT pack as default?
-- Which LUTs: t3mujinpack's look as the direction, another pack, or LUTs baked by us?
-- What Neutral and CineStill 800T (no t3mujinpack LUT) should do.
-
-**State of the stocks in this commit:** Emulsion's own stock controls are removed, but the refitted
-numbers are not in `stocks.ts`: every colour stock has only its old contrast (Pro 400H also keeps its old
-grade), so Portra, Gold, Ektar, Superia, Pro 400H, CineStill and HP5 render plainer than before with the
-Emulsion pack. Neutral and Tri-X are unchanged. LUT-pack looks are unaffected (a LUT replaces the style).
-
-Done and committed:
-- **Sigmoid primaries ported** (darktable `sigmoid.c` `_calculate_adjusted_primaries`, `custom_primaries.c`,
-  `colorspaces.c` matrix from primaries, at `20891f6c`): `src/engine/primaries.ts` with tests (attenuation,
-  rotation in degrees as darktable's sliders show it, recover purity; base = darktable's linear Rec.2020
-  profile as lcms writes it, Bradford-adapted colorants and D50 white). `toneRgb` and `stageTone` follow
-  darktable's `process_loglogistic_per_channel` (desaturate negatives, into the primaries, curve per channel,
-  hue preservation, back). Probe `tone` within 1.2e-6 (cases `smooth` = darktable's preset, `strong`).
-- **Removed:** crosstalk `matrix`, `crossover` (uSigR/G/B), `balance` (uWB), print `saturation` and `fade`
-  (`stagePrint` is gone), push's saturation step. `Stock` is now `contrast`, `primaries?`, `grade?`,
-  `bwWeights?` (B&W kept until colour calibration's gray tab is ported, per the plan).
-- **Tuning panel / Copy as code** follow: a Primaries group, global saturation in the grade; code writes
-  `primaries: { ... }` when it does something, hues and rotations to 0.1°, and leaves out a wheel's hue
-  when its chroma is 0. The "code equals stocks.ts" test passes.
-- **Probe:** `?renders=<jpeg>…` (every stock, PNGs as data in `<pre id="renders">`, no screenshot),
-  `?board=<jpeg>…&before=<folder>/` (before/after boards per stock with ΔE, as PNG data in
-  `<pre id="boards">`; built, not yet run), `?fit` rewritten for the new style (contrast, primaries, grade;
-  `&noexp`, `&penalty`, `&reflabel`; the board also comes back as `out.board`, and `out.code` is the
-  stocks.ts entry). **Reliable screenshots:** don't screenshot; read PNG data out of the dumped DOM and retry
-  when the `<pre>` is missing (Chrome sometimes dumps before the work ends; one retry was always enough).
-- Docs: ARCHITECTURE stage table (Stock grade row, Emulsion, Tone), NOTICE (sigmoid sources; colour balance
-  entry corrected to the whole-module port), the plan's step 1 status.
-
-Files for the refit (session scratchpad, `/private/tmp/claude-502/-Users-oli-Dev-emulsion/69a7d63b-1358-4f1a-9faf-dc7119fa922f/scratchpad`):
-- `photos/` the six sample JPEGs; `before/<photo>_<stock>.png` the 60 saved looks from before the change
-  (300 px long edge). **These are the targets; keep them.** Remade only from the commit before this one.
-- `probe.mjs '<query>' <preId> [budget]` runs headless Chrome and prints the `<pre>`; `savepngs.mjs` writes
-  a `?renders` result to PNGs; `fit.sh <stock> <evals>` fits one stock to its before renders into
-  `fit_<stock>.json` (`code` holds the entry to paste).
-- The refit fits finished after the commit (mean ΔE to the old looks about 2-3 per stock; results in each
-  `fit_<stock>.json`). Not needed now that LUTs replace the styles.
-
-### Prompt for the next session
-
-> Read HANDOFF.md first, then docs/plans/stock-styles.md for background.
->
-> **Where we were going:** Emulsion's film stocks were built from controls we invented (a crosstalk
-> matrix, per-channel crossover, balance gains, print saturation, fade), which breaks the rule of porting
-> the community's best tools. The plan was to rebuild every stock as a "style" made only of darktable
-> module settings (sigmoid contrast and primaries, plus a colour balance rgb grade) and fit each style to
-> the stock's old look. The last session ported sigmoid's primaries, removed our own controls and
-> committed (`68bacbd`), but the refit never finished, so most stocks now look plainer than before.
->
-> **How we corrected course:** that mixed up two jobs, how a stock gets its look and what grading tools I
-> get. We separated them:
-> 1. **Colour Grading for every photo comes next.** Colour balance rgb is already ported in full, but the
->    panel only uses four of its sliders. Expose its grading controls (shadow, mid-tone and highlight wheels,
->    global offset, saturation and chroma by tone, brilliance, hue shift) as a Colour Grading section,
->    whatever the stock.
-> 2. **Stocks get their looks from LUT packs** where a good LUT exists (the Looks dropdown and darktable's
->    lut3d port already do this).
-> 3. **The style tools become an advanced layer** on top: sigmoid primaries and the stock's grade.
->
-> **What to do now:** first ask me the open questions in the handoff: do LUTs replace the styles as the
-> default looks, and what happens to the stocks the last commit left plainer; which LUTs; what Neutral and
-> CineStill 800T get. Then plan the Colour Grading section: which controls to show and how (wheels like
-> darktable's hue/chroma pads, or sliders), where it sits in the panel, the recipe fields, and how it relates
-> to the Contrast, Vibrance, Saturation and Shadows sliders that already use the same module. Show me the
-> plan and a mock-up from the probe before building anything. Don't commit until I say so.
 
 ## Earlier work
 
@@ -212,7 +285,7 @@ Oli wants camera and lens correction that covers every lens and camera, for publ
 
 RawTherapee checked (`rtengine/lensmetadata.cc`): its metadata corrections for Fuji, Sony and Olympus are "adapted from darktable 4.6", plus DNG OpcodeList3; its Panasonic code is disabled ("not stable"; CA never decoded), so Panasonic relies on lensfun. It notes OM/Olympus cameras apply shading (vignetting) correction inside the raw data, which is why ORFs carry no vignetting parameters. Its lensfun has auto-match and manual pick; offer both.
 
-Camera colour is already covered for every LibRaw camera through its matrices; DCP profiles (RawTherapee) are optional later.
+Camera colour is covered for every LibRaw camera through its matrices; RawTherapee DCP profiles are now built (see the top).
 
 ## Next
 
@@ -220,20 +293,15 @@ Camera colour is already covered for every LibRaw camera through its matrices; D
 1. **Lens correction** (see the findings above). Oli: every camera treated equally, nothing built around his own. Order: (a) all four embedded formats together (Fuji, Olympus/OM, Sony, DNG; readers are per file format, so every body of those makers is covered, and new ones on day one), tested on Oli's files plus public samples from raw.pixls.us for Sony and DNG; then darktable's v2 maths. (b) lensfun auto-matching for every other maker (coverage arrives as database updates, not code). (c) A remembered per camera+lens assignment: when a lens is not recognised, the Lens section lets Oli pick a lensfun entry or load an Adobe LCP profile, applied to every photo from that camera and lens from then on (also fixes adapted and misnamed lenses).
 2. Oli tries the speed work (GPU-paced rendering), Colour, grain and RAW+JPEG folding in the real app.
 3. **Your own profiles and presets** (Oli; Batch 3, part 2), kept distinct the way Lightroom keeps them:
-   - **Profiles** (like Lightroom's profiles): the base rendering of a photo, i.e. what a stock is. Users save
-     their own: import a LUT (.cube or Hald PNG, through the lut3d engine), or save the current stock's style
-     (sigmoid primaries and grade, from the advanced layer) as a new stock, optionally baked to a LUT. A
-     profile sits in the stock picker beside the built-in stocks, has its own Amount, and does not touch the
-     sliders.
+   - **Profiles** (like Lightroom's creative profiles): a look on top of the camera profile. Users add
+     their own by importing a LUT (.cube or Hald PNG, through the lut3d engine). A profile sits in the stock
+     picker beside the built-in looks, has its own Amount, and does not touch the sliders.
    - **Presets** (like Lightroom's presets): saved slider settings applied on top of whatever profile the
      photo has (exposure, tone, Colour Grading, detail, grain...), with a choice of which groups to include;
      a preset may also name a profile. Applying one changes the sliders, so it is undoable and editable after.
    - Both kept in the app's config (not the sidecar); a photo's sidecar stores the values it uses, so it
      still renders the same where the profile or preset is missing. Decide the folder layout, import/export
      for sharing, and how they appear in the panel (Lightroom: a profile browser, and a presets list).
-4. **Tuning Emulsion's own stock looks** (the hand-tuned numbers in `src/film/stocks.ts`: contrast, crossover, balance, matrix, saturation, fade; Oli's own tuning, not a port). Two ways, both wanted:
-   - **Developer panel: built** (not committed). A **Stock tuning** section under Film stock, in development builds only (`npm run tauri dev`; `import.meta.env.DEV`), for the current stock when Looks is Emulsion: contrast, crossover R/G/B, balance R/G/B, crosstalk (the six off-diagonal entries; each row's diagonal follows so rows sum to 1), saturation, fade; B&W stocks get their three weights instead of crosstalk and saturation. Changes are live everywhere (they edit `STOCK` in memory, `film/stocktuning.ts`), remembered across reloads in localStorage (`emulsion.stockTuning`, dev builds only), each track's tick marks the file's value (double-click resets one), **Copy as code** gives the stock's whole entry in `stocks.ts`'s layout (a test checks every untouched stock's code is exactly what the file has), **Back to stocks.ts** drops the tuning. Untested by Claude: the sliders in the real app, the clipboard. HP5's `contrast: 1.0` was written `1` to match.
-   - **Tuning from samples**: Oli supplies reference images (a photo and how he wants it to look, or film scans of similar scenes); Claude adjusts the numbers to match and shows before/after renders with the probe.
 5. **Virtual copies** (Oli, as Lightroom and darktable's duplicates): several edits of one photo, each its own frame in the Library and filmstrip, without copying the file. Needs: the sidecar holding several recipes (or one sidecar per copy, as darktable's `photo_01.xmp`), copy-aware selection, ratings and tags per copy, export naming, and deleting a copy. Check darktable's duplicate manager for the model before designing.
 6. **Masks** (Oli): local adjustments, as Lightroom's masking. Likely parts: drawn shapes (brush, linear and radial gradients), masks by colour or brightness range, combined (add, subtract, intersect), each carrying its own adjustments (exposure, contrast, white balance, saturation...). Upstream to port per the rule: darktable's drawn and parametric masks (`src/develop/masks/`, `src/develop/blend.c`); research what darktable and RawTherapee/ART offer before designing, and whether any open-source subject or sky detection is good enough to port. Big job: needs mask storage in the recipe, an overlay editor in the Develop view, and per-mask passes in the engine.
 7. Oli's roadmap ideas: right-click the tone curve for preset curves (a subtle S curve first) and saving his own curves; export with borders; several photos on one canvas separated by borders (social media posts); more film stocks; Fuji film simulations and recipes (darktable's color equalizer presets, e.g. bleach bypass, may help here).

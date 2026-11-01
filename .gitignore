@@ -25,3 +25,6 @@ dist-ssr
 
 # Engine probe build
 tools/probe/dist
+
+# Private LUT experiments, served locally by Vite and excluded from app builds
+/local-looks/

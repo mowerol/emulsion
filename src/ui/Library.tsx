@@ -3,7 +3,7 @@ import { memo, useEffect, useMemo, useRef, useState, type MouseEvent } from 'rea
 import { setActive, setFoldJpegs, setView, useApp, type Photo } from '../library/store';
 import { shownIndices } from '../library/filter';
 import { FilterBar } from './FilterBar';
-import { STOCK } from '../film/stocks';
+import { recipeLabel } from './common';
 import { MarkBadges, Thumb, useVisible } from './common';
 
 /** Columns in the grid, for up/down arrow navigation. */
@@ -51,7 +51,7 @@ const Cell = memo(function Cell({ photo, index, active, selected }: { photo: Pho
             </span>
           )}
         </span>
-        <span className={`cell-stock${photo.recipe ? ' on' : ''}`}>{photo.recipe ? STOCK[photo.recipe.stock].name : 'Original'}</span>
+        <span className={`cell-stock${photo.recipe ? ' on' : ''}`}>{recipeLabel(photo)}</span>
       </div>
       <div className="cell-marks">
         <MarkBadges photo={photo} />

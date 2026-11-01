@@ -2,6 +2,7 @@
 //! Emulsion desktop core: folders, decoding, thumbnails, sidecars and export.
 //! Image processing itself runs on the GPU in the webview (see src/engine).
 
+mod camera_profiles;
 mod capture;
 mod commands;
 mod decode;
@@ -11,6 +12,7 @@ mod lens;
 mod raw;
 mod sidecar;
 mod thumbs;
+mod user_looks;
 
 use std::path::PathBuf;
 use tauri::menu::{Menu, MenuItem, PredefinedMenuItem, Submenu};
@@ -92,6 +94,16 @@ pub fn run() {
             commands::scan_folder,
             commands::thumbnail,
             commands::load_image,
+            commands::camera_profiles,
+            commands::read_camera_profile,
+            commands::read_camera_profile_file,
+            commands::install_camera_profile,
+            commands::user_looks,
+            commands::read_user_look,
+            commands::read_user_look_file,
+            commands::install_user_look,
+            commands::save_user_profile,
+            commands::delete_user_look,
             commands::white_points,
             commands::capture_info,
             commands::write_sidecar,

@@ -30,6 +30,18 @@ export function mulMat(a: Mat3, b: Mat3): Mat3 {
   return r as Mat3;
 }
 
+/** The inverse of a 3×3 matrix, by cofactors. */
+export function invert3(m: Mat3): Mat3 {
+  const [[a, b, c], [d, e, f], [g, h, i]] = m;
+  const A = e * i - f * h, B = -(d * i - f * g), C = d * h - e * g;
+  const det = a * A + b * B + c * C;
+  return [
+    [A / det, -(b * i - c * h) / det, (b * f - c * e) / det],
+    [B / det, (a * i - c * g) / det, -(a * f - c * d) / det],
+    [C / det, -(a * h - b * g) / det, (a * e - b * d) / det],
+  ];
+}
+
 export function mulVec(m: Mat3, v: Vec3): Vec3 {
   return [0, 1, 2].map((i) => m[i][0] * v[0] + m[i][1] * v[1] + m[i][2] * v[2]) as Vec3;
 }

@@ -1,3 +1,5 @@
+import { ProfileGpu } from './profilegpu';
+import { prepareProfile, profilePending } from './profilestore';
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The develop engine: uploads sources and runs the pass graph.
 //
@@ -13,7 +15,7 @@ import { Gpu, GpuError, Lru, type Program, type Target } from './gpu';
 import { InputMode, LUT_UNIT, colorBalanceUniforms, developUniforms, needsPasses, type Uniforms } from './params';
 import { textureData } from './lut3d';
 import { type LoadedLut, loadLut, lutFor, lutPending } from './lutstore';
-import { lookFile } from '../film/looks';
+import { recipeLookFile } from '../film/looks';
 import { GLOW_SIGMA, HALATION_SIGMA, blurPlan, pyramidFor, type Pyramid } from './pyramid';
 import { MASK_SIGMA } from './toneequalizer';
 import { GAMMAS, levelSize, numLevels } from './locallaplacian';
@@ -24,7 +26,9 @@ import { BRIGHT_RANGE, HUE_DEGREES, HUE_MAX, SAT_RANGE, type ColorAdjust } from 
 import { autoContrast, borderFor, gaussian1d, iterationsFor, kernelFor, TILE } from './capture';
 import { columnMajor } from './color';
 import type { Mat3 } from '../film/stocks';
-import { CURVE_RES, curveTable } from '../film/curve';
+import { CURVE_RES } from '../film/curve';
+import { composedCurveTable } from '../film/creative';
+import { profileSettingsFor } from '../film/looks';
 import type { Xy } from './whitebalance';
 import { SHADERS, SHADER_FILES } from './shaders';
 
@@ -32,6 +36,7 @@ export { GpuError, InputMode };
 
 /** Pixels decoded by the backend: RGBA half floats. */
 export interface HalfImage {
+  camera?: import('../film/profiles').CameraMetadata | null;
   lens?: LensMetadata | null;
   width: number;
   height: number;
@@ -55,6 +60,7 @@ export interface View {
 export const FULL_VIEW: View = { x: 0, y: 0, w: 1, h: 1 };
 
 export interface Source {
+  camera?: import('../film/profiles').CameraMetadata | null;
   lens?: LensMetadata | null;
   tex: WebGLTexture;
   w: number;
@@ -114,13 +120,15 @@ const uniformsOf = (file: string) => [...SHADER_FILES[file].matchAll(/uniform\s+
 const BEFORE_TEXTURE = ['stages/input.glsl', 'stages/exposure.glsl', 'stages/toneequalizer.glsl'].flatMap(uniformsOf).concat('uSharp', 'uStore');
 const TEXTURE_STAGE = uniformsOf('stages/texture.glsl').concat('uTextureMix');
 const COLOR_STAGE = uniformsOf('stages/colorequal.glsl');
-const BEFORE_CLARITY = ['stages/colorbalance.glsl', 'stages/lens.glsl', 'stages/emulsion.glsl', 'stages/tone.glsl', 'stages/lut.glsl'].flatMap(uniformsOf).concat('uHal', 'uHalCol', 'uGlow', 'uBW', 'uLutId');
+const BEFORE_CLARITY = ['stages/colorbalance.glsl', 'stages/lens.glsl', 'stages/tone.glsl', 'stages/lut.glsl', 'stages/dcp.glsl'].flatMap(uniformsOf).concat('uHal', 'uHalCol', 'uGlow', 'uLutId');
 const CLARITY_STAGE = uniformsOf('stages/clarity.glsl').concat('uLl');
 const pick = (u: Uniforms, names: string[]) => JSON.stringify(names.map((n) => u[n] ?? null));
 
 export class Engine {
   readonly gpu: Gpu;
   private develop: Program;
+  private dcpPass: Program;
+  private profiles: ProfileGpu;
   private extract: Program;
   private teqMask: Program;
   private sampleP: Program;
@@ -162,6 +170,8 @@ export class Engine {
 
   constructor(canvas: HTMLCanvasElement) {
     this.gpu = new Gpu(canvas);
+    this.profiles = new ProfileGpu(this.gpu);
+    this.dcpPass = this.gpu.program(SHADERS.vertex, SHADERS.dcp);
     this.lensP = this.gpu.program(SHADERS.vertex, SHADERS.lenscorrect);
     this.develop = this.gpu.program(SHADERS.vertex, SHADERS.develop);
     this.extract = this.gpu.program(SHADERS.vertex, SHADERS.extract);
@@ -213,7 +223,7 @@ export class Engine {
     const mips = this.gpu.hdr;
     if (mips) gl.generateMipmap(gl.TEXTURE_2D);
     this.gpu.params(mips);
-    return { tex, w: img.width, h: img.height, mode: img.mode, white: img.white, lens: img.lens, fullW: img.fullWidth, fullH: img.fullHeight };
+    return { tex, w: img.width, h: img.height, mode: img.mode, white: img.white, lens: img.lens, camera: img.camera, fullW: img.fullWidth, fullH: img.fullHeight };
   }
 
   /** Upload an sRGB image (a thumbnail), shot for `white` (a RAW's camera preview) or D65. */
@@ -679,16 +689,21 @@ export class Engine {
     return px.filter((_, k) => k % 4 === 0);
   }
 
-  /** Upload `recipe`'s point curve as a 256x1 float texture (master, red, green, blue). */
+  /**
+   * Upload the point curve as a 256x1 float texture (master, red, green, blue): the photo's own,
+   * after a saved creative profile's at its Amount.
+   */
   private curveTexture(recipe: Recipe): WebGLTexture {
     const gl = this.gpu.gl;
-    const key = JSON.stringify(recipe.curve);
+    const profile = profileSettingsFor(recipe)?.curve ?? null;
+    const amount = recipe.lookAmount / 100;
+    const key = JSON.stringify([recipe.curve, profile, amount]);
     if (this.curveTex && key === this.curveKey) return this.curveTex;
     if (!this.curveTex) this.curveTex = gl.createTexture()!;
     this.gpu.scratch();
     gl.bindTexture(gl.TEXTURE_2D, this.curveTex);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, CURVE_RES, 1, 0, gl.RGBA, gl.FLOAT, curveTable(recipe.curve!));
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, CURVE_RES, 1, 0, gl.RGBA, gl.FLOAT, composedCurveTable(recipe.curve, profile, amount));
     this.gpu.params(false);
     this.curveKey = key;
     return this.curveTex;
@@ -699,15 +714,16 @@ export class Engine {
     return this.lutTex.get(String(lut.id), () => this.gpu.lutTexture(textureData(lut), lut.level, lut.eightBit));
   }
 
-  /** Whether a recipe's look LUT is still loading (draw nothing new until it arrives). */
-  waiting(recipe: Recipe | null): boolean {
-    const file = recipe ? lookFile(recipe.pack, recipe.stock, recipe.push) : null;
-    return !!file && lutPending(file);
+  /** Keep the previous frame until its base profile and optional creative LUT are ready. */
+  waiting(recipe: Recipe | null, camera?: import('../film/profiles').CameraMetadata | null, compare = false): boolean {
+    const file = compare ? null : recipeLookFile(recipe);
+    return (!!file && lutPending(file)) || profilePending(recipe?.profile ?? 'auto', camera);
   }
 
-  /** Wait for whatever a recipe needs that loads separately (its look LUT); call before export. */
-  async prepare(recipe: Recipe | null) {
-    const file = recipe ? lookFile(recipe.pack, recipe.stock, recipe.push) : null;
+  /** Wait for the base profile and optional creative LUT before export or thumbnails. */
+  async prepare(recipe: Recipe | null, camera?: import('../film/profiles').CameraMetadata | null) {
+    const file = recipeLookFile(recipe);
+    await prepareProfile(recipe?.profile ?? 'auto', camera);
     if (file) await loadLut(file);
   }
 
@@ -776,6 +792,18 @@ export class Engine {
     const iterations = recipe && !opts.compare && src.capture && g.hdr && g.float32 ? iterationsFor(recipe.captureSharpening) : 0;
     if (iterations > 0) src = { ...src, tex: this.captureSharpened(src, iterations) };
     src = this.lensCorrected(src, recipe);
+    const profile = this.profiles.resolve(recipe?.profile ?? 'auto', src.mode === InputMode.SceneLinear ? src.camera : null);
+    if (profile) {
+      if (!g.hdr) throw Error('Camera profiles require floating-point WebGL render targets');
+      const input = src.tex;
+      const target = this.profiles.source(input, profile.key, src.w, src.h, (out) => {
+        g.bind(0, input);
+        this.profiles.bind(profile);
+        this.dcpPass.set({ ...this.profiles.uniforms(profile), uTex: 0 });
+        g.draw(this.dcpPass, out, src.w, src.h);
+      });
+      src = { ...src, tex: target.tex };
+    }
     const view = opts.view ?? FULL_VIEW;
     const frame = opts.frame ?? recipe?.crop ?? FULL;
     // Effects that belong to the film (grain, vignette) see the whole uncropped
@@ -784,6 +812,7 @@ export class Engine {
     const u = developUniforms(recipe, {
       width: opts.width / view.w / frame.w, height: opts.height / view.h / frame.h, seed: opts.seed, inputMode: src.mode, store: this.store, compare: opts.compare, white: src.white, look,
     });
+    Object.assign(u,this.profiles.uniforms(profile));
     const [a, b, c, d, e, f] = cropAffine({ ...FULL, ...frame }, src.w, src.h);
     u.uGeoU = [a, b, e];
     u.uGeoV = [c, d, f];
@@ -859,6 +888,7 @@ export class Engine {
       g.bind(9, usm);
       g.bind(10, ceTex);
       g.bind3d(LUT_UNIT, lutTex);
+      this.profiles.bind(profile);
     };
     // A pass over the whole source that stops at a filter's input (see uTap in develop.frag).
     const tap = (t: Target, uTap: number, extra: Uniforms) => {
@@ -990,6 +1020,7 @@ export class Engine {
   }
 
   dispose() {
+    this.profiles.dispose();
     if (this.lensMade) this.gpu.free(this.lensMade.out);
     this.lensMade = null;
     if (this.curveTex) this.gpu.gl.deleteTexture(this.curveTex);
@@ -1005,7 +1036,7 @@ export const colorEqParams = (c: ColorAdjust): ColorEqParams => ({ hue: c.hue.ma
 
 /** A recipe's look LUT: null when its pack has none for the stock, or until it has loaded. */
 export function lookLut(recipe: Recipe): LoadedLut | null {
-  const file = lookFile(recipe.pack, recipe.stock, recipe.push);
+  const file = recipeLookFile(recipe);
   return file ? lutFor(file) : null;
 }
 

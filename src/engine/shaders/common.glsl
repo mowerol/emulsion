@@ -8,8 +8,6 @@ out vec4 outColor;
 
 // Output size in pixels, used for resolution-independent effects.
 uniform vec2 uOut;
-// 1 when the stock is black and white.
-uniform float uBW;
 // Per-frame random seed so grain differs between frames but is stable.
 uniform float uSeed;
 

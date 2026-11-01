@@ -1,0 +1,2594 @@
+[
+  {
+    "id": "lut:gmic-film:bw/agfa_apx_100",
+    "pack": "gmic-film",
+    "name": "Agfa Apx 100",
+    "category": "Black & white",
+    "file": "bw/agfa_apx_100.cube",
+    "iso": 100,
+    "sha256": "61f692f928d3809a77af2249035f771e47150964ac7243e9a217438cd2ca2858"
+  },
+  {
+    "id": "lut:gmic-film:bw/agfa_apx_25",
+    "pack": "gmic-film",
+    "name": "Agfa Apx 25",
+    "category": "Black & white",
+    "file": "bw/agfa_apx_25.cube",
+    "iso": 25,
+    "sha256": "5779cd44a2ea912085653054f12ae270343b87e918e27c63113afc52cebbb2cd"
+  },
+  {
+    "id": "lut:gmic-film:bw/fuji_neopan_1600",
+    "pack": "gmic-film",
+    "name": "Fuji Neopan 1600",
+    "category": "Black & white",
+    "file": "bw/fuji_neopan_1600.cube",
+    "iso": 1600,
+    "sha256": "1ea69d7ea0074f4d94b605e472501e11d93f5e04689f8bbb898b2cbe1cc4a684"
+  },
+  {
+    "id": "lut:gmic-film:bw/fuji_neopan_acros_100",
+    "pack": "gmic-film",
+    "name": "Fuji Neopan Acros 100",
+    "category": "Black & white",
+    "file": "bw/fuji_neopan_acros_100.cube",
+    "iso": 100,
+    "sha256": "a2bad0a9abd1334695a5d63c4da5ba8ca0bc6ad2fe9f60719441095b1fd2509b"
+  },
+  {
+    "id": "lut:gmic-film:bw/ilford_delta_100",
+    "pack": "gmic-film",
+    "name": "Ilford Delta 100",
+    "category": "Black & white",
+    "file": "bw/ilford_delta_100.cube",
+    "iso": 100,
+    "sha256": "8c4a87e645ab18ec2d26c6731c4c9b0fde6d391e3be5a8058e29fd8470146994"
+  },
+  {
+    "id": "lut:gmic-film:bw/ilford_delta_3200",
+    "pack": "gmic-film",
+    "name": "Ilford Delta 3200",
+    "category": "Black & white",
+    "file": "bw/ilford_delta_3200.cube",
+    "iso": 3200,
+    "sha256": "2a3083b0d474ef113cbb664250ad51fef09345da4c974f8587afe70560641c1b"
+  },
+  {
+    "id": "lut:gmic-film:bw/ilford_delta_400",
+    "pack": "gmic-film",
+    "name": "Ilford Delta 400",
+    "category": "Black & white",
+    "file": "bw/ilford_delta_400.cube",
+    "iso": 400,
+    "sha256": "48bdea9048085217d04329f1da100d48e72bc4f3930c187aeb4909edb134a494"
+  },
+  {
+    "id": "lut:gmic-film:bw/ilford_fp_4_plus_125",
+    "pack": "gmic-film",
+    "name": "Ilford Fp 4 Plus 125",
+    "category": "Black & white",
+    "file": "bw/ilford_fp_4_plus_125.cube",
+    "iso": 125,
+    "sha256": "fa4a657e51de2ca7163063efd4831d3625e3b9edf69dde1795d5437dc915bc81"
+  },
+  {
+    "id": "hp5",
+    "pack": "gmic-film",
+    "name": "Ilford Hp 5 Plus 400",
+    "category": "Black & white",
+    "file": "bw/ilford_hp_5_plus_400.cube",
+    "iso": 400,
+    "sha256": "f56969284f1259d57c6ec05d0203a49c449eae494ed54b5983a59af9a0979d0c"
+  },
+  {
+    "id": "lut:gmic-film:bw/ilford_hps_800",
+    "pack": "gmic-film",
+    "name": "Ilford Hps 800",
+    "category": "Black & white",
+    "file": "bw/ilford_hps_800.cube",
+    "iso": 800,
+    "sha256": "1375da9d7078d64906aec8a1761c1b86a63c7560cb5212fa528c365393619aa3"
+  },
+  {
+    "id": "lut:gmic-film:bw/ilford_pan_f_plus_50",
+    "pack": "gmic-film",
+    "name": "Ilford Pan F Plus 50",
+    "category": "Black & white",
+    "file": "bw/ilford_pan_f_plus_50.cube",
+    "iso": 50,
+    "sha256": "8197d87e1027e3ce0f0b019ee1ca426caae017ed6f200da5d1536c9dd55b9a60"
+  },
+  {
+    "id": "lut:gmic-film:bw/ilford_xp_2",
+    "pack": "gmic-film",
+    "name": "Ilford Xp 2",
+    "category": "Black & white",
+    "file": "bw/ilford_xp_2.cube",
+    "iso": 400,
+    "sha256": "5cd90f3792cc6da8f76e8b96813e0372758fd30d2073e143d0f64416a0eaea50"
+  },
+  {
+    "id": "lut:gmic-film:bw/kodak_bw_400_cn",
+    "pack": "gmic-film",
+    "name": "Kodak Bw 400 Cn",
+    "category": "Black & white",
+    "file": "bw/kodak_bw_400_cn.cube",
+    "iso": 400,
+    "sha256": "f623da18d023b4da7a0cf85af036b69c73fa7094ebeb86cd3af68283871730a0"
+  },
+  {
+    "id": "lut:gmic-film:bw/kodak_hie_hs_infra",
+    "pack": "gmic-film",
+    "name": "Kodak Hie Hs Infra",
+    "category": "Black & white",
+    "file": "bw/kodak_hie_hs_infra.cube",
+    "iso": 400,
+    "sha256": "f782b4fb05a5ba237b7acc13c78c74d58ac706269d6623159643e91546e00908"
+  },
+  {
+    "id": "lut:gmic-film:bw/kodak_t-max_100",
+    "pack": "gmic-film",
+    "name": "Kodak T-Max 100",
+    "category": "Black & white",
+    "file": "bw/kodak_t-max_100.cube",
+    "iso": 100,
+    "sha256": "f1a5366f5f48d33669f5e71fcd85a4ca364925df6e092051481421940435c08c"
+  },
+  {
+    "id": "lut:gmic-film:bw/kodak_t-max_3200",
+    "pack": "gmic-film",
+    "name": "Kodak T-Max 3200",
+    "category": "Black & white",
+    "file": "bw/kodak_t-max_3200.cube",
+    "iso": 3200,
+    "sha256": "bf07c6be621c7d6810835dc6624207693c6a519f9756e62d83b756bc41cf2706"
+  },
+  {
+    "id": "lut:gmic-film:bw/kodak_t-max_400",
+    "pack": "gmic-film",
+    "name": "Kodak T-Max 400",
+    "category": "Black & white",
+    "file": "bw/kodak_t-max_400.cube",
+    "iso": 400,
+    "sha256": "3d5932c8bb4f277043cc25439de7e0c3a694df7a2b67ddaa411a3bc025af7c15"
+  },
+  {
+    "id": "trix400",
+    "pack": "gmic-film",
+    "name": "Kodak Tri-X 400",
+    "category": "Black & white",
+    "file": "bw/kodak_tri-x_400.cube",
+    "iso": 400,
+    "sha256": "6687e133fac57f248c13c800e5a8df63f00caad84a16035dc9b064c2e485f034"
+  },
+  {
+    "id": "lut:gmic-film:bw/polaroid_664",
+    "pack": "gmic-film",
+    "name": "Polaroid 664",
+    "category": "Black & white",
+    "file": "bw/polaroid_664.cube",
+    "iso": 400,
+    "sha256": "14ee27ed155910d5b182997339be72a00460f59aaca84af6df898cde5c54f7ef"
+  },
+  {
+    "id": "lut:gmic-film:bw/polaroid_667",
+    "pack": "gmic-film",
+    "name": "Polaroid 667",
+    "category": "Black & white",
+    "file": "bw/polaroid_667.cube",
+    "iso": 400,
+    "sha256": "8f76a916dde5d7e0fecb27d14fd1851f851796275b32366953d3ba6ae253f933"
+  },
+  {
+    "id": "lut:gmic-film:bw/polaroid_672",
+    "pack": "gmic-film",
+    "name": "Polaroid 672",
+    "category": "Black & white",
+    "file": "bw/polaroid_672.cube",
+    "iso": 400,
+    "sha256": "b68a7fc9d971d0f0b97138a2d4635e1af9a06273bd4ded7c4e737028fc03f725"
+  },
+  {
+    "id": "lut:gmic-film:bw/rollei_ir_400",
+    "pack": "gmic-film",
+    "name": "Rollei Ir 400",
+    "category": "Black & white",
+    "file": "bw/rollei_ir_400.cube",
+    "iso": 400,
+    "sha256": "8d98b2dadb8d961deaf65840338a29e4e57c523ce1c7711f8fbbc08fc4cb5e8f"
+  },
+  {
+    "id": "lut:gmic-film:bw/rollei_ortho_25",
+    "pack": "gmic-film",
+    "name": "Rollei Ortho 25",
+    "category": "Black & white",
+    "file": "bw/rollei_ortho_25.cube",
+    "iso": 25,
+    "sha256": "00ee32d1f18c1326ed915c32f1a874a0006d17ff12858bc9caf146bfce4532bf"
+  },
+  {
+    "id": "lut:gmic-film:bw/rollei_retro_100_tonal",
+    "pack": "gmic-film",
+    "name": "Rollei Retro 100 Tonal",
+    "category": "Black & white",
+    "file": "bw/rollei_retro_100_tonal.cube",
+    "iso": 100,
+    "sha256": "fe278c44fed9d13cb26169185c766a7331c1962e2a7eb0d968ece542c0b6989f"
+  },
+  {
+    "id": "lut:gmic-film:bw/rollei_retro_80s",
+    "pack": "gmic-film",
+    "name": "Rollei Retro 80S",
+    "category": "Black & white",
+    "file": "bw/rollei_retro_80s.cube",
+    "iso": 80,
+    "sha256": "ac9c0d8852c296cfebc3c80a08f190ad7ff991cfce6233c59f6753f89d62fc3d"
+  },
+  {
+    "id": "lut:gmic-film:negative_color/agfa_ultra_color_100",
+    "pack": "gmic-film",
+    "name": "Agfa Ultra Color 100",
+    "category": "Colour negative",
+    "file": "negative_color/agfa_ultra_color_100.cube",
+    "iso": 100,
+    "sha256": "5c15b98ef31e836ce371a7725f1740ba7ecbe1e8aef6aaba89024b1d3b00e17b"
+  },
+  {
+    "id": "lut:gmic-film:negative_color/agfa_vista_200",
+    "pack": "gmic-film",
+    "name": "Agfa Vista 200",
+    "category": "Colour negative",
+    "file": "negative_color/agfa_vista_200.cube",
+    "iso": 200,
+    "sha256": "b65848b3e217bbb57ca998f0460fe0d6c631228872ad49574d85e07ffeb3548e"
+  },
+  {
+    "id": "lut:gmic-film:negative_color/fuji_superia_200",
+    "pack": "gmic-film",
+    "name": "Fuji Superia 200",
+    "category": "Colour negative",
+    "file": "negative_color/fuji_superia_200.cube",
+    "iso": 200,
+    "sha256": "27d8f673e46562057eae6739a52188fd0978fb0bd9dfa5e77f8220d169eb5559"
+  },
+  {
+    "id": "lut:gmic-film:negative_color/fuji_superia_hg_1600",
+    "pack": "gmic-film",
+    "name": "Fuji Superia Hg 1600",
+    "category": "Colour negative",
+    "file": "negative_color/fuji_superia_hg_1600.cube",
+    "iso": 1600,
+    "sha256": "aa1128d04b0feab570081ec12bc75149bb4e22160f1032e8896da79a09ddb56e"
+  },
+  {
+    "id": "lut:gmic-film:negative_color/fuji_superia_reala_100",
+    "pack": "gmic-film",
+    "name": "Fuji Superia Reala 100",
+    "category": "Colour negative",
+    "file": "negative_color/fuji_superia_reala_100.cube",
+    "iso": 100,
+    "sha256": "4e23e2a42648e071a0285fb6e9e73fbee3e595880d3f080a7b9ee48b361cff45"
+  },
+  {
+    "id": "lut:gmic-film:negative_color/fuji_superia_x-tra_800",
+    "pack": "gmic-film",
+    "name": "Fuji Superia X-Tra 800",
+    "category": "Colour negative",
+    "file": "negative_color/fuji_superia_x-tra_800.cube",
+    "iso": 800,
+    "sha256": "4bfa5ab138ea0c8aae81dde876cf433664d6510f3d4fbc33d3a42650be4d98dd"
+  },
+  {
+    "id": "ektar100",
+    "pack": "gmic-film",
+    "name": "Kodak Ektar 100",
+    "category": "Colour negative",
+    "file": "negative_color/kodak_ektar_100.cube",
+    "iso": 100,
+    "sha256": "f6022dcb20c06a73ca303fe35444038edb77fa45fa5a591728fdaa05fecf06d8"
+  },
+  {
+    "id": "lut:gmic-film:negative_color/kodak_elite_100_xpro",
+    "pack": "gmic-film",
+    "name": "Kodak Elite 100 Xpro",
+    "category": "Colour negative",
+    "file": "negative_color/kodak_elite_100_xpro.cube",
+    "iso": 100,
+    "sha256": "5ff02a28f055c4e1a3d7849f96fe11850f7d5b398dad0b8d10822f470ddd8233"
+  },
+  {
+    "id": "lut:gmic-film:negative_color/kodak_elite_color_200",
+    "pack": "gmic-film",
+    "name": "Kodak Elite Color 200",
+    "category": "Colour negative",
+    "file": "negative_color/kodak_elite_color_200.cube",
+    "iso": 200,
+    "sha256": "33a16e98a25e3daa754ac74154278fc85ee324c9b3a81a2940e818e89f67525d"
+  },
+  {
+    "id": "lut:gmic-film:negative_color/kodak_elite_color_400",
+    "pack": "gmic-film",
+    "name": "Kodak Elite Color 400",
+    "category": "Colour negative",
+    "file": "negative_color/kodak_elite_color_400.cube",
+    "iso": 400,
+    "sha256": "37f939dd05353dbb7a9a8e8ae7cefc6c8370ed0f12e1a6d6c946ca0c0a235492"
+  },
+  {
+    "id": "lut:gmic-film:negative_color/kodak_portra_160_nc",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 160 Nc",
+    "category": "Colour negative",
+    "file": "negative_color/kodak_portra_160_nc.cube",
+    "iso": 160,
+    "sha256": "beb422d352301f6d1cd102ee99ab065595eda6efb38b62c488369a8642f1ce65"
+  },
+  {
+    "id": "lut:gmic-film:negative_color/kodak_portra_160_vc",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 160 Vc",
+    "category": "Colour negative",
+    "file": "negative_color/kodak_portra_160_vc.cube",
+    "iso": 160,
+    "sha256": "9dfc81b0d45773924c88ddd21a00ad27c51ccbcfa455899aa41b1de36a82cc2e"
+  },
+  {
+    "id": "lut:gmic-film:negative_color/lomography_redscale_100",
+    "pack": "gmic-film",
+    "name": "Lomography Redscale 100",
+    "category": "Colour negative",
+    "file": "negative_color/lomography_redscale_100.cube",
+    "iso": 100,
+    "sha256": "7d5709ce04bc32e9321da0f35b65183f3b333a1eca9aecb91b92141a227eb5b3"
+  },
+  {
+    "id": "lut:gmic-film:colorslide/agfa_precisa_100",
+    "pack": "gmic-film",
+    "name": "Agfa Precisa 100",
+    "category": "Colour slide",
+    "file": "colorslide/agfa_precisa_100.cube",
+    "iso": 100,
+    "sha256": "712dd96ca82535164751ee432548ea4f619218d3025ffcbd2411eb1fbd10c2bb"
+  },
+  {
+    "id": "lut:gmic-film:colorslide/fuji_astia_100_generic",
+    "pack": "gmic-film",
+    "name": "Fuji Astia 100 Generic",
+    "category": "Colour slide",
+    "file": "colorslide/fuji_astia_100_generic.cube",
+    "iso": 100,
+    "sha256": "fca346fa3dd34feceaee837887f2dfe48f416b50782c78062c12be69e5a4eda1"
+  },
+  {
+    "id": "lut:gmic-film:colorslide/fuji_astia_100f",
+    "pack": "gmic-film",
+    "name": "Fuji Astia 100F",
+    "category": "Colour slide",
+    "file": "colorslide/fuji_astia_100f.cube",
+    "iso": 100,
+    "sha256": "16c5e6fd1fad9cc0e0b0c55e0f5fc57aba220f2d73fb4bfdf70977a9205087bf"
+  },
+  {
+    "id": "lut:gmic-film:colorslide/fuji_fp_100c",
+    "pack": "gmic-film",
+    "name": "Fuji Fp 100C",
+    "category": "Colour slide",
+    "file": "colorslide/fuji_fp_100c.cube",
+    "iso": 100,
+    "sha256": "4f8ca3bbb5c9e7ecd7ad1e319597ea905402486356a01aab66f35ab11706723c"
+  },
+  {
+    "id": "lut:gmic-film:colorslide/fuji_provia_100_generic",
+    "pack": "gmic-film",
+    "name": "Fuji Provia 100 Generic",
+    "category": "Colour slide",
+    "file": "colorslide/fuji_provia_100_generic.cube",
+    "iso": 100,
+    "sha256": "a84f762cb779e94afd1739d23dbd1b569c7eecd7fa61889c2c4ab10c17c4dfca"
+  },
+  {
+    "id": "lut:gmic-film:colorslide/fuji_provia_100f",
+    "pack": "gmic-film",
+    "name": "Fuji Provia 100F",
+    "category": "Colour slide",
+    "file": "colorslide/fuji_provia_100f.cube",
+    "iso": 100,
+    "sha256": "96952f28c5f407d9978cd8dd015140bc4b1224ef87f0c49151f1105ee1740d2d"
+  },
+  {
+    "id": "lut:gmic-film:colorslide/fuji_provia_400f",
+    "pack": "gmic-film",
+    "name": "Fuji Provia 400F",
+    "category": "Colour slide",
+    "file": "colorslide/fuji_provia_400f.cube",
+    "iso": 400,
+    "sha256": "bf82b85135a9b0ed36d2c570a9e143188c7e788bb531a36b92d5101d3a4a837d"
+  },
+  {
+    "id": "lut:gmic-film:colorslide/fuji_provia_400x",
+    "pack": "gmic-film",
+    "name": "Fuji Provia 400X",
+    "category": "Colour slide",
+    "file": "colorslide/fuji_provia_400x.cube",
+    "iso": 400,
+    "sha256": "5d3dbd209789308e549f488f34048ab9a2e0d341435180331c4c3319cf368e53"
+  },
+  {
+    "id": "lut:gmic-film:colorslide/fuji_sensia_100",
+    "pack": "gmic-film",
+    "name": "Fuji Sensia 100",
+    "category": "Colour slide",
+    "file": "colorslide/fuji_sensia_100.cube",
+    "iso": 100,
+    "sha256": "2075854b7e51d05c283abc7894d36c2ae068f63692e9fb4de834395bc6363f2f"
+  },
+  {
+    "id": "lut:gmic-film:colorslide/fuji_superia_200_xpro",
+    "pack": "gmic-film",
+    "name": "Fuji Superia 200 Xpro",
+    "category": "Colour slide",
+    "file": "colorslide/fuji_superia_200_xpro.cube",
+    "iso": 200,
+    "sha256": "ce2f4d1f3a6265560869d6a2d85d736e0d8442125c1683cb51b933cb6729617b"
+  },
+  {
+    "id": "lut:gmic-film:colorslide/fuji_velvia_100_generic",
+    "pack": "gmic-film",
+    "name": "Fuji Velvia 100 Generic",
+    "category": "Colour slide",
+    "file": "colorslide/fuji_velvia_100_generic.cube",
+    "iso": 100,
+    "sha256": "0a455565ce788143cdb1e6c214ed571fa557f31b052a711408fc60231ef36708"
+  },
+  {
+    "id": "lut:gmic-film:colorslide/fuji_velvia_50",
+    "pack": "gmic-film",
+    "name": "Fuji Velvia 50",
+    "category": "Colour slide",
+    "file": "colorslide/fuji_velvia_50.cube",
+    "iso": 50,
+    "sha256": "67e5b4ebedfc94e36980df27f0d0d5b4ff1ea3c4ad5ea41d7cc43da5d9102086"
+  },
+  {
+    "id": "lut:gmic-film:colorslide/kodak_e-100_gx_ektachrome_100",
+    "pack": "gmic-film",
+    "name": "Kodak E-100 Gx Ektachrome 100",
+    "category": "Colour slide",
+    "file": "colorslide/kodak_e-100_gx_ektachrome_100.cube",
+    "iso": 100,
+    "sha256": "47582bf7af071656ce588fa3e142c7e8b6b11d2d3014e40ff1abbcb9da1ae4a6"
+  },
+  {
+    "id": "lut:gmic-film:colorslide/kodak_ektachrome_100_vs",
+    "pack": "gmic-film",
+    "name": "Kodak Ektachrome 100 Vs",
+    "category": "Colour slide",
+    "file": "colorslide/kodak_ektachrome_100_vs.cube",
+    "iso": 100,
+    "sha256": "785d2afdc6e1d8afcaa490fae156d11990c876b01fea2f38e00ed85b48beefca"
+  },
+  {
+    "id": "lut:gmic-film:colorslide/kodak_ektachrome_100_vs_generic",
+    "pack": "gmic-film",
+    "name": "Kodak Ektachrome 100 Vs Generic",
+    "category": "Colour slide",
+    "file": "colorslide/kodak_ektachrome_100_vs_generic.cube",
+    "iso": 100,
+    "sha256": "edaa371d377f22119e7c163412db3bc8d873712608e184a264d01400d719d175"
+  },
+  {
+    "id": "lut:gmic-film:colorslide/kodak_elite_chrome_200",
+    "pack": "gmic-film",
+    "name": "Kodak Elite Chrome 200",
+    "category": "Colour slide",
+    "file": "colorslide/kodak_elite_chrome_200.cube",
+    "iso": 200,
+    "sha256": "39fe17e32312d91569f1a3f21916ecdf015da3630af06b3e763a95d96bc4ca7b"
+  },
+  {
+    "id": "lut:gmic-film:colorslide/kodak_elite_chrome_400",
+    "pack": "gmic-film",
+    "name": "Kodak Elite Chrome 400",
+    "category": "Colour slide",
+    "file": "colorslide/kodak_elite_chrome_400.cube",
+    "iso": 400,
+    "sha256": "cf0c263d69dafe499c2dba6798c095d3c71d1e7b427036c527c2a4c82ba37a71"
+  },
+  {
+    "id": "lut:gmic-film:colorslide/kodak_elite_extracolor_100",
+    "pack": "gmic-film",
+    "name": "Kodak Elite Extracolor 100",
+    "category": "Colour slide",
+    "file": "colorslide/kodak_elite_extracolor_100.cube",
+    "iso": 100,
+    "sha256": "c6981362c70579fbd1a1d03ccf31b9c9ea5dcbae7f61be47b26d645643cf7fd7"
+  },
+  {
+    "id": "lut:gmic-film:colorslide/kodak_kodachrome_200",
+    "pack": "gmic-film",
+    "name": "Kodak Kodachrome 200",
+    "category": "Colour slide",
+    "file": "colorslide/kodak_kodachrome_200.cube",
+    "iso": 200,
+    "sha256": "0026d0685796cf2f5cef438633e109f2895abed96a33e614575528f540dbf0cd"
+  },
+  {
+    "id": "lut:gmic-film:colorslide/kodak_kodachrome_25",
+    "pack": "gmic-film",
+    "name": "Kodak Kodachrome 25",
+    "category": "Colour slide",
+    "file": "colorslide/kodak_kodachrome_25.cube",
+    "iso": 25,
+    "sha256": "70a9f8106de3a5e87fb2b5e478d708407429d064945b769be8913a814653523e"
+  },
+  {
+    "id": "lut:gmic-film:colorslide/kodak_kodachrome_64",
+    "pack": "gmic-film",
+    "name": "Kodak Kodachrome 64",
+    "category": "Colour slide",
+    "file": "colorslide/kodak_kodachrome_64.cube",
+    "iso": 64,
+    "sha256": "6fce987295dac264a689a8ef1b1b3a407f26ffcb3f6d81a356ebc5d9c565d0b4"
+  },
+  {
+    "id": "lut:gmic-film:colorslide/kodak_kodachrome_64_generic",
+    "pack": "gmic-film",
+    "name": "Kodak Kodachrome 64 Generic",
+    "category": "Colour slide",
+    "file": "colorslide/kodak_kodachrome_64_generic.cube",
+    "iso": 64,
+    "sha256": "19cacda68131b43e153cee643c02e9fd015ec1f6e7b74fa95b7c2168b0979935"
+  },
+  {
+    "id": "lut:gmic-film:colorslide/lomography_x-pro_slide_200",
+    "pack": "gmic-film",
+    "name": "Lomography X-Pro Slide 200",
+    "category": "Colour slide",
+    "file": "colorslide/lomography_x-pro_slide_200.cube",
+    "iso": 200,
+    "sha256": "9c302e44fa794541b462cbcbf216f818eaf9d7dd32d450e690e974ea1adfb483"
+  },
+  {
+    "id": "lut:gmic-film:colorslide/polaroid_669",
+    "pack": "gmic-film",
+    "name": "Polaroid 669",
+    "category": "Colour slide",
+    "file": "colorslide/polaroid_669.cube",
+    "iso": 400,
+    "sha256": "fa880680cf2af2f92b6469c01396d3422e2ecc37c6357031d7f7f591d29cfade"
+  },
+  {
+    "id": "lut:gmic-film:colorslide/polaroid_690",
+    "pack": "gmic-film",
+    "name": "Polaroid 690",
+    "category": "Colour slide",
+    "file": "colorslide/polaroid_690.cube",
+    "iso": 400,
+    "sha256": "6d4db4889b34590c4e87ee54eed8ec34b8736450242d34b9d996bce2e2ea474c"
+  },
+  {
+    "id": "lut:gmic-film:colorslide/polaroid_polachrome",
+    "pack": "gmic-film",
+    "name": "Polaroid Polachrome",
+    "category": "Colour slide",
+    "file": "colorslide/polaroid_polachrome.cube",
+    "iso": 400,
+    "sha256": "63ce4071234e3fd17c758cd6d4e3ba73f836c66fe0b4bb3898a4d0482eeb9728"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-100uv+_cold",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-100Uv+ Cold",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-100uv+_cold.cube",
+    "iso": 400,
+    "sha256": "d6ec33596c49980ca2119d94448e5cb07b4ea6de999e560ecc6c4fa25ba5bf4e"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-100uv+_cold_+",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-100Uv+ Cold +",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-100uv+_cold_+.cube",
+    "iso": 400,
+    "sha256": "c6281dd780dc2f50aa9610d20ff8d1b4fb52d4c04653e6e3e9eaaf243b14c690"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-100uv+_cold_++",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-100Uv+ Cold ++",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-100uv+_cold_++.cube",
+    "iso": 400,
+    "sha256": "b4555611c3393638eaee03042bfbb5776ead24f534487d6360e226fec932874f"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-100uv+_cold_+++",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-100Uv+ Cold +++",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-100uv+_cold_+++.cube",
+    "iso": 400,
+    "sha256": "2c8871f8702f18da8becec64a694f953bbebc1a8e667c40b27e65c1587d6b835"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-100uv+_cold_-",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-100Uv+ Cold -",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-100uv+_cold_-.cube",
+    "iso": 400,
+    "sha256": "7198c21f0b344258d4b0d3c06c1315ee0aaec92bd7e8cb8e87bc54ee02466cec"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-100uv+_cold_--",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-100Uv+ Cold --",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-100uv+_cold_--.cube",
+    "iso": 400,
+    "sha256": "431a44dffca3f9b8ddce11b13f46a508377d5e4c5ce3b03fd57cbc2e645fdd7a"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-100uv+_warm",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-100Uv+ Warm",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-100uv+_warm.cube",
+    "iso": 400,
+    "sha256": "194a3ca97e541da8ebec5fe8f236f21489adf3ebe234768fa1ff1e4f9d6eea2d"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-100uv+_warm_+",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-100Uv+ Warm +",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-100uv+_warm_+.cube",
+    "iso": 400,
+    "sha256": "83f1276ee598bc25a6aa2c87f43e0c52892dc6dd942cb2896c9f8818321027ab"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-100uv+_warm_++",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-100Uv+ Warm ++",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-100uv+_warm_++.cube",
+    "iso": 400,
+    "sha256": "5ded466c618e9c52b9d46311e2acebc877988a4b8f432e3322df8ae177bc5a34"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-100uv+_warm_+++",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-100Uv+ Warm +++",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-100uv+_warm_+++.cube",
+    "iso": 400,
+    "sha256": "a3d3b3fdf6adc7624e5ebc31fcdbaaa486b541c6727437f6ff5c4f59d811c0dc"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-100uv+_warm_-",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-100Uv+ Warm -",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-100uv+_warm_-.cube",
+    "iso": 400,
+    "sha256": "345d663da34a42465c5859df8ae91f5e56f59d23231e85bffcd91bb8dca71843"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-100uv+_warm_--",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-100Uv+ Warm --",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-100uv+_warm_--.cube",
+    "iso": 400,
+    "sha256": "30507be027079c9005dbb64ea1aafe79ca4cbe6e119fba73d275226e063523dd"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-680",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-680",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-680.cube",
+    "iso": 400,
+    "sha256": "f790e584595c80844406c0cf312d2145faee17c430c38df3dcbd46c59b96e97a"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-680_+",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-680 +",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-680_+.cube",
+    "iso": 400,
+    "sha256": "e2d72e37484cf6ffd9c00ee6dece0ef671c0111f1e15d4203bf584ca5b9e86c4"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-680_++",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-680 ++",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-680_++.cube",
+    "iso": 400,
+    "sha256": "94d4ce1e157ba7e094cd97cb19a78977f11e4c9c7c09d1ed5c332eff45e7387a"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-680_-",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-680 -",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-680_-.cube",
+    "iso": 400,
+    "sha256": "8241f99277a781ca5ec24d6a24ea3d35cc78dffd0accfa9cb3fb6045ef0a7060"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-680_--",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-680 --",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-680_--.cube",
+    "iso": 400,
+    "sha256": "db794518197b73f35c4a579fb2046de2a18c4606290cf9a2fceec5e64dffb7a9"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-680_cold",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-680 Cold",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-680_cold.cube",
+    "iso": 400,
+    "sha256": "eb632817b4e761f804e1b32bc7eab83e92e3b6d6996adff557cc3ff503f44514"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-680_cold_+",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-680 Cold +",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-680_cold_+.cube",
+    "iso": 400,
+    "sha256": "af5505daa685abe0f27134cce7861fe8631a0e73f099e707d61d31a5e8909954"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-680_cold_++",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-680 Cold ++",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-680_cold_++.cube",
+    "iso": 400,
+    "sha256": "c4499441a55214feb4807164e19eea56186d691bd33f97e6e637cc04264206ed"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-680_cold_++_alt",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-680 Cold ++ Alt",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-680_cold_++_alt.cube",
+    "iso": 400,
+    "sha256": "309744205e35c21a6d16431cc7494fb998390f8923d6afe108b0963e3dc49eaa"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-680_cold_-",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-680 Cold -",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-680_cold_-.cube",
+    "iso": 400,
+    "sha256": "ebe098836b46f28b2d72e5d6edba26f0e8eb4d82f5a72c873600a9f46ce34c0d"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-680_cold_--",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-680 Cold --",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-680_cold_--.cube",
+    "iso": 400,
+    "sha256": "e5a97916efd9465b9856e4d78a42c1105b9c1a33ae07a81c5cf68b1bf8e81b23"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-680_warm",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-680 Warm",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-680_warm.cube",
+    "iso": 400,
+    "sha256": "e03cbe81304ab5b00c5e0f815a1f14c0752f1a2d2b94a3386ef96f7a86a53460"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-680_warm_+",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-680 Warm +",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-680_warm_+.cube",
+    "iso": 400,
+    "sha256": "9c9c4a2bc0fdaad4dfff7feb8d5af8a18d52c5eb86b06f88e69260d6a98cd28f"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-680_warm_++",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-680 Warm ++",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-680_warm_++.cube",
+    "iso": 400,
+    "sha256": "fb5ece000f46780f146830e4591b46786db63c811c7449421e7495ca28eb6812"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-680_warm_-",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-680 Warm -",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-680_warm_-.cube",
+    "iso": 400,
+    "sha256": "677e9a7da8dd2eac2130caab41836f2a861de7ec74823c8c7e1dc21b4cd006a6"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-680_warm_--",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-680 Warm --",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-680_warm_--.cube",
+    "iso": 400,
+    "sha256": "6ba5d4f35d8f72aa61b776b33a47dd236420785aa2ead4d932f2ada43d260586"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-70",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-70",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-70.cube",
+    "iso": 400,
+    "sha256": "700c162a6311f10b539f7ddac51c2a3136218f73fcf3a6b988d731f9ea4b1f8a"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-70_+",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-70 +",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-70_+.cube",
+    "iso": 400,
+    "sha256": "77b9062c2675ed2d5e0133e0ee6c29598aee2cea8286814d77e57d3b1b5d0759"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-70_++",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-70 ++",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-70_++.cube",
+    "iso": 400,
+    "sha256": "51674bf6a2488553fc86e1a24d94112837fe1134dbbcfa41c323e5f10ed96d69"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-70_+++",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-70 +++",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-70_+++.cube",
+    "iso": 400,
+    "sha256": "4058afb56a995ac897f6d668fae32bce6f64e16c957db534a97a2b9783c8f8c9"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-70_-",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-70 -",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-70_-.cube",
+    "iso": 400,
+    "sha256": "9aa1814d410d6545b4113e96860e02bf718c80242e3ae325000551f20ea4ebcc"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-70_--",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-70 --",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-70_--.cube",
+    "iso": 400,
+    "sha256": "9bde6b62e068e4af8606e6488af130167baec203b97e50f9b18d5d4360860eed"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-70_cold",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-70 Cold",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-70_cold.cube",
+    "iso": 400,
+    "sha256": "ab1c9cc95dfe755439623655264e34f63e3683ad8aeaea8f4300087070091102"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-70_cold_+",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-70 Cold +",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-70_cold_+.cube",
+    "iso": 400,
+    "sha256": "471e23697d14df3b85c1aab52dc4448da076e296f3a16d2742129acfca9f0948"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-70_cold_++",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-70 Cold ++",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-70_cold_++.cube",
+    "iso": 400,
+    "sha256": "a00120d4b5ff37947ddfa0a8534f29126d56ab701809b6f86ab95bb5953987fc"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-70_cold_-",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-70 Cold -",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-70_cold_-.cube",
+    "iso": 400,
+    "sha256": "79c793efb595ad1946b9c44ee815727742ede867ea0889b828d9e494939c2785"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-70_cold_--",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-70 Cold --",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-70_cold_--.cube",
+    "iso": 400,
+    "sha256": "0b33642574c1a58bfe35dc2de5cb8c1ec0d7a98e0f7b1292308937389808d269"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-70_warm",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-70 Warm",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-70_warm.cube",
+    "iso": 400,
+    "sha256": "968356d71ede17542f6cf644418e6650dd469fa31a069da378b119046b09d87d"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-70_warm_+",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-70 Warm +",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-70_warm_+.cube",
+    "iso": 400,
+    "sha256": "83bd42990cc06045d185ff2135f894ff65f11cbfedc7f546a424ff6282663942"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-70_warm_++",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-70 Warm ++",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-70_warm_++.cube",
+    "iso": 400,
+    "sha256": "43094665cb7f6f0209ee9f143d436300f9c46c98a217fd7efddce816dd4484e0"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-70_warm_-",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-70 Warm -",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-70_warm_-.cube",
+    "iso": 400,
+    "sha256": "b5a7103666f2a935de921d1f8e0a0889272d3ec68f0e0bf5c4098751cbf75e74"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_px-70_warm_--",
+    "pack": "gmic-film",
+    "name": "Polaroid Px-70 Warm --",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_px-70_warm_--.cube",
+    "iso": 400,
+    "sha256": "c500489c89a6f3fb552cd5689fd1809dc74ae2a8974a58d4e6ad5f15020f6ce5"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_time_zero_expired",
+    "pack": "gmic-film",
+    "name": "Polaroid Time Zero Expired",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_time_zero_expired.cube",
+    "iso": 400,
+    "sha256": "e6092a52c9afc414dd0cb8586969fe0a07e91f48f00d59e0e1fae4d893c56914"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_time_zero_expired_+",
+    "pack": "gmic-film",
+    "name": "Polaroid Time Zero Expired +",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_time_zero_expired_+.cube",
+    "iso": 400,
+    "sha256": "5f6b17a87ff60fa432bbe78929af430b0dee020e5e7e41efc854b1455c692134"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_time_zero_expired_++",
+    "pack": "gmic-film",
+    "name": "Polaroid Time Zero Expired ++",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_time_zero_expired_++.cube",
+    "iso": 400,
+    "sha256": "0cca1c0637d6a40a4d06d80e12eb81753289f94fa212f4e5e5401c13f536d365"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_time_zero_expired_-",
+    "pack": "gmic-film",
+    "name": "Polaroid Time Zero Expired -",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_time_zero_expired_-.cube",
+    "iso": 400,
+    "sha256": "148bc67c44ec511dcf231cfb57f73e81e2fcfa326f2b3be74bd08e4431bef4df"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_time_zero_expired_--",
+    "pack": "gmic-film",
+    "name": "Polaroid Time Zero Expired --",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_time_zero_expired_--.cube",
+    "iso": 400,
+    "sha256": "ead16b70e2fec80b2a8a614d4fe1844db17f8f6d879b6ffbd927612545ad1764"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_time_zero_expired_---",
+    "pack": "gmic-film",
+    "name": "Polaroid Time Zero Expired ---",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_time_zero_expired_---.cube",
+    "iso": 400,
+    "sha256": "cf4d73d7fdcaae6aa6d1a7b4e510a1a7d081b59bbd1b7deb0d37c7f41c1ee3ef"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_time_zero_expired_cold",
+    "pack": "gmic-film",
+    "name": "Polaroid Time Zero Expired Cold",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_time_zero_expired_cold.cube",
+    "iso": 400,
+    "sha256": "68aedfadcdacf38c3ff7130eee2d5f5275625263ad71c5c4320badc581d72a91"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_time_zero_expired_cold_-",
+    "pack": "gmic-film",
+    "name": "Polaroid Time Zero Expired Cold -",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_time_zero_expired_cold_-.cube",
+    "iso": 400,
+    "sha256": "c3003013cb964a977d95690f695ccd23730b360d28c6bb4031ee0a11ba224dec"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_time_zero_expired_cold_--",
+    "pack": "gmic-film",
+    "name": "Polaroid Time Zero Expired Cold --",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_time_zero_expired_cold_--.cube",
+    "iso": 400,
+    "sha256": "60f8198f463177e095877d9cb94d2b8fed5e232bfea937bd7b2806b403154547"
+  },
+  {
+    "id": "lut:gmic-film:instant_consumer/polaroid_time_zero_expired_cold_---",
+    "pack": "gmic-film",
+    "name": "Polaroid Time Zero Expired Cold ---",
+    "category": "Instant consumer",
+    "file": "instant_consumer/polaroid_time_zero_expired_cold_---.cube",
+    "iso": 400,
+    "sha256": "9c9815b754c9c596b35b4c57d9702a1a91659e827daddbfe5174994363665cc2"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-100c",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-100C",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-100c.cube",
+    "iso": 400,
+    "sha256": "00d578233365491b26ba6757926b7910e2b7f0e0149842bce07fec73e11d803d"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-100c_+",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-100C +",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-100c_+.cube",
+    "iso": 400,
+    "sha256": "615432d9a221b2a077c319292cc77992fe924d11b6bbf49f6c111394a6c7886e"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-100c_++",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-100C ++",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-100c_++.cube",
+    "iso": 400,
+    "sha256": "a410ce3d18066e08a46dec20cc5154c858a62f5397dd51024b209b6f214e7e9a"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-100c_++_alt",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-100C ++ Alt",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-100c_++_alt.cube",
+    "iso": 400,
+    "sha256": "dcf2956aac4b12a47fe7274c81e63ef508dc6c7f80d221df76fc2557b28ac4f3"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-100c_+++",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-100C +++",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-100c_+++.cube",
+    "iso": 400,
+    "sha256": "aba05a9c1740d7709b79f31243e1fada46ea50fc6109d0ef81e41896bcb66ce6"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-100c_-",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-100C -",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-100c_-.cube",
+    "iso": 400,
+    "sha256": "933adfc9444f84f8f8eb40e1e4272563a2391a096d283d140e398422e9a2bade"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-100c_--",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-100C --",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-100c_--.cube",
+    "iso": 400,
+    "sha256": "3ad681f91793e52f7b0f8734785aebdd79f49f0d73128093281775ffe67447aa"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-100c_alt",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-100C Alt",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-100c_alt.cube",
+    "iso": 400,
+    "sha256": "1624ee7dd84cf4a11066c4f0a9782b2ac3d3894cb331beef0de9ae8489914690"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-100c_cool",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-100C Cool",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-100c_cool.cube",
+    "iso": 400,
+    "sha256": "2d12306052857d5dadd75028bcc63b366fb2deb7891312be2c5670ba8d654a4b"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-100c_cool_+",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-100C Cool +",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-100c_cool_+.cube",
+    "iso": 400,
+    "sha256": "b788f0f5cefe52cab4cb03d91d072432eb52f5720976796dc7d29910cace4819"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-100c_cool_++",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-100C Cool ++",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-100c_cool_++.cube",
+    "iso": 400,
+    "sha256": "ccbc1402825a2132454d580bf1b314e59f9922f6f38f8a5284ab968827a5864a"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-100c_cool_-",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-100C Cool -",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-100c_cool_-.cube",
+    "iso": 400,
+    "sha256": "f38d57d5a35c97729d5e9985a7120e853c306b5e66a3f3e5c58c6e1da9400460"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-100c_cool_--",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-100C Cool --",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-100c_cool_--.cube",
+    "iso": 400,
+    "sha256": "c3b8394c249a092a62085c0c2586ddc09709a431260b3c320381c0ce375c1713"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-100c_negative",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-100C Negative",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-100c_negative.cube",
+    "iso": 400,
+    "sha256": "8be5e594dced06df1cfaa8fcabb7aef83528525d212b8ad364feffd2fc4e8106"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-100c_negative_+",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-100C Negative +",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-100c_negative_+.cube",
+    "iso": 400,
+    "sha256": "6931f71ff375613f8a8ff1afce76f414717431b4e5cd9cf817053c676f67d106"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-100c_negative_++",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-100C Negative ++",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-100c_negative_++.cube",
+    "iso": 400,
+    "sha256": "f1d1f542e88e71662ab4c887c825a87a2d4cfe6e93f5f422709ce899ef38686f"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-100c_negative_++_alt",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-100C Negative ++ Alt",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-100c_negative_++_alt.cube",
+    "iso": 400,
+    "sha256": "2fc238a32c9c317e5913ef81ef60f78d25ad6e9484cf5d6cc7d95f9aa6941c9e"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-100c_negative_+++",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-100C Negative +++",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-100c_negative_+++.cube",
+    "iso": 400,
+    "sha256": "919938ff2c663f4fbe98a111c003f54088eaa9bdd99d61d804838bc8f01d7d60"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-100c_negative_-",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-100C Negative -",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-100c_negative_-.cube",
+    "iso": 400,
+    "sha256": "fa0e7e8531a71e706389fe66de7493ac6cbe18775f2d07f213ad28297cb7fec6"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-100c_negative_--",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-100C Negative --",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-100c_negative_--.cube",
+    "iso": 400,
+    "sha256": "568ea1f43d853d1c2c50adbafbcaaba185544d0350005d0368fb91a55b6e31eb"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-3000b",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-3000B",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-3000b.cube",
+    "iso": 400,
+    "sha256": "a23323a448ff0f186778216e3e42282a4a5848dded8119a35f3d3aaa01c16f73"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-3000b_+",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-3000B +",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-3000b_+.cube",
+    "iso": 400,
+    "sha256": "4bfe46f204ad1f400f1b829dcb0313a89f9d7c27b6c735b9b15806e4722f15ba"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-3000b_++",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-3000B ++",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-3000b_++.cube",
+    "iso": 400,
+    "sha256": "db2fc41ad30fcb6e53d41f3795613785c0f08d564213eb9550f72fa0e4861d07"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-3000b_+++",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-3000B +++",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-3000b_+++.cube",
+    "iso": 400,
+    "sha256": "cd5802ac5752f3980642f2e35e301fcbdc353bfd9cd21fa063423015acba976d"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-3000b_-",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-3000B -",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-3000b_-.cube",
+    "iso": 400,
+    "sha256": "9a23f519ac786a8635ba28a595ed671b56f8a7745a8a8e90f06621f0e2d4f4b2"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-3000b_--",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-3000B --",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-3000b_--.cube",
+    "iso": 400,
+    "sha256": "d2213b33a38b46ffcba52d19367831ad13da0102c483997daaf8bfa00165509b"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-3000b_hc",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-3000B Hc",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-3000b_hc.cube",
+    "iso": 400,
+    "sha256": "725b5659458a92b62684ab87ef70195fa35d3682a2e3cd64c23b21b379a13413"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-3000b_negative",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-3000B Negative",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-3000b_negative.cube",
+    "iso": 400,
+    "sha256": "535241cba6ac4fe5df93a42e58021633219890e88e14a95e97bbae19d8f84a7f"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-3000b_negative_+",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-3000B Negative +",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-3000b_negative_+.cube",
+    "iso": 400,
+    "sha256": "ade187d6bcf403d73a558b389ce9857651e84b983c8824bdefa251656083d3df"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-3000b_negative_++",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-3000B Negative ++",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-3000b_negative_++.cube",
+    "iso": 400,
+    "sha256": "b11c6ee48efa290711fc90f32e0ddf783be1d6907ee0c50923f3043ed1e6d60b"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-3000b_negative_+++",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-3000B Negative +++",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-3000b_negative_+++.cube",
+    "iso": 400,
+    "sha256": "95b8a5ff1238c4f5f05d1907c17a45c1b3784ee0a331329eda44b8f6fee74ba0"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-3000b_negative_-",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-3000B Negative -",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-3000b_negative_-.cube",
+    "iso": 400,
+    "sha256": "1a8464c7be1c523bf213480a799d78a86481822d7553024184479316b7f589c6"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-3000b_negative_--",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-3000B Negative --",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-3000b_negative_--.cube",
+    "iso": 400,
+    "sha256": "e754a2a8a523ef95d698bacda0dc7cc09206f51f2f4c5abe31369cb74846c355"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/fuji_fp-3000b_negative_early",
+    "pack": "gmic-film",
+    "name": "Fuji Fp-3000B Negative Early",
+    "category": "Instant professional",
+    "file": "instant_pro/fuji_fp-3000b_negative_early.cube",
+    "iso": 400,
+    "sha256": "c5e5a71bd5574ca55478fb0f81c204ac2565a3cbbabbdff9f3f83a5b5445cfac"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_665",
+    "pack": "gmic-film",
+    "name": "Polaroid 665",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_665.cube",
+    "iso": 400,
+    "sha256": "a3236a04c423b0d60c9e60e15d1a286d90558249e66f326775b5b1feeef65a4f"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_665_+",
+    "pack": "gmic-film",
+    "name": "Polaroid 665 +",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_665_+.cube",
+    "iso": 400,
+    "sha256": "020e17c0cc849d70f734ef5e1a36e257d239e5da27cb838d256abf16d3a4c24e"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_665_++",
+    "pack": "gmic-film",
+    "name": "Polaroid 665 ++",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_665_++.cube",
+    "iso": 400,
+    "sha256": "f5faf6aa13f80a28b53256744739e2f053226caa2282192105222d5a8a0373d3"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_665_-",
+    "pack": "gmic-film",
+    "name": "Polaroid 665 -",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_665_-.cube",
+    "iso": 400,
+    "sha256": "8044c8b4485be6afe2d42557281d0c3a949ec027e05bb079aef001307d3a1160"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_665_--",
+    "pack": "gmic-film",
+    "name": "Polaroid 665 --",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_665_--.cube",
+    "iso": 400,
+    "sha256": "15964072ff9c204bc51eb4f34da6216807f01762ff4cb7d4a596d0b9a5273b2c"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_665_negative",
+    "pack": "gmic-film",
+    "name": "Polaroid 665 Negative",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_665_negative.cube",
+    "iso": 400,
+    "sha256": "7681532c0cbdd3de4ae51b1d3ea0d9ea9e0b3a1a59ce745ef72195efe34c7f52"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_665_negative_+",
+    "pack": "gmic-film",
+    "name": "Polaroid 665 Negative +",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_665_negative_+.cube",
+    "iso": 400,
+    "sha256": "9d9e9a3623210f6c7c73321bae71cf1df7455e891386d4b2c17b0fa21ea17009"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_665_negative_-",
+    "pack": "gmic-film",
+    "name": "Polaroid 665 Negative -",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_665_negative_-.cube",
+    "iso": 400,
+    "sha256": "94e37b95ff261a5d24dc831d578912128cc9c2cee6334bfe5406a77b1cdd2568"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_665_negative_hc",
+    "pack": "gmic-film",
+    "name": "Polaroid 665 Negative Hc",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_665_negative_hc.cube",
+    "iso": 400,
+    "sha256": "d95d925a2ea29f090a662849c634e3f0b9f247aa4f322ed622c371b93f8942af"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_669",
+    "pack": "gmic-film",
+    "name": "Polaroid 669",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_669.cube",
+    "iso": 400,
+    "sha256": "fa880680cf2af2f92b6469c01396d3422e2ecc37c6357031d7f7f591d29cfade"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_669_+",
+    "pack": "gmic-film",
+    "name": "Polaroid 669 +",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_669_+.cube",
+    "iso": 400,
+    "sha256": "7e04187e096495af238cf384cb4287878137279ed6de1bdf38fa121ae325def0"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_669_++",
+    "pack": "gmic-film",
+    "name": "Polaroid 669 ++",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_669_++.cube",
+    "iso": 400,
+    "sha256": "d6cd767d9fd2c86b4ae727e14fbc1e272071854c6f006a27a39b9fb5c82671ec"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_669_+++",
+    "pack": "gmic-film",
+    "name": "Polaroid 669 +++",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_669_+++.cube",
+    "iso": 400,
+    "sha256": "8b51f1d806a193414581211ff13432f1fcf5b3894825b20f500653cc7bbda8c4"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_669_-",
+    "pack": "gmic-film",
+    "name": "Polaroid 669 -",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_669_-.cube",
+    "iso": 400,
+    "sha256": "a3abb90ff866dcc2c03489d26ad1c207d14c1015c2ae4c8469ad94cee8fd1919"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_669_--",
+    "pack": "gmic-film",
+    "name": "Polaroid 669 --",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_669_--.cube",
+    "iso": 400,
+    "sha256": "1cc70ac944295c4bd2cb4909cdc86dd4d8580d9ef9ae010af51500c858a26c63"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_669_cold",
+    "pack": "gmic-film",
+    "name": "Polaroid 669 Cold",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_669_cold.cube",
+    "iso": 400,
+    "sha256": "9f065f9b26709fb703a0e11835cedf804b159681e9b116e7083ca99d122a62bb"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_669_cold_+",
+    "pack": "gmic-film",
+    "name": "Polaroid 669 Cold +",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_669_cold_+.cube",
+    "iso": 400,
+    "sha256": "9f84fe754339278629f907f27408a0846b089451457164e34c07fd46336b2859"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_669_cold_-",
+    "pack": "gmic-film",
+    "name": "Polaroid 669 Cold -",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_669_cold_-.cube",
+    "iso": 400,
+    "sha256": "ec3ae09b2676a4af2e31589c5dd22a75d12d889a5fbb52e0774e76417e01effc"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_669_cold_--",
+    "pack": "gmic-film",
+    "name": "Polaroid 669 Cold --",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_669_cold_--.cube",
+    "iso": 400,
+    "sha256": "9c53d327aff67f8d2f7307397c3db9d521828fee286fc13ecf9488016aeab2a7"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_690",
+    "pack": "gmic-film",
+    "name": "Polaroid 690",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_690.cube",
+    "iso": 400,
+    "sha256": "6d4db4889b34590c4e87ee54eed8ec34b8736450242d34b9d996bce2e2ea474c"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_690_+",
+    "pack": "gmic-film",
+    "name": "Polaroid 690 +",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_690_+.cube",
+    "iso": 400,
+    "sha256": "88a13c432fca715608cb461c2ff2fe72f0d1a90397e33b1a88fc4e68b39066b8"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_690_++",
+    "pack": "gmic-film",
+    "name": "Polaroid 690 ++",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_690_++.cube",
+    "iso": 400,
+    "sha256": "61a4ea220710b368977d89ce59c79a27e61c7cabe17fde8d25542baf837800c0"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_690_-",
+    "pack": "gmic-film",
+    "name": "Polaroid 690 -",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_690_-.cube",
+    "iso": 400,
+    "sha256": "ef46029e87d750d6eb6623d6cb3d2c69851f35bbeba71a340c0d6403eeb75580"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_690_--",
+    "pack": "gmic-film",
+    "name": "Polaroid 690 --",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_690_--.cube",
+    "iso": 400,
+    "sha256": "37fb7ab2a6007e3379e95493d11ddc2e86dffbae266115b7e5f2dcde94d90c3e"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_690_cold",
+    "pack": "gmic-film",
+    "name": "Polaroid 690 Cold",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_690_cold.cube",
+    "iso": 400,
+    "sha256": "1f6f12a896f86ee7433759ba36506f0ae3b54f48a82ec6f04d9b25d0d0226d82"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_690_cold_+",
+    "pack": "gmic-film",
+    "name": "Polaroid 690 Cold +",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_690_cold_+.cube",
+    "iso": 400,
+    "sha256": "006c717e19205a3ea768fe6d77d0ad0b5a88d5cbdd709738aad0c0b3e4026529"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_690_cold_++",
+    "pack": "gmic-film",
+    "name": "Polaroid 690 Cold ++",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_690_cold_++.cube",
+    "iso": 400,
+    "sha256": "5baa568a8cde71889ae06f0b397f72282f84b9e47a2e3fd016a7f930d9a02416"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_690_cold_-",
+    "pack": "gmic-film",
+    "name": "Polaroid 690 Cold -",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_690_cold_-.cube",
+    "iso": 400,
+    "sha256": "63d8d2bfd4f2c8da067315d7e0616c377e567bcc075d6853b4981f7b6edcd5da"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_690_cold_--",
+    "pack": "gmic-film",
+    "name": "Polaroid 690 Cold --",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_690_cold_--.cube",
+    "iso": 400,
+    "sha256": "5c92d1dd0cc557ddcff4601fa5a2c690e61a3b73827ba3ca0d9fbd7bb23a7537"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_690_warm",
+    "pack": "gmic-film",
+    "name": "Polaroid 690 Warm",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_690_warm.cube",
+    "iso": 400,
+    "sha256": "628e9c69a0e0c6001387d8aaa977e61cb2b77b3001bdba35572e1a8a082e715d"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_690_warm_+",
+    "pack": "gmic-film",
+    "name": "Polaroid 690 Warm +",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_690_warm_+.cube",
+    "iso": 400,
+    "sha256": "74aeb40b7bafb1925a69962608ad323b3d630b121cd22258c86438c43a8f083f"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_690_warm_++",
+    "pack": "gmic-film",
+    "name": "Polaroid 690 Warm ++",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_690_warm_++.cube",
+    "iso": 400,
+    "sha256": "1c66921b201f69bfd4bc14be6f29154b29e1bb724225e47d61b32bb374f4144a"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_690_warm_-",
+    "pack": "gmic-film",
+    "name": "Polaroid 690 Warm -",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_690_warm_-.cube",
+    "iso": 400,
+    "sha256": "31e4b5fa2b6f96b006f4b0551209d842ef9f2331b3c192de3f69241309b0f41d"
+  },
+  {
+    "id": "lut:gmic-film:instant_pro/polaroid_690_warm_--",
+    "pack": "gmic-film",
+    "name": "Polaroid 690 Warm --",
+    "category": "Instant professional",
+    "file": "instant_pro/polaroid_690_warm_--.cube",
+    "iso": 400,
+    "sha256": "d50a23de91b109f1f6ad8fc4e6b60ea2de066c2f25586d38a96d81190e183547"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/fuji_160c",
+    "pack": "gmic-film",
+    "name": "Fuji 160C",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/fuji_160c.cube",
+    "iso": 160,
+    "sha256": "8302f6f8899d6de499cd6023d5ed8b915382092ff85461dd96055a0ef2b3aab0"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/fuji_160c_+",
+    "pack": "gmic-film",
+    "name": "Fuji 160C +",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/fuji_160c_+.cube",
+    "iso": 160,
+    "sha256": "7ec0234985439fa6efed218bd807875e7c921198055ddb9f1f2c0f70e47ac98b"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/fuji_160c_++",
+    "pack": "gmic-film",
+    "name": "Fuji 160C ++",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/fuji_160c_++.cube",
+    "iso": 160,
+    "sha256": "777a92b27f87d29b6849313fdc55411da8a5aa1c1204c7da8452da9433fc849b"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/fuji_160c_-",
+    "pack": "gmic-film",
+    "name": "Fuji 160C -",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/fuji_160c_-.cube",
+    "iso": 160,
+    "sha256": "c4d8797f699526b44bfc92807def3a3b26a6b0faaaa5dcfa670e0c33e436892a"
+  },
+  {
+    "id": "pro400h",
+    "pack": "gmic-film",
+    "name": "Fuji 400H",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/fuji_400h.cube",
+    "iso": 400,
+    "sha256": "cb5a6d6aaa57245385c73e0e6d63bb44210081ea8dff009bbbdefe6cdb16d2e3"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/fuji_400h_+",
+    "pack": "gmic-film",
+    "name": "Fuji 400H +",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/fuji_400h_+.cube",
+    "iso": 400,
+    "sha256": "c4b99bab000f02dcdbb45ed7e22f236bc108f000e39df764f3b6ec4b164aeca9"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/fuji_400h_++",
+    "pack": "gmic-film",
+    "name": "Fuji 400H ++",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/fuji_400h_++.cube",
+    "iso": 400,
+    "sha256": "38dce5871a550e2430ebcd83d29371df167d4134374b42c5ad09fe2379e8422e"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/fuji_400h_-",
+    "pack": "gmic-film",
+    "name": "Fuji 400H -",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/fuji_400h_-.cube",
+    "iso": 400,
+    "sha256": "c405e03593518eb6bd914fa45a3526422da1a486e716a490310dce7e0ee58d02"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/fuji_800z",
+    "pack": "gmic-film",
+    "name": "Fuji 800Z",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/fuji_800z.cube",
+    "iso": 800,
+    "sha256": "3dfb99b398f22ab0f319b3cc491e30d0d3b266bc64b8f3ce1d9d4067dc9a7b1e"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/fuji_800z_+",
+    "pack": "gmic-film",
+    "name": "Fuji 800Z +",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/fuji_800z_+.cube",
+    "iso": 800,
+    "sha256": "3175a62f0e3e624224ffe291cc8bf9fa83da4fec72335719bb224de246347e02"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/fuji_800z_++",
+    "pack": "gmic-film",
+    "name": "Fuji 800Z ++",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/fuji_800z_++.cube",
+    "iso": 800,
+    "sha256": "6e27886c412b716749883cf57bd5b7729e735bbf9b784eda0c2fd70b6319294c"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/fuji_800z_-",
+    "pack": "gmic-film",
+    "name": "Fuji 800Z -",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/fuji_800z_-.cube",
+    "iso": 800,
+    "sha256": "eee91120502d0d22a476c0b72bc884a76c0729f21fdf2867c51ae18873d33f6a"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/ilford_hp_5",
+    "pack": "gmic-film",
+    "name": "Ilford Hp 5",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/ilford_hp_5.cube",
+    "iso": 400,
+    "sha256": "73c9391a82a7763ba67f4371ec62d2d32dc444d501fe907dce254bca3f00b477"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/ilford_hp_5_+",
+    "pack": "gmic-film",
+    "name": "Ilford Hp 5 +",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/ilford_hp_5_+.cube",
+    "iso": 400,
+    "sha256": "87dec2b2ca1e1d4c059885bfa314c4c9e1f429e6fc788a599aed8f3b376c6197"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/ilford_hp_5_++",
+    "pack": "gmic-film",
+    "name": "Ilford Hp 5 ++",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/ilford_hp_5_++.cube",
+    "iso": 400,
+    "sha256": "151bcf871b01085f3e76d352c2055baee5de558ebc8b4701f5893719763a6ccd"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/ilford_hp_5_-",
+    "pack": "gmic-film",
+    "name": "Ilford Hp 5 -",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/ilford_hp_5_-.cube",
+    "iso": 400,
+    "sha256": "c0579a6eba1c5a250ae688353d60412031d0693fa609a1d892cbf3acaf1cc300"
+  },
+  {
+    "id": "portra160",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 160",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/kodak_portra_160.cube",
+    "iso": 160,
+    "sha256": "dc7a832737c22ca0a2056cc244047e0e08872fa4143bd9c4bb0f60fc89748120"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/kodak_portra_160_+",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 160 +",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/kodak_portra_160_+.cube",
+    "iso": 160,
+    "sha256": "523b718de43685c4faddb57dcd0e4ab94b8843def925dfeb22da6ffd02c13025"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/kodak_portra_160_++",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 160 ++",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/kodak_portra_160_++.cube",
+    "iso": 160,
+    "sha256": "4cc92e9135f181d465c4dc9687b0464427e7e0de30968db242b2cf9be959ffc4"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/kodak_portra_160_-",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 160 -",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/kodak_portra_160_-.cube",
+    "iso": 160,
+    "sha256": "fb0d6d0dbe4d9ca1ee3ca11d87f0c8873b1acad82211922f6fe89d36467bbf11"
+  },
+  {
+    "id": "portra400",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 400",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/kodak_portra_400.cube",
+    "iso": 400,
+    "sha256": "d370833399f38de59f42386757b18832c68d10a8877c89ad7428e3791ad266d3"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/kodak_portra_400_+",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 400 +",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/kodak_portra_400_+.cube",
+    "iso": 400,
+    "sha256": "aa0175e243c1b5df122db2f53b6eb27ec037d208d631e23925fe79fa95ea4298"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/kodak_portra_400_++",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 400 ++",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/kodak_portra_400_++.cube",
+    "iso": 400,
+    "sha256": "143d36a113f0f5d1654044a74503a9437270bfb26922b478805ec6f537b93871"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/kodak_portra_400_-",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 400 -",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/kodak_portra_400_-.cube",
+    "iso": 400,
+    "sha256": "26682ab713322b94c535acac8d879b8c3eb42ad9a3a7bcd619de6289b16cfc92"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/kodak_portra_800",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 800",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/kodak_portra_800.cube",
+    "iso": 800,
+    "sha256": "12372330c6dcf1f43475c700515be7817bbc89c7e5a5aa26ff8e8065e19e96aa"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/kodak_portra_800_+",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 800 +",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/kodak_portra_800_+.cube",
+    "iso": 800,
+    "sha256": "d9fc39e075017df23e87a5492da22d872e1219cc464aa9603df88dc5382fa6e7"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/kodak_portra_800_++",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 800 ++",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/kodak_portra_800_++.cube",
+    "iso": 800,
+    "sha256": "af00789d8d947266580a4cfc2a8d8e93c8511c072afdd11854ab15e67bba2c2d"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/kodak_portra_800_-",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 800 -",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/kodak_portra_800_-.cube",
+    "iso": 800,
+    "sha256": "9eded9215ea875d7dc64cf469a78cf7cb9248ed44d3a567e52e5a1879f9cd331"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/kodak_portra_800_hc",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 800 Hc",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/kodak_portra_800_hc.cube",
+    "iso": 800,
+    "sha256": "1c84e7f2fe7d78cd7c5c0d6784684372fc5c3c26e89efe4143ee8415d17fc4ab"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/kodak_tmax_3200",
+    "pack": "gmic-film",
+    "name": "Kodak Tmax 3200",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/kodak_tmax_3200.cube",
+    "iso": 3200,
+    "sha256": "399b59aa274b48748fa537d5af89154e0e0beff33e2e76d79d8f11bba3ef8f8b"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/kodak_tmax_3200_+",
+    "pack": "gmic-film",
+    "name": "Kodak Tmax 3200 +",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/kodak_tmax_3200_+.cube",
+    "iso": 3200,
+    "sha256": "844603b14851731722658841ef43f26bb2ce7d083f46314bd8551bc4bf8676c6"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/kodak_tmax_3200_++",
+    "pack": "gmic-film",
+    "name": "Kodak Tmax 3200 ++",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/kodak_tmax_3200_++.cube",
+    "iso": 3200,
+    "sha256": "36ad663fb8f466386002a0679d3bd15b73693845bd7e9ad384bba5465c35df1e"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/kodak_tmax_3200_-",
+    "pack": "gmic-film",
+    "name": "Kodak Tmax 3200 -",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/kodak_tmax_3200_-.cube",
+    "iso": 3200,
+    "sha256": "81c4ce9ed497950e10d3a5ae1d49728228c8ba26bc8eb43d08ba2e221ff92fe5"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/kodak_tmax_3200_alt",
+    "pack": "gmic-film",
+    "name": "Kodak Tmax 3200 Alt",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/kodak_tmax_3200_alt.cube",
+    "iso": 3200,
+    "sha256": "bf729f999ec99ae4f5e12194f325ab0ea5d70487e43adaa8a7967d523a90a7a8"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/kodak_tri-x_400",
+    "pack": "gmic-film",
+    "name": "Kodak Tri-X 400",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/kodak_tri-x_400.cube",
+    "iso": 400,
+    "sha256": "6687e133fac57f248c13c800e5a8df63f00caad84a16035dc9b064c2e485f034"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/kodak_tri-x_400_+",
+    "pack": "gmic-film",
+    "name": "Kodak Tri-X 400 +",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/kodak_tri-x_400_+.cube",
+    "iso": 400,
+    "sha256": "8bc5e2928be4e487207639cad44b0a5063f09109f45176e5af04256671ffd962"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/kodak_tri-x_400_++",
+    "pack": "gmic-film",
+    "name": "Kodak Tri-X 400 ++",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/kodak_tri-x_400_++.cube",
+    "iso": 400,
+    "sha256": "d46350975d32cb535f14f357437ecb37738111f6a618448c6929f3fda1e32977"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/kodak_tri-x_400_-",
+    "pack": "gmic-film",
+    "name": "Kodak Tri-X 400 -",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/kodak_tri-x_400_-.cube",
+    "iso": 400,
+    "sha256": "f22d3c3561f9e0c29b4e68dcb9db720a24fc18d45dab1da81d3c85fd3735d1c5"
+  },
+  {
+    "id": "lut:gmic-film:negative_new/kodak_tri-x_400_alt",
+    "pack": "gmic-film",
+    "name": "Kodak Tri-X 400 Alt",
+    "category": "Negative \u2014 newer",
+    "file": "negative_new/kodak_tri-x_400_alt.cube",
+    "iso": 400,
+    "sha256": "62ca8ad6c9eb804c94f47bf088221eff205c1363052d428e0ae134e087722820"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/fuji_neopan_1600",
+    "pack": "gmic-film",
+    "name": "Fuji Neopan 1600",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/fuji_neopan_1600.cube",
+    "iso": 1600,
+    "sha256": "1ea69d7ea0074f4d94b605e472501e11d93f5e04689f8bbb898b2cbe1cc4a684"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/fuji_neopan_1600_+",
+    "pack": "gmic-film",
+    "name": "Fuji Neopan 1600 +",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/fuji_neopan_1600_+.cube",
+    "iso": 1600,
+    "sha256": "e0b44ae557463387bb8ba93f69cafae4c3f6454e929c3da3efddbef3adfe79c3"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/fuji_neopan_1600_++",
+    "pack": "gmic-film",
+    "name": "Fuji Neopan 1600 ++",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/fuji_neopan_1600_++.cube",
+    "iso": 1600,
+    "sha256": "363b87c5cc98414a73666eac5560c0f26e8f23813a51d9b5569da633bd583aa2"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/fuji_neopan_1600_-",
+    "pack": "gmic-film",
+    "name": "Fuji Neopan 1600 -",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/fuji_neopan_1600_-.cube",
+    "iso": 1600,
+    "sha256": "f6b2c44957e62a51d6278d6e2f1ff4e6ddff7cf20bf8f3f3951d2ddd18e225da"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/fuji_superia_100",
+    "pack": "gmic-film",
+    "name": "Fuji Superia 100",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/fuji_superia_100.cube",
+    "iso": 100,
+    "sha256": "cf93ea0307ba96e5b204a67afb2479791dd3f74765ddda8a1c2aa582f14ab917"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/fuji_superia_100_+",
+    "pack": "gmic-film",
+    "name": "Fuji Superia 100 +",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/fuji_superia_100_+.cube",
+    "iso": 100,
+    "sha256": "6d885fc43f0183fb79064106df3928663e89fc1e0d97fc767aa6b2fca27e21a4"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/fuji_superia_100_++",
+    "pack": "gmic-film",
+    "name": "Fuji Superia 100 ++",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/fuji_superia_100_++.cube",
+    "iso": 100,
+    "sha256": "891043ddbb1701e5f52b6b86b1d594eff6569120324c77e9627d0d5a178e3c55"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/fuji_superia_100_-",
+    "pack": "gmic-film",
+    "name": "Fuji Superia 100 -",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/fuji_superia_100_-.cube",
+    "iso": 100,
+    "sha256": "d71ba03b6f7a90341bf86b371019b6cc94b3a84f0ba081a76b0f9dc81d9ec913"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/fuji_superia_1600",
+    "pack": "gmic-film",
+    "name": "Fuji Superia 1600",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/fuji_superia_1600.cube",
+    "iso": 1600,
+    "sha256": "a92ecf7e9fdf231537d61fbe8bab000195b4af4364e7e69c0c3ae093fbff47f2"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/fuji_superia_1600_+",
+    "pack": "gmic-film",
+    "name": "Fuji Superia 1600 +",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/fuji_superia_1600_+.cube",
+    "iso": 1600,
+    "sha256": "da7137e962cddc31c539bf930cdea331097244a6552b5bb832d57b3953b853a7"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/fuji_superia_1600_++",
+    "pack": "gmic-film",
+    "name": "Fuji Superia 1600 ++",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/fuji_superia_1600_++.cube",
+    "iso": 1600,
+    "sha256": "8a29595d0c701dd12ae6c5e46ccd65fb42dea9ecc88d53660bddef4da34f5d7c"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/fuji_superia_1600_-",
+    "pack": "gmic-film",
+    "name": "Fuji Superia 1600 -",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/fuji_superia_1600_-.cube",
+    "iso": 1600,
+    "sha256": "216c20ec4d4af188deb6a51e6f6f3a1707c36edbb16894db956257b918db4676"
+  },
+  {
+    "id": "superia400",
+    "pack": "gmic-film",
+    "name": "Fuji Superia 400",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/fuji_superia_400.cube",
+    "iso": 400,
+    "sha256": "9806b1a58b55740b6293c8b8ecfc8dadc90a405d20341cb4c1e67e9b962b4045"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/fuji_superia_400_+",
+    "pack": "gmic-film",
+    "name": "Fuji Superia 400 +",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/fuji_superia_400_+.cube",
+    "iso": 400,
+    "sha256": "f2ece8aebb2d107b386d08808157093b2398a27d007166070dd31e82b96a3f8a"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/fuji_superia_400_++",
+    "pack": "gmic-film",
+    "name": "Fuji Superia 400 ++",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/fuji_superia_400_++.cube",
+    "iso": 400,
+    "sha256": "ae00554cc0577e91dc12fa0da55ab5ce4b8d84c5f76efa082cbb7d259e22c08e"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/fuji_superia_400_-",
+    "pack": "gmic-film",
+    "name": "Fuji Superia 400 -",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/fuji_superia_400_-.cube",
+    "iso": 400,
+    "sha256": "3ef14db22b4a6f4148a6100e40a0b71ea5d45736d7846eb6e0255ffd3a511335"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/fuji_superia_800",
+    "pack": "gmic-film",
+    "name": "Fuji Superia 800",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/fuji_superia_800.cube",
+    "iso": 800,
+    "sha256": "264894002690e48b0b779ad65020b32b19340aaed787fd29c6e200b8e8198a0b"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/fuji_superia_800_+",
+    "pack": "gmic-film",
+    "name": "Fuji Superia 800 +",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/fuji_superia_800_+.cube",
+    "iso": 800,
+    "sha256": "f90020308f7ac6fa761268e74968da0019f9b8c8e64f68f59e694b9e2b8e909c"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/fuji_superia_800_++",
+    "pack": "gmic-film",
+    "name": "Fuji Superia 800 ++",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/fuji_superia_800_++.cube",
+    "iso": 800,
+    "sha256": "cfbdfa62a24ca11f93c21ece60341cbd5e6f613962ec04b70dddf3ddb2a61644"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/fuji_superia_800_-",
+    "pack": "gmic-film",
+    "name": "Fuji Superia 800 -",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/fuji_superia_800_-.cube",
+    "iso": 800,
+    "sha256": "81b72b8d232be760ffcf102f7d1537aa25a551352aae965b40a92db34ad52257"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/ilford_delta_3200",
+    "pack": "gmic-film",
+    "name": "Ilford Delta 3200",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/ilford_delta_3200.cube",
+    "iso": 3200,
+    "sha256": "2a3083b0d474ef113cbb664250ad51fef09345da4c974f8587afe70560641c1b"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/ilford_delta_3200_+",
+    "pack": "gmic-film",
+    "name": "Ilford Delta 3200 +",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/ilford_delta_3200_+.cube",
+    "iso": 3200,
+    "sha256": "3c85388fb3ba4f23508ae5cf3d4b48ebadcb9691e400f583989d4ad9ee936299"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/ilford_delta_3200_++",
+    "pack": "gmic-film",
+    "name": "Ilford Delta 3200 ++",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/ilford_delta_3200_++.cube",
+    "iso": 3200,
+    "sha256": "ae5cf61a28c871f20247c7b89b127db1fc69f0576ef5cd5939b3d9959425f4f7"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/ilford_delta_3200_-",
+    "pack": "gmic-film",
+    "name": "Ilford Delta 3200 -",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/ilford_delta_3200_-.cube",
+    "iso": 3200,
+    "sha256": "b4e08c7e72a795388f480246ebc61e7692550fdd9170832042efaa87bab89c0c"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/kodak_portra_160_nc",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 160 Nc",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/kodak_portra_160_nc.cube",
+    "iso": 160,
+    "sha256": "beb422d352301f6d1cd102ee99ab065595eda6efb38b62c488369a8642f1ce65"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/kodak_portra_160_nc_+",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 160 Nc +",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/kodak_portra_160_nc_+.cube",
+    "iso": 160,
+    "sha256": "44f2642d4cf3b768157b4ffa179b38dc098b92d06139e0419529b0d2be434341"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/kodak_portra_160_nc_++",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 160 Nc ++",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/kodak_portra_160_nc_++.cube",
+    "iso": 160,
+    "sha256": "2d7e54a6cc0e42891a2846f997e18523dd869db935b655f8fa4db5d56dd5d978"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/kodak_portra_160_nc_-",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 160 Nc -",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/kodak_portra_160_nc_-.cube",
+    "iso": 160,
+    "sha256": "c9f9dc95ce8a460f6914ba4bf5e4dc531f827767213e076a21c9651b90d0d2e8"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/kodak_portra_160_vc",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 160 Vc",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/kodak_portra_160_vc.cube",
+    "iso": 160,
+    "sha256": "9dfc81b0d45773924c88ddd21a00ad27c51ccbcfa455899aa41b1de36a82cc2e"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/kodak_portra_160_vc_+",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 160 Vc +",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/kodak_portra_160_vc_+.cube",
+    "iso": 160,
+    "sha256": "e6728397cada0a730a92afc6ed1232fd3dc148a1cfab742818bb3a59ffe7df3c"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/kodak_portra_160_vc_++",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 160 Vc ++",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/kodak_portra_160_vc_++.cube",
+    "iso": 160,
+    "sha256": "d7146596bee8a6cb237e0ab5278affd989d4149b5efe959153bf247437d82aa3"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/kodak_portra_160_vc_-",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 160 Vc -",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/kodak_portra_160_vc_-.cube",
+    "iso": 160,
+    "sha256": "c306ecea67d4a84c1c014c04e46cef36827b02cb8dd38b1f84bcd271f83ef6e4"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/kodak_portra_400_nc",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 400 Nc",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/kodak_portra_400_nc.cube",
+    "iso": 400,
+    "sha256": "5c90749ee3976a84636d88fcbc7588758f24042dc62e3335515fd18353bd48bc"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/kodak_portra_400_nc_+",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 400 Nc +",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/kodak_portra_400_nc_+.cube",
+    "iso": 400,
+    "sha256": "4d85097ef011a55e5915c623b9882096cc4b949ab0e5caeabaa55b9c94343d28"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/kodak_portra_400_nc_++",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 400 Nc ++",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/kodak_portra_400_nc_++.cube",
+    "iso": 400,
+    "sha256": "63d291c299dc301fa97f98fde30c757375a9cf19d2d950b4f0f0de4026965b86"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/kodak_portra_400_nc_-",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 400 Nc -",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/kodak_portra_400_nc_-.cube",
+    "iso": 400,
+    "sha256": "568388cb4f802a11f6dc6cc0545f3f05e596b95ea34b85aea87af6dd88413039"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/kodak_portra_400_uc",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 400 Uc",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/kodak_portra_400_uc.cube",
+    "iso": 400,
+    "sha256": "e388d81ae6a38fc6f4891ec4e240211d31e340c48e7a72005c06253e38e97048"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/kodak_portra_400_uc_+",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 400 Uc +",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/kodak_portra_400_uc_+.cube",
+    "iso": 400,
+    "sha256": "392fec73920b777d7a58f7cbac0275929b9756ee25289e58f8ea6966fb886ee4"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/kodak_portra_400_uc_++",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 400 Uc ++",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/kodak_portra_400_uc_++.cube",
+    "iso": 400,
+    "sha256": "16ad95834e48ee6702c0ff4aa5500d23bd0cf1b62eca5e88670476d5a20b5c69"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/kodak_portra_400_uc_-",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 400 Uc -",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/kodak_portra_400_uc_-.cube",
+    "iso": 400,
+    "sha256": "993ff1a05f0e01d550a2d9ee33a153fdaac61d8bc342e9794ec65662b95439cd"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/kodak_portra_400_vc",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 400 Vc",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/kodak_portra_400_vc.cube",
+    "iso": 400,
+    "sha256": "537554ff0ca46d36b1e204275083cae336c38b9657d5048b85b50fc199ba8fdf"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/kodak_portra_400_vc_+",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 400 Vc +",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/kodak_portra_400_vc_+.cube",
+    "iso": 400,
+    "sha256": "576ef2aae94715e9ac774e338c7c73a1c7f4f71e47fb8d6fd76e13ca8118b651"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/kodak_portra_400_vc_++",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 400 Vc ++",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/kodak_portra_400_vc_++.cube",
+    "iso": 400,
+    "sha256": "4ce6eae2db35a220051bf84dc5918efbc7fdccb5d9fda63e328a07f7f4ce10e4"
+  },
+  {
+    "id": "lut:gmic-film:negative_old/kodak_portra_400_vc_-",
+    "pack": "gmic-film",
+    "name": "Kodak Portra 400 Vc -",
+    "category": "Negative \u2014 older",
+    "file": "negative_old/kodak_portra_400_vc_-.cube",
+    "iso": 400,
+    "sha256": "d45357ed1feb43e64118ad92cea61733047d0e2aa76ab383e897822166c789d9"
+  },
+  {
+    "id": "lut:picturefx:analogfx_anno_1870_color",
+    "pack": "picturefx",
+    "name": "Anno 1870 Color",
+    "category": "AnalogFX",
+    "file": "analogfx_anno_1870_color.cube",
+    "iso": 400,
+    "sha256": "3e18ba76511b4df13a6ab65d37b3fc69c174bd9d8a48e917ac906ba61d3b2742"
+  },
+  {
+    "id": "lut:picturefx:analogfx_old_style_i",
+    "pack": "picturefx",
+    "name": "Old Style I",
+    "category": "AnalogFX",
+    "file": "analogfx_old_style_i.cube",
+    "iso": 400,
+    "sha256": "98c17824475701204f25b6f747325133e0e8aa782605f311f899debee19a54b5"
+  },
+  {
+    "id": "lut:picturefx:analogfx_old_style_ii",
+    "pack": "picturefx",
+    "name": "Old Style II",
+    "category": "AnalogFX",
+    "file": "analogfx_old_style_ii.cube",
+    "iso": 400,
+    "sha256": "194648390f9d1597e2b7ae2d66c8d7d81d2eaf8c764ed3af94ad5e7771ba778e"
+  },
+  {
+    "id": "lut:picturefx:analogfx_old_style_iii",
+    "pack": "picturefx",
+    "name": "Old Style III",
+    "category": "AnalogFX",
+    "file": "analogfx_old_style_iii.cube",
+    "iso": 400,
+    "sha256": "47b13ec27205b1cb8917bf35fc858e4884dab85f018cc8b8d2840ef878e99834"
+  },
+  {
+    "id": "lut:picturefx:analogfx_sepia_color",
+    "pack": "picturefx",
+    "name": "Sepia Color",
+    "category": "AnalogFX",
+    "file": "analogfx_sepia_color.cube",
+    "iso": 400,
+    "sha256": "954e0a699714f106a908d548549228b40002af4585a53b6a8524b498e3e71f67"
+  },
+  {
+    "id": "lut:picturefx:analogfx_soft_sepia_i",
+    "pack": "picturefx",
+    "name": "Soft Sepia I",
+    "category": "AnalogFX",
+    "file": "analogfx_soft_sepia_i.cube",
+    "iso": 400,
+    "sha256": "9719f1991c954bdc384b8f888568f0fde432ceabf93d06ace09ddc0b63b03bec"
+  },
+  {
+    "id": "lut:picturefx:analogfx_soft_sepia_ii",
+    "pack": "picturefx",
+    "name": "Soft Sepia II",
+    "category": "AnalogFX",
+    "file": "analogfx_soft_sepia_ii.cube",
+    "iso": 400,
+    "sha256": "31698d5f6eacf7b08296ffd2f7b78a36d91d1235a09659b69d11abe68ccd60d2"
+  },
+  {
+    "id": "lut:picturefx:goldfx_bright_spring_breeze",
+    "pack": "picturefx",
+    "name": "Bright Spring Breeze",
+    "category": "GoldFX",
+    "file": "goldfx_bright_spring_breeze.cube",
+    "iso": 400,
+    "sha256": "1649742bea499c04875d0a56b7b5a18b5d54afe5f2fa9a4da850a50b05dfbaf3"
+  },
+  {
+    "id": "lut:picturefx:goldfx_bright_summer_heat",
+    "pack": "picturefx",
+    "name": "Bright Summer Heat",
+    "category": "GoldFX",
+    "file": "goldfx_bright_summer_heat.cube",
+    "iso": 400,
+    "sha256": "b13f1f2c1450a9a3d8f9e1bdbf200b0abf001148413a834872ba6eb04b083d7a"
+  },
+  {
+    "id": "lut:picturefx:goldfx_hot_summer_heat",
+    "pack": "picturefx",
+    "name": "Hot Summer Heat",
+    "category": "GoldFX",
+    "file": "goldfx_hot_summer_heat.cube",
+    "iso": 400,
+    "sha256": "50c8bd9251d7139cfd39968b6462bf77e5c91d0d936e63001080c26e27b2f434"
+  },
+  {
+    "id": "lut:picturefx:goldfx_perfect_sunset_01min",
+    "pack": "picturefx",
+    "name": "Perfect Sunset 01Min",
+    "category": "GoldFX",
+    "file": "goldfx_perfect_sunset_01min.cube",
+    "iso": 400,
+    "sha256": "ddc30c7742f1d22d9eb34f01ef4a9c821962c7af6054b16b86a2a45c97475767"
+  },
+  {
+    "id": "lut:picturefx:goldfx_perfect_sunset_05min",
+    "pack": "picturefx",
+    "name": "Perfect Sunset 05Min",
+    "category": "GoldFX",
+    "file": "goldfx_perfect_sunset_05min.cube",
+    "iso": 400,
+    "sha256": "e20e3531071cf25070bd29d46d5efe6cd5cee29c7f6a953959897af9342077ea"
+  },
+  {
+    "id": "lut:picturefx:goldfx_perfect_sunset_10min",
+    "pack": "picturefx",
+    "name": "Perfect Sunset 10Min",
+    "category": "GoldFX",
+    "file": "goldfx_perfect_sunset_10min.cube",
+    "iso": 400,
+    "sha256": "9db41354bd9f451f8ea1dcc697a0d3d030c5cad4f1bd3960d617caec327f9fac"
+  },
+  {
+    "id": "lut:picturefx:goldfx_spring_breeze",
+    "pack": "picturefx",
+    "name": "Spring Breeze",
+    "category": "GoldFX",
+    "file": "goldfx_spring_breeze.cube",
+    "iso": 400,
+    "sha256": "a42864885963a2eb93a0eeaee82e0349d4075f9abfb3a104f39b7acd0019589c"
+  },
+  {
+    "id": "lut:picturefx:goldfx_summer_heat",
+    "pack": "picturefx",
+    "name": "Summer Heat",
+    "category": "GoldFX",
+    "file": "goldfx_summer_heat.cube",
+    "iso": 400,
+    "sha256": "77de739d5ba924cfd41bc31e8948f913f01c0c89ddfbca9e518dd0392d4d5390"
+  },
+  {
+    "id": "lut:picturefx:technicalfx_backlight_filter",
+    "pack": "picturefx",
+    "name": "Backlight Filter",
+    "category": "TechnicalFX",
+    "file": "technicalfx_backlight_filter.cube",
+    "iso": 400,
+    "sha256": "2e0c5cc83217cf84178f4853f4122b552007b80b21b10064830d8e27dd344bad"
+  },
+  {
+    "id": "lut:picturefx:zilverfx_bw_solarization",
+    "pack": "picturefx",
+    "name": "BW Solarization",
+    "category": "ZilverFX",
+    "file": "zilverfx_bw_solarization.cube",
+    "iso": 400,
+    "sha256": "6db96668c4df273d41c86a2ad4cdfff7718a398a8218d362d3ef8b747f382ac6"
+  },
+  {
+    "id": "lut:picturefx:zilverfx_infrared",
+    "pack": "picturefx",
+    "name": "Infrared",
+    "category": "ZilverFX",
+    "file": "zilverfx_infrared.cube",
+    "iso": 400,
+    "sha256": "046928b1551ad6ec1d81109b33a07bfd3eb8d35086ede20937ea5f21ed34b81f"
+  },
+  {
+    "id": "lut:picturefx:zilverfx_vintage_bw",
+    "pack": "picturefx",
+    "name": "Vintage BW",
+    "category": "ZilverFX",
+    "file": "zilverfx_vintage_bw.cube",
+    "iso": 400,
+    "sha256": "933217f14234aebfd9fd420f2b08dfc5edccdb37c10b478080636210ac65106c"
+  }
+]

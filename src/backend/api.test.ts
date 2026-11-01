@@ -40,3 +40,15 @@ it('reads aligned lens metadata without shifting the half-float pixels, and reje
   view.setUint32(HEADER_BYTES,1_048_577,true);
   expect(()=>parsePayload(buf)).toThrow(/metadata length/);
 });
+
+it('reads camera metadata independently of lens support, including combined payloads', () => {
+  const camera={make:'Test',model:'Camera',cameraToWorking:[[1,0,0],[0,1,0],[0,0,1]],neutral:[.5,1,.7],baselineGain:1.8};
+  for(const lens of [null,{camera:'Test Camera',lens:'Lens',correction:null,unsupported:null}]){
+    const blocks=[...(lens?[JSON.stringify(lens)]:[]),JSON.stringify(camera)].map(s=>new TextEncoder().encode(s));
+    const total=blocks.reduce((n,b)=>Math.ceil((n+4+b.length)/4)*4,HEADER_BYTES);
+    const bytes=new ArrayBuffer(total+8),d=new DataView(bytes);d.setUint32(0,1,true);d.setUint32(4,1,true);d.setUint32(8,2,true);d.setUint32(12,lens?6:4,true);
+    let offset=HEADER_BYTES;for(const b of blocks){d.setUint32(offset,b.length,true);new Uint8Array(bytes,offset+4,b.length).set(b);offset=Math.ceil((offset+4+b.length)/4)*4;}
+    new Uint16Array(bytes,total)[0]=0x3c00;
+    expect(parsePayload(bytes).camera).toEqual(camera);expect(parsePayload(bytes).lens).toEqual(lens);expect(parsePayload(bytes).data[0]).toBe(0x3c00);
+  }
+});

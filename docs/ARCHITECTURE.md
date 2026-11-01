@@ -32,6 +32,27 @@ Input modes (`engine/params.ts`, `InputMode`):
 
 RAW sources first pass through cached embedded lens correction (`engine/lenscorrection.ts`, `lenscorrect.frag.glsl`), after capture sharpening but before all analysis maps and creative edits. Rust's bounded TIFF/maker-note reader supplies Fuji/Sony/Olympus/DNG profiles in the decoder payload. The pass recovers white-balanced camera RGB with the decoder's matrix, applies source-space vignette gain and per-channel radial bilinear resampling, then returns to Rec.2020. RAW working values retain their sign until after this pass so camera channels can be reconstructed. The correction is on by default, independently switchable per photo; DNG's combined warp has one switch/strength as upstream. Camera JPEG previews are never corrected twice: edited RAW thumbnails and stock previews decode a small RAW instead.
 
+Camera profiles form the base rendering independently of creative film LUTs. RAW
+sources carry a separate camera metadata block (payload flag 4, available with or
+without flag 2 lens data): make/model, the exact camera-to-working matrix,
+as-shot camera neutral and existing exposure gain. `engine/dcp.ts` ports
+RawTherapee's DCP processing; `profilegpu.ts` owns the calibration/look/gamma/tone
+textures and a cached early profile target. The early pass runs after embedded
+lens correction and before every scene analysis map. The late profile pass runs
+after scene edits, supplying baseline exposure, an optional look table and tone
+curve. A DCP curve replaces the neutral sigmoid; otherwise the neutral sigmoid
+renders the base. The optional film LUT is applied to this base print. Amount
+zero returns the same base profile. Compare retains the camera rendering.
+
+The user DCP library lives under `app_data_dir()/camera-profiles/`, addressed by
+content hash. `profilestore.ts` resolves Auto/Standard and explicit DCP choices,
+checks camera binding and coordinates asynchronous loading. Preview, thumbnails,
+look tiles and export all prepare the same profile. Explicit missing/wrong-camera
+profiles fail rather than exporting a substitute. New photos use Auto with LUT
+None and the Straight scanner. No manufacturer camera-matching dataset is
+bundled. See [camera profile reference](plans/camera-profiles-reference.md) for
+the exact port, processing order and limits.
+
 Each stage is one GLSL file in `src/engine/shaders/stages/`, included into `develop.frag.glsl` in this order. Its parameters come from the recipe through `engine/params.ts`.
 
 | Stage | File | Domain | What it does | Planned replacement |
@@ -43,22 +64,20 @@ Each stage is one GLSL file in `src/engine/shaders/stages/`, included into `deve
 | Tone equalizer | `toneequalizer.glsl` | scene | Highlights: exposure by brightness band through an edge-aware brightness map, in the shape of darktable's compress shadows/highlights presets. **Ported from darktable tone equalizer** | |
 | Texture | `texture.glsl` | scene | Texture: darktable's contrast equalizer (its "sharpen" preset, with darktable's mix as the slider) on CIE L*, from a map the `eq` passes make over the whole photo; keeps Lab a and b. **Ported from darktable contrast equalizer** | |
 | Colour | `colorequal.glsl` | scene | Colour: hue, saturation and brightness for eight colours, red to magenta, from a map the `ce` passes make over the whole photo (darktable's two guided filters keep the changes even across an area and off greys). Skipped when every value is 0. **Ported from darktable color equalizer** | |
-| Colour balance | `colorbalance.glsl` | scene | Contrast, vibrance, saturation and shadows plus the recipe's Colour Grading: four hue/chroma/luminance wheels, chroma/saturation/brilliance by tone, hue shift and mask/contrast fulcrums. Shared controls feed one instance; `film/grading.ts` normalises additional recipe fields. **Ported from darktable colour balance rgb** | |
+| Colour balance | `colorbalance.glsl` | scene | A saved creative profile's hidden instance first (`stageProfileColorBalance`, scaled by the profile's Amount; `film/creative.ts`), then the photo's own: contrast, vibrance, saturation and shadows plus the recipe's Colour Grading: four hue/chroma/luminance wheels, chroma/saturation/brilliance by tone, hue shift and mask/contrast fulcrums. Shared controls feed one instance; `film/grading.ts` normalises additional recipe fields. **Ported from darktable colour balance rgb** | |
 | Creative vignette | `lens.glsl` | scene | Manual light falloff, separate from embedded lens correction | |
 | Optics | `optics.glsl` | scene | Halation and glow, added back from blurred highlights | |
-| Stock grade | `colorbalance.glsl` (`stageStockGrade`) | scene | The stock's grade, part of its style: a second instance of darktable colour balance rgb with every control (four ways, chroma, saturation and brilliance by tone, hue shift). Off when a LUT renders the stock. **Ported from darktable colour balance rgb** | |
-| Emulsion | `emulsion.glsl` | scene | Black and white sensitivity; colour stocks pass through | Measured stock data or CLUTs |
-| Look | `lut.glsl` | scene to print | When the recipe's look pack (`film/looks.ts`; t3mujinpack by default; Emulsion retained for legacy edits) has a LUT for the stock, it replaces Emulsion and Tone: the scene through the neutral curve per channel (exactly the original), to sRGB, through the LUT (tetrahedral), blended with the original by the look's Amount (Emulsion's addition), back to the print's encoding. Whites and positive Blacks then adjust the blended LUT print via the neutral inverse and sigmoid display targets, with neutral contrast and hue preservation zero; this step is bypassed at rest. Negative Blacks still subtracts scene black before the LUT. Stocks without a LUT in the pack keep Emulsion and Tone. **Ported from darktable lut3d** | |
+| Profile tone | `dcp.glsl`, `tone.glsl` | scene to print | RawTherapee DCP baseline exposure/look/Adobe tone curve, or the neutral darktable sigmoid per channel (**ported from darktable sigmoid**) when the profile has no curve. Whites/positive Blacks set display targets. | |
+| Look | `lut.glsl` | print | Optional creative LUT (a bundled pack, or one the user imported into My looks: `library/userlooks.ts`, `src-tauri/src/user_looks.rs`) on the camera profile’s print: convert to sRGB, tetrahedral lookup, blend by Amount, return to print encoding. Never supplies the base rendering. **Ported from darktable lut3d** | |
 | Clarity | `clarity.glsl` | print | Clarity: darktable's local laplacian filter (its local contrast module's clarity preset) on CIE lightness, from a map the `ll*` passes make over the whole photo; keeps Lab a and b. **Ported from darktable local contrast** | |
 | Sharpening | `usm.glsl` | print | Sharpening, Radius, Masking: RawTherapee's unsharp mask on CIE lightness of the finished print, from a map the `usm` passes make over the whole photo; keeps Lab a and b. Runs after Tone and Clarity, before grain. **Ported from RawTherapee sharpening** | |
 | Grain | `grain.glsl` | print | Grain, Size (ISO), Mid-tones: darktable's grain on CIE lightness of the finished print, after Sharpening and before output: three octaves of simplex noise fitted to real grain scans, sized by film speed relative to the frame (pushing doubles the speed per stop), through darktable's paper response so it fades in shadows and highlights; away from 1:1 it averages 21 samples per pixel. **Ported from darktable grain** | |
-| Tone | `tone.glsl` | scene to print | **Ported from darktable sigmoid**: the stock's primaries (attenuation, rotation, recover purity; `engine/primaries.ts`), then the log-logistic curve per channel with hue preservation; stock contrast and push scale its contrast, Whites set the display white and Blacks above zero the display black | |
 | Output | `output.glsl` | print to display | Rec.2020 to sRGB | Colour-managed output |
 | Scanner | `scanner.glsl` | display | Levels, colour cast, contrast and saturation of the scan | |
-| Curve | `curve.glsl` | display | Point curve: master, then red, green and blue, from a 256-step lookup table sampled in `film/curve.ts` (darktable's monotone spline) | |
+| Curve | `curve.glsl` | display | Point curve: master, then red, green and blue, from a 256-step lookup table sampled in `film/curve.ts` (darktable's monotone spline); a saved profile's curve is composed in front of the photo's own into the same table (`composedCurveTable`) | |
 | Finish | `finish.glsl` | display | Matte fade and dither | |
 
-The tone curve's maths is mirrored in `engine/tone.ts` so it can be unit-tested; the shader receives its constants from there. Emulsion's neutral curve uses sigmoid contrast 1.15 and skew 0.11 rather than darktable's 1.5 and 0, fitted to the curve the stocks were first tuned on, and a display black of 0 so the inverse is exact. The original (Compare, or no look) renders the neutral curve per channel without hue preservation, the exact inverse of the input stage.
+The neutral sigmoid’s maths is mirrored in `engine/tone.ts` so it can be unit-tested; the shader receives its constants from there. Emulsion's neutral curve uses sigmoid contrast 1.15 and skew 0.11 rather than darktable's 1.5 and 0, fitted to the curve the stocks were first tuned on, and a display black of 0 so the inverse is exact. Without a DCP tone curve, the base renders the neutral curve per channel, the exact inverse of the display-referred input stage. A DCP uses its own tone curve for both the edited photo and Compare.
 
 ### Passes
 
@@ -147,7 +166,7 @@ A recipe (`film/recipe.ts`) is everything about how one frame is developed: stoc
 }
 ```
 
-Writes are debounced in the webview and atomic in Rust (write to a temporary file, then rename). Removing a look deletes the sidecar.
+Writes are debounced in the webview and atomic in Rust (write to a temporary file, then rename). Reset photo removes the recipe; ratings, tags and hearts can still keep a sidecar. Choosing LUT None only disables the creative LUT and retains the camera profile and adjustments.
 
 ## Adding or replacing a stage
 

@@ -3,14 +3,14 @@ import { PhotoInfo } from './PhotoInfo';
 import { PhotoTools } from './PhotoTools';
 import { useWorkspace } from './workspace';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useProfileVersion } from '../engine/profilestore';
 import { useLutVersion } from '../engine/lutstore';
-import { useStockTuningVersion } from '../film/stocktuning';
 import { loadImage, logToTerminal } from '../backend/api';
 import { Engine, type Source } from '../engine/engine';
 import { histogram } from '../engine/histogram';
 import { defaultRecipe } from '../film/recipe';
 import { D65_XY, clampWhiteBalance, neutralizingWhite, temperatureTint } from '../engine/whitebalance';
-import { STAGE_COLORS, activePhoto, editActive, finishCrop, setCropDraft, setPhotoWhite, setPhotoLens, showToast, startCrop, useApp } from '../library/store';
+import { STAGE_COLORS, activePhoto, editActive, finishCrop, setCropDraft, setPhotoWhite, setPhotoLens, setPhotoCamera, showToast, startCrop, useApp } from '../library/store';
 import { StageMenu } from './StageMenu';
 import { FULL, bounds, framePixels, rotateFrame, sourcePoint } from '../film/crop';
 import { CropOverlay } from './CropOverlay';
@@ -72,8 +72,8 @@ export function Develop() {
   const stageId = useApp((s) => s.stageColor);
   const stage = STAGE_COLORS.find((c) => c.id === stageId)!;
   const path = photo?.path;
+  const profileVersion = useProfileVersion();
   const lutVersion = useLutVersion();
-  const tuningVersion = useStockTuningVersion();
 
   // Start the GPU engine for this canvas.
   useLayoutEffect(() => {
@@ -127,6 +127,7 @@ export function Develop() {
         const img = await loadImage(path, Math.min(PREVIEW_EDGE, engine.maxTextureSize));
         if (img.white) setPhotoWhite(path, img.white);
         setPhotoLens(path, img.lens ?? null);
+        setPhotoCamera(path, img.camera ?? null);
         swap(engine.sourceFromHalf(img), 'preview');
       } catch (err) {
         if (cancelled) return;
@@ -233,8 +234,8 @@ export function Develop() {
       const l = loadedRef.current;
       const canvas = canvasRef.current;
       if (!engine || !l || !canvas || l.path !== path || !canvas.width || !current) return;
-      // Keep the last frame until the look's LUT has loaded (this effect reruns when it does).
-      if (!compare && engine.waiting(recipe)) return;
+      // Compare also needs the base camera profile, but never the creative LUT.
+      if (engine.waiting(recipe, l.source.camera, compare)) return;
       if (!engine.idle()) {
         id = requestAnimationFrame(tick);
         return;
@@ -248,7 +249,7 @@ export function Develop() {
     id = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recipe, seed, compare, loadedVersion, viewKey, path, clipping, split, JSON.stringify(frame), stage, sharpenMask, lutVersion, tuningVersion]);
+  }, [recipe, seed, compare, loadedVersion, viewKey, path, clipping, split, JSON.stringify(frame), stage, sharpenMask, lutVersion, profileVersion]);
 
   // Count the histogram from a small render of the whole frame, once changes settle.
   useEffect(() => {

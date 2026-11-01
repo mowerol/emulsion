@@ -444,7 +444,7 @@ export function colorBalanceRgb(rgb: Vec3, d: CbData, lut: ArrayLike<number> = w
   return mulVec(XYZ_TO_REC2020, out).map((v) => Math.max(v, 0)) as Vec3;
 }
 
-/** An instance's constants for stages/colorbalance.glsl (uCbP, uCbS): ten vec4s. */
+/** An instance's constants for stages/colorbalance.glsl (uCbP): ten vec4s. */
 export function cbUniform(d: CbData): number[] {
   return [
     d.contrast, d.vibrance, d.greyFulcrum, d.whiteFulcrum,

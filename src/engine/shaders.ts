@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { assemble } from './glsl';
 
+import dcp from './shaders/stages/dcp.glsl?raw';
+import dcpPass from './shaders/dcp.frag.glsl?raw';
 import quadVert from './shaders/quad.vert.glsl?raw';
 import common from './shaders/common.glsl?raw';
 import develop from './shaders/develop.frag.glsl?raw';
@@ -17,7 +19,6 @@ import sample from './shaders/sample.frag.glsl?raw';
 import lenscorrect from './shaders/lenscorrect.frag.glsl?raw';
 import lens from './shaders/stages/lens.glsl?raw';
 import optics from './shaders/stages/optics.glsl?raw';
-import emulsion from './shaders/stages/emulsion.glsl?raw';
 import output from './shaders/stages/output.glsl?raw';
 import grain from './shaders/stages/grain.glsl?raw';
 import scanner from './shaders/stages/scanner.glsl?raw';
@@ -38,6 +39,7 @@ import llreduce from './shaders/llreduce.frag.glsl?raw';
 import llcollapse from './shaders/llcollapse.frag.glsl?raw';
 
 export const SHADER_FILES: Record<string, string> = {
+  'stages/dcp.glsl': dcp,
   'common.glsl': common,
   'lenscorrect.frag.glsl': lenscorrect,
   'stages/tone.glsl': tone,
@@ -47,7 +49,6 @@ export const SHADER_FILES: Record<string, string> = {
   'stages/toneequalizer.glsl': toneequalizer,
   'stages/lens.glsl': lens,
   'stages/optics.glsl': optics,
-  'stages/emulsion.glsl': emulsion,
   'stages/output.glsl': output,
   'stages/grain.glsl': grain,
   'stages/scanner.glsl': scanner,
@@ -62,6 +63,7 @@ export const SHADER_FILES: Record<string, string> = {
 };
 
 export const SHADERS = {
+  dcp: assemble(dcpPass, SHADER_FILES),
   vertex: quadVert,
   lenscorrect: assemble(lenscorrect, SHADER_FILES),
   develop: assemble(develop, SHADER_FILES),

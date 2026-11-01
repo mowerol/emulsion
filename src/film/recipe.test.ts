@@ -5,14 +5,15 @@ import { STOCK, STOCKS } from './stocks';
 import { SCANNERS } from './scanners';
 
 describe('recipes', () => {
-  it('reads the look pack and Amount, defaulting old sidecars to Emulsion\'s own looks at full strength', () => {
+  it('reads the look pack and Amount, retiring old parametric stocks and defaulting to the LUT pack', () => {
     const old = normalizeRecipe({ stock: 'portra400' })!;
-    expect(old.pack).toBe('emulsion');
+    expect(old.pack).toBe('t3mujinpack');
+    expect(old.lookEnabled).toBe(false);
     expect(old.lookAmount).toBe(100);
     const r = normalizeRecipe({ stock: 'portra400', pack: 't3mujinpack', lookAmount: 140 })!;
     expect(r.pack).toBe('t3mujinpack');
     expect(r.lookAmount).toBe(100);
-    expect(normalizeRecipe({ pack: 'nope', lookAmount: 35 })!).toMatchObject({ pack: 'emulsion', lookAmount: 35 });
+    expect(normalizeRecipe({ pack: 'nope', lookAmount: 35 })!).toMatchObject({ pack: 't3mujinpack', lookAmount: 35 });
     expect(resetAdjustments({ ...defaultRecipe('portra400'), pack: 't3mujinpack', lookAmount: 60, exposure: 1 })).toMatchObject({ pack: 't3mujinpack', lookAmount: 60, exposure: 0 });
   });
 
@@ -21,13 +22,13 @@ describe('recipes', () => {
   });
 
   it('fills defaults from the stock and clamps out-of-range values', () => {
-    const r = normalizeRecipe({ stock: 'cinestill800t', exposure: 99, grain: -4, push: 7, scanner: 'nope' })!;
-    expect(r.stock).toBe('cinestill800t');
+    const r = normalizeRecipe({ stock: 'portra400', pack: 't3mujinpack', exposure: 99, grain: -4, push: 7, scanner: 'nope' })!;
+    expect(r.stock).toBe('portra400');
     expect(r.exposure).toBe(3);
     expect(r.grain).toBe(0);
     expect(r.push).toBe(0);
     expect(r.scanner).toBe('frontier');
-    expect(r.halation).toBe(STOCK.cinestill800t.halation);
+    expect(r.halation).toBe(STOCK.portra400.halation);
   });
 
   it('falls back to a known stock', () => {
@@ -68,13 +69,7 @@ describe('recipes', () => {
         expect(r[d.key]).toBeGreaterThanOrEqual(d.min);
         expect(r[d.key]).toBeLessThanOrEqual(d.max);
       }
-      // Sigmoid primaries inside darktable's ranges.
-      const p = s.primaries;
-      if (p) {
-        expect(p.inset.every((v) => v >= 0 && v <= 0.99)).toBe(true);
-        expect(p.rotation.every((v) => Math.abs(v) <= (0.4 * 180) / Math.PI)).toBe(true);
-        expect(p.purity >= 0 && p.purity <= 1).toBe(true);
-      }
+
     }
     expect(SCANNERS.every((sc) => sc.white > sc.black)).toBe(true);
   });
@@ -137,5 +132,23 @@ describe('crop in recipes', () => {
     expect(r.color).toEqual({ hue: [120, 0, 10, 0, 0, 0, 0, 0], sat: [0, -100, 0, 0, 0, 0, 0, 40], bright: [0, 0, 0, 0, 0, 0, 0, 0] });
     expect(normalizeRecipe({ color: { hue: [0], sat: [], bright: [] } })!.color).toBeNull();
     expect(resetSection({ ...r }, 'color').color).toBeNull();
+  });
+});
+
+describe('camera base and optional creative look', () => {
+  it('starts new edits from Auto, a straight scanner, and no LUT', () => {
+    expect(defaultRecipe()).toMatchObject({ profile: 'auto', lookEnabled: false, stock: 'neutral', scanner: 'straight' });
+  });
+  it('keeps existing LUTs and retires parametric stock selections', () => {
+    expect(normalizeRecipe({ stock: 'portra400', pack: 't3mujinpack' })).toMatchObject({ profile: 'auto', lookEnabled: true, scanner: 'frontier' });
+    expect(normalizeRecipe({ stock: 'pro400h' })).toMatchObject({ profile: 'auto', lookEnabled: false, stock: 'neutral', pack: 't3mujinpack' });
+  });
+  it('keeps a base profile through look changes, slider resets, and JSON', () => {
+    const r={...defaultRecipe(), profile: `dcp:${'a'.repeat(64)}` as const};
+    const look=withStock(r,'portra400');
+    expect(look).toMatchObject({profile:r.profile,lookEnabled:true});
+    expect(resetAdjustments(look).profile).toBe(r.profile);
+    expect(normalizeRecipe(JSON.parse(JSON.stringify(look)))).toEqual(look);
+    expect(withSettingsFrom(look,{...defaultRecipe(),profile:'standard'}).profile).toBe('standard');
   });
 });

@@ -70,7 +70,7 @@ suite('history', () => {
     expect(describe(null, r0)).toBe('Neutral');
     expect(describe(null, defaultRecipe('gold200'))).toBe('Gold 200');
     expect(describe(null, r(0.5))).toBe('Exposure');
-    expect(describe(r0, null)).toBe('Remove look');
+    expect(describe(r0, null)).toBe('Reset photo');
     expect(describe(r0, r(1))).toBe('Exposure');
     expect(describe(r0, { ...r0, stock: 'trix400', halation: 0 })).toBe('Tri-X 400');
     expect(describe(r0, { ...r0, wb: { temperature: 4000, tint: 0 } })).toBe('White balance');

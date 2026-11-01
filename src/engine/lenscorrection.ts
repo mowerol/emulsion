@@ -2,8 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Port of lens.cc _init_coeffs_md_v2, _interpolate_linear_spline and _process_md
 // at darktable 20891f6c. Centered radial profiles, MAXKNOTS=16; bilinear resampling.
-import { invert3 } from './primaries';
-import { columnMajor, mulVec } from './color';
+import { columnMajor, invert3, mulVec } from './color';
 import type { Mat3, Vec3 } from '../film/stocks';
 
 export type EmbeddedCorrection =

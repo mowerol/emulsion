@@ -145,6 +145,17 @@ fn c_path(path: &Path) -> Result<CString, String> {
     CString::new(path.to_string_lossy().as_bytes()).map_err(|_| format!("Invalid path {}", path.display()))
 }
 
+/// Profile metadata is independent of lens-profile availability.
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CameraMetadata {
+    pub make: String,
+    pub model: String,
+    pub camera_to_working: Mat3,
+    pub neutral: Option<[f32; 3]>,
+    pub baseline_gain: f32,
+}
+
 /// A decoded RAW.
 pub struct Decoded {
     /// Scene-linear Rec.2020, scaled by [`BASELINE_GAIN`], white balanced as shot.
@@ -154,6 +165,7 @@ pub struct Decoded {
     /// Size of a full-resolution decode, oriented.
     pub full_size: (u32, u32),
     pub camera_to_working: Mat3,
+    pub camera: CameraMetadata,
 }
 
 /// Chromaticity of the light the camera balanced for: a surface recorded as
@@ -254,7 +266,14 @@ pub fn decode(path: &Path, half: bool) -> Result<Decoded, String> {
 
     let buf = ImageBuffer::<Rgb<f32>, _>::from_raw(w, h, out).ok_or("RAW image has the wrong size")?;
     let full_size = if info.full_width > 0 && info.full_height > 0 { (info.full_width as u32, info.full_height as u32) } else { (w, h) };
-    Ok(Decoded { image: DynamicImage::ImageRgb32F(buf), white: white_for(&info), full_size, camera_to_working: m })
+    let neutral = if info.cam_mul.iter().all(|v| v.is_finite() && *v > 0.0) {
+        let mut n = info.cam_mul.map(|v| 1.0 / v);
+        let maximum = n.iter().copied().fold(0.0f32, f32::max);
+        n.iter_mut().for_each(|v| *v /= maximum);
+        Some(n)
+    } else { None };
+    let camera = CameraMetadata { make: error_text(&info.make), model, camera_to_working: m, neutral, baseline_gain: BASELINE_GAIN };
+    Ok(Decoded { image: DynamicImage::ImageRgb32F(buf), white: white_for(&info), full_size, camera_to_working: m, camera })
 }
 
 fn file_name(path: &Path) -> String {

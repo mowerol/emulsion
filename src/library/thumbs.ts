@@ -3,6 +3,7 @@
 // rendered on the GPU from those originals, only for frames that are on screen.
 
 import { useEffect, useSyncExternalStore } from 'react';
+import { profileVersion, useProfileVersion } from '../engine/profilestore';
 import { captureInfo, loadImage, logToTerminal, thumbnail } from '../backend/api';
 import { recipeKey, type Recipe } from '../film/recipe';
 import { framePixels } from '../film/crop';
@@ -196,7 +197,7 @@ export async function ensureCapture(eng: Engine, src: Source, path: string): Pro
 }
 
 /** A developed thumbnail depends on the photo's white point only when the recipe changes white balance. */
-const thumbKey = (recipe: Recipe | null, white: Xy | null) => recipeKey(recipe) + (recipe?.wb && white ? `|${white[0]},${white[1]}` : '');
+const thumbKey = (recipe: Recipe | null, white: Xy | null) => recipeKey(recipe) + `|profile:${profileVersion()}` + (recipe?.wb && white ? `|${white[0]},${white[1]}` : '');
 
 /** Decode a thumbnail blob into an engine source; `white` is the photo's as-shot white point. */
 export async function sourceFromBlob(eng: Engine, blob: Blob, white: Xy | null = null) {
@@ -218,7 +219,7 @@ async function developBlob(blob: Blob, recipe: Recipe | null, seed: number, edge
     const canvas = document.createElement('canvas');
     canvas.width = Math.max(1, Math.round(w * s));
     canvas.height = Math.max(1, Math.round(h * s));
-    await eng.prepare(recipe);
+    await eng.prepare(recipe, src.camera);
     eng.renderToCanvas(src, recipe, canvas, seed);
     const out = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/jpeg', 0.88));
     if (!out) throw new Error('Could not encode thumbnail');
@@ -230,10 +231,11 @@ async function developBlob(blob: Blob, recipe: Recipe | null, seed: number, edge
 
 /** The best thumbnail URL for a frame; requests it while `visible`. */
 export function useThumb(path: string, recipe: Recipe | null, seed: number, visible: boolean, white: Xy | null, raw = false) {
+  const profileChange = useProfileVersion();
   useSyncExternalStore(thumbs.subscribe, thumbs.snapshot);
   useEffect(() => {
     if (visible) thumbs.want(path, recipe, seed, white, raw);
-  }, [path, recipe, seed, visible, white, raw]);
+  }, [path, recipe, seed, visible, white, raw, profileChange]);
   return { url: thumbs.url(path, recipe), failed: thumbs.hasFailed(path) };
 }
 

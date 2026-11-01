@@ -1,10 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
 import { defaultRecipe } from '../film/recipe';
-import { STOCK } from '../film/stocks';
-import { columnMajor } from './color';
-import { curveFor, packCurve, NEUTRAL_LOOK } from './tone';
-import { SMOOTH_PRIMARIES, adjustedPrimaries } from './primaries';
+import { toneCurveFor, packCurve } from './tone';
 import { InputMode, developUniforms, needsPasses } from './params';
 
 const ctx = { width: 1600, height: 1067, seed: 3, inputMode: InputMode.DisplayLinear, store: 1 };
@@ -16,7 +13,7 @@ describe('develop uniforms', () => {
     const u = developUniforms(r, { ...ctx, look: lut });
     expect(u.uLutOn).toBe(1);
     expect(u.uLutAmount).toBeCloseTo(0.4, 12);
-    expect(developUniforms({ ...r, stock: 'pro400h' }, { ...ctx, look: lut }).uCbSOn).toBe(0);
+    expect(developUniforms({ ...r, lookEnabled: false }, { ...ctx, look: lut }).uLutOn).toBe(0);
     const own = developUniforms(r, ctx);
     expect(own.uLutOn).toBe(0);
     expect(own.uLutAmount).toBeUndefined();
@@ -28,17 +25,8 @@ describe('develop uniforms', () => {
     expect(needsPasses(developUniforms(null, ctx))).toEqual({ highlights: false, sharpen: false, toneEqualizer: false, clarity: false, texture: false, usm: false, colorEq: false });
   });
 
-  it("sends the stock's sigmoid primaries to the tone stage, and none for Neutral", () => {
-    expect(developUniforms(defaultRecipe(), ctx).uPrimIn).toEqual([1, 0, 0, 0, 1, 0, 0, 0, 1].map((v) => expect.closeTo(v, 9)));
-    const s = { ...STOCK.portra400, primaries: SMOOTH_PRIMARIES };
-    const m = columnMajor(adjustedPrimaries(SMOOTH_PRIMARIES).input);
-    const was = STOCK.portra400;
-    STOCK.portra400 = s;
-    try {
-      expect(developUniforms(defaultRecipe('portra400'), ctx).uPrimIn).toEqual(m);
-    } finally {
-      STOCK.portra400 = was;
-    }
+  it('keeps the base tone independent of the selected creative stock', () => {
+    expect(developUniforms(defaultRecipe('portra400'), ctx).uSigS).toEqual(developUniforms(defaultRecipe('gold200'), ctx).uSigS);
   });
 
   it('leaves white balance alone until it is set, then adapts from the photo\'s as-shot white', () => {
@@ -63,13 +51,9 @@ describe('develop uniforms', () => {
     expect((u.uCbGamut as number[]).length).toBe(512);
   });
 
-  it('pushing adds contrast and grain, pulling removes them', () => {
+  it('push and pull change grain speed while retaining the camera base', () => {
     const at = (push: -1 | 0 | 1 | 2) => developUniforms({ ...defaultRecipe(), push }, ctx);
-    // Film power of the shared tone curve.
-    const c = (u: ReturnType<typeof at>) => (u.uSigS as number[])[2];
-    expect(c(at(1))).toBeGreaterThan(c(at(0)));
-    expect(c(at(2))).toBeGreaterThan(c(at(1)));
-    expect(c(at(-1))).toBeLessThan(c(at(0)));
+    expect(at(2).uSigS).toEqual(at(0).uSigS);
     // Grain is drawn at the pushed film speed: coarser when pushed.
     const zoom = (u: ReturnType<typeof at>) => (u.uGrain as number[])[1];
     expect(zoom(at(2))).toBeGreaterThan(zoom(at(0)));
@@ -110,10 +94,6 @@ describe('develop uniforms', () => {
     expect(at(0, 50).uSigS).not.toEqual(at(0, 0).uSigS);
   });
 
-  it('marks black and white stocks', () => {
-    expect(developUniforms(defaultRecipe('trix400'), ctx).uBW).toBe(1);
-  });
-
   it('skips the highlight passes when halation and glow are off', () => {
     const r = { ...defaultRecipe(), halation: 0, glow: 0 };
     expect(needsPasses(developUniforms(r, ctx)).highlights).toBe(false);
@@ -128,12 +108,12 @@ describe('LUT white and black targets', () => {
   it('enables target adjustments for either Whites direction and lifted Blacks, preserving the zero path', () => {
     const r = defaultRecipe('portra400');
     const at = (whites: number, blacks: number) => developUniforms({ ...r, whites, blacks }, { ...ctx, look: lut });
-    expect(at(0, 0).uLutTargetsOn).toBe(0);
-    for (const whites of [-100, 100]) expect(at(whites, 0).uLutTargetsOn).toBe(1);
-    expect(at(0, 100).uLutTargetsOn).toBe(1);
-    expect(at(0, -100).uLutTargetsOn).toBe(0);
+    expect(at(0, 0).uProfileTargetsOn).toBe(0);
+    for (const whites of [-100, 100]) expect(at(whites, 0).uProfileTargetsOn).toBe(1);
+    expect(at(0, 100).uProfileTargetsOn).toBe(1);
+    expect(at(0, -100).uProfileTargetsOn).toBe(0);
     expect(at(0, -100).uExpBlack).toBeCloseTo(0.008, 9);
-    expect(at(50, 25).uSigS).toEqual(packCurve(curveFor(1, { ...NEUTRAL_LOOK, whites: 50, blacks: 25 })));
-    expect(developUniforms({ ...r, whites: 50, blacks: 25 }, ctx).uSigS).not.toEqual(at(50, 25).uSigS);
+    expect(at(50, 25).uSigS).toEqual(packCurve(toneCurveFor(50, 25)));
+    expect(developUniforms({ ...r, whites: 50, blacks: 25 }, ctx).uSigS).toEqual(at(50, 25).uSigS);
   });
 });

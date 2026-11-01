@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The lab order: what this frame is developed with.
 
-import { type ReactNode, memo, useEffect, useRef, useState } from 'react';
+import { type ReactNode, memo, useEffect, useMemo, useRef, useState } from 'react';
 import { useLutVersion } from '../engine/lutstore';
-import { useStockTuningVersion } from '../film/stocktuning';
+import { CameraProfileControls } from './CameraProfile';
+import { profileLabel, useProfileVersion } from '../engine/profilestore';
 import { LensControls } from './LensControls';
 import { ColourGradingControls } from './ColourGrading';
-import { PACK, PACKS, type PackId } from '../film/looks';
+import { PACK, PACKS, lookName, stockForPack, stocksForPack, type PackId } from '../film/looks';
 import { BRIGHT_RANGE, COLOR_CHANNELS, DEFAULT_STOCK, HUE_DEGREES, SAT_RANGE, PUSHES, SLIDER, SLIDERS, defaultRecipe, tidyColor, type ColorAdjust, resetAdjustments, resetSection, sectionChanged, sliderDefault, withSettingsFrom, withStock, type Push, type Recipe, type SectionId, type SliderDef } from '../film/recipe';
 import { SCANNER, SCANNERS, type ScannerId } from '../film/scanners';
-import { STOCK, STOCKS, type StockId } from '../film/stocks';
+import { STOCK, type StockId } from '../film/stocks';
+import { open } from '@tauri-apps/plugin-dialog';
+import { importUserLook, onSavedProfile, removeUserLook, saveProfile, userLookCount, useUserLooksVersion } from '../library/userlooks';
+import { hasSettings, settingsFromRecipe, withoutProfileFields } from '../film/creative';
 import {
   activePhoto, copySettings, editActive, editRecipes, pasteSettings, redo, showToast, targets, undo, useApp, type Photo,
 } from '../library/store';
@@ -29,10 +33,22 @@ import { sliderGradient } from '../engine/colorequal';
 
 /** Stock buttons, each previewing the active frame through that stock. */
 const StockPicker = memo(function StockPicker({ photo, current, pack, onPick }: { photo: Photo | null; current: StockId | null; pack: PackId; onPick: (id: StockId) => void }) {
+  const [query, setQuery] = useState('');
+  const [category, setCategory] = useState('');
+  const [page, setPage] = useState(0);
+  const looksVersion = useUserLooksVersion();
+  const available = useMemo(() => stocksForPack(pack), [pack, looksVersion]);
+  const categories = useMemo(() => [...new Set(available.map(s => PACK[pack].looks[s.id]?.category).filter((c): c is string => !!c))], [available, pack]);
+  const matches = useMemo(() => available.filter(s =>
+    (!category || PACK[pack].looks[s.id]?.category === category) &&
+    `${lookName(pack, s.id)} ${s.maker}`.toLowerCase().includes(query.trim().toLowerCase())), [available, category, query, pack]);
+  const pages = Math.max(1, Math.ceil(matches.length / 12));
+  const currentPage = Math.min(page, pages - 1);
+  const visible = useMemo(() => matches.slice(currentPage * 12, currentPage * 12 + 12), [matches, currentPage]);
   const canvases = useRef<Partial<Record<StockId, HTMLCanvasElement | null>>>({});
   const path = photo?.path;
+  const profileVersion = useProfileVersion();
   const lutVersion = useLutVersion();
-  const tuningVersion = useStockTuningVersion();
   const recipe = photo?.recipe ?? null;
   const seed = photo?.seed ?? 0;
   const white = photo?.white ?? null;
@@ -72,7 +88,7 @@ const StockPicker = memo(function StockPicker({ photo, current, pack, onPick }: 
       }
       const { src, w: sw, h: sh } = decoded.current;
       const [w, h] = framePixels(recipe?.crop ?? null, sw, sh);
-      for (const s of STOCKS) {
+      for (const s of visible) {
         const c = canvases.current[s.id];
         if (cancelled) return;
         if (!c) continue;
@@ -80,8 +96,8 @@ const StockPicker = memo(function StockPicker({ photo, current, pack, onPick }: 
         const ch = Math.max(1, Math.round((cw * h) / w));
         if (c.width !== cw) c.width = cw;
         if (c.height !== ch) c.height = ch;
-        const r = { ...withStock(recipe, s.id), pack: 't3mujinpack' as const };
-        await eng.prepare(r);
+        const r = { ...withStock(recipe, s.id), pack };
+        await eng.prepare(r, src.camera);
         if (cancelled) return;
         eng.renderToCanvas(src, r, c, seed);
         // Let input through between tiles, so a slider stays responsive while they redraw.
@@ -92,20 +108,31 @@ const StockPicker = memo(function StockPicker({ photo, current, pack, onPick }: 
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [path, recipe, seed, white, lutVersion, tuningVersion]);
+  }, [path, recipe, seed, white, lutVersion, profileVersion, pack, visible]);
 
   return (
-    <div className="stocks">
-      {STOCKS.filter((s) => !!PACK.t3mujinpack.looks[s.id]).map((s) => (
-        <button key={s.id} type="button" className="stock" aria-pressed={current === s.id} onClick={() => onPick(s.id)}>
-          <canvas ref={(el) => { canvases.current[s.id] = el; }} width={192} height={128} aria-hidden="true" />
-          <span className="stock-name">{s.name}</span>
-          <span className="stock-maker">
-            {s.bw ? `${s.maker} B&W` : s.maker}
-            {pack !== 'emulsion' && s.id !== 'neutral' && !PACK[pack].looks[s.id] ? ' · Emulsion' : ''}
-          </span>
-        </button>
-      ))}
+    <div className="look-browser">
+      <div className="look-filters">
+        <input type="search" aria-label="Search looks" placeholder="Search looks…" value={query} onChange={e => { setQuery(e.target.value); setPage(0); }} />
+        {categories.length > 1 && <select aria-label="Look category" value={category} onChange={e => { setCategory(e.target.value); setPage(0); }}>
+          <option value="">All categories</option>{categories.map(c => <option key={c}>{c}</option>)}
+        </select>}
+      </div>
+      <div className="stocks">
+        {visible.map((s) => (
+          <button key={s.id} type="button" className="stock" aria-pressed={current === s.id} onClick={() => onPick(s.id)}>
+            <canvas ref={(el) => { canvases.current[s.id] = el; }} width={192} height={128} aria-hidden="true" />
+            <span className="stock-name">{lookName(pack, s.id)}</span>
+            <span className="stock-maker">{PACK[pack].looks[s.id]?.category ?? (s.bw ? `${s.maker} B&W` : s.maker)}</span>
+          </button>
+        ))}
+      </div>
+      {!matches.length && <p className="hint">No matching looks.</p>}
+      {pages > 1 && <div className="look-pages">
+        <button type="button" className="btn" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</button>
+        <span role="status">{currentPage + 1} / {pages} · {matches.length} looks</span>
+        <button type="button" className="btn" disabled={currentPage + 1 === pages} onClick={() => setPage(currentPage + 1)}>Next</button>
+      </div>}
     </div>
   );
 });
@@ -267,6 +294,7 @@ function ConfirmButton({ label, confirm, onConfirm, disabled }: { label: string;
 }
 
 export function Panel() {
+  useProfileVersion();
   const view = useApp((s) => s.view);
   const photo = useApp(activePhoto);
   const total = useApp((s) => s.photos.length);
@@ -276,6 +304,10 @@ export function Panel() {
   const recipe = photo?.recipe ?? null;
   const multi = selectedCount > 1;
   const workspace = useWorkspace();
+  useUserLooksVersion();
+  const [browseOpen, setBrowseOpen] = useState(false);
+  // The name being typed for "Save as profile", or null when the form is closed.
+  const [profileName, setProfileName] = useState<string | null>(null);
   const controlsBody = useRef<HTMLDivElement>(null);
   const grouped = view === 'develop' && workspace.layout === 'workflow';
   useEffect(() => { if (grouped && controlsBody.current) controlsBody.current.scrollTop = 0; }, [workspace.group, grouped]);
@@ -284,13 +316,50 @@ export function Panel() {
   const applyToTargets = (change: (r: Recipe | null) => Recipe) => {
     editRecipes(targets().map((p) => p.path), (r) => change(r));
   };
-  const pickStock = (id: StockId) => applyToTargets((r) => ({ ...withStock(r, id), pack: 't3mujinpack' }));
+  const pickStock = (id: StockId) => applyToTargets((r) => ({ ...withStock(r, id), pack: base.pack, lookEnabled: true }));
   const pickPack = (pack: PackId) => applyToTargets((r) => {
     const base = r ?? defaultRecipe();
-    return { ...withStock(base, PACK[pack].looks[base.stock] ? base.stock : 'portra400'), pack };
+    return { ...withStock(base, stockForPack(pack, base.stock)), pack, lookEnabled: true };
   });
   // An unedited photo shows Neutral's settings, and any change starts a Neutral edit.
   const base = recipe ?? defaultRecipe();
+  const clearLook = () => applyToTargets(r => ({ ...(r ?? defaultRecipe()), stock: 'neutral', lookEnabled: false }));
+  const importLook = async () => {
+    try {
+      const path = await open({ multiple: false, title: 'Import a look', filters: [{ name: 'LUT', extensions: ['cube', '3dl', 'png'] }] });
+      if (typeof path !== 'string') return;
+      const id = await importUserLook(path);
+      applyToTargets((r) => ({ ...withStock(r, id), pack: 'mine', lookEnabled: true }));
+      showToast(`Imported ${STOCK[id].name}`);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : String(e));
+    }
+  };
+  const savable = !!recipe && !onSavedProfile(recipe) && (hasSettings(settingsFromRecipe(recipe, null)) || recipe.lookEnabled);
+  const saveAsProfile = async () => {
+    const name = profileName?.trim();
+    if (!name || !recipe) return;
+    try {
+      const id = await saveProfile(name, recipe);
+      // The photo now takes its colour and tone from the profile, so it looks the same with its sliders free.
+      editActive((r) => withoutProfileFields({ ...(r ?? defaultRecipe()), pack: 'mine', stock: id, lookEnabled: true, lookAmount: 100 }), `Save profile ${name}`);
+      setProfileName(null);
+      showToast(`Saved ${name} to My looks`);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : String(e));
+    }
+  };
+  const removeLook = async () => {
+    const name = STOCK[base.stock].name;
+    try {
+      await removeUserLook(base.stock);
+      showToast(`Removed ${name}`);
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : String(e));
+    }
+  };
+  const availableStocks = stocksForPack(base.pack);
+  const lookCategories = [...new Set(availableStocks.map(s => PACK[base.pack].looks[s.id]?.category ?? 'Film stocks'))];
   const pickPush = (push: Push) => applyToTargets((r) => ({ ...(r ?? defaultRecipe()), push }));
   const pickScanner = (scanner: ScannerId) => applyToTargets((r) => ({ ...(r ?? defaultRecipe()), scanner }));
   const setSlider = (key: SliderDef['key'], v: number) => editActive((r) => ({ ...(r ?? defaultRecipe()), [key]: v }));
@@ -312,19 +381,38 @@ export function Panel() {
     <p className="hint">{SCANNER[base.scanner].hint}</p>
   </Section>;
   const sections: Record<string, ReactNode> = {
-    stock: <Section defaultOpen={!grouped} id="stock" title={grouped ? 'Presets' : 'Film stock'} summary={recipe ? STOCK[recipe.stock].name : 'None'}>
-      <div className="grain-speed"><label htmlFor="look-pack">Looks</label><select id="look-pack" value={base.pack} onChange={e => pickPack(e.target.value as PackId)}>
-        {PACKS.filter(p => p.id !== 'emulsion' || base.pack === 'emulsion').map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+    profile: <Section id="profile" title="Camera Profile" summary={profileLabel(base.profile)}>
+      <CameraProfileControls raw={photo.raw} camera={photo.camera??null} value={base.profile} onChange={profile=>editActive(r=>({...(r??defaultRecipe()),profile}), 'Camera profile')} />
+    </Section>,
+    stock: <Section defaultOpen={!grouped} id="stock" title="Film stock" summary={base.lookEnabled ? lookName(base.pack, base.stock) : 'None'}>
+      <div className="grain-speed"><label htmlFor="look-pack">Collection</label><select id="look-pack" value={base.lookEnabled ? base.pack : ''} onChange={e => e.target.value ? pickPack(e.target.value as PackId) : clearLook()}>
+        <option value="">None</option>
+        {PACKS.filter(p => p.id !== 'mine' || userLookCount() > 0 || base.pack === 'mine').map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
       </select></div>
-      {grouped ? <div className="grain-speed"><label htmlFor="film-preset">Film stock</label><select id="film-preset" value={base.stock} onChange={e => pickStock(e.target.value as StockId)}>
-        {!PACK.t3mujinpack.looks[base.stock] && <option value={base.stock}>{recipe ? STOCK[base.stock].name : 'Original'}</option>}
-        {STOCKS.filter(s => PACK.t3mujinpack.looks[s.id]).map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-      </select></div> : <p className="hint">{PACK[base.pack].hint}</p>}
-      {PACK[base.pack].looks[base.stock] && <SliderRow def={SLIDER.lookAmount} recipe={base} onChange={setSlider} />}
+      {grouped && base.lookEnabled ? <div className="grain-speed"><label htmlFor="film-preset">Look</label><select id="film-preset" value={base.stock} onChange={e => pickStock(e.target.value as StockId)}>
+        {!availableStocks.some(s => s.id === base.stock) && <option value={base.stock}>{recipe ? STOCK[base.stock].name : 'Original'}</option>}
+        {lookCategories.map(category => <optgroup key={category} label={category}>
+          {availableStocks.filter(s => (PACK[base.pack].looks[s.id]?.category ?? 'Film stocks') === category).map(s => <option key={s.id} value={s.id}>{lookName(base.pack, s.id)}</option>)}
+        </optgroup>)}
+      </select></div> : <p className="hint">{base.lookEnabled ? PACK[base.pack].hint : 'Optional film look, applied after the base profile.'}</p>}
+      {base.lookEnabled && PACK[base.pack].looks[base.stock] && <SliderRow def={SLIDER.lookAmount} recipe={base} onChange={setSlider} />}
+      {base.lookEnabled && PACK[base.pack].looks[base.stock]?.missing && <p className="hint" role="alert">This photo's imported look isn't installed. Import the same file again to bring it back.</p>}
+      <div className="actions">
+        <button type="button" className="btn" onClick={importLook}>Import LUT…</button>
+        {profileName === null && <button type="button" className="btn" disabled={!savable} onClick={() => setProfileName(base.lookEnabled ? `${lookName(base.pack, base.stock)} (mine)` : 'My profile')}
+          title={onSavedProfile(recipe) ? 'Choose a look that isn’t a saved profile first: a profile can’t be saved on top of another yet' : "Save this photo's look, Colour Grading, Contrast, Vibrance, Saturation, Shadows and Curve as one profile"}>Save as profile…</button>}
+        {base.lookEnabled && base.pack === 'mine' && PACK.mine.looks[base.stock] && !PACK.mine.looks[base.stock]?.missing &&
+          <ConfirmButton label="Remove look" confirm="Remove from My looks?" onConfirm={removeLook} />}
+      </div>
+      {profileName !== null && <form className="profile-save" onSubmit={(e) => { e.preventDefault(); void saveAsProfile(); }}>
+        <input type="text" aria-label="Profile name" autoFocus value={profileName} maxLength={200} onChange={(e) => setProfileName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') setProfileName(null); }} />
+        <p className="hint">Saves the look, Colour Grading, Contrast, Vibrance, Saturation, Shadows and Curve as one profile with its own Amount. This photo switches to it and those sliders go back to zero.</p>
+        <div className="actions"><button type="submit" className="btn" disabled={!profileName.trim()}>Save</button><button type="button" className="btn" onClick={() => setProfileName(null)}>Cancel</button></div>
+      </form>}
       {grouped ? <>
-        <details className="preset-browse"><summary>Browse film looks</summary><StockPicker photo={photo} current={base.stock} pack={base.pack} onPick={pickStock} /></details>
+        <details className="preset-browse" onToggle={e => setBrowseOpen(e.currentTarget.open)}><summary>Browse looks</summary>{browseOpen && <StockPicker key={base.pack} photo={photo} current={base.lookEnabled ? base.stock : null} pack={base.pack} onPick={pickStock} />}</details>
         <details className="preset-browse"><summary>Film options</summary>{development}{scanner}</details>
-      </> : <StockPicker photo={photo} current={base.stock} pack={base.pack} onPick={pickStock} />}
+      </> : <StockPicker key={base.pack} photo={photo} current={base.lookEnabled ? base.stock : null} pack={base.pack} onPick={pickStock} />}
     </Section>,
     development: !grouped && development,
     scanner: !grouped && scanner,
@@ -347,7 +435,7 @@ export function Panel() {
     lens: photo.raw && <Section id="lens" title="Lens corrections" summary={photo.lens?.correction ? (base.lens?.enabled === false ? 'Off' : 'Embedded profile') : 'No profile'} onReset={resetFor('lens', 'Lens')}><LensControls recipe={base} metadata={photo.lens} /></Section>,
     crop: !grouped && <Section id="crop" title="Crop" summary={cropSummary(recipe?.crop ?? null)} onReset={resetFor('crop', 'Crop')}><CropControls recipe={recipe} /></Section>,
   };
-  const classic = view === 'develop' ? ['stock', 'development', 'scanner', 'lens', 'crop', 'adjust', 'curve', 'color', 'grading', 'detail', 'optics', 'grain'] : ['stock', 'development', 'scanner'];
+  const classic = view === 'develop' ? ['profile', 'stock', 'development', 'scanner', 'lens', 'crop', 'adjust', 'curve', 'color', 'grading', 'detail', 'optics', 'grain'] : ['profile', 'stock', 'development', 'scanner'];
   const visible: readonly string[] = grouped ? CONTROL_GROUPS.find(g => g.id === workspace.group)!.sections : classic;
   // Group configuration owns both membership and ordering. Keep other sections mounted so
   // switching tabs preserves each colour module's local view state.
@@ -388,12 +476,12 @@ export function Panel() {
           </button>
         )}
         <ConfirmButton
-          label={multi ? `Remove looks from ${selectedCount}` : 'Remove look'}
-          confirm="Confirm removal"
+          label={multi ? `Reset ${selectedCount} photos` : 'Reset photo'}
+          confirm="Confirm reset"
           disabled={!targets().some((p) => p.recipe)}
           onConfirm={() => {
             const t = targets();
-            editRecipes(t.map((p) => p.path), () => null, t.length === 1 ? 'Remove look' : `Remove looks from ${t.length} photos`);
+            editRecipes(t.map((p) => p.path), () => null, t.length === 1 ? 'Reset photo' : `Reset ${t.length} photos`);
             showToast(t.length === 1 ? 'Back to the original' : `${t.length} frames back to the original`);
           }}
         />

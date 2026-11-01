@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
-import { REC2020_TO_SRGB, SRGB_TO_REC2020, columnMajor, mulMat, mulVec, srgbEotf, srgbOetf } from './color';
+import { REC2020_TO_SRGB, SRGB_TO_REC2020, columnMajor, invert3, mulMat, mulVec, srgbEotf, srgbOetf } from './color';
 
 describe('colour spaces', () => {
   it('sRGB and Rec.2020 matrices are inverses', () => {
@@ -27,5 +27,10 @@ describe('colour spaces', () => {
 
   it('sRGB transfer functions invert', () => {
     for (let v = 0; v <= 1; v += 0.05) expect(srgbOetf(srgbEotf(v))).toBeCloseTo(v, 9);
+  });
+
+  it('inverts a 3×3 matrix', () => {
+    const m = invert3(SRGB_TO_REC2020);
+    for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) expect(m[i][j]).toBeCloseTo(REC2020_TO_SRGB[i][j], 9);
   });
 });

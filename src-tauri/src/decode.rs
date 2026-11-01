@@ -176,6 +176,12 @@ pub fn load_for_engine(path: &Path, max_edge: Option<u32>) -> Result<Vec<u8>, St
             bytes.extend_from_slice(&lens);
             while bytes.len() % 4 != 0 { bytes.push(0); }
         }
+        let camera = serde_json::to_vec(&raw.camera).map_err(|e| format!("Camera metadata: {e}"))?;
+        let flags = u32::from_le_bytes(bytes[12..16].try_into().unwrap()) | 4;
+        bytes[12..16].copy_from_slice(&flags.to_le_bytes());
+        bytes.extend_from_slice(&(camera.len() as u32).to_le_bytes());
+        bytes.extend_from_slice(&camera);
+        while bytes.len() % 4 != 0 { bytes.push(0); }
         bytes.extend_from_slice(&linear_f16_rgba_impl(&img, true));
         return Ok(bytes);
     }

@@ -2,6 +2,7 @@
 // A recipe is everything Emulsion knows about how one frame is developed.
 // It is what gets saved to the photo's sidecar.
 
+import { normalizeProfile, type CameraProfileId } from './profiles';
 import { normalizeLens, type LensAdjust } from '../engine/lenscorrection';
 import { normalizeGrading, type ColourGrading } from './grading';
 import { STOCK, isStockId, type StockId } from './stocks';
@@ -10,7 +11,7 @@ import { normalizeCurve, type ToneCurve } from './curve';
 import { clampWhiteBalance, type WhiteBalance } from '../engine/whitebalance';
 import { normalizeCrop, type Crop } from './crop';
 import { ISO_MAX, ISO_MIN } from '../engine/grain';
-import { DEFAULT_PACK, isPackId, type PackId } from './looks';
+import { DEFAULT_PACK, PACK, ensureUserLook, isPackId, type PackId } from './looks';
 
 export const RECIPE_VERSION = 1;
 
@@ -18,6 +19,10 @@ export type Push = -1 | 0 | 1 | 2;
 
 export interface Recipe {
   v: typeof RECIPE_VERSION;
+  /** Base camera rendering. Missing in older sidecars: preserve their original pipeline. */
+  profile: CameraProfileId;
+  /** A creative LUT is optional and never selects or replaces the camera profile. */
+  lookEnabled: boolean;
   stock: StockId;
   /** The look pack whose LUT renders the stock (Emulsion's own rendering where it has none). */
   pack: PackId;
@@ -106,7 +111,7 @@ function normalizeColor(input: unknown): ColorAdjust | null {
   return tidyColor({ hue: list(o.hue, -HUE_MAX, HUE_MAX), sat: list(o.sat, -100, 100), bright: list(o.bright, -100, 100) });
 }
 
-export type SliderKey = Exclude<keyof Recipe, 'v' | 'stock' | 'pack' | 'push' | 'scanner' | 'curve' | 'wb' | 'crop' | 'color' | 'grading' | 'lens'>;
+export type SliderKey = Exclude<keyof Recipe, 'v' | 'profile' | 'lookEnabled' | 'stock' | 'pack' | 'push' | 'scanner' | 'curve' | 'wb' | 'crop' | 'color' | 'grading' | 'lens'>;
 
 export interface SliderDef {
   key: SliderKey;
@@ -131,7 +136,7 @@ export const formatSigned = (v: number) => (v > 0 ? `+${v}` : v < 0 ? `${MINUS}$
 export const formatEv = (v: number) => `${v > 0 ? '+' : v < 0 ? MINUS : ''}${Math.abs(v).toFixed(2)} EV`;
 
 export const SLIDERS: SliderDef[] = [
-  { key: 'lookAmount', label: 'Amount', group: 'look', min: 0, max: 100, step: 1, default: 100, hint: "How strongly the look's LUT applies: 0 is Neutral, 100 the full look.", format: (v) => `${v}%` },
+  { key: 'lookAmount', label: 'Amount', group: 'look', min: 0, max: 100, step: 1, default: 100, hint: 'How strongly the look applies: 0 is Neutral, 100 the full look.', format: (v) => `${v}%` },
   { key: 'exposure', label: 'Exposure', group: 'adjust', min: -3, max: 3, step: 0.05, format: formatEv },
   { key: 'contrast', label: 'Contrast', group: 'adjust', min: -50, max: 50, step: 1, format: formatSigned },
   { key: 'highlights', label: 'Highlights', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
@@ -158,10 +163,10 @@ export const SLIDERS: SliderDef[] = [
 export const SLIDER: Record<SliderKey, SliderDef> = Object.fromEntries(SLIDERS.map((s) => [s.key, s])) as Record<SliderKey, SliderDef>;
 
 export const PUSHES: { value: Push; label: string; hint: string; phrase: string }[] = [
-  { value: -1, label: 'Pull 1', hint: 'Pulled one stop. Softer contrast and finer grain.', phrase: 'pulled one stop' },
+  { value: -1, label: 'Pull 1', hint: 'Pulled one stop. Finer grain.', phrase: 'pulled one stop' },
   { value: 0, label: 'Box', hint: 'Box speed. Developed as rated.', phrase: 'at box speed' },
-  { value: 1, label: 'Push 1', hint: 'Pushed one stop. More contrast and grain.', phrase: 'pushed one stop' },
-  { value: 2, label: 'Push 2', hint: 'Pushed two stops. Hard contrast and heavy grain.', phrase: 'pushed two stops' },
+  { value: 1, label: 'Push 1', hint: 'Pushed one stop. Coarser grain.', phrase: 'pushed one stop' },
+  { value: 2, label: 'Push 2', hint: 'Pushed two stops. Heavy grain.', phrase: 'pushed two stops' },
 ];
 
 export function sliderDefault(def: SliderDef, stock: StockId): number {
@@ -171,10 +176,12 @@ export function sliderDefault(def: SliderDef, stock: StockId): number {
 /** The stock new edits start from. */
 export const DEFAULT_STOCK: StockId = 'neutral';
 
-export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId = 'frontier'): Recipe {
+export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId = 'straight'): Recipe {
   const s = STOCK[stock];
   return {
     v: RECIPE_VERSION,
+    profile: 'auto',
+    lookEnabled: stock !== 'neutral',
     stock,
     pack: DEFAULT_PACK,
     lookAmount: 100,
@@ -218,19 +225,19 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
 export function withStock(recipe: Recipe | null, stock: StockId): Recipe {
   if (!recipe) return defaultRecipe(stock);
   const s = STOCK[stock];
-  return { ...recipe, stock, grainIso: s.grainIso };
+  return { ...recipe, stock, lookEnabled: stock !== 'neutral', grainIso: s.grainIso };
 }
 
 /** Reset the sliders, keeping stock, development, scanner and crop. */
 export function resetAdjustments(recipe: Recipe): Recipe {
-  return { ...defaultRecipe(recipe.stock, recipe.scanner), pack: recipe.pack, lookAmount: recipe.lookAmount, push: recipe.push, crop: recipe.crop };
+  return { ...defaultRecipe(recipe.stock, recipe.scanner), profile: recipe.profile, lookEnabled: recipe.lookEnabled, pack: recipe.pack, lookAmount: recipe.lookAmount, push: recipe.push, crop: recipe.crop };
 }
 
 /**
  * Another frame's settings applied to this one. The crop stays this frame's own:
  * it belongs to the composition, and frames differ in shape.
  */
-export const withSettingsFrom = (from: Recipe, target: Recipe | null): Recipe => ({ ...from, crop: target?.crop ?? null });
+export const withSettingsFrom = (from: Recipe, target: Recipe | null): Recipe => ({ ...from, profile: target?.profile ?? 'auto', crop: target?.crop ?? null });
 
 /** Panel sections that can be reset on their own. */
 export type SectionId = 'development' | 'scanner' | 'crop' | 'adjust' | 'curve' | 'color' | 'grading' | 'lens' | 'whitebalance' | 'colour-basics' | 'tone' | 'exposure' | 'hdr' | 'refine-optics' | 'detail' | 'optics' | 'grain';
@@ -284,12 +291,17 @@ function normalizeWhiteBalance(input: unknown): WhiteBalance | null {
 export function normalizeRecipe(input: unknown): Recipe | null {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null;
   const o = input as Record<string, unknown>;
-  const stock: StockId = isStockId(o.stock) ? o.stock : DEFAULT_STOCK;
+  // A look needs a pack that supplies it. Edits made with Emulsion's retired parametric stocks
+  // (no pack, or pack "emulsion") open as Neutral.
+  const pack: PackId = isPackId(o.pack) ? o.pack : DEFAULT_PACK;
+  if (pack === 'mine') ensureUserLook(o.stock);
+  const supplied = isStockId(o.stock) && isPackId(o.pack) && !!PACK[pack].looks[o.stock];
+  const stock: StockId = supplied ? o.stock as StockId : DEFAULT_STOCK;
   const scanner: ScannerId = isScannerId(o.scanner) ? o.scanner : 'frontier';
   const base = defaultRecipe(stock, scanner);
   const push = typeof o.push === 'number' && [-1, 0, 1, 2].includes(o.push) ? (o.push as Push) : 0;
-  const pack: PackId = isPackId(o.pack) ? o.pack : 'emulsion';
-  const out: Recipe = { ...base, pack, push, curve: normalizeCurve(o.curve), wb: normalizeWhiteBalance(o.wb), crop: normalizeCrop(o.crop), color: normalizeColor(o.color), grading: normalizeGrading(o.grading), lens: normalizeLens(o.lens) };
+  const lookEnabled = supplied && (typeof o.lookEnabled === 'boolean' ? o.lookEnabled : true);
+  const out: Recipe = { ...base, profile: normalizeProfile(o.profile), lookEnabled, pack, push, curve: normalizeCurve(o.curve), wb: normalizeWhiteBalance(o.wb), crop: normalizeCrop(o.crop), color: normalizeColor(o.color), grading: normalizeGrading(o.grading), lens: normalizeLens(o.lens) };
   // Capture sharpening was saved as `sharpening` before the unsharp mask came.
   const read = (key: string) => (key === 'captureSharpening' && o.captureSharpening === undefined ? o.sharpening : o[key]);
   for (const def of SLIDERS) {

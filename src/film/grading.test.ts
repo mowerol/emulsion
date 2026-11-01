@@ -7,9 +7,9 @@ import { developUniforms, InputMode } from '../engine/params';
 
 const ctx = { width: 100, height: 100, seed: 1, inputMode: InputMode.DisplayLinear, store: 1 };
 describe('Colour Grading', () => {
-  it('preserves legacy rendering, including the contrast fulcrum', () => {
+  it('preserves existing user grading, including the contrast fulcrum', () => {
     const recipe = normalizeRecipe({ stock: 'pro400h', contrast: 30, saturation: 20, shadows: 10 })!;
-    expect(recipe.pack).toBe('emulsion');
+    expect(recipe.pack).toBe('t3mujinpack');
     expect(recipe.grading).toBeNull();
     expect(developUniforms(recipe, ctx).uCbP).toEqual(cbUniform(cbCommit(sliderParams(colorBalanceParams(30, 0, 20, 10)))));
     expect(defaultRecipe('portra400').pack).toBe('t3mujinpack');
@@ -35,6 +35,6 @@ describe('Colour Grading', () => {
     const params = { ...sliderParams(colorBalanceParams(0, 0, 0, 0)), ...recipe.grading };
     const uniforms = developUniforms(recipe, { ...ctx, look: { level: 2, data: new Float32Array(24), id: 1, eightBit: true } });
     expect(uniforms.uCbP).toEqual(cbUniform(cbCommit(params)));
-    expect(uniforms.uCbSOn).toBe(0);
+    expect(uniforms.uLutOn).toBe(1);
   });
 });

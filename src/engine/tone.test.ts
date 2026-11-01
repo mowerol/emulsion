@@ -2,14 +2,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Vec3 } from '../film/stocks';
 import {
-  lutToneTargets,
   NEUTRAL,
-  NEUTRAL_LOOK,
   SIGMOID_GREY,
-  channelOrder,
-  curveFor,
-  desaturateNegative,
-  preserveHue,
   sCurve,
   sigmoid,
   sigmoidCurve,
@@ -17,10 +11,10 @@ import {
   toneForward,
   toneInverse,
   toneNeutralRgb,
-  toneRgb,
+  toneProfileRgb,
+  toneCurveFor,
 } from './tone';
 import { srgbEotf } from './color';
-import { SMOOTH_PRIMARIES } from './primaries';
 
 describe('sigmoid', () => {
   it('meets its targets: grey to grey, zero to black, white approached but never clipped', () => {
@@ -81,49 +75,20 @@ describe('tone stage', () => {
     expect(toneForward(0.18 * 2 ** 5)).toBeGreaterThan(toneForward(0.18 * 2 ** 4));
   });
 
-  it('renders greys neutral and matches the per-channel curve on them', () => {
-    const g = toneRgb([0.18, 0.18, 0.18], NEUTRAL_LOOK);
-    expect(g[0]).toBeCloseTo(g[1], 9);
-    expect(g[1]).toBeCloseTo(g[2], 9);
-    expect(g[0]).toBeCloseTo(toneNeutralRgb([0.18, 0.18, 0.18])[0], 9);
-  });
-
-  it('preserves hue through the curve', () => {
-    const x: Vec3 = [0.9, 0.3, 0.05];
-    const out = toneRgb(x, NEUTRAL_LOOK).map((v) => srgbEotf(v)) as Vec3;
-    const ratio = (p: Vec3) => (p[1] - p[2]) / (p[0] - p[2]);
-    expect(ratio(out)).toBeCloseTo(ratio(x), 2);
-  });
-
-  it("keeps greys grey through any primaries, and desaturates bright colours with darktable's smooth preset", () => {
-    const smooth = { ...NEUTRAL_LOOK, primaries: SMOOTH_PRIMARIES };
-    for (const g of [0.01, 0.18, 2]) {
-      const out = toneRgb([g, g, g], { ...NEUTRAL_LOOK, primaries: { inset: [0.3, 0.05, 0.2], rotation: [5, -8, 3], purity: 0.4 } });
-      expect(out[0]).toBeCloseTo(out[1], 5);
-      expect(out[2]).toBeCloseTo(out[1], 5);
-      expect(out[1]).toBeCloseTo(toneRgb([g, g, g], NEUTRAL_LOOK)[1], 5);
+  it('keeps the neutral profile equal to the original per-channel render', () => {
+    for (const x of [[.18,.18,.18],[.9,.3,.05],[-.1,.2,3]] as Vec3[]) {
+      expect(toneProfileRgb(x,0,0)).toEqual(toneNeutralRgb(x));
     }
-    const spread = (p: Vec3) => Math.max(...p) - Math.min(...p);
-    expect(spread(toneRgb([4, 0.2, 0.05], smooth))).toBeLessThan(spread(toneRgb([4, 0.2, 0.05], NEUTRAL_LOOK)));
   });
 
-  it('brightens highlights with whites and lifts shadows with blacks', () => {
-    const at = (x: number, whites: number, blacks: number) => toneRgb([x, x, x], { ...NEUTRAL_LOOK, whites, blacks })[1];
-    expect(at(2, 60, 0)).toBeGreaterThan(at(2, 0, 0));
-    expect(at(2, -60, 0)).toBeLessThan(at(2, 0, 0));
-    expect(at(0, 0, 80)).toBeGreaterThan(at(0, 0, 0) + 0.05);
-    expect(curveFor(1, { ...NEUTRAL_LOOK, blacks: -80 })).toEqual(curveFor(1, NEUTRAL_LOOK));
-  });
-
-  it('handles negative input', () => {
-    expect(desaturateNegative([0.5, -0.1, 0.2]).every((v) => v >= -1e-9)).toBe(true);
-    expect(toneRgb([0.5, -0.1, 0.2], NEUTRAL_LOOK).every((v) => Number.isFinite(v) && v >= 0)).toBe(true);
-  });
-
-  it('orders channels like darktable', () => {
-    expect(channelOrder([3, 2, 1])).toEqual({ max: 0, mid: 1, min: 2 });
-    expect(channelOrder([1, 3, 2])).toEqual({ max: 1, mid: 2, min: 0 });
-    expect(preserveHue([1, 1, 1], [0.5, 0.5, 0.5], 1)).toEqual([0.5, 0.5, 0.5]);
+  it('moves white targets, lifts blacks, and preserves middle grey', () => {
+    const at=(x:number,w:number,b:number)=>toneProfileRgb([x,x,x],w,b)[0];
+    expect(at(2,60,0)).toBeGreaterThan(at(2,0,0));
+    expect(at(2,-60,0)).toBeLessThan(at(2,0,0));
+    expect(srgbEotf(at(0,0,100))).toBeCloseTo(.02,8);
+    expect(toneCurveFor(0,-80)).toEqual(toneCurveFor(0,0));
+    for(const w of [-100,0,100])for(const b of [0,50,100])expect(at(SIGMOID_GREY,w,b)).toBeCloseTo(toneForward(SIGMOID_GREY),6);
+    expect(toneProfileRgb([-.1,.2,3],0,0).every(v=>Number.isFinite(v)&&v>=0)).toBe(true);
   });
 
   it('keeps the scanner S-curve', () => {
@@ -132,21 +97,3 @@ describe('tone stage', () => {
   });
 });
 
-
-describe('sigmoid targets on LUT prints', () => {
-  it('leaves the LUT exactly unchanged at rest, including when Blacks only cuts scene light upstream', () => {
-    const pixel: Vec3 = [0.1, 0.5, 0.99];
-    expect(lutToneTargets(pixel, 0, 0)).toBe(pixel);
-    expect(lutToneTargets(pixel, 0, -100)).toBe(pixel);
-  });
-  it('moves the white target in either direction, lifts black to 2% linear, and preserves middle grey', () => {
-    const white: Vec3 = [1, 1, 1], black: Vec3 = [0, 0, 0];
-    expect(lutToneTargets(white, -100, 0)[0]).toBeLessThan(1);
-    expect(lutToneTargets(white, 100, 0)[0]).toBeGreaterThan(1);
-    expect(srgbEotf(lutToneTargets(black, 0, 100)[0])).toBeCloseTo(0.02, 8);
-    const grey = toneForward(SIGMOID_GREY);
-    for (const whites of [-100, 0, 100]) for (const blacks of [0, 50, 100]) {
-      expect(lutToneTargets([grey, grey, grey], whites, blacks)[0]).toBeCloseTo(grey, 6);
-    }
-  });
-});

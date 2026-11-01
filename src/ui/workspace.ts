@@ -4,7 +4,7 @@
 import { create } from 'zustand';
 
 export const CONTROL_GROUPS = [
-  { id: 'develop', name: 'Develop', sections: ['stock', 'whitebalance', 'exposure', 'hdr', 'curve'] },
+  { id: 'develop', name: 'Develop', sections: ['profile', 'stock', 'whitebalance', 'exposure', 'hdr', 'curve'] },
   { id: 'colour', name: 'Colour Grading', sections: ['color', 'grading'] },
   { id: 'refine', name: 'Refine', sections: ['detail', 'optics', 'grain', 'lens'] },
 ] as const;
