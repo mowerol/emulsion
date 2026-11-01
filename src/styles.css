@@ -572,3 +572,16 @@ input[type='range']:disabled { opacity: 0.35; cursor: default; }
 .mask-brush-cursor circle.inner { stroke-dasharray:3 3; stroke-width:1; opacity:.7; }
 .mask-brush-settings { padding:8px 10px; border:1px solid var(--line); border-radius:5px; }
 .mask-tool.brush .mask-tool-icon, .mask-shape-icon.brush { width:10px; height:10px; border-radius:50%; background:radial-gradient(currentColor 45%, transparent 75%); }
+
+
+/* Photo context menus are portalled above scrolling grids and panels. */
+.photo-menu { max-width: calc(100vw - 8px); max-height: calc(100vh - 8px); overflow: auto; }
+.menu-shortcut { margin-left: auto; padding-left: 20px; font-size: 11px; color: var(--muted); }
+.menu-separator { height: 1px; background: var(--line); margin: 4px; flex-shrink: 0; }
+.menu-item:disabled { opacity: .4; cursor: default; }
+.copy-rename { display: flex; align-items: flex-end; gap: 8px; padding: 8px; }
+.copy-rename label { display: grid; gap: 4px; font-size: 11px; color: var(--muted); }
+.copy-rename input { min-width: 0; width: 180px; padding: 6px; border: 1px solid var(--line); border-radius: 3px; background: var(--panel); color: var(--fg); }
+
+.cell-img { position: relative; }
+.copy-badge { position: absolute; bottom: 5px; left: 5px; border-radius: 3px; background: #1c1b19cc; color: var(--fg); padding: 2px 5px; font-size: 10px; pointer-events: none; }

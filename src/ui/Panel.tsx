@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import { photoId } from '../library/copies';
 // The lab order: what this frame is developed with.
 
 import { type ReactNode, memo, useEffect, useMemo, useRef, useState } from 'react';
@@ -312,21 +313,21 @@ export function Panel() {
   // A custom look open for editing (on this photo's sliders); see startLookEdit.
   const editing = useApp((s) => s.lookEdit);
   const photos = useApp((s) => s.photos);
-  const usedBy = (stock: StockId) => photos.filter((p) => (editing?.path === p.path ? editing.original : p.recipe)?.stock === stock).length;
+  const usedBy = (stock: StockId) => photos.filter((p) => (editing?.path === photoId(p) ? editing.original : p.recipe)?.stock === stock).length;
   // Editing belongs to one photo: moving to another one stops it, without saving.
   useEffect(() => {
-    if (editing && photo?.path !== editing.path) {
+    if (editing && (photo ? photoId(photo) : null) !== editing.path) {
       endLookEdit();
       showToast(`Stopped editing ${editing.name} without saving`);
     }
-  }, [photo?.path, editing]);
+  }, [photo && photoId(photo), editing]);
   const controlsBody = useRef<HTMLDivElement>(null);
   const grouped = view === 'develop' && workspace.layout === 'workflow';
   useEffect(() => { if (grouped && controlsBody.current) controlsBody.current.scrollTop = 0; }, [workspace.group, grouped]);
 
   // Stock, development and scanner apply to every selected frame.
   const applyToTargets = (change: (r: Recipe | null) => Recipe) => {
-    editRecipes(targets().map((p) => p.path), (r) => change(r));
+    editRecipes(targets().map(photoId), (r) => change(r));
   };
   const pickStock = (id: StockId) => applyToTargets((r) => ({ ...withStock(r, id), pack: base.pack, lookEnabled: true }));
   const pickPack = (pack: PackId) => applyToTargets((r) => {
@@ -385,7 +386,7 @@ export function Panel() {
   const customId = base.pack === 'custom' && currentLook && !currentLook.missing ? customLookOf(base.stock) : null;
   const startEditing = () => {
     if (!customId || !currentLook?.settings || !photo) return;
-    startLookEdit(photo.path, customId, currentLook.name ?? 'Look', recipeFromSettings(base, currentLook.settings));
+    startLookEdit(photoId(photo), customId, currentLook.name ?? 'Look', recipeFromSettings(base, currentLook.settings));
   };
   const finishEditing = async () => {
     if (!editing) return;
@@ -554,7 +555,7 @@ export function Panel() {
           disabled={!targets().some((p) => p.recipe)}
           onConfirm={() => {
             const t = targets();
-            editRecipes(t.map((p) => p.path), () => null, t.length === 1 ? 'Reset photo' : `Reset ${t.length} photos`);
+            editRecipes(t.map(photoId), () => null, t.length === 1 ? 'Reset photo' : `Reset ${t.length} photos`);
             showToast(t.length === 1 ? 'Back to the original' : `${t.length} frames back to the original`);
           }}
         />
@@ -564,7 +565,7 @@ export function Panel() {
           disabled={!recipe || total < 2}
           onConfirm={() => {
             const r = recipe!;
-            editRecipes(useApp.getState().photos.map((p) => p.path), (t) => withSettingsFrom(r, t), `Apply to all ${total} photos`);
+            editRecipes(useApp.getState().photos.map(photoId), (t) => withSettingsFrom(r, t), `Apply to all ${total} photos`);
             showToast(`Applied to all ${total} frames`);
           }}
         />

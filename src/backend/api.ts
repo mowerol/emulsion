@@ -6,6 +6,7 @@ import type { HalfImage } from '../engine/engine';
 import type { InputMode } from '../engine/params';
 
 export interface Entry {
+  copies?: SavedCopy[];
   path: string;
   rel: string;
   name: string;
@@ -118,7 +119,17 @@ export async function captureInfo(path: string, width: number, height: number): 
 export const whitePoints = (paths: string[]) => invoke<([number, number] | null)[]>('white_points', { paths });
 
 /** What a sidecar keeps: the look, stars, colour tag and heart. With none of them the sidecar is removed. */
+export interface SavedCopy {
+  id: string;
+  name: string;
+  recipe: unknown | null;
+  rating: number;
+  label: string | null;
+  heart: boolean;
+}
+
 export interface Saved {
+  copies?: SavedCopy[];
   recipe: unknown | null;
   rating: number;
   label: string | null;

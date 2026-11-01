@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import { photoId } from '../library/copies';
 // Point curve editor: click to add a point, drag to move it, double-click or
 // drag it off the graph to remove it. Points also take arrow keys and Delete.
 
@@ -60,7 +61,7 @@ export function CurveEditor({ curve, disabled, onChange }: { curve: ToneCurve | 
 
   const photo = useApp(activePhoto);
   const hist = useApp((s) => s.histogram);
-  const luma = hist && photo && hist.path === photo.path ? heights(hist.data).l : null;
+  const luma = hist && photo && hist.path === photoId(photo) ? heights(hist.data).l : null;
 
   const set = (pts: CurvePoint[]) => {
     const next = { ...full, [channel]: pts };

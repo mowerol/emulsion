@@ -13,12 +13,17 @@ import { NO_FILTER, normalizeFilter, passes, rangeWithin, shownIndices, stepWith
 import { seedFor } from '../engine/engine';
 import { flushSaves, savePhoto } from './sidecars';
 import { findPairs, foldPairs } from './pairs';
+import { cleanCopyName, expandCopies, photoId, savedFrames } from './copies';
 import { applyMark, describeMark, hasMark, normalizeMarks, type Label, type MarkKey, type Marks } from './marks';
 import { History, describe, type Change, type Step } from './history';
 
 export interface Photo {
   camera?: import('../film/profiles').CameraMetadata | null;
   lens?: import('../engine/lenscorrection').LensMetadata | null;
+  /** Identity of an additional edit; absent on the original frame. */
+  copyId?: string;
+  copyName?: string;
+  /** Source file, shared by every version. Never use this for frame selection. */
   path: string;
   rel: string;
   name: string;
@@ -152,11 +157,11 @@ export function setFoldJpegs(fold: boolean) {
   const { photos, hidden, active, selected } = get();
   const all = [...photos, ...hidden].sort((a, b) => (scanOrder.get(a.path) ?? 0) - (scanOrder.get(b.path) ?? 0));
   const { shown, hidden: nextHidden } = arrange(all, fold);
-  const rawOf = new Map(shown.filter((p) => p.pair).map((p) => [p.pair!, p.path]));
+  const rawOf = new Map(shown.filter((p) => !p.copyId && p.pair).map((p) => [p.pair!, p.path]));
   const keep = (path: string) => rawOf.get(path) ?? path;
-  const activePath = photos[active] ? keep(photos[active].path) : null;
-  const index = activePath ? shown.findIndex((p) => p.path === activePath) : -1;
-  const visible = new Set(shown.map((p) => p.path));
+  const activePath = photos[active] ? keep(photoId(photos[active])) : null;
+  const index = activePath ? shown.findIndex((p) => photoId(p) === activePath) : -1;
+  const visible = new Set(shown.map(photoId));
   set({
     foldJpegs: fold,
     photos: shown,
@@ -251,7 +256,7 @@ export async function openFolder(path: string) {
       res = await scanFolder(res.root, true);
       if (request !== folderRequest) return;
     }
-    const all = res.entries.map(scannedPhoto);
+    const all = res.entries.flatMap(e => expandCopies(scannedPhoto(e), e.copies));
     history.clear();
     set({
       folder: { root: res.root, name: res.name, unreadable: res.unreadable },
@@ -281,18 +286,18 @@ function displayImported(all: Photo[], choice: FolderImport | null) {
   imported.forEach((p, i) => scanOrder.set(p.path, i));
   const { shown: photos, hidden } = arrange(imported, get().foldJpegs);
   const active = photos.length ? Math.max(0, photos.findIndex(p => passes(p, get().filter))) : -1;
-  set({ photos, hidden, pairCount: findPairs(imported).size, active, anchor: active,
-    selected: active >= 0 ? new Set([photos[active].path]) : new Set(), histogram: null });
+  set({ photos, hidden, pairCount: findPairs(imported.filter(p => !p.copyId)).size, active, anchor: active,
+    selected: active >= 0 ? new Set([photoId(photos[active])]) : new Set(), histogram: null });
   const root = get().folder?.root;
-  if (root && photos.length) void loadWhitePoints(root, photos.map(p => p.path));
+  if (root && photos.length) void loadWhitePoints(root, [...new Set(photos.map(p => p.path))]);
 }
 
 export function importFolderPhotos(choice: FolderImport) {
   const { folder, candidates, photos, hidden } = get();
   if (!folder || get().loading) return;
   // Preserve in-memory edits when adding more photos or enabling sync.
-  const current = new Map([...photos, ...hidden].map(p => [p.path, p]));
-  const all = candidates.map(p => current.get(p.path) ?? p);
+  const current = new Map([...photos, ...hidden].map(p => [photoId(p), p]));
+  const all = candidates.map(p => current.get(photoId(p)) ?? p);
   choice = { ...choice, includeSubfolders: get().includeSubfolders };
   if (choice.mode === 'selected') {
     const available = new Set(all.map(p => p.path));
@@ -312,10 +317,14 @@ export async function setIncludeSubfolders(include: boolean) {
   const request = ++folderRequest;
   set({ loading: true });
   try {
+    await flushSaves();
+    if (request !== folderRequest) return;
     const res = await scanFolder(folder.root, include);
     if (request !== folderRequest) return;
-    const current = new Map([...get().candidates, ...get().photos, ...get().hidden].map(p => [p.path, p]));
-    set({ candidates: res.entries.map(e => current.get(e.path) ?? scannedPhoto(e)), includeSubfolders: include });
+    const current = new Map([...get().candidates, ...get().photos, ...get().hidden].map(p => [photoId(p), p]));
+    const families = new Map<string, Photo[]>();
+    for (const p of current.values()) families.set(p.path, [...(families.get(p.path) ?? []), p]);
+    set({ candidates: res.entries.flatMap(e => families.get(e.path) ?? expandCopies(scannedPhoto(e), e.copies)), includeSubfolders: include });
     if (res.unreadable) showToast(`${res.unreadable} items could not be read.`);
   } catch (err) {
     if (request === folderRequest) showToast(`Could not read that folder. ${String(err)}`);
@@ -343,7 +352,7 @@ export function setActive(index: number, mode: 'single' | 'toggle' | 'range' | '
   if (index !== get().active) finishCrop(true);
   const { photos, anchor, selected } = get();
   if (index < 0 || index >= photos.length) return;
-  const path = photos[index].path;
+  const path = photoId(photos[index]);
   if (mode === 'keep') {
     set({ active: index, anchor: index, selected: selected.has(path) ? selected : new Set([path]) });
   } else if (mode === 'toggle') {
@@ -353,7 +362,7 @@ export function setActive(index: number, mode: 'single' | 'toggle' | 'range' | '
     set({ active: index, anchor: index, selected: next });
   } else if (mode === 'range' && anchor >= 0) {
     // Only the photos the filter shows; hidden ones in between stay unselected.
-    set({ active: index, selected: new Set(rangeWithin(shown(), anchor, index).map((i) => photos[i].path)) });
+    set({ active: index, selected: new Set(rangeWithin(shown(), anchor, index).map((i) => photoId(photos[i]))) });
   } else {
     set({ active: index, anchor: index, selected: new Set([path]) });
   }
@@ -408,14 +417,14 @@ export function setStageColor(stageColor: StageColorId) {
 /** Select every photo the filter shows. */
 export function selectAll() {
   const { photos } = get();
-  set({ selected: new Set(shown().map((i) => photos[i].path)) });
+  set({ selected: new Set(shown().map((i) => photoId(photos[i]))) });
 }
 
 export const activePhoto = (s: State = get()) => s.photos[s.active] ?? null;
 
 /** Photos an edit should apply to: the selection when several are selected, otherwise the active photo. */
 export function targets(s: State = get()): Photo[] {
-  if (s.selected.size > 1) return s.photos.filter((p) => s.selected.has(p.path));
+  if (s.selected.size > 1) return s.photos.filter((p) => s.selected.has(photoId(p)));
   const a = activePhoto(s);
   return a ? [a] : [];
 }
@@ -424,6 +433,117 @@ export function targets(s: State = get()): Photo[] {
 const history = new History();
 
 const historyState = () => ({ history: { undo: history.undoLabel, redo: history.redoLabel } });
+
+/** Persist one complete source family, so edits to two copies cannot overwrite each other. */
+function persistSources(ids: string[]) {
+  const paths = new Set(ids.map(id => id.split('\0')[0]));
+  for (const path of paths) {
+    const editing = get().lookEdit;
+    const family = [...get().photos, ...get().hidden].filter(p => p.path === path)
+      .map(p => editing?.path === photoId(p) ? { ...p, recipe: editing.original } : p);
+    if (!family.some(p => !p.copyId)) continue;
+    savePhoto({ path, ...savedFrames(family) });
+    // Import management must retain versions created or removed since the last scan.
+    let inserted = false;
+    const candidates = get().candidates.flatMap(p => {
+      if (p.path !== path) return [p];
+      if (inserted) return [];
+      inserted = true;
+      return family;
+    });
+    set({ candidates });
+  }
+}
+
+const familyOf = (path: string) => [...get().photos, ...get().hidden].filter(p => p.path === path);
+
+/** Replace complete version families while preserving source order and valid selection. */
+function replaceFamilies(families: Map<string, Photo[]>, preferred?: string[]) {
+  const s = get();
+  const activeId = s.photos[s.active] ? photoId(s.photos[s.active]) : null;
+  const activeSource = s.photos[s.active]?.path;
+  const sources = new Map([...s.hidden, ...s.photos].map(p => [p.path, p]));
+  const inserted = new Set<string>();
+  const all = [...s.photos, ...s.hidden].flatMap(p => {
+    if (!families.has(p.path)) return [p];
+    if (inserted.has(p.path)) return [];
+    inserted.add(p.path);
+    const source = sources.get(p.path)!;
+    // Decode metadata can arrive after a history snapshot was recorded.
+    return families.get(p.path)!.map(v => ({ ...v, white: source.white ?? v.white,
+      camera: source.camera ?? v.camera, lens: source.lens ?? v.lens }));
+  }).sort((a, b) => (scanOrder.get(a.path) ?? 0) - (scanOrder.get(b.path) ?? 0));
+  const { shown: photos, hidden } = arrange(all, s.foldJpegs);
+  const ids = new Set(photos.map(photoId));
+  let selected = new Set((preferred ?? [...s.selected]).filter(id => ids.has(id)));
+  let active = photos.findIndex(p => photoId(p) === (preferred?.[0] ?? activeId));
+  if (active < 0) active = photos.findIndex(p => p.path === activeSource);
+  if (active < 0) active = photos.length ? Math.min(Math.max(s.active, 0), photos.length - 1) : -1;
+  if (selected.size && active >= 0 && !selected.has(photoId(photos[active]))) active = photos.findIndex(p => selected.has(photoId(p)));
+  if (!selected.size && active >= 0) selected = new Set([photoId(photos[active])]);
+  set({ photos, hidden, selected, active, anchor: active, histogram: null });
+}
+
+export function createVirtualCopies() {
+  if (get().lookEdit) return showToast('Finish editing the look first');
+  finishCrop(true);
+  const selected = targets();
+  const families = new Map<string, Photo[]>();
+  const changes: Change[] = [];
+  const created: string[] = [];
+  for (const p of selected) {
+    const family = families.get(p.path) ?? familyOf(p.path);
+    let n = 1;
+    while (family.some(v => v.copyName === `Copy ${n}`)) n++;
+    const copyId = Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
+    const copy: Photo = { ...p, copyId, copyName: `Copy ${n}`, recipe: p.recipe ? structuredClone(p.recipe) : null, pair: null };
+    families.set(p.path, [...family, copy]);
+    created.push(photoId(copy));
+  }
+  if (!created.length) return;
+  for (const [path, after] of families) changes.push({ path, frames: true, before: familyOf(path), after });
+  history.record(created.length === 1 ? 'Create virtual copy' : `Create ${created.length} virtual copies`, changes, performance.now(), `create:${created.join('|')}`);
+  replaceFamilies(families, created);
+  set(historyState());
+  persistSources([...families.keys()]);
+  showToast(created.length === 1 ? 'Created virtual copy' : `Created ${created.length} virtual copies`);
+}
+
+/** Remove versions only; the original frame and source file are always retained. */
+export function removeVirtualCopies() {
+  if (get().lookEdit) return showToast('Finish editing the look first');
+  finishCrop(true);
+  const copies = targets().filter(p => p.copyId);
+  const removing = new Set(copies.map(photoId));
+  if (!copies.length) return;
+  const changes: Change[] = [];
+  const families = new Map<string, Photo[]>();
+  for (const path of new Set(copies.map(p => p.path))) {
+    const before = familyOf(path);
+    const after = before.filter(p => !removing.has(photoId(p)));
+    families.set(path, after);
+    changes.push({ path, frames: true, before, after });
+  }
+  history.record(copies.length === 1 ? 'Remove virtual copy' : `Remove ${copies.length} virtual copies`, changes, performance.now(), `remove:${[...removing].join('|')}`);
+  replaceFamilies(families);
+  set(historyState());
+  persistSources([...families.keys()]);
+  showToast(copies.length === 1 ? 'Removed virtual copy' : `Removed ${copies.length} virtual copies`, { label: 'Undo', run: undo });
+}
+
+export function renameVirtualCopy(id: string, name: string) {
+  if (get().lookEdit) return;
+  const p = get().photos.find(p => photoId(p) === id);
+  if (!p?.copyId) return;
+  name = cleanCopyName(name);
+  if (p.copyName === name) return;
+  const before = familyOf(p.path);
+  const after = before.map(v => photoId(v) === id ? { ...v, copyName: name } : v);
+  history.record('Rename virtual copy', [{ path: p.path, frames: true, before, after }], performance.now(), `rename:${id}`);
+  replaceFamilies(new Map([[p.path, after]]));
+  set(historyState());
+  persistSources([p.path]);
+}
 
 /**
  * Change the recipes of `paths`. Every change is an undoable step, named by
@@ -434,17 +554,16 @@ export function editRecipes(paths: string[], change: (r: Recipe | null, p: Photo
   const editing = get().lookEdit;
   if (editing) {
     if (!paths.includes(editing.path)) return;
-    set({ photos: get().photos.map((p) => (p.path === editing.path ? { ...p, recipe: change(p.recipe, p) } : p)) });
+    set({ photos: get().photos.map((p) => (photoId(p) === editing.path ? { ...p, recipe: change(p.recipe, p) } : p)) });
     return;
   }
   const wanted = new Set(paths);
   const changes: Change[] = [];
   const photos = get().photos.map((p) => {
-    if (!wanted.has(p.path)) return p;
+    if (!wanted.has(photoId(p))) return p;
     const recipe = change(p.recipe, p);
     if (recipe === p.recipe) return p;
-    savePhoto({ ...p, recipe });
-    changes.push({ path: p.path, before: p.recipe, after: recipe });
+    changes.push({ path: photoId(p), before: p.recipe, after: recipe });
     return { ...p, recipe };
   });
   if (changes.length) {
@@ -453,11 +572,12 @@ export function editRecipes(paths: string[], change: (r: Recipe | null, p: Photo
     history.record(changes.length > 1 && !label ? `${name} on ${changes.length} photos` : name, changes, performance.now(), grouping?.key, grouping?.continuous);
   }
   set({ photos, ...historyState() });
+  persistSources(changes.map(c => c.path));
 }
 
 export const editActive = (change: (r: Recipe | null, p: Photo) => Recipe | null, label?: string, grouping?: { key: string; continuous: boolean }) => {
   const a = activePhoto();
-  if (a) editRecipes([a.path], change, label, grouping);
+  if (a) editRecipes([photoId(a)], change, label, grouping);
 };
 
 /**
@@ -468,37 +588,44 @@ export function markPhotos(mark: MarkKey) {
   const t = targets();
   if (!t.length) return;
   const allHave = t.every((p) => hasMark(p, mark));
-  const wanted = new Set(t.map((p) => p.path));
+  const wanted = new Set(t.map(photoId));
   const changes: Change[] = [];
   const photos = get().photos.map((p) => {
-    if (!wanted.has(p.path)) return p;
+    if (!wanted.has(photoId(p))) return p;
     const before: Marks = { rating: p.rating, label: p.label, heart: p.heart };
     const after = applyMark(before, mark, allHave);
     if (after.rating === before.rating && after.label === before.label && after.heart === before.heart) return p;
     const next = { ...p, ...after };
-    savePhoto(next);
-    changes.push({ path: p.path, marks: true, before, after });
+    changes.push({ path: photoId(p), marks: true, before, after });
     return next;
   });
   if (!changes.length) return;
   const name = !('rating' in mark) && allHave ? ('heart' in mark ? 'Remove heart' : 'Remove tag') : describeMark(mark);
   history.record(changes.length > 1 ? `${name} on ${changes.length} photos` : name, changes, performance.now());
   set({ photos, ...historyState() });
+  persistSources(changes.map(c => c.path));
 }
 
 /** Put recipes and marks back as a history step recorded them, without recording a new step. */
 function applyStep(step: Step, side: 'before' | 'after', verb: string) {
-  const byPath = new Map(step.changes.map((c) => [c.path, c]));
+  const families = new Map<string, Photo[]>();
+  for (const c of step.changes) if (c.frames) families.set(c.path, c[side]);
+  if (families.size) {
+    const present = new Set(get().photos.map(photoId));
+    const restored = [...families.values()].flat().filter(p => p.copyId && !present.has(photoId(p))).map(photoId);
+    replaceFamilies(families, restored.length ? restored : undefined);
+  }
+  const byPath = new Map(step.changes.filter(c => !c.frames).map(c => [c.path, c]));
   const photos = get().photos.map((p) => {
-    const c = byPath.get(p.path);
-    if (!c) return p;
-    const next = c.marks ? { ...p, ...c[side] } : { ...p, recipe: c[side] };
-    savePhoto(next);
-    return next;
+    const c = byPath.get(photoId(p));
+    if (!c || c.frames) return p;
+    return c.marks ? { ...p, ...c[side] } : { ...p, recipe: c[side] };
   });
   set({ photos, ...historyState() });
-  const only = step.changes.length === 1 ? photos.find((p) => p.path === step.changes[0].path) : null;
-  const where = only && only.path !== activePhoto()?.path ? ` on ${only.name}` : '';
+  persistSources(step.changes.map(c => c.path));
+  const only = step.changes.length === 1 ? photos.find((p) => photoId(p) === step.changes[0].path) : null;
+  const active = activePhoto();
+  const where = only && (!active || photoId(only) !== photoId(active)) ? ` on ${only.name}` : '';
   showToast(`${verb} ${step.label}${where}`);
 }
 
@@ -535,7 +662,7 @@ export function pasteSettings() {
     return;
   }
   const t = targets();
-  editRecipes(t.map((p) => p.path), (r) => withSettingsFrom(clip, r), t.length === 1 ? 'Paste settings' : `Paste settings to ${t.length} photos`);
+  editRecipes(t.map(photoId), (r) => withSettingsFrom(clip, r), t.length === 1 ? 'Paste settings' : `Paste settings to ${t.length} photos`);
   showToast(t.length === 1 ? `Pasted onto ${t[0].name}` : `Pasted onto ${t.length} frames`);
 }
 
@@ -546,12 +673,8 @@ export const setExportOpen = (exportOpen: boolean) => set({ exportOpen });
 
 /** Record a photo's as-shot white point (from a decode or the background read). */
 export function setPhotoWhite(path: string, white: Xy | null) {
-  const photos = get().photos;
-  const i = photos.findIndex((p) => p.path === path);
-  if (i < 0 || sameWhite(photos[i].white, white)) return;
-  const next = photos.slice();
-  next[i] = { ...photos[i], white };
-  set({ photos: next });
+  const update = (photos: Photo[]) => photos.map(p => p.path === path && !sameWhite(p.white, white) ? { ...p, white } : p);
+  set({ photos: update(get().photos), hidden: update(get().hidden), candidates: update(get().candidates) });
 }
 
 const sameWhite = (a: Xy | null, b: Xy | null) => a === b || (!!a && !!b && a[0] === b[0] && a[1] === b[1]);
@@ -581,7 +704,7 @@ export function startCrop() {
   const a = activePhoto();
   const size = get().developSize;
   if (!a || get().cropEdit || get().view !== 'develop' || size?.path !== a.path) return;
-  set({ cropEdit: { path: a.path, draft: a.recipe?.crop ?? FULL, W: size.W, H: size.H }, picking: false });
+  set({ cropEdit: { path: photoId(a), draft: a.recipe?.crop ?? FULL, W: size.W, H: size.H }, picking: false });
 }
 
 export function setCropDraft(change: (c: Crop) => Crop) {
@@ -615,11 +738,11 @@ export function setPhotoCamera(path: string, camera: import('../film/profiles').
 
 /** Open a custom look for editing on the photo at `path`, with `draft` (the look on its sliders) shown. */
 export function startLookEdit(path: string, id: string, name: string, draft: Recipe) {
-  const p = get().photos.find((x) => x.path === path);
+  const p = get().photos.find((x) => photoId(x) === path);
   if (!p || get().lookEdit) return;
   set({
     lookEdit: { id, name, path, original: p.recipe },
-    photos: get().photos.map((x) => (x.path === path ? { ...x, recipe: draft } : x)),
+    photos: get().photos.map((x) => (photoId(x) === path ? { ...x, recipe: draft } : x)),
   });
 }
 
@@ -633,7 +756,7 @@ export function renameLookEdit(name: string) {
 export function endLookEdit(): Recipe | null {
   const e = get().lookEdit;
   if (!e) return null;
-  const draft = get().photos.find((x) => x.path === e.path)?.recipe ?? null;
-  set({ lookEdit: null, photos: get().photos.map((x) => (x.path === e.path ? { ...x, recipe: e.original } : x)) });
+  const draft = get().photos.find((x) => photoId(x) === e.path)?.recipe ?? null;
+  set({ lookEdit: null, photos: get().photos.map((x) => (photoId(x) === e.path ? { ...x, recipe: e.original } : x)) });
   return draft;
 }

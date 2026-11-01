@@ -5,14 +5,16 @@
 import { SLIDER, defaultRecipe, type Recipe, type SliderKey } from '../film/recipe';
 import { STOCK } from '../film/stocks';
 import type { Marks } from './marks';
+import type { Photo } from './store';
 
 const keysChanged = (a: Recipe, b: Recipe) =>
   (Object.keys(b) as (keyof Recipe)[]).filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
 
 /** One photo's look, or (with `marks`) its stars and colour tag, before and after. */
 export type Change =
-  | { path: string; marks?: false; before: Recipe | null; after: Recipe | null }
-  | { path: string; marks: true; before: Marks; after: Marks };
+  | { path: string; frames?: false; marks?: false; before: Recipe | null; after: Recipe | null }
+  | { path: string; frames?: false; marks: true; before: Marks; after: Marks }
+  | { path: string; frames: true; marks?: false; before: Photo[]; after: Photo[] };
 
 export interface Step {
   label: string;

@@ -60,6 +60,7 @@ pub struct Entry {
     pub heart: bool,
     /// A camera RAW, as opposed to an ordinary image.
     pub raw: bool,
+    pub copies: Vec<sidecar::VirtualCopy>,
 }
 
 #[derive(Serialize, Debug)]
@@ -188,6 +189,7 @@ pub fn scan(target: &Path, recursive: bool) -> std::io::Result<ScanResult> {
             label: saved.label,
             heart: saved.heart,
             raw: kind == Kind::Raw,
+            copies: saved.copies,
         });
     }
 
@@ -273,12 +275,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let img = dir.path().join("a.jpg");
         touch(&img);
-        let look = sidecar::Saved { recipe: Some(serde_json::json!({ "stock": "portra400" })), rating: 3, label: None, heart: false };
+        let look = sidecar::Saved { recipe: Some(serde_json::json!({ "stock": "portra400" })), rating: 3, label: None, heart: false,
+            copies: vec![sidecar::VirtualCopy { id: "one".into(), name: "Warm".into(), recipe: None, rating: 5, label: None, heart: false }] };
         sidecar::write(&img, &look).unwrap();
         let res = scan(dir.path(), true).unwrap();
         assert_eq!(res.entries.len(), 1, "sidecar must not appear as a photo");
         assert_eq!(res.entries[0].recipe.as_ref().unwrap()["stock"], "portra400");
         assert_eq!(res.entries[0].rating, 3);
+        assert_eq!(res.entries[0].copies, look.copies);
         assert!(!res.entries[0].raw);
     }
 

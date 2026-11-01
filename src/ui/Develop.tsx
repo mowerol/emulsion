@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import { photoId } from '../library/copies';
 import { PhotoInfo } from './PhotoInfo';
 import { PhotoTools } from './PhotoTools';
 import { useWorkspace } from './workspace';
@@ -66,7 +67,7 @@ export function Develop() {
   const lastCursor = useRef<[number, number]>([0.5, 0.5]);
 
   const photo = useApp(activePhoto);
-  const cropEdit = useApp((s) => (s.cropEdit && s.cropEdit.path === photo?.path ? s.cropEdit : null));
+  const cropEdit = useApp((s) => (s.cropEdit && s.cropEdit.path === (photo ? photoId(photo) : null) ? s.cropEdit : null));
   const cropping = !!cropEdit;
   const held = useApp((s) => s.compare) && !cropping;
   const compare = held || (before === 'full' && !cropping);
@@ -77,6 +78,7 @@ export function Develop() {
   const stageId = useApp((s) => s.stageColor);
   const stage = STAGE_COLORS.find((c) => c.id === stageId)!;
   const path = photo?.path;
+  const frameId = photo ? photoId(photo) : null;
   const profileVersion = useProfileVersion();
   const lutVersion = useLutVersion();
   const maskSelected = useMaskUi((s) => s.selected);
@@ -316,13 +318,13 @@ export function Develop() {
       const hh = Math.max(1, Math.round(h * Math.min(1, k)));
       try {
         const data = histogram(engine.readPixels(l.source, recipe, hw, hh, seed, compare));
-        useApp.setState({ histogram: { path: l.path, data } });
+        useApp.setState({ histogram: { path: frameId!, data } });
       } catch {
         /* the histogram is a convenience; a failed count leaves the last one */
       }
     }, HISTOGRAM_DELAY_MS);
     return () => clearTimeout(timer);
-  }, [recipe, seed, compare, loadedVersion, path]);
+  }, [recipe, seed, compare, loadedVersion, path, frameId]);
 
   // ---------- Zoom and pan ----------
 
@@ -412,7 +414,7 @@ export function Develop() {
     return () => window.removeEventListener('keydown', onKey);
   }, [current, src, box.w, box.h, zoom.scale, zoomTo, picking, cropping, cropEdit?.W, cropEdit?.H]);
 
-  useEffect(() => () => useApp.setState({ picking: false }), [path]);
+  useEffect(() => () => useApp.setState({ picking: false }), [frameId]);
 
   /** Set white balance so the clicked spot becomes neutral. */
   const pickNeutral = (fx: number, fy: number) => {

@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import { usePhotoContextMenu, type PhotoContextHandler } from './PhotoMenu';
+import { photoId, photoName, versionName } from '../library/copies';
 import { memo, useEffect, useMemo, useRef, type MouseEvent } from 'react';
 import { setActive, useApp, type Photo } from '../library/store';
 import { shownIndices } from '../library/filter';
@@ -6,7 +8,7 @@ import { MarkBadges, Thumb, edgeText, useVisible } from './common';
 import { FilterBar } from './FilterBar';
 
 
-const Frame = memo(function Frame({ photo, index, active, selected }: { photo: Photo; index: number; active: boolean; selected: boolean }) {
+const Frame = memo(function Frame({ photo, index, active, selected, contextMenu }: { photo: Photo; index: number; active: boolean; selected: boolean; contextMenu: PhotoContextHandler }) {
   const [ref, visible] = useVisible<HTMLButtonElement>('600px');
   const n = index + 1;
   return (
@@ -15,7 +17,8 @@ const Frame = memo(function Frame({ photo, index, active, selected }: { photo: P
       type="button"
       className={`frame${photo.recipe ? ' edited' : ''}${active ? ' active' : ''}${selected ? ' selected' : ''}`}
       data-index={index}
-      aria-label={`Frame ${n}, ${photo.name}`}
+      onContextMenu={e => contextMenu(e, index)}
+      aria-label={`Frame ${n}, ${photoName(photo)}`}
       aria-current={active}
       onClick={(e: MouseEvent) => setActive(index, e.shiftKey ? 'range' : e.metaKey || e.ctrlKey ? 'toggle' : 'single')}
     >
@@ -25,7 +28,7 @@ const Frame = memo(function Frame({ photo, index, active, selected }: { photo: P
       </span>
       <Thumb photo={photo} visible={visible} className="frame-img" />
       <span className="edge">
-        <span>{n}A</span>
+        <span>{photo.copyId ? versionName(photo) : `${n}A`}</span>
         <MarkBadges photo={photo} />
       </span>
     </button>
@@ -33,6 +36,7 @@ const Frame = memo(function Frame({ photo, index, active, selected }: { photo: P
 });
 
 export function Filmstrip() {
+  const context = usePhotoContextMenu();
   const photos = useApp((s) => s.photos);
   const active = useApp((s) => s.active);
   const selected = useApp((s) => s.selected);
@@ -52,10 +56,11 @@ export function Filmstrip() {
       <div className="strip" ref={ref} aria-label="Filmstrip">
         <div className="strip-inner">
           {shown.map((i) => (
-            <Frame key={photos[i].path} photo={photos[i]} index={i} active={i === active} selected={selected.has(photos[i].path)} />
+            <Frame contextMenu={context.open} key={photoId(photos[i])} photo={photos[i]} index={i} active={i === active} selected={selected.has(photoId(photos[i]))} />
           ))}
         </div>
       </div>
+      {context.menu}
     </div>
   );
 }

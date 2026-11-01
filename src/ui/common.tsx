@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { useEffect, useRef, useState } from 'react';
+import { photoId } from '../library/copies';
 import { useThumb } from '../library/thumbs';
 import { profileLabel } from '../engine/profilestore';
 import { lookName } from '../film/looks';
@@ -48,7 +49,7 @@ export function Segmented<T extends string | number>(props: {
 }
 
 export function Thumb({ photo, visible, className }: { photo: Photo; visible: boolean; className?: string }) {
-  const { url, failed } = useThumb(photo.path, photo.recipe, photo.seed, visible, photo.white, photo.raw);
+  const { url, failed } = useThumb(photo.path, photo.recipe, photo.seed, visible, photo.white, photo.raw, photoId(photo));
   if (url) return <img className={className} src={url} alt="" draggable={false} decoding="async" />;
   return <div className={`${className ?? ''} thumb-empty`}>{failed ? 'Unreadable' : ''}</div>;
 }

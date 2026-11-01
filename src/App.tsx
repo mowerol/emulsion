@@ -8,7 +8,7 @@ import { flushSaves, onSaveError } from './library/sidecars';
 import { markForKey } from './library/marks';
 import { lastFolder } from './library/folders';
 import {
-  copySettings, markPhotos, openFolder, pasteSettings, redo, selectAll, setCompare, setExportOpen, setView, showToast, step, stepToEnd, undo, useApp,
+  copySettings, createVirtualCopies, markPhotos, openFolder, pasteSettings, redo, selectAll, setCompare, setExportOpen, setView, showToast, step, stepToEnd, undo, useApp,
 } from './library/store';
 import { Images } from './ui/Images';
 import { useWorkspace } from './ui/workspace';
@@ -70,6 +70,7 @@ function useShortcuts() {
       if (k === 'g' && !mod) { setView('library'); return; }
       if (s.view === 'library' && s.choosingImport) return;
       if (!s.photos.length) return;
+      if (mod && e.key === "'") { e.preventDefault(); createVirtualCopies(); return; }
       if (mod && e.shiftKey && k === 'c') { e.preventDefault(); copySettings(); return; }
       if (mod && e.shiftKey && k === 'v') { e.preventDefault(); pasteSettings(); return; }
       if (mod && e.shiftKey && k === 'e') { e.preventDefault(); setExportOpen(true); return; }

@@ -1,4 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import { usePhotoContextMenu, type PhotoContextHandler } from './PhotoMenu';
+import { photoId, photoName } from '../library/copies';
 import { memo, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { chooseImport, closeFolder, openFolder, setActive, setFoldJpegs, setView, useApp, type Photo } from '../library/store';
 import { chooseFolder } from './TopBar';
@@ -24,7 +26,7 @@ const readSize = () => {
 
 const selectMode = (e: MouseEvent) => (e.shiftKey ? 'range' : e.metaKey || e.ctrlKey ? 'toggle' : 'single');
 
-const Cell = memo(function Cell({ photo, index, active, selected }: { photo: Photo; index: number; active: boolean; selected: boolean }) {
+const Cell = memo(function Cell({ photo, index, active, selected, contextMenu }: { photo: Photo; index: number; active: boolean; selected: boolean; contextMenu: PhotoContextHandler }) {
   const [ref, visible] = useVisible<HTMLDivElement>();
   return (
     <div
@@ -34,20 +36,22 @@ const Cell = memo(function Cell({ photo, index, active, selected }: { photo: Pho
       tabIndex={active ? 0 : -1}
       className={`cell${active ? ' active' : ''}${selected ? ' selected' : ''}`}
       data-index={index}
+      onContextMenu={e => contextMenu(e, index)}
       onClick={(e) => setActive(index, selectMode(e))}
       onDoubleClick={() => {
         setActive(index, 'keep');
         setView('develop');
       }}
-      title={photo.rel}
+      title={photo.copyId ? `${photo.rel} · ${photo.copyName}` : photo.rel}
     >
       <span className="cell-num">{index + 1}</span>
       <div className="cell-img">
         <Thumb photo={photo} visible={visible} />
+        {photo.copyId && <span className="copy-badge">Virtual copy</span>}
       </div>
       <div className="cell-meta">
         <span className="cell-name">
-          {photo.name}
+          {photoName(photo)}
           {photo.pair && (
             <span className="pair-tag" title="The camera's JPEG of this RAW is folded into it">
               RAW+JPG
@@ -65,6 +69,7 @@ const Cell = memo(function Cell({ photo, index, active, selected }: { photo: Pho
 });
 
 export function Library() {
+  const context = usePhotoContextMenu();
   const folder = useApp(s => s.folder);
   const choosingImport = useApp(s => s.choosingImport);
   const importChoice = useApp(s => s.importChoice);
@@ -140,13 +145,14 @@ export function Library() {
       </div>
       <div className="grid" ref={gridRef} role="listbox" aria-label="Photos" aria-multiselectable style={{ ['--cell' as string]: `${size}px` }}>
         {shown.map((i) => (
-          <Cell key={photos[i].path} photo={photos[i]} index={i} active={i === active} selected={selected.has(photos[i].path)} />
+          <Cell contextMenu={context.open} key={photoId(photos[i])} photo={photos[i]} index={i} active={i === active} selected={selected.has(photoId(photos[i]))} />
         ))}
       </div>
       {!photos.length && <p className="folder-empty">No imported photos are currently available in this folder.</p>}
       </>}
       </>}
       </div>
+      {context.menu}
     </section>
   );
 }

@@ -90,7 +90,8 @@ function ImportTile({ photo, checked, partial, toggle }: { photo: Photo; checked
 }
 
 export function FolderImportView() {
-  const candidates = useApp(s => s.candidates);
+  const frames = useApp(s => s.candidates);
+  const candidates = useMemo(() => frames.filter(p => !p.copyId), [frames]);
   const choice = useApp(s => s.importChoice);
   const loading = useApp(s => s.loading);
   const foldJpegs = useApp(s => s.foldJpegs);

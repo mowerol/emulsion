@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Export: decode at full size, develop on the GPU, encode and write in Rust.
 
+import { exportStem, photoName } from './copies';
 import { loadImage, writeExport } from '../backend/api';
 import type { Photo } from './store';
 import { framePixels } from '../film/crop';
@@ -41,7 +42,7 @@ export async function exportPhotos(
       break;
     }
     const p = photos[i];
-    onProgress(i, photos.length, p.name);
+    onProgress(i, photos.length, photoName(p));
     try {
       const img = await loadImage(p.path, limit);
       const src = engine.sourceFromHalf(img);
@@ -55,9 +56,9 @@ export async function exportPhotos(
         engine.release(src);
         engine.dropBuffers(img.width, img.height);
       }
-      result.written.push(await writeExport(opts.dir, stemOf(p.name), px, w, h, opts.quality));
+      result.written.push(await writeExport(opts.dir, exportStem(p), px, w, h, opts.quality));
     } catch (err) {
-      result.failed.push({ name: p.name, error: String(err) });
+      result.failed.push({ name: photoName(p), error: String(err) });
     }
   }
   onProgress(result.written.length + result.failed.length, photos.length, '');

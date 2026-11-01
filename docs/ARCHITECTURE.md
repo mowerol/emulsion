@@ -168,7 +168,11 @@ A recipe (`film/recipe.ts`) is everything about how one frame is developed: stoc
 }
 ```
 
-Writes are debounced in the webview and atomic in Rust (write to a temporary file, then rename). Reset photo removes the recipe; ratings, tags and hearts can still keep a sidecar. Choosing LUT None only disables the creative LUT and retains the camera profile and adjustments.
+Version 2 adds an optional `copies` array to this envelope. Each copy has a permanent `id`, a user-visible `name`, and independent `recipe`, `rating`, `label` and `heart` values. The top-level values still describe the original frame; version 1 files read unchanged. An unedited, unrated virtual copy still keeps its entry, and any copies keep the sidecar even if the original is reset. Removing the final copy removes the sidecar only when the original also has no edits or marks.
+
+`library/copies.ts` separates frame identity (`photoId`: source path plus copy id) from source identity (`Photo.path`). Selection, recipe and mark edits, undo history, crop drafts, histogram ownership, custom-look drafts, React keys and developed thumbnails use frame identity. Decode caches, original thumbnails, EXIF and camera/lens metadata use the shared source path; the grain seed is retained so a new copy initially renders identically. Import choices continue to select source files and bring in all their versions. RAW+JPEG folding ignores copies when finding pairs and keeps a JPEG with virtual copies visible.
+
+Writes are debounced in the webview and atomic in Rust (write to a temporary file, then rename). Every save snapshots the original and all its copies together; writes for a source are serialized, and flushing waits for in-flight saves. Reset photo removes that frame's recipe; ratings, tags, hearts and copies can still keep a sidecar. Choosing LUT None only disables the creative LUT and retains the camera profile and adjustments.
 
 ## Adding or replacing a stage
 

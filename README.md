@@ -21,6 +21,7 @@ Version 0.1. Working today:
 - Exposure, contrast, highlights, shadows, whites, blacks, vibrance, saturation, fade, halation, glow and vignette. Contrast, vibrance and saturation are ported from darktable's colour balance rgb; the tone curve, whites and blacks from darktable's sigmoid; highlights and shadows from darktable's tone equalizer.
 - Stock tiles that preview the current photo through each stock.
 - Copy and paste settings, apply to the selection or the whole folder. Undo and redo every edit (a slider drag is one step). Compare with the original by holding `\`, with the Before button, or side by side with a draggable split. Reset any panel section on its own.
+- Virtual copies: keep several edits of one source photo, each with its own settings, crop, masks, stars, tags and heart. Right-click a photo in the Library, Images, filmstrip or Develop and choose **Create virtual copy**; the same menu can rename, switch or remove copies. Cmd/Ctrl `'` creates a copy of each selected frame. Copies live in the source photo's sidecar and export with distinct names. Creating, renaming and removing copies is undoable; removing a copy keeps the source file.
 - Camera RAW files through LibRaw 0.22.3, including Fujifilm X-Trans RAF and OM System/Olympus ORF. Thumbnails use the camera's embedded preview; the develop view decodes the RAW itself, white balanced as shot.
 - JPEG, PNG, TIFF (8 and 16-bit) and WebP, with EXIF orientation.
 - Export to JPEG at full size or a set long edge, into `Emulsion exports` inside the folder or anywhere else. Existing files are never overwritten.
@@ -66,6 +67,7 @@ A built app also opens a folder or photo passed as its first argument.
 | Cmd/Ctrl `O` | Open folder |
 | Cmd/Ctrl `A` | Select all (Library) |
 | Cmd/Ctrl Shift `C` / `V` | Copy / paste settings |
+| Cmd/Ctrl `'` | Create virtual copies of the selected frames |
 | Cmd/Ctrl Shift `E` | Export |
 | Double-click a slider name | Reset that slider |
 

@@ -10,7 +10,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 pub const SUFFIX: &str = ".emulsion.json";
 const FORMAT: &str = "emulsion";
-const VERSION: u32 = 1;
+const VERSION: u32 = 2;
 
 #[derive(Serialize, Deserialize)]
 struct Sidecar {
@@ -26,6 +26,8 @@ struct Sidecar {
     label: Option<String>,
     #[serde(default, skip_serializing_if = "is_false")]
     heart: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    copies: Vec<VirtualCopy>,
 }
 
 fn is_false(b: &bool) -> bool {
@@ -34,6 +36,21 @@ fn is_false(b: &bool) -> bool {
 
 fn is_zero(n: &u8) -> bool {
     *n == 0
+}
+
+/// An independent edit of the same source file, stored in its source's sidecar.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct VirtualCopy {
+    pub id: String,
+    pub name: String,
+    pub recipe: Option<serde_json::Value>,
+    #[serde(default)]
+    pub rating: u8,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub heart: bool,
 }
 
 /// What a sidecar keeps for one photo.
@@ -50,11 +67,13 @@ pub struct Saved {
     /// A favourite.
     #[serde(default)]
     pub heart: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub copies: Vec<VirtualCopy>,
 }
 
 impl Saved {
     fn is_empty(&self) -> bool {
-        self.recipe.is_none() && self.rating == 0 && self.label.is_none() && !self.heart
+        self.recipe.is_none() && self.rating == 0 && self.label.is_none() && !self.heart && self.copies.is_empty()
     }
 }
 
@@ -76,6 +95,7 @@ pub fn read(image: &Path) -> Option<Saved> {
         rating: car.rating.min(5),
         label: car.label,
         heart: car.heart,
+        copies: car.copies,
     };
     Some(saved).filter(|s| !s.is_empty())
 }
@@ -103,6 +123,7 @@ pub fn write(image: &Path, saved: &Saved) -> io::Result<()> {
         rating: saved.rating.min(5),
         label: saved.label.clone(),
         heart: saved.heart,
+        copies: saved.copies.clone(),
     };
     let text = serde_json::to_string_pretty(&car).map_err(io::Error::other)?;
     let mut tmp = target.as_os_str().to_owned();
@@ -144,7 +165,7 @@ mod tests {
     fn keeps_a_rating_or_label_without_a_look() {
         let dir = tempfile::tempdir().unwrap();
         let img = dir.path().join("a.jpg");
-        let marked = Saved { recipe: None, rating: 4, label: Some("green".into()), heart: true };
+        let marked = Saved { recipe: None, rating: 4, label: Some("green".into()), heart: true, ..Saved::default() };
         write(&img, &marked).unwrap();
         assert_eq!(read(&img).unwrap(), marked);
         let text = fs::read_to_string(path_for(&img)).unwrap();
@@ -156,7 +177,36 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let img = dir.path().join("a.jpg");
         fs::write(path_for(&img), r#"{"format":"emulsion","version":1,"updated":0,"recipe":{"stock":"portra400"}}"#).unwrap();
-        assert_eq!(read(&img).unwrap(), Saved { recipe: Some(json!({ "stock": "portra400" })), rating: 0, label: None, heart: false });
+        assert_eq!(read(&img).unwrap(), Saved { recipe: Some(json!({ "stock": "portra400" })), rating: 0, label: None, heart: false, ..Saved::default() });
+    }
+
+    #[test]
+    fn keeps_versions_of_an_unedited_original_and_removes_only_the_last_copy() {
+        let dir = tempfile::tempdir().unwrap();
+        let img = dir.path().join("a.jpg");
+        fs::write(&img, b"original bytes").unwrap();
+        let copy = VirtualCopy { id: "stable-id".into(), name: "Black and white".into(),
+            recipe: Some(json!({"exposure": 1.5})), rating: 5, label: Some("red".into()), heart: true };
+        let mut saved = Saved { copies: vec![copy], ..Saved::default() };
+        write(&img, &saved).unwrap();
+        assert_eq!(read(&img), Some(saved.clone()));
+        assert_eq!(fs::read(&img).unwrap(), b"original bytes");
+        let text: serde_json::Value = serde_json::from_str(&fs::read_to_string(path_for(&img)).unwrap()).unwrap();
+        assert_eq!(text["version"], 2);
+        assert!(text["recipe"].is_null());
+
+        // Resetting a copy does not delete it, even when it has no marks.
+        saved.copies[0].recipe = None;
+        saved.copies[0].rating = 0;
+        saved.copies[0].label = None;
+        saved.copies[0].heart = false;
+        write(&img, &saved).unwrap();
+        assert_eq!(read(&img), Some(saved));
+
+        // Removing the last copy can remove the sidecar, never the image.
+        write(&img, &Saved::default()).unwrap();
+        assert!(!path_for(&img).exists());
+        assert_eq!(fs::read(&img).unwrap(), b"original bytes");
     }
 
     #[test]

@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import { photoId } from '../library/copies';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
@@ -43,7 +44,7 @@ export function ExportDialog() {
     const developed = photos.filter((p) => p.recipe);
     return {
       active: photos[active] ? [photos[active]] : [],
-      selected: photos.filter((p) => selected.has(p.path)),
+      selected: photos.filter((p) => selected.has(photoId(p))),
       developed,
       all: photos,
     } satisfies Record<Scope, Photo[]>;

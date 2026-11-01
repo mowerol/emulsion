@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import { photoId } from '../library/copies';
 // Histogram of the developed frame: red, green and blue added together, so
 // overlaps read as cyan, magenta, yellow and white, over a grey luma fill.
 
@@ -53,7 +54,7 @@ export function Histogram() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const photo = useApp(activePhoto);
   const hist = useApp((s) => s.histogram);
-  const data = hist && photo && hist.path === photo.path ? hist.data : null;
+  const data = hist && photo && hist.path === photoId(photo) ? hist.data : null;
   const clipping = useApp((s) => s.clipping);
   const toggleClipping = () => useApp.setState((s) => ({ clipping: !s.clipping }));
 
