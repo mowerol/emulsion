@@ -26,6 +26,7 @@ import scanner from './shaders/stages/scanner.glsl?raw';
 import finish from './shaders/stages/finish.glsl?raw';
 import curve from './shaders/stages/curve.glsl?raw';
 import clarity from './shaders/stages/clarity.glsl?raw';
+import dehaze from './shaders/stages/dehaze.glsl?raw';
 import lab from './shaders/stages/lab.glsl?raw';
 import texture from './shaders/stages/texture.glsl?raw';
 import usmStage from './shaders/stages/usm.glsl?raw';
@@ -57,6 +58,7 @@ export const SHADER_FILES: Record<string, string> = {
   'stages/finish.glsl': finish,
   'stages/curve.glsl': curve,
   'stages/clarity.glsl': clarity,
+  'stages/dehaze.glsl': dehaze,
   'stages/lab.glsl': lab,
   'stages/texture.glsl': texture,
   'stages/usm.glsl': usmStage,

@@ -119,7 +119,7 @@ const uniformsOf = (file: string) => [...SHADER_FILES[file].matchAll(/uniform\s+
  */
 // Masks (exposure and colour balance) sit in both ranges; showing one as an overlay changes no map.
 const MASK_UNIFORMS = uniformsOf('stages/masks.glsl').filter((n) => n !== 'uMaskShow');
-const BEFORE_TEXTURE = ['stages/input.glsl', 'stages/exposure.glsl', 'stages/toneequalizer.glsl'].flatMap(uniformsOf).concat('uSharp', 'uStore', ...MASK_UNIFORMS);
+const BEFORE_TEXTURE = ['stages/input.glsl', 'stages/exposure.glsl', 'stages/toneequalizer.glsl', 'stages/dehaze.glsl'].flatMap(uniformsOf).concat('uSharp', 'uStore', ...MASK_UNIFORMS);
 const TEXTURE_STAGE = uniformsOf('stages/texture.glsl').concat('uTextureMix');
 const COLOR_STAGE = uniformsOf('stages/colorequal.glsl');
 const BEFORE_CLARITY = ['stages/colorbalance.glsl', 'stages/lens.glsl', 'stages/tone.glsl', 'stages/lut.glsl', 'stages/dcp.glsl'].flatMap(uniformsOf).concat('uHal', 'uHalCol', 'uGlow', 'uLutId');

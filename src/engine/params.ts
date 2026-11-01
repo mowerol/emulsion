@@ -143,9 +143,13 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uCurveOn: isIdentity(recipe.curve) && (isIdentity(profile?.curve ?? null) || recipe.lookAmount === 0) ? 0 : 1,
     uTeqOn: teqOn ? 1 : 0,
     uClarityOn: recipe.clarity !== 0 ? 1 : 0,
+    uDehazeOn: recipe.dehaze !== 0 ? 1 : 0,
+    uDehazeStrength: recipe.dehaze / 100,
+    uDehazeDistance: recipe.dehazeDistance / 100,
     // Darktable estimates this from the brightest pixels in the most hazy
     // part of the frame. The shader uses the scene white as the stable GPU
     // equivalent; keeping it explicit makes the recovery equation identical.
+    uDehazeA0: [1, 1, 1],
     uTextureOn: recipe.texture !== 0 ? 1 : 0,
     uTextureMix: recipe.texture / 100,
     uUsmOn: recipe.sharpen > 0 ? 1 : 0,

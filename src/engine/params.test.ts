@@ -77,6 +77,15 @@ describe('develop uniforms', () => {
     expect(u.uTextureMix).toBe(-0.4);
   });
 
+  it('maps darktable haze-removal controls and leaves them off by default', () => {
+    const base = developUniforms(defaultRecipe(), ctx);
+    expect(base.uDehazeOn).toBe(0);
+    const u = developUniforms({ ...defaultRecipe(), dehaze: 60, dehazeDistance: 35 }, ctx);
+    expect(u.uDehazeOn).toBe(1);
+    expect(u.uDehazeStrength).toBeCloseTo(0.6);
+    expect(u.uDehazeDistance).toBeCloseTo(0.35);
+    expect(u.uDehazeA0).toEqual([1, 1, 1]);
+  });
 
   it('runs the tone equalizer only when Highlights is set', () => {
     expect(needsPasses(developUniforms(defaultRecipe(), ctx)).toneEqualizer).toBe(false);

@@ -46,6 +46,9 @@ export interface Recipe {
   blacks: number;
   texture: number;
   clarity: number;
+  /** Darktable's haze removal strength and maximum removal distance. */
+  dehaze: number;
+  dehazeDistance: number;
   /** RawTherapee's capture sharpening (RAWs only): 0 to 100, the deconvolution's iterations. */
   captureSharpening: number;
   /** RawTherapee's unsharp mask: amount 0 to 100 (its amount / 10), radius in pixels, masking 0 to 100. */
@@ -158,6 +161,8 @@ export const SLIDERS: SliderDef[] = [
   { key: 'fade', label: 'Fade', group: 'adjust', min: 0, max: 100, step: 1 },
   { key: 'texture', label: 'Texture', group: 'detail', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'clarity', label: 'Clarity', group: 'detail', min: -100, max: 100, step: 1, format: formatSigned },
+  { key: 'dehaze', label: 'Dehaze', group: 'detail', min: -100, max: 100, step: 1, format: formatSigned, hint: 'Darktable haze removal: positive values remove haze; negative values add it.' },
+  { key: 'dehazeDistance', label: 'Distance', group: 'detail', min: 0, max: 100, step: 1, default: 20, format: (v) => `${v}%`, hint: 'The maximum distance over which haze is removed.' },
   { key: 'sharpen', label: 'Sharpening', group: 'detail', min: 0, max: 100, step: 1 },
   { key: 'sharpenRadius', label: 'Radius', group: 'detail', min: 0.3, max: 3, step: 0.05, default: 0.5, format: (v) => `${v.toFixed(2)} px` },
   { key: 'sharpenMasking', label: 'Masking', group: 'detail', min: 0, max: 100, step: 1, default: 10 },
@@ -206,6 +211,8 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
     blacks: 0,
     texture: 0,
     clarity: 0,
+    dehaze: 0,
+    dehazeDistance: 20,
     captureSharpening: 0,
     sharpen: 0,
     sharpenRadius: 0.5,

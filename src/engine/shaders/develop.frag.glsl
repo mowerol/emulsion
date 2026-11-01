@@ -12,6 +12,7 @@ uniform sampler2D uSrc;
 #include "stages/optics.glsl"
 #include "stages/exposure.glsl"
 #include "stages/toneequalizer.glsl"
+#include "stages/dehaze.glsl"
 #include "stages/texture.glsl"
 #include "stages/colorbalance.glsl"
 #include "stages/masks.glsl"
@@ -71,6 +72,7 @@ void main() {
   x = stageExposure(x);
   x = stageMaskExposure(x);
   x = stageToneEqualizer(x, uv);
+  x = stageDehaze(x, uv);
   if (uTap > 1.5 && uTap < 2.5) {
     outColor = vec4(labL(x), 0.0, 0.0, 1.0);
     return;
