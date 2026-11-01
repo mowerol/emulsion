@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { browseDirectory, computerFolders, isTauri, type Directory } from '../backend/api';
 import { chooseImport, importFolderPhotos, openFolder, setFoldJpegs, setIncludeSubfolders, showToast, useApp, type Photo } from '../library/store';
+import { folderTreeState, saveFolderTree } from '../library/folders';
 import { findPairs, foldPairs } from '../library/pairs';
 import { Thumb, useVisible } from './common';
 import { ExposureInfo } from './ExposureInfo';
@@ -13,16 +14,18 @@ export function FolderIcon() {
 
 const contains = (parent: string, child: string) => child.startsWith(parent.endsWith('/') || parent.endsWith('\\') ? parent : `${parent}${parent.includes('\\') ? '\\' : '/'}`);
 
-function DirectoryNode({ directory, depth = 0 }: { directory: Directory; depth?: number }) {
+function DirectoryNode({ directory, expandedPaths, onExpand, reveal = true, depth = 0 }: {
+  directory: Directory; expandedPaths: Set<string>; onExpand: (path: string, expanded: boolean) => void; reveal?: boolean; depth?: number;
+}) {
   const current = useApp(s => s.folder?.root);
   const selectedChildren = useApp(s => s.subfolders);
   const active = current === directory.path;
-  const [expanded, setExpanded] = useState(false);
+  const expanded = expandedPaths.has(directory.path);
   const [children, setChildren] = useState<Directory[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    if (current && (active || (directory.path !== '/' && contains(directory.path, current)))) setExpanded(true);
-  }, [current, active, directory.path]);
+    if (reveal && current && (active || contains(directory.path, current))) onExpand(directory.path, true);
+  }, [current, active, directory.path, reveal, onExpand]);
   useEffect(() => {
     if (active) setChildren(selectedChildren);
   }, [active, selectedChildren]);
@@ -36,10 +39,10 @@ function DirectoryNode({ directory, depth = 0 }: { directory: Directory; depth?:
   }, [expanded, active, directory.path]);
   return <li>
     <div className={`directory-row${active ? ' active' : ''}`} style={{ paddingLeft: 8 + depth * 14 }}>
-      <button type="button" className="directory-expand" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${directory.name}`} aria-expanded={expanded} onClick={() => setExpanded(!expanded)}>{expanded ? '⌄' : '›'}</button>
+      <button type="button" className="directory-expand" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${directory.name}`} aria-expanded={expanded} onClick={() => onExpand(directory.path, !expanded)}>{expanded ? '⌄' : '›'}</button>
       <button type="button" className="directory-name" aria-current={active ? 'location' : undefined} title={directory.path} onClick={() => openFolder(directory.path)}><FolderIcon /><span>{directory.name}</span></button>
     </div>
-    {expanded && <ul>{error ? <li className="directory-message" title={error}>Could not read this folder</li> : children === null ? <li className="directory-message">Reading…</li> : children.map(child => <DirectoryNode key={child.path} directory={child} depth={depth + 1} />)}</ul>}
+    {expanded && <ul>{error ? <li className="directory-message" title={error}>Could not read this folder</li> : children === null ? <li className="directory-message">Reading…</li> : children.map(child => <DirectoryNode key={child.path} directory={child} depth={depth + 1} expandedPaths={expandedPaths} onExpand={onExpand} reveal={reveal} />)}</ul>}
   </li>;
 }
 
@@ -48,12 +51,42 @@ function savedRoot(): Directory | null {
 }
 
 export function FolderDirectory() {
+  const sidebar = useRef<HTMLElement>(null);
+  const initialScroll = useRef(folderTreeState().scroll);
+  const restored = useRef(false);
+  const [expandedPaths, setExpandedPaths] = useState(() => new Set(folderTreeState().expanded));
+  const onExpand = useCallback((path: string, expanded: boolean) => {
+    setExpandedPaths(current => {
+      if (current.has(path) === expanded) return current;
+      const next = new Set(current);
+      if (expanded) next.add(path); else next.delete(path);
+      saveFolderTree({ expanded: [...next] });
+      return next;
+    });
+  }, []);
   const [roots, setRoots] = useState<Directory[]>([]);
+  const [rootsReady, setRootsReady] = useState(false);
   const [root, setRoot] = useState(savedRoot);
   const current = useApp(s => s.folder);
   const [refresh, setRefresh] = useState(0);
   useEffect(() => {
-    if (isTauri()) computerFolders().then(setRoots).catch(err => showToast(`Could not read locations. ${String(err)}`));
+    const el = sidebar.current;
+    if (!el || !current || (!root && !rootsReady)) return;
+    const restore = () => {
+      const active = el.querySelector<HTMLElement>('[aria-current="location"]');
+      if (!active) return false;
+      if (!restored.current) el.scrollTop = initialScroll.current;
+      active.scrollIntoView({ block: 'nearest' });
+      restored.current = true;
+      return true;
+    };
+    if (restore()) return;
+    const observer = new MutationObserver(() => { if (restore()) observer.disconnect(); });
+    observer.observe(el, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [current?.root, root?.path, roots, rootsReady, refresh]);
+  useEffect(() => {
+    if (isTauri()) computerFolders().then(value => { setRoots(value); setRootsReady(true); }).catch(err => { setRootsReady(true); showToast(`Could not read locations. ${String(err)}`); });
   }, [refresh]);
   const scope = (next: Directory | null) => {
     setRoot(next);
@@ -67,13 +100,14 @@ export function FolderDirectory() {
     await openFolder(path);
   };
   const locations = root ? [root] : roots;
+  const revealRoot = current ? locations.filter(r => r.path === current.root || contains(r.path, current.root)).sort((a, b) => b.path.length - a.path.length)[0]?.path : undefined;
   const outside = current && !locations.some(r => r.path === current.root || contains(r.path, current.root));
-  return <aside className="folder-directory" aria-label="Folder directory">
+  return <aside ref={sidebar} className="folder-directory" aria-label="Folder directory" onScroll={e => { if (restored.current) saveFolderTree({ scroll: e.currentTarget.scrollTop }); }}>
     <div className="directory-heading"><h2>Folders</h2><button type="button" title="Refresh drives" aria-label="Refresh drives" onClick={() => setRefresh(n => n + 1)}>↻</button></div>
     <button type="button" className="directory-root-choice" onClick={chooseRoot}>Choose root folder…</button>
     {root && <button type="button" className="directory-root-choice" onClick={() => scope(null)}>Show computer & drives</button>}
     <div className="directory-section-label">{root ? 'Root folder' : 'Computer & drives'}</div>
-    <ul className="directory-tree" key={refresh}>{locations.map(directory => <DirectoryNode key={directory.path} directory={directory} />)}{outside && <DirectoryNode directory={{ path: current.root, name: current.name }} />}</ul>
+    <ul className="directory-tree" key={refresh}>{locations.map(directory => <DirectoryNode key={directory.path} directory={directory} expandedPaths={expandedPaths} onExpand={onExpand} reveal={directory.path === revealRoot} />)}{outside && <DirectoryNode directory={{ path: current.root, name: current.name }} expandedPaths={expandedPaths} onExpand={onExpand} />}</ul>
     <p className="directory-footer">Browse folders, then choose which photos to import.</p>
   </aside>;
 }

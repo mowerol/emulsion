@@ -12,7 +12,7 @@ export const PRESET_GROUPS = {
   Detail: ['texture', 'clarity', 'dehaze', 'dehazeDistance', 'captureSharpening', 'sharpen', 'sharpenRadius', 'sharpenMasking'],
   Effects: ['fade', 'halation', 'glow', 'vignette'],
   Grain: ['push', 'grain', 'grainIso', 'grainMidtones'],
-  'Film options': ['scanner'],
+  'Film options': ['scanner', 'scannerFromLook'],
 } as const satisfies Record<string, readonly (keyof Recipe)[]>;
 export type PresetGroup = keyof typeof PRESET_GROUPS;
 export const PRESET_EXCLUDED = ['v', 'profile', 'crop', 'lens', 'masks'] as const;

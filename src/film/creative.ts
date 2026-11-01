@@ -3,10 +3,11 @@
 // moving the photo's sliders, plus optionally a LUT (a system look's, or a file of the user's own);
 // its Amount scales all of it. The settings run at their usual places in the pipeline: the colour
 // balance as a second instance just before the photo's own, the curve composed in front of the
-// photo's own curve. Never grain or other spatial effects: those stay visible sliders.
+// photo's own curve. A look can also author one scanner finish; grain stays on the photo.
 
 import { CB_DEFAULTS, colorBalanceParams, sliderParams, type CbParams } from '../engine/colorbalance';
 import { CURVE_RES, curveTable, isIdentity, normalizeCurve, type ToneCurve } from './curve';
+import { isScannerId, type ScannerId } from './scanners';
 import { normalizeGrading } from './grading';
 import type { Recipe } from './recipe';
 
@@ -27,6 +28,7 @@ export interface ProfileSettings {
   colorBalance: Partial<CbParams> | null;
   curve: ToneCurve | null;
   lut: LutSource | null;
+  scanner?: ScannerId;
 }
 
 /** The recipe fields a profile takes over when it is saved from a photo. */
@@ -47,6 +49,7 @@ export function settingsFromRecipe(r: Recipe, lut: LutSource | null): ProfileSet
     colorBalance: any ? { ...changed, grey_fulcrum: cb.grey_fulcrum } : null,
     curve: isIdentity(r.curve) ? null : r.curve,
     lut,
+    ...(r.scanner !== 'straight' ? { scanner: r.scanner } : {}),
   };
 }
 
@@ -65,14 +68,21 @@ export function recipeFromSettings(r: Recipe, s: ProfileSettings): Recipe {
     shadows: (cb.shadows_Y ?? 0) * 100,
     grading: normalizeGrading(cb),
     curve: s.curve,
+    scanner: s.scanner ?? 'straight',
+    scannerFromLook: false,
   };
-  const lut = s.lut;
+  return withLutBase(out, s.lut);
+}
+
+/** Set an editor's optional raw LUT without changing its authored sliders or scanner. */
+export function withLutBase(r: Recipe, lut: LutSource | null): Recipe {
+  const out = { ...r, lookSnapshot: undefined };
   if (!lut) return { ...out, lookEnabled: false, stock: 'neutral', lookAmount: 100 };
-  const amount = Math.round(lut.amount * 100);
+  const lookAmount = lut.amount * 100;
   const lookBlend = lut.blend === 'color' ? 'color' : 'normal';
   return lut.kind === 'pack'
-    ? { ...out, lookEnabled: true, pack: lut.pack as Recipe['pack'], stock: lut.stock as Recipe['stock'], lookAmount: amount, lookBlend }
-    : { ...out, lookEnabled: true, pack: 'files', stock: `lut:file:${lut.hash}`, lookAmount: amount, lookBlend };
+    ? { ...out, lookEnabled: true, pack: lut.pack as Recipe['pack'], stock: lut.stock as Recipe['stock'], lookAmount, lookBlend }
+    : { ...out, lookEnabled: true, pack: 'files', stock: `lut:file:${lut.hash}`, lookAmount, lookBlend };
 }
 
 /** Whether the photo's own colour and tone sliders (the ones a look's settings use) are at rest. */
@@ -96,10 +106,11 @@ export function scaledSettings(s: ProfileSettings, amount: number): ProfileSetti
     colorBalance: changed && Object.keys(changed).length ? changed : null,
     curve: amount > 0 ? curve : null,
     lut: s.lut && { ...s.lut, amount: s.lut.amount * amount },
+    ...(s.scanner ? { scanner: s.scanner } : {}),
   };
 }
 
-export const hasSettings = (s: ProfileSettings | null | undefined) => !!s && (!!s.colorBalance || !!s.curve);
+export const hasSettings = (s: ProfileSettings | null | undefined) => !!s && (!!s.colorBalance || !!s.curve || !!s.scanner && s.scanner !== 'straight');
 
 /** A profile's colour balance at `amount` (0 to 1), or null when it has none. */
 export function scaledColorBalance(s: ProfileSettings | null, amount: number): CbParams | null {
@@ -157,7 +168,7 @@ export function normalizeSettings(input: unknown): ProfileSettings | null {
     const merged = { ...graded, ...sliders } as Partial<CbParams>;
     colorBalance = Object.keys(merged).length ? merged : null;
   }
-  return { colorBalance, curve: normalizeCurve(o.curve), lut: normalizeLut(o.lut ?? (o.look && { kind: 'pack', ...(o.look as object) })) };
+  return { colorBalance, curve: normalizeCurve(o.curve), lut: normalizeLut(o.lut ?? (o.look && { kind: 'pack', ...(o.look as object) })), ...(isScannerId(o.scanner) ? { scanner: o.scanner } : {}) };
 }
 
 /** A look's LUT read from a file. Looks saved first wrote a system look as `look: { pack, stock, amount }`. */

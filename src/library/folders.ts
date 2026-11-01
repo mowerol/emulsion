@@ -41,3 +41,22 @@ export function importedPaths(paths: string[], choice: FolderImport | null): Set
   const wanted = new Set(choice.paths);
   return new Set(paths.filter(p => wanted.has(p)));
 }
+
+/** Folder tree presentation survives leaving Library and restarting the app. */
+export interface FolderTreeState { expanded: string[]; scroll: number }
+const TREE_KEY = 'emulsion.folderTree';
+let treeMemory: FolderTreeState = { expanded: [], scroll: 0 };
+export function folderTreeState(): FolderTreeState {
+  try {
+    const value = JSON.parse(localStorage.getItem(TREE_KEY) || 'null');
+    if (value && Array.isArray(value.expanded)) return {
+      expanded: value.expanded.filter((path: unknown): path is string => typeof path === 'string'),
+      scroll: Number.isFinite(value.scroll) && value.scroll >= 0 ? value.scroll : 0,
+    };
+  } catch { /* Keep the current session usable without storage. */ }
+  return treeMemory;
+}
+export function saveFolderTree(patch: Partial<FolderTreeState>) {
+  treeMemory = { ...folderTreeState(), ...patch };
+  try { localStorage.setItem(TREE_KEY, JSON.stringify(treeMemory)); } catch { /* session only */ }
+}

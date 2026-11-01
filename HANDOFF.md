@@ -4,6 +4,36 @@
 
 Rewritten at the end of each session. Last updated 2026-11-01.
 
+## Scanner inline in Look (2026-11-01)
+
+Matched Oli's follow-up reference: Scanner is now a compact labelled dropdown between Amount and Edit/Remove inside the Look section. Removed the separate photo Scanner finish section in both layouts; the full scanner ingredient section remains in the Look editor. Inherited option reads e.g. Frontier · look; concrete choices show · override when a Look is active. Renderer/source storage unchanged. Hidden photo Look controls are unmounted during look authoring so the editor has exactly one scanner selector. Production build, scanner inheritance/editor browser regression (including inline placement) and Look browser regression pass.
+
+## Looks-only model and reference UI (2026-11-01)
+
+Oli chose model B: only Looks are applied. LUTs are optional bases inside the Look editor. Former LUT-only custom entries are promoted in the registry without changing ids/settings; bundled entries are LUT-only Looks. `withLook` captures canonical settings into a Look snapshot on selection, including bundled entries. Existing applied recipes retain their old rendering and LUT blend/strength; there is no destructive sidecar migration. Raw LUT files remain building blocks. Base selection/import, Strength and Normal/Colour blend appear only in the editor; changing a base preserves authored sliders and scanner. Built-in Edit opens a duplicate; custom Edit retains its id.
+
+Oli supplied three UI references. Implemented a compact swatch/name selector plus browse button, Amount and direct Edit/Remove. Selector dropdown offers favourites and search, Browse all looks and New look. Full browser takes over the panel, retains active name/Amount and Close, filters All/Colour/B&W, offers list/grid layouts and groups Favourites/My looks/Built-in. Swatches follow the reference's decorative two-tone tiles. Favourites and layout persist locally. Row menus duplicate or delete custom Looks with confirmation/error handling. No Use LUT directly action: model B supersedes that screenshot action. Scanner inheritance and presets remain supported; preset UI calls the stable Treatment group Look.
+
+Validation: model tests cover promotion, render parity for bundled/old applied recipes and preservation when changing a base. Browser checks cover favourites/search/filter/layout persistence, cancel/delete, Escape, scanner inheritance/edit/save/reopen, optional base strength/blend and Save and apply; folder restart regression also passes. Full check: 345 frontend tests, 46 Rust tests passed (4 optional ignored), production build. Screenshots reviewed at /tmp/emulsion-look-compact.png, /tmp/emulsion-look-browser.png, /tmp/emulsion-look-quick.png. Oli requested commit and push after the inline scanner update; preserve concurrent uncommitted dehaze work.
+
+## Folder tree restoration after restart (2026-11-01)
+
+Oli clarified the Library's folder tree starts at the root after restarting. The last-folder photo path already persisted; the tree's expanded branches and scroll did not, and automatic reveal explicitly skipped `/`. Added validated `emulsion.folderTree` persistence (expanded paths and scroll, with session fallback), shared expansion state for the directory nodes, and automatic reveal via the most specific Home/drive/custom root. Active folders outside Home can now be revealed through Computer. Scroll restoration waits for locations and async ancestor rows to load before restoring the saved position and ensuring the active folder is visible. State also survives switching away from Library.
+
+Regression: `node tools/browser-tests/treatment-filters.mjs folder-restart` performs actual page reloads, checks last-folder contents, expanded branches and scroll, delays drive-list loading to exercise the startup race, and verifies upgrading with no saved tree state. Original repro failed with “Last folder restored, but tree restarted at Computer with its active folder hidden”; fixed repro passes. Isolated committed-app + folder-fix checkout passed the restart regression, typecheck/production build and all 320 frontend tests. Full live-workspace typecheck was blocked by concurrent brush changes (`BRUSH_UNIT`/`BrushGpu.texture` missing); those files were left untouched.
+
+## Scanner finish in Looks and photo overrides (2026-11-01)
+
+Oli approved authoring a scanner finish into a Look, while exposing the effective choice beneath Treatment. The photo selector shows From look · Frontier (or another captured finish), None, Frontier, Noritsu and Flatbed. Concrete choices replace the Look's finish; From look restores inheritance. Scanner finish moved from Refine to directly after Treatment in both layouts, and is available in the Look editor as a concrete ingredient. Applying a Look or Save and apply opts into inheritance; merely saving a library revision preserves the photo's existing snapshot and override.
+
+`ProfileSettings.scanner` is optional (absent = no finish). `Recipe.scannerFromLook` is an additive optional flag; absent in old photos means their saved scanner remains explicit, preserving rendering. `scannerfinish.ts` resolves one effective scanner for shared preview/thumbnail/export uniforms. Inherited scanner parameters fade towards Straight with Look Amount, including sharpness; manual overrides retain full effect. Presets' scanner group includes the source flag. Browser thumbnail previews use the same inheritance choice as applying a Look. No new native commands or shader stages.
+
+Checks: browser regression passes for visible inheritance, None/manual overrides, restore inheritance, author/save/reopen, frozen applied snapshots and Save and apply. Existing browser filter regression also passes. 341 frontend tests, production build and 46 Rust tests pass (4 optional Rust tests ignored).
+
+## Treatment browser stale filters fixed (2026-11-01)
+
+Oli reported No matches despite installed assets. Reproduced through the actual React controls: choose a G'MIC category, then switch to Looks; the category select disappears but its old value filters out every custom look. This was browser filter state, not Vite caching. TreatmentControls now keys StockPicker by collection and asset kind so switching resets local filters/page. The browser scopes available entries and categories to LUT/Look kind before deciding whether a library is empty; genuine search misses offer Clear filters. Regression command: `node tools/browser-tests/treatment-filters.mjs` (Chrome, or BROWSER_BIN). It failed before the fix and passed afterward, including collection changes, real search misses/clear, and a LUT-only library's empty Looks tab.
+
 ## Scanner UI placement (2026-11-01)
 
 Oli chose to preserve scanner styles and make them easier to find. Removed the nested Film options container from Treatment. Scanner finish now sits with Detail, Optics and Grain under Refine, and after Grain in Classic. Options are None (the existing `straight` value), Frontier, Noritsu and Flatbed; selected style remains in the section summary when folded. Preset checkboxes/summaries display Scanner finish while retaining the existing Film options group id for compatibility. Rendering, defaults, recipe fields and saved preset identifiers are unchanged.

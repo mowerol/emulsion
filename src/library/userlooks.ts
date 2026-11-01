@@ -80,14 +80,14 @@ export async function importLutFile(path: string): Promise<string> {
     throw new Error(`This file is not a LUT Emulsion can read (${e instanceof Error ? e.message : String(e)})`);
   }
   const hash = await invoke<string>('store_look_lut', new Uint8Array(bytes), { headers: { 'x-emulsion-lut-ext': ext } });
-  registerFileLut(hash);
+  registerFileLut(hash, lookNameFromPath(path));
   return hash;
 }
 
 /** Create or update a custom look. Returns its stock id. */
-export async function saveLook(id: string, name: string, settings: ProfileSettings, kind: 'lut' | 'look' = 'look'): Promise<StockId> {
+export async function saveLook(id: string, name: string, settings: ProfileSettings): Promise<StockId> {
   const saved = await invoke<CustomLookFile>('save_custom_look', {
-    look: { version: 2, id, name, settings: { ...settings, _kind: kind, _revision: (PACK.custom.looks[customLookId(id)]?.revision ?? 0) + 1 }, lut: settings.lut?.kind === 'file' ? settings.lut.hash : undefined },
+    look: { version: 2, id, name, settings: { ...settings, _kind: 'look', _revision: (PACK.custom.looks[customLookId(id)]?.revision ?? 0) + 1 }, lut: settings.lut?.kind === 'file' ? settings.lut.hash : undefined },
   });
   register(saved);
   changed();
@@ -97,7 +97,7 @@ export async function saveLook(id: string, name: string, settings: ProfileSettin
 /** Import a LUT file as a new custom look. */
 export async function importLook(path: string): Promise<StockId> {
   const hash = await importLutFile(path);
-  return saveLook(uuid(), lookNameFromPath(path), { colorBalance: null, curve: null, lut: { kind: 'file', hash, amount: 1 } }, 'lut');
+  return saveLook(uuid(), lookNameFromPath(path), { colorBalance: null, curve: null, lut: { kind: 'file', hash, amount: 1 } });
 }
 
 /** Copy a look into Custom looks: a system look by reference, a custom look with its settings. */

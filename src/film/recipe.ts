@@ -41,6 +41,8 @@ export interface Recipe {
   lookBlend: LookBlend;
   push: Push;
   scanner: ScannerId;
+  /** True follows the captured look finish; absent in legacy photos means an explicit scanner choice. */
+  scannerFromLook?: boolean;
   exposure: number;
   contrast: number;
   /** Softer/harder output tone curve, independent of grain. */
@@ -129,7 +131,7 @@ function normalizeColor(input: unknown): ColorAdjust | null {
   return tidyColor({ hue: list(o.hue, -HUE_MAX, HUE_MAX), sat: list(o.sat, -100, 100), bright: list(o.bright, -100, 100) });
 }
 
-export type SliderKey = Exclude<keyof Recipe, 'v' | 'profile' | 'lookEnabled' | 'stock' | 'pack' | 'lookBlend' | 'push' | 'scanner' | 'curve' | 'wb' | 'crop' | 'color' | 'grading' | 'lens' | 'masks' | 'lookSnapshot'>;
+export type SliderKey = Exclude<keyof Recipe, 'v' | 'profile' | 'lookEnabled' | 'stock' | 'pack' | 'lookBlend' | 'push' | 'scanner' | 'scannerFromLook' | 'curve' | 'wb' | 'crop' | 'color' | 'grading' | 'lens' | 'masks' | 'lookSnapshot'>;
 
 export interface SliderDef {
   key: SliderKey;
@@ -253,7 +255,7 @@ export function withStock(recipe: Recipe | null, stock: StockId): Recipe {
 
 /** Reset the sliders, keeping stock, development, scanner, crop and masks. */
 export function resetAdjustments(recipe: Recipe): Recipe {
-  return { ...defaultRecipe(recipe.stock, recipe.scanner), profile: recipe.profile, lookEnabled: recipe.lookEnabled, pack: recipe.pack, lookAmount: recipe.lookAmount, lookBlend: recipe.lookBlend, push: recipe.push, lookSnapshot: recipe.lookSnapshot, crop: recipe.crop, masks: recipe.masks };
+  return { ...defaultRecipe(recipe.stock, recipe.scanner), profile: recipe.profile, lookEnabled: recipe.lookEnabled, pack: recipe.pack, lookAmount: recipe.lookAmount, lookBlend: recipe.lookBlend, push: recipe.push, scannerFromLook: recipe.scannerFromLook, lookSnapshot: recipe.lookSnapshot, crop: recipe.crop, masks: recipe.masks };
 }
 
 /**
@@ -268,7 +270,7 @@ export type SectionId = 'masks' | 'development' | 'scanner' | 'crop' | 'adjust' 
 const SECTION_FIELDS: Record<SectionId, (keyof Recipe)[]> = {
   masks: ['masks'],
   development: ['push'],
-  scanner: ['scanner'],
+  scanner: ['scanner', 'scannerFromLook'],
   crop: ['crop'],
   adjust: ['wb', ...SLIDERS.filter((d) => d.group === 'adjust').map((d) => d.key)],
   curve: ['curve'],
@@ -333,10 +335,11 @@ export function normalizeRecipe(input: unknown): Recipe | null {
     const v = read(def.key);
     if (typeof v === 'number' && Number.isFinite(v)) out[def.key] = clamp(v, def.min, def.max);
   }
+  if (typeof o.scannerFromLook === 'boolean') out.scannerFromLook = o.scannerFromLook;
   const snap = o.lookSnapshot as Recipe['lookSnapshot'];
   if (snap && typeof snap.id === 'string' && typeof snap.name === 'string' && Number.isSafeInteger(snap.revision)) {
     const settings = normalizeSettings(snap.settings);
-    if (settings) out.lookSnapshot = { id: snap.id, name: snap.name, revision: snap.revision, kind: snap.kind === 'lut' || snap.kind === 'look' ? snap.kind : settings.colorBalance || settings.curve ? 'look' : 'lut', settings };
+    if (settings) out.lookSnapshot = { id: snap.id, name: snap.name, revision: snap.revision, kind: snap.kind === 'lut' || snap.kind === 'look' ? snap.kind : settings.colorBalance || settings.curve || settings.scanner && settings.scanner !== 'straight' ? 'look' : 'lut', settings };
   }
   return captureLook(out);
 }

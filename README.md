@@ -1,6 +1,6 @@
 # Emulsion
 
-Film looks for digital photos. Open a folder, pick a film stock, push or pull it, choose a scanner, and fine-tune halation, glow and grain. Edits are saved in small sidecar files next to each photo; originals are never touched.
+Film looks for digital photos. Open a folder, choose a Look, adjust its Amount and tone character, and fine-tune scanner finish, halation, glow and grain. Edits are saved in small sidecar files next to each photo; originals are never touched.
 
 Emulsion is a desktop app: a Rust core (folders, decoding, thumbnails, sidecars, export) with a React interface and a GPU film pipeline written in GLSL.
 
@@ -21,7 +21,7 @@ Version 0.1. Working today:
 - Exposure, contrast, highlights, shadows, whites, blacks, vibrance, saturation, fade, halation, glow and vignette. Contrast, vibrance and saturation are ported from darktable's colour balance rgb; the tone curve, whites and blacks from darktable's sigmoid; highlights and shadows from darktable's tone equalizer.
 - Stock tiles that preview the current photo through each stock.
 - Copy and paste settings, apply to the selection or the whole folder. Undo and redo every edit (a slider drag is one step). Compare with the original by holding `\`, with the Before button, or side by side with a draggable split. Reset any panel section on its own.
-- Separate LUT and Look browsing: direct LUTs expose strength and blend; authored Looks expose one Amount. Create and revise Looks in a dedicated editor without changing the photo's own sliders. Previously applied versions keep their appearance when library entries change or are deleted.
+- One Look slot with a compact selector, favourites dropdown and a full browser with Colour/B&W filters and list/grid views. Bundled film looks and your custom looks appear together; favourites and browser layout are remembered. Create and revise Looks in a dedicated editor with an optional base LUT, colour/tone controls and scanner finish. LUT strength and blend belong to that editor. Applied versions retain their appearance when library entries change or are deleted; the photo can inherit or override the scanner finish beneath Look.
 - Presets save selected adjustment groups, optionally including the treatment, and apply to the selection in one undo step. Exposure and white balance are opt-in; crop, lens, camera profile and masks stay with each photo.
 - Virtual copies: keep several edits of one source photo, each with its own settings, crop, masks, stars, tags and heart. Right-click a photo in the Library, Images, filmstrip or Develop and choose **Create virtual copy**; the same menu can rename, switch or remove copies. Cmd/Ctrl `'` creates a copy of each selected frame. Copies live in the source photo's sidecar and export with distinct names. Creating, renaming and removing copies is undoable; removing a copy keeps the source file.
 - Camera RAW files through LibRaw 0.22.3, including Fujifilm X-Trans RAF and OM System/Olympus ORF. Thumbnails use the camera's embedded preview; the develop view decodes the RAW itself, white balanced as shot.
@@ -83,6 +83,9 @@ Each edited photo gets `<file name>.emulsion.json` beside it, for example `DSCF0
 npm run check     # typecheck, frontend tests, Rust tests
 npm test          # frontend tests only
 npm run probe     # build the engine probe (see docs/ARCHITECTURE.md, Testing)
+node tools/browser-tests/treatment-filters.mjs  # browser regression (Chrome; BROWSER_BIN overrides path)
+node tools/browser-tests/treatment-filters.mjs scanner-finish  # look inheritance and overrides
+node tools/browser-tests/treatment-filters.mjs folder-restart  # folder tree restoration after restart
 ```
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how the app and the film pipeline fit together, and where new modules go.

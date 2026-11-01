@@ -50,7 +50,7 @@ const T3M: Partial<Record<StockId, string>> = {
 };
 
 const bundledLooks = (pack: PackId): LookPack['looks'] => Object.fromEntries(
-  [...catalogue, ...LOCAL_LOOKS].filter(s => s.pack === pack).map(s => [s.id, { file: s.file, category: s.category, name: s.name }]),
+  [...catalogue, ...LOCAL_LOOKS].filter(s => s.pack === pack).map(s => [s.id, { file: s.file, category: s.category, name: s.name, kind: 'look' as const }]),
 );
 
 /** A pack served from the ignored local-looks folder, only in development. */
@@ -61,12 +61,12 @@ const localPack = (id: PackId, name: string, hint: string): LookPack[] =>
 
 export const PACKS: LookPack[] = [
   { id: 'custom', name: 'Custom looks', hint: 'Your own looks: a LUT and hidden colour and tone settings, with one Amount.', looks: {}, user: true },
-  { id: 'files', name: 'LUT file', hint: 'A LUT file of your own, used directly.', looks: {}, user: true, hidden: true },
+  { id: 'files', name: 'Imported LUTs', hint: 'LUT files available as a look’s optional base.', looks: {}, user: true, hidden: true },
   {
     id: 't3mujinpack',
     name: 't3mujinpack',
     hint: 'Film looks made by eye in darktable by João Almeida, applied as LUTs.',
-    looks: Object.fromEntries(Object.entries(T3M).map(([s, name]) => [s, { file: `t3mujinpack - ${name}.png` }])),
+    looks: Object.fromEntries(Object.entries(T3M).map(([s, name]) => [s, { file: `t3mujinpack - ${name}.png`, kind: 'look' as const }])),
   },
   {
     id: 'gmic-film', name: "G’MIC / Pat David", hint: 'Pat David’s film emulations, distributed as Cube LUTs by G’MIC and YahiaAngelo.',
@@ -159,9 +159,9 @@ function put(pack: 'custom' | 'files', id: StockId, look: PackLook) {
 }
 
 /** Add a custom look (or update it); without settings it holds the place of one not installed. */
-export function registerCustomLook(id: string, name: string, settings: ProfileSettings | null, kind?: 'lut' | 'look', revision = 1) {
-  put('custom', customLookId(id), settings ? { file: '', name, category: PACK.custom.name, settings, kind: kind ?? (settings.colorBalance || settings.curve ? 'look' : 'lut'), revision } : { file: '', name, missing: true });
-  if (settings?.lut?.kind === 'file') registerFileLut(settings.lut.hash);
+export function registerCustomLook(id: string, name: string, settings: ProfileSettings | null, _legacyKind?: 'lut' | 'look', revision = 1) {
+  put('custom', customLookId(id), settings ? { file: '', name, category: PACK.custom.name, settings, kind: 'look', revision } : { file: '', name, missing: true });
+  if (settings?.lut?.kind === 'file') registerFileLut(settings.lut.hash, name);
 }
 
 export function unregisterCustomLook(id: string) {
@@ -169,8 +169,8 @@ export function unregisterCustomLook(id: string) {
 }
 
 /** A LUT file of the user's own, chosen directly while a look is edited or after one is detached. */
-export function registerFileLut(hash: string) {
-  if (!PACK.files.looks[fileLutId(hash)]) put('files', fileLutId(hash), { file: hash, name: 'LUT file' });
+export function registerFileLut(hash: string, name?: string) {
+  if (!PACK.files.looks[fileLutId(hash)] || name) put('files', fileLutId(hash), { file: hash, name: name ?? `LUT ${hash.slice(0, 8)}`, kind: 'lut' });
 }
 
 /**
@@ -196,3 +196,27 @@ export function resolveUserLook(pack: unknown, stock: unknown): { pack: PackId; 
 /** The hidden settings of the recipe's look when it is a custom look, else null. */
 export const profileSettingsFor = (recipe: Recipe | null): ProfileSettings | null =>
   recipe?.lookEnabled ? recipe.lookSnapshot?.settings ?? PACK[recipe.pack]?.looks[recipe.stock]?.settings ?? null : null;
+
+/** Every selectable library entry is a Look; bundled entries are LUT-only Looks. */
+export function lookSettings(pack: PackId, stock: StockId): ProfileSettings | null {
+  const entry = PACK[pack]?.looks[stock];
+  if (!entry || entry.missing) return null;
+  if (entry.settings) return entry.settings;
+  if (!entry.file) return null;
+  return { colorBalance: null, curve: null, lut: pack === 'files'
+    ? { kind: 'file', hash: entry.file, amount: 1 }
+    : { kind: 'pack', pack, stock, amount: 1 } };
+}
+
+/** Only the raw LUT ingredient is selectable in the Look editor. */
+export function lutBase(pack: PackId, stock: StockId) {
+  const settings = lookSettings(pack, stock);
+  return settings && !settings.colorBalance && !settings.curve && (!settings.scanner || settings.scanner === 'straight') ? settings.lut : null;
+}
+
+export function withLook(recipe: Recipe, pack: PackId, stock: StockId): Recipe {
+  const settings = lookSettings(pack, stock);
+  if (!settings) return recipe;
+  return { ...recipe, pack, stock, lookEnabled: true, lookAmount: 100, scannerFromLook: true,
+    lookSnapshot: { id: stock, name: lookName(pack, stock), kind: 'look', revision: PACK[pack].looks[stock]?.revision ?? 1, settings: structuredClone(settings) } };
+}

@@ -11,7 +11,8 @@ import { profileLabel, useProfileVersion } from '../engine/profilestore';
 import { LensControls } from './LensControls';
 import { ColourGradingControls } from './ColourGrading';
 import { BRIGHT_RANGE, COLOR_CHANNELS, DEFAULT_STOCK, HUE_DEGREES, SAT_RANGE, SLIDER, SLIDERS, defaultRecipe, tidyColor, type ColorAdjust, resetAdjustments, resetSection, sectionChanged, sliderDefault, withSettingsFrom, type Recipe, type SectionId, type SliderDef } from '../film/recipe';
-import { SCANNER, SCANNERS, type ScannerId } from '../film/scanners';
+import type { ScannerId } from '../film/scanners';
+import { ScannerFinishControls } from './ScannerFinish';
 import { STOCK } from '../film/stocks';
 import {
   activePhoto, copySettings, editActive, editRecipes, pasteSettings, redo, showToast, targets, undo, useApp,
@@ -201,8 +202,11 @@ export function Panel() {
   useEffect(() => { if (grouped && controlsBody.current) controlsBody.current.scrollTop = 0; }, [workspace.group, grouped, !!editing]);
 
   const base = recipe ?? defaultRecipe();
-  const applyToTargets = (change: (r: Recipe | null) => Recipe) => editRecipes(targets().map(photoId), r => change(r));
-  const pickScanner = (scanner: ScannerId) => applyToTargets((r) => ({ ...(r ?? defaultRecipe()), scanner }));
+  const pickScanner = (choice: ScannerId | 'look') => {
+    const change = (r: Recipe | null): Recipe => choice === 'look' ? { ...(r ?? defaultRecipe()), scannerFromLook: true } : { ...(r ?? defaultRecipe()), scanner: choice, scannerFromLook: false };
+    if (editing) editActive(change, 'Look scanner finish');
+    else editRecipes(targets().map(photoId), change, choice === 'look' ? 'Use look scanner finish' : 'Scanner finish');
+  };
   const setSlider = (key: SliderDef['key'], v: number) => editActive((r) => ({ ...(r ?? defaultRecipe()), [key]: v }));
 
   /** A section's Reset, offered only when the section differs from its defaults. */
@@ -213,17 +217,14 @@ export function Panel() {
 
   const rows = (keys: readonly string[]) => <div className="sliders">{keys.map(key => SLIDER[key as SliderDef['key']]).map(d => <SliderRow key={d.key} def={d} recipe={base} onChange={setSlider} />)}</div>;
   const sliderGroup = (group: SliderDef['group']) => SLIDERS.filter(d => d.group === group).map(d => d.key);
-  const scanner = <Section id="scanner" title="Scanner finish" summary={base.scanner === 'straight' ? 'None' : SCANNER[base.scanner].name} onReset={resetFor('scanner', 'Scanner')}>
-    <Segmented label="Scanner finish" options={[SCANNER.straight, ...SCANNERS.filter(s => s.id !== 'straight')].map(s => ({ value: s.id, label: s.id === 'straight' ? 'None' : s.name }))} value={base.scanner} onChange={pickScanner} />
-    <p className="hint">{base.scanner === 'straight' ? 'No scanner colour or sharpening applied.' : SCANNER[base.scanner].hint}</p>
-  </Section>;
+  const scanner = <ScannerFinishControls recipe={base} editor={!!editing} onChange={pickScanner} />;
   const sections: Record<string, ReactNode> = {
     profile: <Section id="profile" title="Camera Profile" summary={profileLabel(base.profile)}>
       <CameraProfileControls raw={photo.raw} camera={photo.camera??null} value={base.profile} onChange={profile=>editActive(r=>({...(r??defaultRecipe()),profile}), 'Camera profile')} />
     </Section>,
-    stock: <Section defaultOpen id="stock" title="Treatment" summary={base.lookEnabled ? base.lookSnapshot?.name ?? lookName(base.pack, base.stock) : 'None'}><TreatmentControls key={photoId(photo)} photo={photo} /></Section>,
+    stock: !editing && <Section defaultOpen id="stock" title="Look" summary={base.lookEnabled ? base.lookSnapshot?.name ?? lookName(base.pack, base.stock) : 'None'}><TreatmentControls key={photoId(photo)} photo={photo} /></Section>,
     presets: <Section defaultOpen id="presets" title="Presets"><PresetControls /></Section>,
-    scanner,
+    scanner: editing && scanner,
     whitebalance: grouped && <Section id="whitebalance" title="White Balance" onReset={resetFor('whitebalance', 'White balance')}><WhiteBalanceControls recipe={base} white={photo.white} /></Section>,
     exposure: grouped && <Section id="exposure" title="Exposure" onReset={resetFor('exposure', 'Exposure')}>{rows(['exposure', 'contrast', 'toneCharacter', 'saturation', 'vibrance'])}</Section>,
     hdr: grouped && <Section id="hdr" title="High Dynamic Range" onReset={resetFor('hdr', 'High Dynamic Range')}>{rows(['highlights', 'shadows', 'whites', 'blacks'])}</Section>,
@@ -244,8 +245,8 @@ export function Panel() {
     masks: <Section id="masks" title="Masks" summary={recipe?.masks.length ? `${recipe.masks.length} ${recipe.masks.length === 1 ? 'mask' : 'masks'}` : 'None'} onReset={resetFor('masks', 'Masks')}><MaskControls /></Section>,
     crop: !grouped && <Section id="crop" title="Crop" summary={cropSummary(recipe?.crop ?? null)} onReset={resetFor('crop', 'Crop')}><CropControls recipe={recipe} /></Section>,
   };
-  const classic = view === 'develop' ? ['profile', 'stock', 'presets', 'lens', 'crop', 'adjust', 'curve', 'color', 'grading', 'masks', 'detail', 'optics', 'grain', 'scanner'] : ['profile', 'stock', 'presets', 'scanner'];
-  const visible: readonly string[] = editing ? ['look-editor', 'look-tone', 'curve', 'grading'] : grouped ? CONTROL_GROUPS.find(g => g.id === workspace.group)!.sections : classic;
+  const classic = view === 'develop' ? ['profile', 'stock', 'presets', 'lens', 'crop', 'adjust', 'curve', 'color', 'grading', 'masks', 'detail', 'optics', 'grain'] : ['profile', 'stock', 'presets'];
+  const visible: readonly string[] = editing ? ['look-editor', 'look-tone', 'curve', 'grading', 'scanner'] : grouped ? CONTROL_GROUPS.find(g => g.id === workspace.group)!.sections : classic;
   // Group configuration owns both membership and ordering. Keep other sections mounted so
   // switching tabs preserves each colour module's local view state.
   if (editing) {

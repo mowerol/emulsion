@@ -2,7 +2,7 @@
 // Recipe to shader uniforms. Pure, so it can be tested without a GPU.
 
 import { STOCK } from '../film/stocks';
-import { SCANNER } from '../film/scanners';
+import { scannerFinish } from '../film/scannerfinish';
 import type { Recipe } from '../film/recipe';
 import { REC2020_TO_SRGB, SRGB_TO_REC2020, columnMajor, mulVec } from './color';
 import { NEUTRAL, packCurve, sigmoidCurve, toneCurveFor, whiteTargetFor } from './tone';
@@ -122,7 +122,7 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
   // The look's LUT, applied to the camera profile's print.
   const lut = recipe.lookEnabled ? ctx.look ?? null : null;
   const s = STOCK[recipe.stock];
-  const sc = SCANNER[recipe.scanner];
+  const sc = scannerFinish(recipe);
   const wbMat = recipe.wb ? columnMajor(whiteBalanceMatrix(ctx.white ?? D65_XY, whiteXy(recipe.wb.temperature, recipe.wb.tint))) : IDENTITY;
 
   const teqOn = recipe.highlights !== 0;
