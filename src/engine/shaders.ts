@@ -13,6 +13,7 @@ import tone from './shaders/stages/tone.glsl?raw';
 import input from './shaders/stages/input.glsl?raw';
 import exposure from './shaders/stages/exposure.glsl?raw';
 import colorbalance from './shaders/stages/colorbalance.glsl?raw';
+import masks from './shaders/stages/masks.glsl?raw';
 import toneequalizer from './shaders/stages/toneequalizer.glsl?raw';
 import toneeqmask from './shaders/toneeqmask.frag.glsl?raw';
 import sample from './shaders/sample.frag.glsl?raw';
@@ -46,6 +47,7 @@ export const SHADER_FILES: Record<string, string> = {
   'stages/input.glsl': input,
   'stages/exposure.glsl': exposure,
   'stages/colorbalance.glsl': colorbalance,
+  'stages/masks.glsl': masks,
   'stages/toneequalizer.glsl': toneequalizer,
   'stages/lens.glsl': lens,
   'stages/optics.glsl': optics,

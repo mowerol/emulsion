@@ -23,7 +23,9 @@ import {
 import { isIdentity } from '../film/curve';
 import { scaledColorBalance } from '../film/creative';
 import { profileSettingsFor } from '../film/looks';
-import { D65_XY, whiteBalanceMatrix, whiteXy, type Xy } from './whitebalance';
+import { D65_XY, clampWhiteBalance, temperatureTint, whiteBalanceMatrix, whiteXy, type Xy } from './whitebalance';
+import { packShapes } from './masks';
+import { maskActive, type Mask } from '../film/masks';
 import { effectiveIso, zoomForIso } from './grain';
 import { EXPOSURE_BOOST, FEATHERING, SMOOTHING, bandFactors, bandGains } from './toneequalizer';
 import { clarityParams } from './locallaplacian';
@@ -57,6 +59,8 @@ export interface RenderContext {
   white?: Xy | null;
   /** The stock's LUT in the recipe's pack, when it has one and it has loaded. */
   look?: LoadedLut | null;
+  /** Show this mask (its index in the recipe's list) as an overlay. */
+  maskShow?: number | null;
 }
 
 /** Texture unit of the look LUT (0-6 and 8-10 are taken, 7 is for uploads). */
@@ -106,11 +110,12 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uHalThreshold: HALATION_THRESHOLD,
     uLutTex: LUT_UNIT,
     uLutOn: 0,
+    uLutColor: 0,
     uDcpOn: 0,
     uDcpHasCurve: 0,
   };
   if (!recipe || ctx.compare) {
-    return { ...base, uCompare: 1, uExposure: 0, uExpBlack: 0, uWbMat: IDENTITY, uTeqOn: 0, uCurveOn: 0, uClarityOn: 0, uTextureOn: 0, uUsmOn: 0, uCeOn: 0 };
+    return { ...base, ...NO_MASKS, uCompare: 1, uExposure: 0, uExpBlack: 0, uWbMat: IDENTITY, uTeqOn: 0, uCurveOn: 0, uClarityOn: 0, uTextureOn: 0, uUsmOn: 0, uCeOn: 0 };
   }
 
   // The look's LUT, applied to the camera profile's print.
@@ -132,11 +137,15 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uCbP: cbUniform(cbCommit({ ...sliderParams(cb), ...recipe.grading })),
     uCbL: profileCb ? cbUniform(cbCommit(profileCb)) : CB_NONE,
     uCbLOn: profileCb ? 1 : 0,
+    ...maskUniforms(recipe.masks, recipe, ctx),
     uCompare: 0,
     uExposure: recipe.exposure,
     uCurveOn: isIdentity(recipe.curve) && (isIdentity(profile?.curve ?? null) || recipe.lookAmount === 0) ? 0 : 1,
     uTeqOn: teqOn ? 1 : 0,
     uClarityOn: recipe.clarity !== 0 ? 1 : 0,
+    // Darktable estimates this from the brightest pixels in the most hazy
+    // part of the frame. The shader uses the scene white as the stable GPU
+    // equivalent; keeping it explicit makes the recovery equation identical.
     uTextureOn: recipe.texture !== 0 ? 1 : 0,
     uTextureMix: recipe.texture / 100,
     uUsmOn: recipe.sharpen > 0 ? 1 : 0,
@@ -165,7 +174,46 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uScHigh: sc.highlightTint,
     uFade: (recipe.fade / 100) * 0.16,
     // A custom look's LUT at its share within the look, times the look's Amount.
-    ...(lut ? { uLutOn: 1, uLutId: lut.id, uLutAmount: (recipe.lookAmount / 100) * (profile?.lut?.amount ?? 1) } : {}),
+    ...(lut ? {
+      uLutOn: 1, uLutId: lut.id, uLutAmount: (recipe.lookAmount / 100) * (profile?.lut?.amount ?? 1),
+      // A custom look blends its LUT as it was saved; a LUT chosen directly, as the photo says.
+      uLutColor: (profile ? profile.lut?.blend === 'color' : recipe.lookBlend === 'color') ? 1 : 0,
+    } : {}),
+  };
+}
+
+const NO_MASKS: Uniforms = { uMaskCount: 0, uMaskShapeCount: 0, uMaskShow: -1 };
+
+/**
+ * The masks' shapes and their adjustments. Temperature moves the photo's white by that many
+ * mireds (positive warmer) and tint adds to its tint; the mask's CAT16 goes from the photo's
+ * white to that one, which is the photo's own white balance with the moved white, inside the mask.
+ */
+export function maskUniforms(masks: Mask[], recipe: Recipe, ctx: Pick<RenderContext, 'white' | 'maskShow'>): Uniforms {
+  const show = ctx.maskShow ?? -1;
+  const { shapes, count, index } = packShapes(masks, show);
+  if (!index.length) return NO_MASKS;
+  const asShot = ctx.white ?? D65_XY;
+  const chosen = recipe.wb ? whiteXy(recipe.wb.temperature, recipe.wb.tint) : asShot;
+  let chosenTT: { temperature: number; tint: number } | null = null;
+  const meta: number[] = [];
+  const wb: number[] = [];
+  const cb: number[] = [];
+  for (const i of index) {
+    // A mask that is only shown changes nothing.
+    const m = maskActive(masks[i]) ? masks[i] : { ...masks[i], exposure: 0, temperature: 0, tint: 0, contrast: 0, vibrance: 0, saturation: 0, shadows: 0 };
+    const cbOn = m.contrast !== 0 || m.vibrance !== 0 || m.saturation !== 0 || m.shadows !== 0;
+    meta.push(Math.min(1, Math.max(0, m.opacity / 100)), 2 ** m.exposure, cbOn ? 1 : 0, 0);
+    if (m.temperature !== 0 || m.tint !== 0) {
+      chosenTT ??= recipe.wb ?? temperatureTint(chosen);
+      const moved = clampWhiteBalance({ temperature: 1e6 / (1e6 / chosenTT.temperature - m.temperature), tint: chosenTT.tint + m.tint });
+      wb.push(...columnMajor(whiteBalanceMatrix(chosen, whiteXy(moved.temperature, moved.tint))));
+    } else wb.push(...IDENTITY);
+    cb.push(...(cbOn ? cbUniform(cbCommit(sliderParams(colorBalanceParams(m.contrast, m.vibrance, m.saturation, m.shadows)))) : CB_NONE));
+  }
+  return {
+    uMaskCount: index.length, uMaskShapeCount: count, uMaskShapes: shapes, uMaskMeta: meta, uMaskWb: wb, uMaskCb: cb,
+    uMaskShow: index.indexOf(show),
   };
 }
 

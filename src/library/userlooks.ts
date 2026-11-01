@@ -124,12 +124,13 @@ export function lutSourceOf(r: Recipe): LutSource | null {
   const amount = r.lookAmount / 100;
   const look = PACK[r.pack]?.looks[r.stock];
   if (!look || look.missing) return null;
-  if (r.pack === 'files') return { kind: 'file', hash: look.file, amount };
+  const blend = r.lookBlend === 'color' ? { blend: 'color' as const } : {};
+  if (r.pack === 'files') return { kind: 'file', hash: look.file, amount, ...blend };
   if (r.pack === 'custom') {
     if (hasSettings(look.settings) || !look.settings?.lut) return null;
     return { ...look.settings.lut, amount: look.settings.lut.amount * amount };
   }
-  return { kind: 'pack', pack: r.pack, stock: r.stock, amount };
+  return { kind: 'pack', pack: r.pack, stock: r.stock, amount, ...blend };
 }
 
 /** How many looks a collection offers. */

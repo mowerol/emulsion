@@ -8,6 +8,7 @@
 #include "stages/exposure.glsl"
 #include "stages/toneequalizer.glsl"
 #include "stages/colorbalance.glsl"
+#include "stages/masks.glsl"
 
 uniform sampler2D uSrc;
 uniform vec2 uTexel;
@@ -20,7 +21,8 @@ void main() {
   for (int i = 0; i < 4; i++) {
     vec2 o = vec2((i == 0 || i == 2) ? -1.0 : 1.0, i < 2 ? -1.0 : 1.0);
     vec2 uv = vUv + o * uTexel;
-    vec3 x = stageColorBalance(stageToneEqualizer(stageExposure(stageInput(texture(uSrc, uv))), uv));
+    computeMasks(uv, vec2(textureSize(uSrc, 0)));
+    vec3 x = stageMaskColorBalance(stageColorBalance(stageToneEqualizer(stageMaskExposure(stageExposure(stageInput(texture(uSrc, uv)))), uv)));
     float L = dot(x, LUMA_W);
     h += max(L - uHalThreshold, 0.0);
     g += x * smoothstep(0.35, 1.6, L);

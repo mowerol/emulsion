@@ -14,6 +14,8 @@ describe('develop uniforms', () => {
     expect(u.uLutOn).toBe(1);
     expect(u.uLutAmount).toBeCloseTo(0.4, 12);
     expect(developUniforms({ ...r, lookEnabled: false }, { ...ctx, look: lut }).uLutOn).toBe(0);
+    expect(u.uLutColor).toBe(0);
+    expect(developUniforms({ ...r, lookBlend: 'color' }, { ...ctx, look: lut }).uLutColor).toBe(1);
     const own = developUniforms(r, ctx);
     expect(own.uLutOn).toBe(0);
     expect(own.uLutAmount).toBeUndefined();
@@ -74,6 +76,7 @@ describe('develop uniforms', () => {
     expect(needsPasses(u).texture).toBe(true);
     expect(u.uTextureMix).toBe(-0.4);
   });
+
 
   it('runs the tone equalizer only when Highlights is set', () => {
     expect(needsPasses(developUniforms(defaultRecipe(), ctx)).toneEqualizer).toBe(false);

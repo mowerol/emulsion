@@ -54,6 +54,12 @@ describe('recipes', () => {
     expect(withStock(null, 'ektar100').grainIso).toBe(defaultRecipe().grainIso);
   });
 
+  it('reads the LUT blend, normal unless it says colour', () => {
+    expect(normalizeRecipe({ stock: 'portra400', pack: 't3mujinpack', lookBlend: 'color' })!.lookBlend).toBe('color');
+    expect(normalizeRecipe({ stock: 'portra400', pack: 't3mujinpack', lookBlend: 'screen' })!.lookBlend).toBe('normal');
+    expect(normalizeRecipe({})!.lookBlend).toBe('normal');
+  });
+
   it('reset keeps stock, development and scanner', () => {
     const r = { ...defaultRecipe('gold200', 'flatbed'), push: 2 as const, contrast: 30 };
     const out = resetAdjustments(r);

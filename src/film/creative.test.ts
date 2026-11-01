@@ -93,6 +93,10 @@ describe('creative profiles', () => {
     expect(draft).toMatchObject({ contrast: 20, vibrance: -10, saturation: 15, shadows: 30, curve: S, pack: 'files', stock: fileLutId(hash), lookEnabled: true, lookAmount: 80 });
     expect(settingsFromRecipe(draft, { kind: 'file', hash, amount: draft.lookAmount / 100 })).toEqual(look);
     expect(recipeFromSettings(defaultRecipe(), { colorBalance: null, curve: null, lut: null })).toMatchObject({ lookEnabled: false, stock: 'neutral' });
+    // A look's colour-only blend comes onto the photo's Blend control, and back.
+    const colour = recipeFromSettings(defaultRecipe(), { ...look, lut: { kind: 'file', hash, amount: 1, blend: 'color' } });
+    expect(colour.lookBlend).toBe('color');
+    expect(normalizeSettings({ lut: { kind: 'file', hash, amount: 1, blend: 'color' } })!.lut?.blend).toBe('color');
   });
 
   it('detaches a look at part strength as fixed settings', () => {

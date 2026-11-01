@@ -5,8 +5,9 @@ import { EDIT_FILTERS, NO_FILTER, isFiltering, matchCount } from '../library/fil
 import { LABELS } from '../library/marks';
 import { Segmented } from './common';
 
-/** What the Library grid and the filmstrip show: edited or not, stars and up, hearted, colour tags. */
-export function FilterBar() {
+/** What the Library grid and the filmstrip show: edited or not, stars and up, hearted, colour tags.
+ *  Without `summary` the match count and Clear are left to the caller (the Images pane puts them in its heading). */
+export function FilterBar({ summary = true }: { summary?: boolean }) {
   const photos = useApp((s) => s.photos);
   const filter = useApp((s) => s.filter);
   const matching = useMemo(() => matchCount(photos, filter), [photos, filter]);
@@ -57,7 +58,7 @@ export function FilterBar() {
           );
         })}
       </span>
-      {on && (
+      {summary && on && (
         <>
           <span className="filter-count" aria-live="polite">
             {matching === 0 ? 'No photos match' : `${matching} of ${photos.length}`}

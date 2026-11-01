@@ -91,6 +91,13 @@ Template:
 
 Implemented from the papers, not from code.
 
+### Color blend mode, from darktable
+- Upstream: https://github.com/darktable-org/darktable, `src/develop/blends/blendif_rgb_hsl.c` (`_blend_color`, `_CLAMP_XYZ`) and `src/common/colorspaces_inline_conversions.h` (`dt_RGB_2_HSL`, `dt_HSL_2_RGB`, `_dt_RGB_2_Hue`, `_dt_Hue_2_RGB`), commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release 5.6.2)
+- Licence: GPL-3.0-or-later
+- Copyright: Copyright (C) 2011-2024 darktable developers. Copyright (C) 2009-2026 darktable developers (colour space conversions)
+- Ported to: `src/engine/blend.ts` (reference) and `src/engine/shaders/stages/lut.glsl`
+- Changes: translated from C to TypeScript and GLSL; only the color mode, used as a look's LUT "Colour" blend with the look's Amount as the opacity. As darktable's RGB (display) blending does, it works on the pipe's linear RGB (Emulsion's Rec.2020), the input being the camera profile's print and the output the LUT's
+
 ### Grain, from darktable
 - Upstream: https://github.com/darktable-org/darktable, `src/iop/grain.c`, commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release 5.6.2)
 - Licence: GPL-3.0-or-later
@@ -178,3 +185,10 @@ Film stock and scanner names (Kodak Portra, Gold, Ektar, Tri-X; Fujifilm Superia
 - Copyright: Copyright (C) 2019-2026 darktable developers (lens); Copyright (C) 2009-2026 darktable developers (EXIF); Copyright (C) 2011-2023 darktable developers (DNG opcodes)
 - Ported to: `src-tauri/src/lens.rs`, `src/engine/lenscorrection.ts`, `src/engine/shaders/lenscorrect.frag.glsl`
 - Changes: bounded TIFF/maker-note reader in Rust instead of Exiv2. Metadata v2 radial spline construction and autoscaling in TypeScript; source-space vignette correction and bilinear channel resampling in a cached GPU pass before downstream processing. Pixel centre transformed to match already-oriented RAWs. Camera channels are reconstructed using the decoder matrices before CA; signed working values are retained until correction. Only centred, radial DNG WarpRectilinear/FixVignetteRadial supported; noncentral/tangential and unsupported mandatory opcodes are flagged. DNG exposes a combined warp switch and strength, as upstream's model combines distortion and colour alignment. No lensfun or Adobe LCP implementation in this layer.
+
+### Drawn masks (gradient, ellipse, groups) and mask blending, from darktable
+- Upstream: https://github.com/darktable-org/darktable, `src/develop/masks/gradient.c` (`_gradient_get_mask_roi`), `src/develop/masks/ellipse.c` (`_ellipse_get_mask_roi`, `_fill_mask`), `src/develop/masks/group.c` (`_group_get_mask_roi`, `_combine_masks_union`, `_intersect`, `_difference`, `_sum`, `_exclusion`), `src/develop/blend.c` (global opacity) and `src/develop/blends/blendif_rgb_jzczhz.c` (`_blend_normal`), with defaults from `data/darktableconfig.xml.in`, commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release 5.6.2)
+- Licence: GPL-3.0-or-later
+- Copyright: Copyright (C) 2013-2025 darktable developers
+- Ported to: `src/engine/masks.ts` (reference) and `src/engine/shaders/stages/masks.glsl`; shapes and editing in `src/film/masks.ts`, `src/film/maskgeometry.ts`, `src/ui/MaskOverlay.tsx`
+- Changes: translated from C to TypeScript and GLSL. Shapes are evaluated exactly per pixel on the GPU rather than on darktable's interpolated grid and erf table; erf is Abramowitz and Stegun 7.1.26. A mask carries its own exposure and white balance (applied after the photo's exposure, as a masked darktable exposure instance with Emulsion's CAT16 white balance) and a colour balance rgb instance (after the photo's own), each blended normally at the mask's value. Shape editing follows Lightroom's gestures (drag a linear gradient from full to none, a radial from its centre) mapped onto darktable's parameters

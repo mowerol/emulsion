@@ -22,6 +22,7 @@ import type { Source } from '../engine/engine';
 import { MOD, Segmented } from './common';
 import { framePixels } from '../film/crop';
 import { PhotoInfo } from './PhotoInfo';
+import { MaskControls } from './MaskControls';
 import { Histogram } from './Histogram';
 import { CurveEditor } from './CurveEditor';
 import { CONTROL_GROUPS, setWorkspace, useWorkspace } from './workspace';
@@ -457,6 +458,11 @@ export function Panel() {
         </optgroup>)}
       </select></div> : <p className="hint">{base.lookEnabled ? PACK[base.pack].hint : 'Optional film look, applied after the base profile.'}</p>}
       {base.lookEnabled && PACK[base.pack].looks[base.stock] && <SliderRow def={SLIDER.lookAmount} recipe={base} onChange={setSlider} />}
+      {base.lookEnabled && PACK[base.pack].looks[base.stock] && base.pack !== 'custom' && <>
+        <div className="grain-speed"><label>Blend</label><Segmented label="LUT blend" options={[{ value: 'normal', label: 'Normal' }, { value: 'color', label: 'Colour' }]} value={base.lookBlend}
+          onChange={(lookBlend) => applyToTargets((r) => ({ ...(r ?? defaultRecipe()), lookBlend }))} /></div>
+        {base.lookBlend === 'color' && <p className="hint">Takes only the LUT's colour (hue and saturation) and keeps the photo's tones, so Highlights, Shadows and the curve shape them (darktable's color blend mode).</p>}
+      </>}
       {base.lookEnabled && PACK[base.pack].looks[base.stock]?.missing && <p className="hint" role="alert">This photo's custom look isn't installed (it was deleted, or was made on another computer).</p>}
       {editing ? <div className="actions">
         <button type="button" className="btn" onClick={importLut}>Use a LUT file…</button>
@@ -499,9 +505,10 @@ export function Panel() {
     optics: <Section id="optics" title="Optics" onReset={resetFor(grouped ? 'refine-optics' : 'optics', 'Optics')}>{rows(grouped ? [...sliderGroup('optics'), 'fade'] : sliderGroup('optics'))}</Section>,
     grain: <Section id="grain" title="Grain" onReset={resetFor('grain', 'Grain')}><GrainSpeed recipe={base} />{rows(sliderGroup('grain'))}</Section>,
     lens: photo.raw && <Section id="lens" title="Lens corrections" summary={photo.lens?.correction ? (base.lens?.enabled === false ? 'Off' : 'Embedded profile') : 'No profile'} onReset={resetFor('lens', 'Lens')}><LensControls recipe={base} metadata={photo.lens} /></Section>,
+    masks: <Section id="masks" title="Masks" summary={recipe?.masks.length ? `${recipe.masks.length} ${recipe.masks.length === 1 ? 'mask' : 'masks'}` : 'None'} onReset={resetFor('masks', 'Masks')}><MaskControls /></Section>,
     crop: !grouped && <Section id="crop" title="Crop" summary={cropSummary(recipe?.crop ?? null)} onReset={resetFor('crop', 'Crop')}><CropControls recipe={recipe} /></Section>,
   };
-  const classic = view === 'develop' ? ['profile', 'stock', 'development', 'scanner', 'lens', 'crop', 'adjust', 'curve', 'color', 'grading', 'detail', 'optics', 'grain'] : ['profile', 'stock', 'development', 'scanner'];
+  const classic = view === 'develop' ? ['profile', 'stock', 'development', 'scanner', 'lens', 'crop', 'adjust', 'curve', 'color', 'grading', 'masks', 'detail', 'optics', 'grain'] : ['profile', 'stock', 'development', 'scanner'];
   const visible: readonly string[] = grouped ? CONTROL_GROUPS.find(g => g.id === workspace.group)!.sections : classic;
   // Group configuration owns both membership and ordering. Keep other sections mounted so
   // switching tabs preserves each colour module's local view state.

@@ -71,9 +71,9 @@ and tone settings, and optionally a LUT: a system look by reference, or a LUT fi
   look is chosen, editable afterwards like any slider. This is where grain belongs when a look wants
   it. Needs presets first; then a look links one. Decide what happens to those sliders on switching
   looks (proposal: the new look's recipe replaces the old one's groups, one undo step).
-- **Colour-only LUT blending:** a per-look option to take only the LUT's colour and keep the base's
-  tones, darktable's "color" blend mode, so highlights stay with the tone controls. Port darktable's
-  blend mode code (`src/develop/blends/`), per the porting rule.
+- ~~**Colour-only LUT blending.**~~ Built 2026-11-01: Film stock → Blend: Normal / Colour, ported
+  from darktable's `_blend_color` (RGB display blending, on the pipe's linear RGB). Stored on the
+  photo (`lookBlend`) for a LUT chosen directly, and inside a custom look's LUT (`blend: 'color'`).
 
 ## Open: Oli to decide
 
@@ -112,4 +112,4 @@ and tone settings, and optionally a LUT: a system look by reference, or a LUT fi
    sliders (one undo step); it renders within 1/255 of before (probe `savedProfile`). Not yet: saving a
    profile on top of another saved profile (the button explains), editing a profile's settings.
 5. Export colour grade to `.cube`.
-6. Recipes attached to looks (after presets); colour-only LUT blending.
+6. Recipes attached to looks (after presets).

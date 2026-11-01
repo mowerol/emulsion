@@ -8,7 +8,8 @@ import { ProfileGpu } from '../../src/engine/profilegpu';
 import { parsePayload } from '../../src/backend/api';
 import lensFixtures from '../../src/engine/fixtures/lens-metadata.json';
 import { LENS_DEFAULTS, lensCenter, lensColourUniforms, lensCorrectPixels, lensSpline, lensUniforms, type LensMetadata } from '../../src/engine/lenscorrection';
-import { useWorkspace } from '../../src/ui/workspace';
+import { setWorkspace, useWorkspace } from '../../src/ui/workspace';
+import App from '../../src/App';
 import { Engine, colorEqParams, type Source } from '../../src/engine/engine';
 import { updateGrade } from '../../src/film/grading';
 import { defaultRecipe as recipeDefaults, type Recipe } from '../../src/film/recipe';
@@ -50,6 +51,11 @@ import { loadLut, setLooksBase } from '../../src/engine/lutstore';
 import { tetrahedral, textureData, type Clut } from '../../src/engine/lut3d';
 import { PACKS, customLookId, lookFile, registerCustomLook, stockForPack } from '../../src/film/looks';
 import { normalizeSettings, settingsFromRecipe, withoutProfileFields } from '../../src/film/creative';
+import { blendColor } from '../../src/engine/blend';
+import { maskValue, blendNormal } from '../../src/engine/masks';
+import { newEllipse, newGradient, newMask, type Mask } from '../../src/film/masks';
+import { MaskOverlay } from '../../src/ui/MaskOverlay';
+import { setMaskUi } from '../../src/ui/maskui';
 
 
 // Historical probe cases intentionally keep the pre-profile rendering contract.
@@ -129,6 +135,82 @@ void main() { vec3 c = uIn[int(gl_FragCoord.x)]; outColor = vec4(${call}, 1.0); 
 }
 
 const stageCtx = { width: 16, height: 1, seed: 1, inputMode: InputMode.SceneLinear, store: 1 };
+
+/**
+ * Masks on the GPU against masks.ts: every mask's value over an 8 × 8 grid of a 3:2 source, then
+ * a colour through the masked exposure, white balance and colour balance instances.
+ */
+function probeMasks(eng: Engine) {
+  const gl = eng.gpu.gl;
+  const frag = assemble(`#version 300 es
+#include "common.glsl"
+#include "stages/colorbalance.glsl"
+#include "stages/masks.glsl"
+uniform vec3 uIn[64];
+uniform vec3 uCol[64];
+uniform vec2 uDim;
+uniform float uWhat;
+void main() {
+  int i = int(gl_FragCoord.x);
+  computeMasks(uIn[i].xy, uDim);
+  outColor = uWhat < 0.5 ? vec4(gMask[0], gMask[1], gMask[2], 1.0) : vec4(stageMaskColorBalance(stageMaskExposure(uCol[i])), 1.0);
+}`, SHADER_FILES);
+  const prog = eng.gpu.program(SHADERS.vertex, frag);
+  const W = 3000, H = 2000, n = 64;
+  const uv: Vec3[] = Array.from({ length: n }, (_, i) => [((i % 8) + 0.5) / 8, (Math.floor(i / 8) + 0.5) / 8, 0]);
+  const cols: Vec3[] = uv.map(([u, v], i) => [0.05 + u * 0.9, 0.18 + 0.3 * Math.sin(i), 0.05 + v * 0.7]);
+  const sky: Mask = { ...newMask({ ...newGradient([0.5, 0.45], 12, 0.15), curvature: 0.4 }, 0), exposure: -0.7, temperature: -25, saturation: 20,
+    shapes: [{ ...newGradient([0.5, 0.45], 12, 0.15), curvature: 0.4 }, { ...newEllipse([0.6, 0.3], [0.12, 0.08], 30, 0.06), mode: 'subtract', opacity: 0.8 }] };
+  const face: Mask = { ...newMask(newEllipse([0.4, 0.6], [0.2, 0.1], -20, 0.3), 1), opacity: 70, exposure: 0.5, tint: 15, contrast: 20, vibrance: -30, shadows: 25,
+    shapes: [{ ...newEllipse([0.4, 0.6], [0.2, 0.1], -20, 0.3), proportional: false }, { ...newGradient([0.5, 0.7], 200, 0.05), mode: 'intersect', invert: true, linear: true }] };
+  const edge: Mask = { ...newMask(newEllipse([0.5, 0.5], [0.3, 0.2], 0, 0.4), 2), contrast: -15,
+    shapes: [{ ...newEllipse([0.5, 0.5], [0.3, 0.2], 0, 0.4), invert: true, proportional: true }, { ...newGradient([0.3, 0.5], 90, 0.2), mode: 'exclude' }, { ...newEllipse([0.8, 0.8], [0.1, 0.1], 0, 0.05), mode: 'sum', opacity: 0.5 }] };
+  const masks = [sky, face, edge];
+  const recipe = { ...defaultRecipe(), wb: { temperature: 5200, tint: 8 }, masks };
+  const u = developUniforms(recipe, { ...stageCtx, white: [0.3457, 0.3585] as Xy });
+  const tex = gl.createTexture()!;
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, n, 1, 0, gl.RGBA, gl.FLOAT, null);
+  const fbo = gl.createFramebuffer()!;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  const target = { tex, fbo, w: n, h: 1, hdr: true };
+  const read = (what: number) => {
+    prog.set({ ...(u as Record<string, number | number[]>), uIn: uv.flat(), uCol: cols.flat(), uDim: [W, H], uWhat: what });
+    eng.gpu.draw(prog, target, n, 1);
+    const px = new Float32Array(n * 4);
+    gl.readPixels(0, 0, n, 1, gl.RGBA, gl.FLOAT, px);
+    return px;
+  };
+  const values = read(0);
+  let maskError = 0;
+  uv.forEach(([x, y], i) => masks.forEach((m, k) => { maskError = Math.max(maskError, Math.abs(values[i * 4 + k] - maskValue(m, x, y, W, H))); }));
+  const wb = u.uMaskWb as number[], meta = u.uMaskMeta as number[], cbs = u.uMaskCb as number[];
+  const colour = read(1);
+  let colourError = 0;
+  uv.forEach(([x, y], i) => {
+    let c: number[] = cols[i];
+    const m = masks.map((mk) => maskValue(mk, x, y, W, H));
+    masks.forEach((_, k) => {
+      const M = wb.slice(k * 9, k * 9 + 9);
+      const t = [0, 1, 2].map((r) => (M[r] * c[0] + M[3 + r] * c[1] + M[6 + r] * c[2]) * meta[k * 4 + 1]);
+      c = blendNormal(c, t, m[k]);
+    });
+    masks.forEach((mk, k) => {
+      if (meta[k * 4 + 2] < 0.5) return;
+      const d = cbCommit(sliderParams(colorBalanceParams(mk.contrast, mk.vibrance, mk.saturation, mk.shadows)));
+      void cbs;
+      c = blendNormal(c, colorBalanceRgb(c as Vec3, d), m[k]);
+    });
+    for (let k = 0; k < 3; k++) colourError = Math.max(colourError, Math.abs(colour[i * 4 + k] - c[k]) / Math.max(0.01, Math.abs(c[k])));
+  });
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  gl.deleteFramebuffer(fbo);
+  gl.deleteTexture(tex);
+  return { worstMaskError: maskError, worstColourRelativeError: colourError, coverage: masks.map((_, k) => uv.reduce((a, __, i) => a + values[i * 4 + k], 0) / n) };
+}
+
+
 
 function probeColorBalance(eng: Engine) {
   const uniforms = developUniforms(defaultRecipe(), stageCtx);
@@ -540,6 +622,43 @@ try {
     })();
   } else if (new URLSearchParams(location.search).has('lutlevels') || new URLSearchParams(location.search).has('profiles')) {
     // Only the focused LUT tests below; skip unrelated image filters and timing.
+  } else if (new URLSearchParams(location.search).has('maskview')) {
+    // Masks for a screenshot: a synthetic scene through the engine with the sky mask shown, its
+    // shapes and handles over it, and the Masks tab of the panel (?maskview).
+    document.body.style.background = '#1c1b19';
+    const style = document.createElement('style');
+    style.textContent = 'body > pre { display: none; }';
+    document.head.append(style);
+    const MW = 600, MH = 400;
+    const scene = document.createElement('canvas');
+    scene.width = MW; scene.height = MH;
+    const x2 = scene.getContext('2d')!;
+    const skyFill = x2.createLinearGradient(0, 0, 0, MH * 0.6);
+    skyFill.addColorStop(0, '#5b86c4'); skyFill.addColorStop(1, '#d6dde6');
+    x2.fillStyle = skyFill; x2.fillRect(0, 0, MW, MH * 0.6);
+    x2.fillStyle = '#4d6b3a'; x2.fillRect(0, MH * 0.6, MW, MH * 0.4);
+    x2.fillStyle = '#d8b48c'; x2.beginPath(); x2.arc(380, 250, 50, 0, 7); x2.fill();
+    view.width = MW; view.height = MH;
+    view.style.cssText = 'position:fixed;left:20px;top:20px;width:600px;height:400px';
+    const eng = new Engine(view);
+    const skyMask: Mask = { ...newMask(newGradient([0.5, 0.33], 8, 0.06), 0), name: 'Sky', exposure: -0.8, saturation: 30 };
+    const faceMask: Mask = { ...newMask(newEllipse([0.633, 0.625], [0.14, 0.1], -15, 0.08), 1), name: 'Face', exposure: 0.6, temperature: 20,
+      shapes: [newEllipse([0.633, 0.625], [0.14, 0.1], -15, 0.08), { ...newGradient([0.6, 0.75], 0, 0.02), mode: 'subtract' }] };
+    const show = Number(new URLSearchParams(location.search).get('show') ?? 0);
+    const recipe = { ...defaultRecipe('neutral', 'straight'), masks: [skyMask, faceMask] };
+    const msrc = eng.sourceFromImage(scene, MW, MH);
+    eng.render(msrc, recipe, { target: 'screen', width: MW, height: MH, seed: 1, maskShow: show });
+    useApp.setState({ photos: [{ path: '/probe/m.jpg', rel: 'm.jpg', name: 'm.jpg', size: 1, modified: 0, recipe, seed: 1, white: null, rating: 0, label: null, heart: false, raw: false, pair: null }], active: 0, view: 'develop' });
+    setWorkspace({ layout: 'workflow', group: 'masks' });
+    setMaskUi({ selected: recipe.masks[show].id, shape: null });
+    const ov = document.createElement('div');
+    ov.style.cssText = 'position:fixed;left:20px;top:20px;width:600px;height:400px';
+    document.body.append(ov);
+    createRoot(ov).render(createElement(MaskOverlay, { frame: { ...FULL }, W: MW, H: MH, view: { x: 0, y: 0, w: 1, h: 1 }, cssW: MW, cssH: MH }));
+    const ph = document.createElement('div');
+    ph.style.cssText = 'position:fixed;top:0;left:640px;width:340px;height:900px;display:grid';
+    document.body.append(ph);
+    createRoot(ph).render(createElement(Panel));
   } else if (new URLSearchParams(location.search).has('gradingpanel')) {
     document.body.style.background = '#1c1b19';
     const style = document.createElement('style');
@@ -582,6 +701,7 @@ try {
     out[name] = { center: at(px, 600, 400), d10: at(px, 640, 400), d25: at(px, 655, 400), d45: at(px, 675, 400), d70: at(px, 700, 400), far: at(px, 900, 400), grey: at(px, 150, 150) };
   }
   out.colorBalance = probeColorBalance(eng);
+  out.masks = probeMasks(eng);
   // The full module, as a stock's grade: every control at once.
   {
     const grades: Record<string, Partial<CbParams>> = {
@@ -933,6 +1053,23 @@ try {
       document.body.append(libHost);
       createRoot(libHost).render(createElement(Library));
     }
+    // The whole Workflow workspace, filtered, for a screenshot (?workflow).
+    if (new URLSearchParams(location.search).has('workflow')) {
+      const looks = ['portra400', 'trix400', null, 'portra400', null, 'trix400', null, null, 'portra400'] as const;
+      const many = Array.from({ length: 40 }, (_, i) => ({
+        path: `/probe/w${i}.ORF`, rel: `PA0502${i}.ORF`, name: `PA0502${String(i).padStart(2, '0')}.ORF`, size: 1, modified: 0,
+        recipe: looks[i % 9] ? defaultRecipe(looks[i % 9]!) : null, seed: i, white: null, raw: true, pair: i % 3 ? null : `/probe/w${i}.JPG`,
+        rating: i % 6, label: ([null, 'red', null, 'blue', 'green', 'yellow'] as const)[i % 6], heart: i % 4 === 1,
+      }));
+      useApp.setState({ photos: many, folder: { root: '/probe/Portugal', name: 'Portugal', unreadable: 0 }, view: 'develop', active: 1, selected: new Set([many[1].path]),
+        filter: { edit: 'edited', minRating: 0, heart: false, labels: [] } });
+      setWorkspace({ layout: 'workflow', imageColumns: 2 });
+      const appHost = document.createElement('div');
+      appHost.style.cssText = 'position:fixed;inset:0;z-index:400;background:#1c1b19';
+      document.body.append(appHost);
+      createRoot(appHost).render(createElement(App));
+      if (new URLSearchParams(location.search).has('viewmenu')) setTimeout(() => (appHost.querySelector('.image-view-toggle') as HTMLElement | null)?.click(), 500);
+    }
     // The workspace's right-click menu, open over a mid-grey stage.
     useApp.setState({ stageColor: 'grey' });
     const menuHost = document.createElement('div');
@@ -1080,6 +1217,21 @@ if (photoArg) {
         };
       }
       res.lutTargets = probeStage(leng, ['stages/tone.glsl', 'stages/input.glsl', 'stages/output.glsl', 'stages/lut.glsl'], 'stageLookPrint(stageToneProfile(c))', COLOURS, settings);
+      // Colour blend (darktable's color blend mode) against src/engine/blend.ts.
+      const colour: typeof settings = {};
+      for (const amount of [30, 100]) {
+        const recipe = { ...defaultRecipe('portra400'), lookAmount: amount, lookBlend: 'color' as const };
+        colour[`colour_${amount}`] = {
+          uniforms: developUniforms(recipe, { ...stageCtx, look: hald }),
+          ref: (c: Vec3) => {
+            const print = toneProfileRgb(c, 0, 0);
+            const d0 = mulVec(REC2020_TO_SRGB, print.map(v => srgbEotf(clamp01(v))) as Vec3).map(v => srgbOetf(clamp01(v))) as Vec3;
+            const lutLinear = mulVec(SRGB_TO_REC2020, tetrahedral(hald, d0).map(srgbEotf) as Vec3);
+            return blendColor(print.map(srgbEotf) as Vec3, lutLinear, amount / 100).map(srgbOetf) as Vec3;
+          },
+        };
+      }
+      res.lutColour = probeStage(leng, ['stages/tone.glsl', 'stages/input.glsl', 'stages/output.glsl', 'stages/lut.glsl'], 'stageLookPrint(stageToneProfile(c))', COLOURS, colour);
     } else throw new Error('Bundled Portra LUT failed to load');
   } catch (e) {
     res.error = String(e) + (e instanceof Error ? e.stack : '');
@@ -1103,12 +1255,15 @@ if (photoArg) {
     const push = Number(q.get('push') ?? 0) as Recipe['push'];
     const stock = (q.get('stock') ?? 'portra400') as Recipe['stock'];
     const amount = Number(q.get('amount') ?? 100);
+    // &blend=color renders each pack's look with the Colour blend; &blend=both shows Normal and Colour.
+    const blends: Recipe['lookBlend'][] = q.get('blend') === 'both' ? ['normal', 'color'] : [q.get('blend') === 'color' ? 'color' : 'normal'];
+    const only = q.get('pack');
     const panels: [string, Recipe | null][] = [
       ['Original', null],
-      ...PACKS.map((p): [string, Recipe] => {
+      ...PACKS.filter((p) => !p.user && (!only || p.id === only)).flatMap((p) => blends.map((lookBlend): [string, Recipe] => {
         const selected = stockForPack(p.id, stock);
-        return [`${STOCK[selected].name}, ${p.name}${push ? `, push ${push}` : ''}${amount !== 100 ? `, ${amount}%` : ''}`, { ...defaultRecipe(selected, 'straight'), pack: p.id, push, lookAmount: amount }];
-      }),
+        return [`${STOCK[selected].name}, ${p.name}${push ? `, push ${push}` : ''}${amount !== 100 ? `, ${amount}%` : ''}${lookBlend === 'color' ? ', Colour' : ''}`, { ...defaultRecipe(selected, 'straight'), pack: p.id, push, lookAmount: amount, lookBlend }];
+      })),
     ];
     const board = document.createElement('canvas');
     board.width = panels.length * (W + 10); board.height = H + 28;

@@ -117,7 +117,9 @@ const uniformsOf = (file: string) => [...SHADER_FILES[file].matchAll(/uniform\s+
  * it changes. optics.glsl holds both the scanner's sharpness (first) and
  * halation and glow (later), so it is split by hand.
  */
-const BEFORE_TEXTURE = ['stages/input.glsl', 'stages/exposure.glsl', 'stages/toneequalizer.glsl'].flatMap(uniformsOf).concat('uSharp', 'uStore');
+// Masks (exposure and colour balance) sit in both ranges; showing one as an overlay changes no map.
+const MASK_UNIFORMS = uniformsOf('stages/masks.glsl').filter((n) => n !== 'uMaskShow');
+const BEFORE_TEXTURE = ['stages/input.glsl', 'stages/exposure.glsl', 'stages/toneequalizer.glsl'].flatMap(uniformsOf).concat('uSharp', 'uStore', ...MASK_UNIFORMS);
 const TEXTURE_STAGE = uniformsOf('stages/texture.glsl').concat('uTextureMix');
 const COLOR_STAGE = uniformsOf('stages/colorequal.glsl');
 const BEFORE_CLARITY = ['stages/colorbalance.glsl', 'stages/lens.glsl', 'stages/tone.glsl', 'stages/lut.glsl', 'stages/dcp.glsl'].flatMap(uniformsOf).concat('uHal', 'uHalCol', 'uGlow', 'uLutId');
@@ -785,6 +787,8 @@ export class Engine {
       outside?: [number, number, number];
       /** Show Sharpening's contrast mask instead of the photo. */
       sharpenMask?: boolean;
+      /** Show this mask (its index in the recipe) over the photo. */
+      maskShow?: number | null;
     },
   ) {
     const g = this.gpu;
@@ -810,7 +814,7 @@ export class Engine {
     // frame at the size it is shown, so cropping enlarges them as it would a negative.
     const look = recipe && !opts.compare ? lookLut(recipe) : null;
     const u = developUniforms(recipe, {
-      width: opts.width / view.w / frame.w, height: opts.height / view.h / frame.h, seed: opts.seed, inputMode: src.mode, store: this.store, compare: opts.compare, white: src.white, look,
+      width: opts.width / view.w / frame.w, height: opts.height / view.h / frame.h, seed: opts.seed, inputMode: src.mode, store: this.store, compare: opts.compare, white: src.white, look, maskShow: opts.maskShow,
     });
     Object.assign(u,this.profiles.uniforms(profile));
     const [a, b, c, d, e, f] = cropAffine({ ...FULL, ...frame }, src.w, src.h);

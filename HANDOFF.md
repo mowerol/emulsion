@@ -1,6 +1,53 @@
 # Handoff
 
+**Tried by Oli in the real app (2026-11-01):** the Workflow layout restyle, custom looks (edit mode, detach, migration of his looks), the LUT Colour blend on real photos, GPU-paced rendering, Colour, grain and RAW+JPEG folding. The "Not tried in the real app" notes below predate this. Oli wants to keep going with big features next (masks first under discussion).
+
 Rewritten at the end of each session. Last updated 2026-10-31 (night).
+
+## Masks, phase 1 (2026-11-01, uncommitted)
+
+Oli: "start implementing" masks, darktable as upstream. Full plan, phases and the AI research in [docs/plans/masks.md](docs/plans/masks.md).
+
+- **What a mask is:** a darktable group of shapes: the linear gradient (sigmoid or linear, with curvature) and the radial gradient (an ellipse, with equidistant or proportional feather). Shapes combine by Add, Subtract, Intersect, Exclude or Sum, each with its own opacity and an Invert option. The mask's Amount is darktable's blend opacity.
+- **Its adjustments:**
+  - Exposure, Temperature and Tint run after the photo's exposure. Temperature moves the photo's white in mireds (positive is warmer).
+  - Contrast, Shadows, Vibrance and Saturation run as a colour balance instance after the photo's own.
+  - Each is blended normally (darktable's `_blend_normal`).
+- **Code:**
+  - `src/film/masks.ts`: model and normalising.
+  - `src/engine/masks.ts`: the reference, plus `stages/masks.glsl`.
+  - `src/film/maskgeometry.ts`: overlay geometry.
+  - `src/ui/maskui.ts`, `MaskControls.tsx` and `MaskOverlay.tsx`: the interface.
+  - `recipe.masks`: kept per photo, so pasted settings leave it alone, like the crop.
+  - The masks also feed the tone equalizer map and the halation extract, and the map cache keys include them.
+- **Interface:**
+  - A **Masks** tab in Workflow, and a section in Classic.
+  - Drawing: Linear/Radial, then drag on the photo. A linear gradient goes from full effect to none; a radial goes out from its centre. A click instead of a drag places the default size.
+  - Handles: move, turn and transition for gradients; move, size/turn and feather for radials.
+  - The overlay is darktable's yellow and toggles with O. Esc puts the tool down.
+- **Checks:** 278 TS tests. Probe `out.masks`: masks within 3.1e-7 of the reference, colours within 3.4e-5. `?maskview&show=0|1` screenshots the photo, the overlay and the panel. `npm run check` passes.
+- **Not tried in the real app:**
+  - drawing and dragging handles with mouse and trackpad
+  - undo grouping of handle drags
+  - zoomed and cropped/straightened photos (handles should follow)
+  - exports with masks
+  - speed with 8 masks
+- **AI:** darktable 5.6 has SAM 2.1 object masks. It's worth doing, after the brush (needs the raster mask path). The plan is ONNX Runtime in Rust with models downloaded on request.
+
+## Workflow layout restyled to Oli's mockup (2026-11-01, uncommitted)
+
+Oli sent a mockup of the Develop workspace. The changes:
+- **Images pane:** it now runs the full height. Its heading reads "⌄ Images · count · Clear · View". The chevron folds the filters away. Under the heading sit the filters: All/Edited/Unedited, then stars │ heart and the colour tags. Thumbnails are larger, with chip-style frame numbers. The pane is 264 px (220 px at ≤1100 px wide).
+- **Photo toolbar:** it now sits over the stage only. Off/Before/Split and Crop are on the left; − Fit⌄ + is on the right. The − and + buttons take the same steps as Cmd −/=.
+- **Footer:** "Frame N of M" is in full colour and the file name is muted.
+- **Panel:** it now starts at the top row.
+- **Code:** FilterBar takes `summary={false}` to leave its count and Clear to the caller. Probe `?workflow` (plus `&viewmenu`) mounts the whole App for screenshots.
+
+Checks: `npm run check` passes, and screenshots at 1440 and 1100 px. **Not tried in the real app:** clicks, the View menu, the − and + buttons, Crop from the new toolbar, and folding the filters.
+
+## LUT blend: Normal / Colour (2026-11-01, uncommitted)
+
+Oli asked for darktable's "color" blend mode on the LUT, so a film's colour comes without its tone curve and the tone equalizer (Highlights) shapes the highlights. Film stock → **Blend: Normal / Colour** under Amount. Ported from darktable `blendif_rgb_hsl.c` `_blend_color` with its HSL conversions at `20891f6c` (`src/engine/blend.ts`, `lut.glsl`, NOTICE): hue along the short way round and saturation from the LUT at Amount, lightness from the print, on linear Rec.2020 clipped to 0..1 as darktable's RGB (display) blending does. Recipe field `lookBlend` (normal default); a custom look keeps it in its LUT (`blend: 'color'`), set in edit mode, and the control is hidden for custom looks. Probe `lutColour`: worst 4.4e-6 against the reference. **Not tried on real photos**: whether Colour looks right with t3mujinpack/Spektrafilm, and how it interacts with Highlights.
 
 ## Custom looks: one collection, editable, detachable (2026-11-01, uncommitted)
 
@@ -297,7 +344,7 @@ Camera colour is covered for every LibRaw camera through its matrices; RawTherap
 
 0. **Colour Grading and Whites/Blacks on LUTs: implemented.** Oli approved Colour Grading after trying it. LUT import, pack selection, stock expansion and advanced styles are deferred until after lens correction. [docs/plans/stock-styles.md](docs/plans/stock-styles.md) is the background; its steps 2-4 (advanced option, more style modules, UX for wheels) mostly carry over to the advanced layer and the Colour Grading panel.
 1. **Lens correction** (see the findings above). Oli: every camera treated equally, nothing built around his own. Order: (a) all four embedded formats together (Fuji, Olympus/OM, Sony, DNG; readers are per file format, so every body of those makers is covered, and new ones on day one), tested on Oli's files plus public samples from raw.pixls.us for Sony and DNG; then darktable's v2 maths. (b) lensfun auto-matching for every other maker (coverage arrives as database updates, not code). (c) A remembered per camera+lens assignment: when a lens is not recognised, the Lens section lets Oli pick a lensfun entry or load an Adobe LCP profile, applied to every photo from that camera and lens from then on (also fixes adapted and misnamed lenses).
-2. Oli tries the speed work (GPU-paced rendering), Colour, grain and RAW+JPEG folding in the real app.
+2. ~~Oli tries the speed work (GPU-paced rendering), Colour, grain and RAW+JPEG folding in the real app.~~ Tried, 2026-11-01.
 3. **Your own profiles and presets** (Oli; Batch 3, part 2), kept distinct the way Lightroom keeps them:
    - **Profiles** (like Lightroom's creative profiles): a look on top of the camera profile. Users add
      their own by importing a LUT (.cube or Hald PNG, through the lut3d engine). A profile sits in the stock
@@ -309,7 +356,8 @@ Camera colour is covered for every LibRaw camera through its matrices; RawTherap
      still renders the same where the profile or preset is missing. Decide the folder layout, import/export
      for sharing, and how they appear in the panel (Lightroom: a profile browser, and a presets list).
 5. **Virtual copies** (Oli, as Lightroom and darktable's duplicates): several edits of one photo, each its own frame in the Library and filmstrip, without copying the file. Needs: the sidecar holding several recipes (or one sidecar per copy, as darktable's `photo_01.xmp`), copy-aware selection, ratings and tags per copy, export naming, and deleting a copy. Check darktable's duplicate manager for the model before designing.
-6. **Masks** (Oli): local adjustments, as Lightroom's masking. Likely parts: drawn shapes (brush, linear and radial gradients), masks by colour or brightness range, combined (add, subtract, intersect), each carrying its own adjustments (exposure, contrast, white balance, saturation...). Upstream to port per the rule: darktable's drawn and parametric masks (`src/develop/masks/`, `src/develop/blend.c`); research what darktable and RawTherapee/ART offer before designing, and whether any open-source subject or sky detection is good enough to port. Big job: needs mask storage in the recipe, an overlay editor in the Develop view, and per-mask passes in the engine.
+6. **Masks**: phase 1 built (see the top and docs/plans/masks.md). Next: brush, range masks, refinement, more local adjustments, then AI. Original note: local adjustments, as Lightroom's masking. Likely parts: drawn shapes (brush, linear and radial gradients), masks by colour or brightness range, combined (add, subtract, intersect), each carrying its own adjustments (exposure, contrast, white balance, saturation...). Upstream to port per the rule: darktable's drawn and parametric masks (`src/develop/masks/`, `src/develop/blend.c`); research what darktable and RawTherapee/ART offer before designing, and whether any open-source subject or sky detection is good enough to port. Big job: needs mask storage in the recipe, an overlay editor in the Develop view, and per-mask passes in the engine.
 7. Oli's roadmap ideas: right-click the tone curve for preset curves (a subtle S curve first) and saving his own curves; export with borders; several photos on one canvas separated by borders (social media posts); more film stocks; Fuji film simulations and recipes (darktable's color equalizer presets, e.g. bleach bypass, may help here).
+7a. **Dehaze** (Oli, 2026-11-01: "we're missing dehaze"). Both upstreams implement He et al.'s dark channel prior with a guided filter: darktable `src/iop/hazeremoval.c` (strength, distance) and RawTherapee `rtengine/ipdehaze.cc` (strength, depth, saturation, luminance-only, depth-map view; kept in ART). Compare both sources and pick per the porting rule; Oli to confirm the choice and where the slider goes (Develop, probably beside Clarity/Texture in Refine).
 8. UX ideas offered and not yet picked: hover a stock to preview it on the main image; slider edits applying to every selected frame; a `?` shortcut sheet.
 9. Later: an EXIF info overlay.

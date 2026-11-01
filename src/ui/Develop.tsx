@@ -17,6 +17,8 @@ import { CropOverlay } from './CropOverlay';
 import { ensureCapture, sourceFromBlob, thumbs } from '../library/thumbs';
 import { Filmstrip } from './Filmstrip';
 import { FIT, imagePoint, label, layout, pan, step, zoomAt, type Layout, type Zoom } from './zoom';
+import { MaskOverlay } from './MaskOverlay';
+import { setMaskUi, useMaskUi } from './maskui';
 
 /** Long edge of the interactive preview. Zooming past it loads the full resolution. */
 const PREVIEW_EDGE = 2560;
@@ -41,6 +43,8 @@ const rgb = (hex: string): [number, number, number] => [1, 3, 5].map((i) => pars
 
 export function Develop() {
   const workflow = useWorkspace(s => s.layout === 'workflow');
+  // Masks are edited on the photo while their controls are open (always, in Classic).
+  const masksOpen = useWorkspace(s => s.layout !== 'workflow' || s.group === 'masks');
   const boxRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
@@ -74,6 +78,12 @@ export function Develop() {
   const path = photo?.path;
   const profileVersion = useProfileVersion();
   const lutVersion = useLutVersion();
+  const maskSelected = useMaskUi((s) => s.selected);
+  const maskOverlay = useMaskUi((s) => s.overlay);
+  const maskTool = useMaskUi((s) => !!s.tool);
+  const maskIndex = photo?.recipe?.masks.findIndex((m) => m.id === maskSelected) ?? -1;
+  const maskShow = masksOpen && maskOverlay && maskIndex >= 0 ? maskIndex : null;
+  useEffect(() => { if (!masksOpen) setMaskUi({ tool: null }); }, [masksOpen]);
 
   // Start the GPU engine for this canvas.
   useLayoutEffect(() => {
@@ -241,7 +251,7 @@ export function Develop() {
         return;
       }
       try {
-        engine.render(l.source, recipe, { target: 'screen', width: canvas.width, height: canvas.height, seed, compare, view: current.view, clipping, split, frame, outside: rgb(stage.hex), sharpenMask });
+        engine.render(l.source, recipe, { target: 'screen', width: canvas.width, height: canvas.height, seed, compare, view: current.view, clipping, split, frame, outside: rgb(stage.hex), sharpenMask, maskShow: compare ? null : maskShow });
       } catch (err) {
         setError(`Rendering failed. ${String(err)}`);
       }
@@ -249,7 +259,7 @@ export function Develop() {
     id = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recipe, seed, compare, loadedVersion, viewKey, path, clipping, split, JSON.stringify(frame), stage, sharpenMask, lutVersion, profileVersion]);
+  }, [recipe, seed, compare, loadedVersion, viewKey, path, clipping, split, JSON.stringify(frame), stage, sharpenMask, lutVersion, profileVersion, maskShow]);
 
   // Count the histogram from a small render of the whole frame, once changes settle.
   useEffect(() => {
@@ -281,6 +291,12 @@ export function Develop() {
     },
     [current, src, box.w, box.h],
   );
+
+  /** One zoom step in or out about the centre, as Cmd/Ctrl with = and - do. */
+  const zoomStep = (direction: 1 | -1) => {
+    if (!current || !src) return;
+    zoomTo(step(current.scale, layout(FIT, box.w, box.h, dpr(), src.fullW, src.fullH).scale, direction), 0.5, 0.5);
+  };
 
   const fraction = (e: { clientX: number; clientY: number }): [number, number] => {
     const r = canvasRef.current!.getBoundingClientRect();
@@ -409,8 +425,7 @@ export function Develop() {
   return (
     <section className={`develop${workflow ? ' develop-workflow' : ''}`}>
       {workflow && <div className="photo-tools-host"><PhotoTools ready={!!current} scale={zoom.scale} zoomLabel={current ? label(zoom, current) : 'Fit'}
-        onZoom={scale => scale === null ? setZoom(FIT) : zoomTo(scale, 0.5, 0.5)} before={before}
-        onBefore={() => setBefore(b => b === 'full' ? 'off' : 'full')} onSplit={() => setBefore(b => b === 'split' ? 'off' : 'split')} /></div>}
+        onZoom={scale => scale === null ? setZoom(FIT) : zoomTo(scale, 0.5, 0.5)} onStep={zoomStep} before={before} onBefore={setBefore} /></div>}
       <div
         className={`stage${stage.light ? ' light' : ''}`}
         style={{ background: stage.hex }}
@@ -436,6 +451,9 @@ export function Develop() {
             style={{ visibility: showing ? 'visible' : 'hidden', cursor }}
           />
           {split !== undefined && showing && <SplitDivider at={splitAt} onMove={setSplitAt} />}
+          {masksOpen && !cropping && !compare && showing && current && (maskIndex >= 0 || maskTool) && (
+            <MaskOverlay frame={frame} W={src!.fullW} H={src!.fullH} view={current.view} cssW={current.cssW} cssH={current.cssH} />
+          )}
           {cropEdit && showing && (
             <CropOverlay draft={cropEdit.draft} frame={frame} W={cropEdit.W} H={cropEdit.H} onChange={(c) => setCropDraft(() => c)} />
           )}

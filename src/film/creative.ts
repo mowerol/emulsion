@@ -14,9 +14,13 @@ import type { Recipe } from './recipe';
  * A custom look's LUT, with how much of it applies (0 to 1): a system look it refers to, or a LUT
  * file of the user's own (by content hash).
  */
-export type LutSource =
+export type LutSource = (
   | { kind: 'pack'; pack: string; stock: string; amount: number }
-  | { kind: 'file'; hash: string; amount: number };
+  | { kind: 'file'; hash: string; amount: number }
+) & {
+  /** 'color' takes only the LUT's hue and saturation (darktable's color blend mode); absent is normal. */
+  blend?: 'color';
+};
 
 export interface ProfileSettings {
   /** A colour balance rgb instance, darktable's units (the photo's own sliders and grading, combined). */
@@ -65,9 +69,10 @@ export function recipeFromSettings(r: Recipe, s: ProfileSettings): Recipe {
   const lut = s.lut;
   if (!lut) return { ...out, lookEnabled: false, stock: 'neutral', lookAmount: 100 };
   const amount = Math.round(lut.amount * 100);
+  const lookBlend = lut.blend === 'color' ? 'color' : 'normal';
   return lut.kind === 'pack'
-    ? { ...out, lookEnabled: true, pack: lut.pack as Recipe['pack'], stock: lut.stock as Recipe['stock'], lookAmount: amount }
-    : { ...out, lookEnabled: true, pack: 'files', stock: `lut:file:${lut.hash}`, lookAmount: amount };
+    ? { ...out, lookEnabled: true, pack: lut.pack as Recipe['pack'], stock: lut.stock as Recipe['stock'], lookAmount: amount, lookBlend }
+    : { ...out, lookEnabled: true, pack: 'files', stock: `lut:file:${lut.hash}`, lookAmount: amount, lookBlend };
 }
 
 /** Whether the photo's own colour and tone sliders (the ones a look's settings use) are at rest. */
@@ -160,8 +165,9 @@ function normalizeLut(input: unknown): LutSource | null {
   if (!input || typeof input !== 'object') return null;
   const o = input as Record<string, unknown>;
   const amount = finite(o.amount) ? Math.min(Math.max(o.amount as number, 0), 1) : 1;
-  if (o.kind === 'pack' && typeof o.pack === 'string' && typeof o.stock === 'string') return { kind: 'pack', pack: o.pack, stock: o.stock, amount };
-  if (o.kind === 'file' && typeof o.hash === 'string' && /^[0-9a-f]{64}$/.test(o.hash)) return { kind: 'file', hash: o.hash, amount };
+  const blend = o.blend === 'color' ? { blend: 'color' as const } : {};
+  if (o.kind === 'pack' && typeof o.pack === 'string' && typeof o.stock === 'string') return { kind: 'pack', pack: o.pack, stock: o.stock, amount, ...blend };
+  if (o.kind === 'file' && typeof o.hash === 'string' && /^[0-9a-f]{64}$/.test(o.hash)) return { kind: 'file', hash: o.hash, amount, ...blend };
   return null;
 }
 
