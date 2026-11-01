@@ -24,7 +24,7 @@ describe('recipes', () => {
   it('fills defaults from the stock and clamps out-of-range values', () => {
     const r = normalizeRecipe({ stock: 'portra400', pack: 't3mujinpack', exposure: 99, grain: -4, push: 7, scanner: 'nope' })!;
     expect(r.stock).toBe('portra400');
-    expect(r.exposure).toBe(3);
+    expect(r.exposure).toBe(5);
     expect(r.grain).toBe(0);
     expect(r.push).toBe(0);
     expect(r.scanner).toBe('frontier');
@@ -35,8 +35,8 @@ describe('recipes', () => {
     expect(normalizeRecipe({ stock: 'aerochrome' })!.stock).toBe('neutral');
   });
 
-  it('round-trips through JSON unchanged', () => {
-    const r = { ...defaultRecipe('ektar100', 'noritsu'), push: 1 as const, exposure: 0.35, wb: { temperature: 4300, tint: -12 } };
+  it.each([-5, -4.25, 0.35, 4.25, 5])('round-trips through JSON unchanged at %s EV', (exposure) => {
+    const r = { ...defaultRecipe('ektar100', 'noritsu'), push: 1 as const, exposure, wb: { temperature: 4300, tint: -12 } };
     expect(normalizeRecipe(JSON.parse(JSON.stringify(r)))).toEqual(r);
   });
 

@@ -312,7 +312,8 @@ export function Develop() {
 
   // Count the histogram from a small render of the whole frame, once changes settle.
   useEffect(() => {
-    const timer = setTimeout(() => {
+    let cancelled = false;
+    const timer = setTimeout(async () => {
       const engine = engineRef.current;
       const l = loadedRef.current;
       if (!engine || !l || l.path !== path) return;
@@ -321,14 +322,21 @@ export function Develop() {
       const hw = Math.max(1, Math.round(w * Math.min(1, k)));
       const hh = Math.max(1, Math.round(h * Math.min(1, k)));
       try {
+        // Count the same camera rendering and look as the photo, including
+        // assets still loading. A superseded request must not publish old bins.
+        await engine.prepare(compare && recipe ? { ...recipe, lookEnabled: false } : recipe, l.source.camera);
+        if (cancelled) return;
         const data = histogram(engine.readPixels(l.source, recipe, hw, hh, seed, compare));
         useApp.setState({ histogram: { path: frameId!, data } });
       } catch {
         /* the histogram is a convenience; a failed count leaves the last one */
       }
     }, HISTOGRAM_DELAY_MS);
-    return () => clearTimeout(timer);
-  }, [recipe, seed, compare, loadedVersion, path, frameId]);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [recipe, seed, compare, loadedVersion, path, frameId, lutVersion, profileVersion]);
 
   // ---------- Zoom and pan ----------
 

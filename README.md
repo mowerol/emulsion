@@ -87,6 +87,8 @@ npm run probe     # build the engine probe (see docs/ARCHITECTURE.md, Testing)
 node tools/browser-tests/treatment-filters.mjs  # browser regression (Chrome; BROWSER_BIN overrides path)
 node tools/browser-tests/treatment-filters.mjs scanner-finish  # look inheritance and overrides
 node tools/browser-tests/treatment-filters.mjs folder-restart  # folder tree restoration after restart
+node tools/browser-tests/treatment-filters.mjs histogram  # known pixels, RAW tone mapping and clipping overlay
+node tools/browser-tests/treatment-filters.mjs histogram-profile  # delayed RAW camera profiles and histogram refresh
 ```
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how the app and the film pipeline fit together, and where new modules go.

@@ -159,7 +159,7 @@ export const formatEv = (v: number) => `${v > 0 ? '+' : v < 0 ? MINUS : ''}${Mat
 
 export const SLIDERS: SliderDef[] = [
   { key: 'lookAmount', label: 'Amount', group: 'look', min: 0, max: 100, step: 1, default: 100, hint: 'How strongly the look applies: 0 is Neutral, 100 the full look.', format: (v) => `${v}%` },
-  { key: 'exposure', label: 'Exposure', group: 'adjust', min: -3, max: 3, step: 0.05, format: formatEv },
+  { key: 'exposure', label: 'Exposure', group: 'adjust', min: -5, max: 5, step: 0.05, format: formatEv },
   { key: 'toneCharacter', label: 'Tone character', group: 'adjust', min: -100, max: 100, step: 1, default: 0, format: formatSigned, hint: 'Softer ← 0 → Harder. Changes the output tone curve independently of grain.' },
   { key: 'contrast', label: 'Contrast', group: 'adjust', min: -50, max: 50, step: 1, format: formatSigned },
   { key: 'highlights', label: 'Highlights', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
