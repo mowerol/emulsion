@@ -7,7 +7,7 @@ import { isTauri, startupOptions } from './backend/api';
 import { flushSaves, onSaveError } from './library/sidecars';
 import { markForKey } from './library/marks';
 import {
-  copySettings, markPhotos, openFolder, pasteSettings, redo, selectAll, setCompare, setExportOpen, setView, showToast, step, stepToEnd, undo, useApp, type View,
+  copySettings, markPhotos, openFolder, pasteSettings, redo, selectAll, setCompare, setExportOpen, setView, showToast, step, stepToEnd, undo, useApp,
 } from './library/store';
 import { Images } from './ui/Images';
 import { useWorkspace } from './ui/workspace';
@@ -16,7 +16,6 @@ import { ExportDialog } from './ui/ExportDialog';
 import { Library, gridColumns } from './ui/Library';
 import { Panel } from './ui/Panel';
 import { TopBar, chooseFolder } from './ui/TopBar';
-import { Welcome } from './ui/Welcome';
 
 const typingIn = (t: EventTarget | null) => {
   const el = t as HTMLElement | null;
@@ -67,6 +66,8 @@ function useShortcuts() {
       const onRange = (e.target as HTMLElement)?.tagName === 'INPUT';
       const k = e.key.toLowerCase();
       if (mod && k === 'o') { e.preventDefault(); chooseFolder(); return; }
+      if (k === 'g' && !mod) { setView('library'); return; }
+      if (s.view === 'library' && s.choosingImport) return;
       if (!s.photos.length) return;
       if (mod && e.shiftKey && k === 'c') { e.preventDefault(); copySettings(); return; }
       if (mod && e.shiftKey && k === 'v') { e.preventDefault(); pasteSettings(); return; }
@@ -110,7 +111,7 @@ function useDesktop() {
     onSaveError((m) => showToast(`Could not save edits. ${m}`));
     startupOptions()
       .then((o) => {
-        if (o.openPath) openFolder(o.openPath, (o.startView as View) === 'develop' ? 'develop' : 'library');
+        if (o.openPath) openFolder(o.openPath);
       })
       .catch(() => {});
     const unlisten: Promise<() => void>[] = [
@@ -146,15 +147,11 @@ export default function App() {
   return (
     <div className="app">
       <TopBar />
-      {view === 'welcome' || !hasFolder ? (
-        <Welcome />
-      ) : (
-        <div className={`workspace${workflow ? ' workspace-workflow' : ''}`}>
-          {workflow && <Images key="images" />}
-          <div className="main" key="main">{view === 'develop' ? <Develop /> : <Library />}</div>
-          <Panel key="controls" />
-        </div>
-      )}
+      <div className={`workspace${workflow ? ' workspace-workflow' : view !== 'develop' || !hasFolder ? ' workspace-library' : ''}`}>
+        {workflow && <Images key="images" />}
+        <div className="main" key="main">{view === 'develop' && hasFolder ? <Develop /> : <Library />}</div>
+        {view === 'develop' && hasFolder && <Panel key="controls" />}
+      </div>
       <ExportDialog />
       {dropping && (
         <div className="drop">

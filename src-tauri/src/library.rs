@@ -72,6 +72,26 @@ pub struct ScanResult {
     pub unreadable: usize,
     /// When a file rather than a folder was opened, that file.
     pub focus: Option<String>,
+    pub folders: Vec<FolderEntry>,
+}
+
+#[derive(Serialize, Debug)]
+pub struct FolderEntry {
+    pub path: String,
+    pub name: String,
+}
+
+/// Directory navigation is independent of photo scanning and sidecar reads.
+pub fn directories(root: &Path) -> std::io::Result<Vec<FolderEntry>> {
+    let mut folders = Vec::new();
+    for item in std::fs::read_dir(root)? {
+        let Ok(item) = item else { continue };
+        let name = item.file_name().to_string_lossy().into_owned();
+        if name.starts_with('.') || name == EXPORT_DIR_NAME || !item.path().is_dir() { continue; }
+        folders.push(FolderEntry { path: item.path().to_string_lossy().into_owned(), name });
+    }
+    folders.sort_by(|a, b| natord::compare_ignore_case(&a.name, &b.name));
+    Ok(folders)
 }
 
 fn is_hidden(entry: &DirEntry) -> bool {
@@ -111,6 +131,7 @@ pub fn scan(target: &Path, recursive: bool) -> std::io::Result<ScanResult> {
         .max_depth(if recursive { usize::MAX } else { 1 });
 
     let mut entries = Vec::new();
+    let mut folders = Vec::new();
     let mut unreadable = 0;
 
     for item in walker.into_iter().filter_entry(|e| !skip(e)) {
@@ -121,6 +142,12 @@ pub fn scan(target: &Path, recursive: bool) -> std::io::Result<ScanResult> {
                 continue;
             }
         };
+        if item.file_type().is_dir() && item.depth() == 1 {
+            folders.push(FolderEntry {
+                path: item.path().to_string_lossy().into_owned(),
+                name: item.file_name().to_string_lossy().into_owned(),
+            });
+        }
         if !item.file_type().is_file() {
             continue;
         }
@@ -165,6 +192,7 @@ pub fn scan(target: &Path, recursive: bool) -> std::io::Result<ScanResult> {
     }
 
     entries.sort_by(|a, b| natord::compare_ignore_case(&a.rel, &b.rel));
+    folders.sort_by(|a, b| natord::compare_ignore_case(&a.name, &b.name));
 
     let name = root
         .file_name()
@@ -177,6 +205,7 @@ pub fn scan(target: &Path, recursive: bool) -> std::io::Result<ScanResult> {
         entries,
         unreadable,
         focus,
+        folders,
     })
 }
 
@@ -224,6 +253,9 @@ mod tests {
 
         let flat = scan(r, false).unwrap();
         assert_eq!(flat.entries.len(), 4);
+        assert_eq!(flat.folders.len(), 1);
+        assert_eq!(flat.folders[0].name, "roll b");
+        assert_eq!(flat.folders[0].path, r.join("roll b").to_string_lossy());
     }
 
     #[test]
@@ -253,5 +285,18 @@ mod tests {
     #[test]
     fn missing_folder_is_an_error() {
         assert!(scan(Path::new("/definitely/not/here"), true).is_err());
+    }
+
+    #[test]
+    fn browsing_directories_lists_only_visible_immediate_folders_in_natural_order() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["Roll 10", "Roll 2", ".hidden", EXPORT_DIR_NAME] {
+            fs::create_dir(dir.path().join(name)).unwrap();
+        }
+        touch(&dir.path().join("frame.jpg"));
+        fs::create_dir(dir.path().join("Roll 2/nested")).unwrap();
+        let folders = directories(dir.path()).unwrap();
+        assert_eq!(folders.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), vec!["Roll 2", "Roll 10"]);
+        assert!(directories(&dir.path().join("missing")).is_err());
     }
 }

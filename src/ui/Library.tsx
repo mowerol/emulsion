@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { memo, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
-import { setActive, setFoldJpegs, setView, useApp, type Photo } from '../library/store';
+import { chooseImport, closeFolder, openFolder, setActive, setFoldJpegs, setView, useApp, type Photo } from '../library/store';
+import { chooseFolder } from './TopBar';
+import { FolderDirectory, FolderImportView } from './Folders';
 import { shownIndices } from '../library/filter';
 import { FilterBar } from './FilterBar';
 import { recipeLabel } from './common';
@@ -61,6 +63,10 @@ const Cell = memo(function Cell({ photo, index, active, selected }: { photo: Pho
 });
 
 export function Library() {
+  const folder = useApp(s => s.folder);
+  const choosingImport = useApp(s => s.choosingImport);
+  const importChoice = useApp(s => s.importChoice);
+  const loading = useApp(s => s.loading);
   const photos = useApp((s) => s.photos);
   const active = useApp((s) => s.active);
   const selected = useApp((s) => s.selected);
@@ -83,14 +89,32 @@ export function Library() {
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [folder, choosingImport]);
 
   useEffect(() => {
     gridRef.current?.querySelector<HTMLElement>(`[data-index="${active}"]`)?.scrollIntoView({ block: 'nearest' });
   }, [active]);
 
   return (
-    <section className="library">
+    <section className="library library-with-directory">
+      <FolderDirectory />
+      <div className="folder-content">
+      <div className="folder-heading">
+        <div>
+          <nav className="folder-breadcrumb" aria-label="Folder navigation"><button type="button" onClick={closeFolder}>Library</button>{folder && <><span>/</span><span>{folder.name}</span></>}</nav>
+          <h1>{folder?.name ?? 'Photos'}</h1>
+          <p className="muted">{loading ? 'Reading folder…' : folder ? folder.root : 'Select a folder from your computer or an external drive.'}</p>
+        </div>
+        <div className="folder-actions">
+          {folder ? <>
+            <button type="button" className="btn" disabled={loading} onClick={() => openFolder(folder.root)}>Refresh folder</button>
+            {importChoice && !choosingImport && <button type="button" className="btn" disabled={loading} onClick={() => chooseImport(true)}>Manage import</button>}
+          </> : <button type="button" className="btn primary" onClick={chooseFolder}>Add folder</button>}
+        </div>
+      </div>
+      {!folder ? <div className="folder-empty"><p>Choose a folder on the left to see its photos.</p></div> : <>
+      {choosingImport ? <FolderImportView key={folder.root} /> : <>
+      <div className="folder-photo-heading"><h2>Photos <span className="muted">{photos.length}</span></h2><span className="muted">{importChoice?.mode === 'sync' ? 'Sync all photos · updates when opened or refreshed' : 'Selected photos only'}</span></div>
       <div className="library-bar">
         <FilterBar />
         <span className="muted library-hint">
@@ -116,6 +140,10 @@ export function Library() {
         {shown.map((i) => (
           <Cell key={photos[i].path} photo={photos[i]} index={i} active={i === active} selected={selected.has(photos[i].path)} />
         ))}
+      </div>
+      {!photos.length && <p className="folder-empty">No imported photos are currently available in this folder.</p>}
+      </>}
+      </>}
       </div>
     </section>
   );

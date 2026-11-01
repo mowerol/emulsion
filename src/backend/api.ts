@@ -25,6 +25,7 @@ export interface ScanResult {
   entries: Entry[];
   unreadable: number;
   focus: string | null;
+  folders: { path: string; name: string }[];
 }
 
 export interface StartupOptions {
@@ -35,6 +36,9 @@ export interface StartupOptions {
 export const isTauri = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
 export const scanFolder = (path: string, recursive = true) => invoke<ScanResult>('scan_folder', { path, recursive });
+export interface Directory { path: string; name: string }
+export const browseDirectory = (path: string) => invoke<Directory[]>('browse_directory', { path });
+export const computerFolders = () => invoke<Directory[]>('computer_folders');
 
 export async function thumbnail(path: string, maxEdge = 512): Promise<Blob> {
   const buf = await invoke<ArrayBuffer>('thumbnail', { path, maxEdge });

@@ -19,16 +19,14 @@ export function TopBar() {
   return (
     <header className="topbar">
       <div className="brand">Emulsion</div>
-      {folder && (
         <nav className="views" aria-label="View">
-          <button type="button" aria-pressed={view === 'library'} onClick={() => setView('library')} title="Library (G)">
+          <button type="button" aria-pressed={view !== 'develop'} onClick={() => setView('library')} title="Library (G)">
             Library
           </button>
           <button type="button" aria-pressed={view === 'develop'} disabled={!count} onClick={() => setView('develop')} title="Develop (D)">
             Develop
           </button>
         </nav>
-      )}
       <div className="folder-info" title={folder?.root}>
         {loading ? (
           <span className="muted">Reading folder</span>
@@ -41,7 +39,7 @@ export function TopBar() {
           </>
         ) : null}
       </div>
-      {folder && <label className="workspace-choice">Workspace
+      {folder && view === 'develop' && <label className="workspace-choice">Workspace
         <select aria-label="Workspace layout" value={layout} onChange={e => setWorkspace({ layout: e.target.value as 'workflow' | 'classic' })}>
           <option value="workflow">Workflow</option><option value="classic">Classic</option>
         </select>

@@ -21,6 +21,34 @@ pub async fn scan_folder(path: String, recursive: bool) -> Result<library::ScanR
 }
 
 #[tauri::command]
+pub async fn browse_directory(path: String) -> Result<Vec<library::FolderEntry>, String> {
+    blocking(move || library::directories(Path::new(&path)).map_err(|e| e.to_string())).await
+}
+
+#[tauri::command]
+pub async fn computer_folders(app: tauri::AppHandle) -> Result<Vec<library::FolderEntry>, String> {
+    use tauri::Manager;
+    let home = app.path().home_dir().map_err(|e| e.to_string())?;
+    blocking(move || {
+        let mut roots = vec![library::FolderEntry { path: home.to_string_lossy().into_owned(), name: "Home".into() }];
+        #[cfg(not(target_os = "windows"))]
+        roots.push(library::FolderEntry { path: "/".into(), name: "Computer".into() });
+        #[cfg(target_os = "macos")]
+        if let Ok(volumes) = library::directories(Path::new("/Volumes")) { roots.extend(volumes); }
+        #[cfg(target_os = "linux")]
+        for mount in ["/media", "/mnt", "/run/media"] {
+            if let Ok(volumes) = library::directories(Path::new(mount)) { roots.extend(volumes); }
+        }
+        #[cfg(target_os = "windows")]
+        for drive in b'A'..=b'Z' {
+            let path = format!("{}:\\", drive as char);
+            if Path::new(&path).is_dir() { roots.push(library::FolderEntry { name: path.clone(), path }); }
+        }
+        Ok(roots)
+    }).await
+}
+
+#[tauri::command]
 pub async fn thumbnail(paths: State<'_, AppPaths>, path: String, max_edge: u32) -> Result<Response, String> {
     let cache = paths.cache_dir.clone();
     let bytes = blocking(move || thumbs::get_or_create(&cache, Path::new(&path), max_edge.clamp(64, 2048))).await?;

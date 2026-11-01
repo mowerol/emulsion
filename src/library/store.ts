@@ -6,11 +6,12 @@ import { create } from 'zustand';
 import type { Histogram } from '../engine/histogram';
 import type { Xy } from '../engine/whitebalance';
 import { scanFolder, whitePoints } from '../backend/api';
+import { folderImport, importedPaths, saveFolderImport, type FolderImport } from './folders';
 import { defaultRecipe, normalizeRecipe, withSettingsFrom, type Recipe } from '../film/recipe';
 import { FULL, isFull, type Crop } from '../film/crop';
 import { NO_FILTER, normalizeFilter, passes, rangeWithin, shownIndices, stepWithin, type Filter } from './filter';
 import { seedFor } from '../engine/engine';
-import { savePhoto } from './sidecars';
+import { flushSaves, savePhoto } from './sidecars';
 import { findPairs, foldPairs } from './pairs';
 import { applyMark, describeMark, hasMark, normalizeMarks, type Label, type MarkKey, type Marks } from './marks';
 import { History, describe, type Change, type Step } from './history';
@@ -44,7 +45,7 @@ export interface Folder {
   unreadable: number;
 }
 
-export type View = 'welcome' | 'library' | 'develop';
+export type View = 'library' | 'develop';
 
 export interface Toast {
   id: number;
@@ -54,6 +55,10 @@ export interface Toast {
 
 interface State {
   folder: Folder | null;
+  subfolders: { path: string; name: string }[];
+  candidates: Photo[];
+  importChoice: FolderImport | null;
+  choosingImport: boolean;
   photos: Photo[];
   view: View;
   active: number;
@@ -180,8 +185,12 @@ function savedFilter(): Filter {
 
 export const useApp = create<State>(() => ({
   folder: null,
+  subfolders: [],
+  candidates: [],
+  importChoice: null,
+  choosingImport: false,
   photos: [],
-  view: 'welcome',
+  view: 'library',
   active: -1,
   selected: new Set(),
   anchor: -1,
@@ -217,33 +226,17 @@ export function showToast(message: string, action?: Toast['action'], ms = 3200) 
   }, action ? ms * 2 : ms);
 }
 
-/* Recent folders, kept in local storage */
-const RECENT_KEY = 'emulsion.recent';
-export interface Recent { root: string; name: string }
-export function recentFolders(): Recent[] {
-  try {
-    const v = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]');
-    return Array.isArray(v) ? v.filter((r) => r && typeof r.root === 'string') : [];
-  } catch {
-    return [];
-  }
-}
-function rememberFolder(r: Recent) {
-  try {
-    const list = [r, ...recentFolders().filter((x) => x.root !== r.root)].slice(0, 8);
-    localStorage.setItem(RECENT_KEY, JSON.stringify(list));
-  } catch {
-    /* storage unavailable */
-  }
-}
-
-export async function openFolder(path: string, view: View = 'library') {
+let folderRequest = 0;
+export async function openFolder(path: string) {
+  const request = ++folderRequest;
+  finishCrop(true);
+  endLookEdit();
   set({ loading: true });
-  // Steps refer to photos by path, so they belong to the folder they were made in.
-  history.clear();
-  set(historyState());
   try {
-    const res = await scanFolder(path, true);
+    await flushSaves();
+    if (request !== folderRequest) return;
+    const res = await scanFolder(path, false);
+    if (request !== folderRequest) return;
     const all: Photo[] = res.entries.map((e) => ({
       path: e.path,
       rel: e.rel,
@@ -257,46 +250,64 @@ export async function openFolder(path: string, view: View = 'library') {
       raw: e.raw,
       pair: null,
     }));
-    scanOrder.clear();
-    all.forEach((p, i) => scanOrder.set(p.path, i));
-    const { shown: photos, hidden } = arrange(all, get().foldJpegs);
-    const pairCount = findPairs(all).size;
-    // A JPEG opened directly but folded away opens on its RAW.
-    const focus = res.focus ? photos.findIndex((p) => p.path === res.focus || p.pair === res.focus) : -1;
-    // Without a file to open on, start on the first photo the remembered filter shows.
-    const firstShown = photos.findIndex((p) => passes(p, get().filter));
-    const active = !photos.length ? -1 : focus >= 0 ? focus : Math.max(0, firstShown);
+    history.clear();
+    const choice = folderImport(res.root);
     set({
       folder: { root: res.root, name: res.name, unreadable: res.unreadable },
-      photos,
-      hidden,
-      pairCount,
-      active,
-      anchor: active,
-      selected: active >= 0 ? new Set([photos[active].path]) : new Set(),
-      view: photos.length ? (focus >= 0 ? 'develop' : view) : 'library',
+      subfolders: res.folders ?? [],
+      candidates: all,
+      importChoice: choice,
+      choosingImport: !choice,
+      view: 'library',
       compare: false,
+      ...historyState(),
     });
-    rememberFolder({ root: res.root, name: res.name });
-    loadWhitePoints(res.root, photos.map((p) => p.path));
-    const notes: string[] = [];
-    if (res.unreadable) notes.push(`${res.unreadable} ${res.unreadable === 1 ? 'item' : 'items'} could not be read`);
-    if (!photos.length) showToast(`No photos Emulsion can open in ${res.name}.${notes.length ? ' ' + notes.join('. ') + '.' : ''}`);
-    else if (notes.length) showToast(notes.join('. ') + '.');
+    displayImported(all, choice);
+    if (res.unreadable) showToast(`${res.unreadable} items could not be read.`);
   } catch (err) {
-    showToast(`Could not open that folder. ${String(err)}`);
+    if (request === folderRequest) showToast(`Could not open that folder. ${String(err)}`);
   } finally {
-    set({ loading: false });
+    if (request === folderRequest) set({ loading: false });
   }
 }
 
+function displayImported(all: Photo[], choice: FolderImport | null) {
+  const wanted = importedPaths(all.map(p => p.path), choice);
+  const imported = all.filter(p => wanted.has(p.path));
+  scanOrder.clear();
+  imported.forEach((p, i) => scanOrder.set(p.path, i));
+  const { shown: photos, hidden } = arrange(imported, get().foldJpegs);
+  const active = photos.length ? Math.max(0, photos.findIndex(p => passes(p, get().filter))) : -1;
+  set({ photos, hidden, pairCount: findPairs(imported).size, active, anchor: active,
+    selected: active >= 0 ? new Set([photos[active].path]) : new Set(), histogram: null });
+  const root = get().folder?.root;
+  if (root && photos.length) void loadWhitePoints(root, photos.map(p => p.path));
+}
+
+export function importFolderPhotos(choice: FolderImport) {
+  const { folder, candidates, photos, hidden } = get();
+  if (!folder || get().loading) return;
+  // Preserve in-memory edits when adding more photos or enabling sync.
+  const current = new Map([...photos, ...hidden].map(p => [p.path, p]));
+  const all = candidates.map(p => current.get(p.path) ?? p);
+  saveFolderImport(folder.root, choice);
+  set({ importChoice: choice, choosingImport: false, candidates: all });
+  displayImported(all, choice);
+}
+
+export function chooseImport(choosingImport: boolean) { set({ choosingImport }); }
+
 export function closeFolder() {
+  ++folderRequest;
   finishCrop(true);
-  set({ folder: null, photos: [], active: -1, selected: new Set(), view: 'welcome' });
+  endLookEdit();
+  history.clear();
+  set({ folder: null, photos: [], hidden: [], candidates: [], subfolders: [], importChoice: null,
+    choosingImport: false, loading: false, active: -1, selected: new Set(), view: 'library', ...historyState() });
 }
 
 export const setView = (view: View) => {
-  if (view !== 'welcome' && !get().photos.length) return;
+  if (view === 'develop' && !get().photos.length) return;
   if (view !== 'develop') finishCrop(true);
   set({ view });
 };

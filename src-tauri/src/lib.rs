@@ -92,6 +92,8 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::scan_folder,
+            commands::browse_directory,
+            commands::computer_folders,
             commands::thumbnail,
             commands::load_image,
             commands::camera_profiles,
