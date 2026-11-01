@@ -11,7 +11,7 @@ import { normalizeCurve, type ToneCurve } from './curve';
 import { clampWhiteBalance, type WhiteBalance } from '../engine/whitebalance';
 import { normalizeCrop, type Crop } from './crop';
 import { ISO_MAX, ISO_MIN } from '../engine/grain';
-import { DEFAULT_PACK, PACK, ensureUserLook, isPackId, type PackId } from './looks';
+import { DEFAULT_PACK, PACK, isPackId, resolveUserLook, type PackId } from './looks';
 
 export const RECIPE_VERSION = 1;
 
@@ -218,14 +218,11 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
 }
 
 /**
- * Switch stock. Grain size follows the new stock's film speed; the
- * Grain amount and Halation stay as they are, since every stock starts them at 0
- * and resetting them would wipe the photo's grain on each change of stock.
+ * Switch stock (look). A look never moves a slider (Lightroom's model): grain, its size and
+ * halation stay as they are, and a first edit starts from the defaults.
  */
 export function withStock(recipe: Recipe | null, stock: StockId): Recipe {
-  if (!recipe) return defaultRecipe(stock);
-  const s = STOCK[stock];
-  return { ...recipe, stock, lookEnabled: stock !== 'neutral', grainIso: s.grainIso };
+  return { ...(recipe ?? defaultRecipe()), stock, lookEnabled: stock !== 'neutral' };
 }
 
 /** Reset the sliders, keeping stock, development, scanner and crop. */
@@ -293,10 +290,11 @@ export function normalizeRecipe(input: unknown): Recipe | null {
   const o = input as Record<string, unknown>;
   // A look needs a pack that supplies it. Edits made with Emulsion's retired parametric stocks
   // (no pack, or pack "emulsion") open as Neutral.
-  const pack: PackId = isPackId(o.pack) ? o.pack : DEFAULT_PACK;
-  if (pack === 'mine') ensureUserLook(o.stock);
-  const supplied = isStockId(o.stock) && isPackId(o.pack) && !!PACK[pack].looks[o.stock];
-  const stock: StockId = supplied ? o.stock as StockId : DEFAULT_STOCK;
+  // Custom looks and LUT files may not be listed yet: hold their place (and update older ids).
+  const user = resolveUserLook(o.pack, o.stock);
+  const pack: PackId = user?.pack ?? (isPackId(o.pack) ? o.pack : DEFAULT_PACK);
+  const supplied = !!user || (isStockId(o.stock) && isPackId(o.pack) && !!PACK[pack].looks[o.stock]);
+  const stock: StockId = user?.stock ?? (supplied ? o.stock as StockId : DEFAULT_STOCK);
   const scanner: ScannerId = isScannerId(o.scanner) ? o.scanner : 'frontier';
   const base = defaultRecipe(stock, scanner);
   const push = typeof o.push === 'number' && [-1, 0, 1, 2].includes(o.push) ? (o.push as Push) : 0;

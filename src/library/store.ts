@@ -72,6 +72,12 @@ interface State {
   clipping: boolean;
   /** Names of the steps undo and redo would apply, if any. */
   history: { undo: string | null; redo: string | null };
+  /**
+   * A custom look open for editing on the photo at `path`: the look's settings are on that photo's
+   * sliders, as a draft kept in memory only (no sidecar write, no undo step). `original` is the
+   * photo's saved recipe, which comes back when editing ends.
+   */
+  lookEdit: { id: string; name: string; path: string; original: Recipe | null } | null;
   /** The crop being edited, for the photo at `path` of size W × H; it is saved when cropping ends. */
   cropEdit: { path: string; draft: Crop; W: number; H: number } | null;
   /** Size of the photo open in the develop view. */
@@ -189,6 +195,7 @@ export const useApp = create<State>(() => ({
   clipping: false,
   history: { undo: null, redo: null },
   cropEdit: null,
+  lookEdit: null,
   developSize: null,
   filter: savedFilter(),
   stageColor: savedStageColor(),
@@ -385,6 +392,13 @@ const historyState = () => ({ history: { undo: history.undoLabel, redo: history.
  * `label`, or after what changed.
  */
 export function editRecipes(paths: string[], change: (r: Recipe | null, p: Photo) => Recipe | null, label?: string, grouping?: { key: string; continuous: boolean }) {
+  // While a look is being edited, edits change only its draft on that photo.
+  const editing = get().lookEdit;
+  if (editing) {
+    if (!paths.includes(editing.path)) return;
+    set({ photos: get().photos.map((p) => (p.path === editing.path ? { ...p, recipe: change(p.recipe, p) } : p)) });
+    return;
+  }
   const wanted = new Set(paths);
   const changes: Change[] = [];
   const photos = get().photos.map((p) => {
@@ -451,6 +465,7 @@ function applyStep(step: Step, side: 'before' | 'after', verb: string) {
 }
 
 export function undo() {
+  if (get().lookEdit) return showToast('Finish editing the look first');
   finishCrop(true);
   const s = history.undo();
   if (s) applyStep(s, 'before', 'Undid');
@@ -458,6 +473,7 @@ export function undo() {
 }
 
 export function redo() {
+  if (get().lookEdit) return showToast('Finish editing the look first');
   finishCrop(true);
   const s = history.redo();
   if (s) applyStep(s, 'after', 'Redid');
@@ -557,4 +573,29 @@ export function setPhotoLens(path: string, lens: import('../engine/lenscorrectio
 
 export function setPhotoCamera(path: string, camera: import('../film/profiles').CameraMetadata | null) {
   set({ photos: get().photos.map(p => p.path === path ? { ...p, camera } : p) });
+}
+
+/** Open a custom look for editing on the photo at `path`, with `draft` (the look on its sliders) shown. */
+export function startLookEdit(path: string, id: string, name: string, draft: Recipe) {
+  const p = get().photos.find((x) => x.path === path);
+  if (!p || get().lookEdit) return;
+  set({
+    lookEdit: { id, name, path, original: p.recipe },
+    photos: get().photos.map((x) => (x.path === path ? { ...x, recipe: draft } : x)),
+  });
+}
+
+/** Rename the look being edited. */
+export function renameLookEdit(name: string) {
+  const e = get().lookEdit;
+  if (e) set({ lookEdit: { ...e, name } });
+}
+
+/** Stop editing a look: the photo gets its saved recipe back. Returns the draft it had. */
+export function endLookEdit(): Recipe | null {
+  const e = get().lookEdit;
+  if (!e) return null;
+  const draft = get().photos.find((x) => x.path === e.path)?.recipe ?? null;
+  set({ lookEdit: null, photos: get().photos.map((x) => (x.path === e.path ? { ...x, recipe: e.original } : x)) });
+  return draft;
 }

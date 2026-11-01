@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { CB_DEFAULTS } from '../engine/colorbalance';
 import { InputMode, developUniforms } from '../engine/params';
 import { curveTable } from './curve';
-import { composedCurveTable, normalizeSettings, scaledColorBalance, settingsFromRecipe, withoutProfileFields } from './creative';
-import { registerUserLook, userLookId } from './looks';
+import { colourAtRest, composedCurveTable, normalizeSettings, recipeFromSettings, scaledColorBalance, scaledSettings, settingsFromRecipe, withoutProfileFields } from './creative';
+import { customLookId, fileLutId, registerCustomLook, registerFileLut } from './looks';
 import { defaultRecipe, type Recipe } from './recipe';
 
 const S = { rgb: [[0, 0.05], [0.5, 0.42], [1, 0.97]], r: [[0, 0], [0.5, 0.55], [1, 1]], g: [[0, 0], [1, 1]], b: [[0, 0.04], [1, 1]] } as Recipe['curve'];
@@ -19,19 +19,19 @@ const lut = { level: 2, data: new Float32Array(24), id: 3, eightBit: true };
 
 describe('creative profiles', () => {
   it('saves only colour and tone: Colour Grading, the colour sliders, the curve and the look', () => {
-    const s = settingsFromRecipe(graded(), { pack: 't3mujinpack', stock: 'portra400', amount: 0.7 });
+    const s = settingsFromRecipe(graded(), { kind: 'pack', pack: 't3mujinpack', stock: 'portra400', amount: 0.7 });
     expect(s.colorBalance).toMatchObject({ contrast: 0.2, vibrance: -0.1, saturation_global: 0.15, shadows_Y: 0.3, shadows_C: 0.05, shadows_H: 220 });
     expect(s.curve).toEqual(S);
     expect(JSON.stringify(s)).not.toMatch(/exposure|clarity/);
-    expect(settingsFromRecipe(defaultRecipe(), null)).toEqual({ colorBalance: null, curve: null, look: null });
+    expect(settingsFromRecipe(defaultRecipe(), null)).toEqual({ colorBalance: null, curve: null, lut: null });
   });
 
   it('renders a photo the same after saving it as a profile, with its colour sliders back at zero', () => {
     const r = graded();
-    const hash = 'cd'.repeat(32);
-    registerUserLook(hash, 'Moody', false, normalizeSettings(JSON.parse(JSON.stringify(
-      settingsFromRecipe(r, { pack: r.pack, stock: r.stock, amount: r.lookAmount / 100 }))))!);
-    const after = withoutProfileFields({ ...r, pack: 'mine', stock: userLookId(hash), lookAmount: 100 });
+    const id = 'cdcdcdcd-cdcd-4dcd-8dcd-cdcdcdcdcdcd';
+    registerCustomLook(id, 'Moody', normalizeSettings(JSON.parse(JSON.stringify(
+      settingsFromRecipe(r, { kind: 'pack', pack: r.pack, stock: r.stock, amount: r.lookAmount / 100 }))))!);
+    const after = withoutProfileFields({ ...r, pack: 'custom', stock: customLookId(id), lookAmount: 100 });
     expect([after.contrast, after.grading, after.curve, after.exposure, after.clarity]).toEqual([0, null, null, 0.4, 25]);
     const before = developUniforms(r, { ...ctx, look: lut });
     const now = developUniforms(after, { ...ctx, look: lut });
@@ -50,7 +50,7 @@ describe('creative profiles', () => {
 
   it('scales a profile towards doing nothing, keeping its hues and fulcrums', () => {
     const cb = { shadows_C: 0.08, shadows_H: 210, contrast: 0.3, grey_fulcrum: 0.2, hue_angle: 20 };
-    const s = { colorBalance: cb, curve: null, look: null };
+    const s = { colorBalance: cb, curve: null, lut: null };
     expect(scaledColorBalance(s, 1)).toEqual({ ...CB_DEFAULTS, ...cb });
     const half = scaledColorBalance(s, 0.5)!;
     expect([half.shadows_C, half.contrast, half.hue_angle]).toEqual([0.04, 0.15, 10]);
@@ -79,7 +79,34 @@ describe('creative profiles', () => {
     const s = normalizeSettings({ colorBalance: { contrast: 9, shadows_C: 'x', highlights_C: 0.1 }, curve: 'nope', look: { pack: 'gmic-film', stock: 7 } })!;
     expect(s.colorBalance).toEqual({ contrast: 1, highlights_C: 0.1 });
     expect(s.curve).toBeNull();
-    expect(s.look).toBeNull();
-    expect(normalizeSettings({ look: { pack: 'gmic-film', stock: 'x', amount: 4 } })!.look).toEqual({ pack: 'gmic-film', stock: 'x', amount: 1 });
+    expect(s.lut).toBeNull();
+    // Looks saved first wrote a system look as `look`.
+    expect(normalizeSettings({ look: { pack: 'gmic-film', stock: 'x', amount: 4 } })!.lut).toEqual({ kind: 'pack', pack: 'gmic-film', stock: 'x', amount: 1 });
+    expect(normalizeSettings({ lut: { kind: 'file', hash: 'nope' } })!.lut).toBeNull();
+  });
+
+  it('puts a look on the sliders to edit it, and gets the same look back when it is saved', () => {
+    const hash = 'ef'.repeat(32);
+    registerFileLut(hash);
+    const look = settingsFromRecipe(graded(), { kind: 'file', hash, amount: 0.8 });
+    const draft = recipeFromSettings(defaultRecipe(), look);
+    expect(draft).toMatchObject({ contrast: 20, vibrance: -10, saturation: 15, shadows: 30, curve: S, pack: 'files', stock: fileLutId(hash), lookEnabled: true, lookAmount: 80 });
+    expect(settingsFromRecipe(draft, { kind: 'file', hash, amount: draft.lookAmount / 100 })).toEqual(look);
+    expect(recipeFromSettings(defaultRecipe(), { colorBalance: null, curve: null, lut: null })).toMatchObject({ lookEnabled: false, stock: 'neutral' });
+  });
+
+  it('detaches a look at part strength as fixed settings', () => {
+    const look = settingsFromRecipe(graded(), { kind: 'pack', pack: 't3mujinpack', stock: 'portra400', amount: 0.8 });
+    expect(scaledSettings(look, 1)).toEqual({ ...look, colorBalance: expect.objectContaining(look.colorBalance) });
+    const half = scaledSettings(look, 0.5);
+    expect(half.colorBalance?.contrast).toBeCloseTo(0.1, 12);
+    expect(half.colorBalance?.shadows_H).toBe(220);
+    expect(half.lut?.amount).toBeCloseTo(0.4, 12);
+    expect(half.curve?.rgb[1][0]).toBe(0.5);
+    expect(half.curve?.rgb[1][1]).toBeCloseTo(0.46, 12);
+    expect(scaledSettings(look, 0).curve).toBeNull();
+    expect(colourAtRest(defaultRecipe())).toBe(true);
+    expect(colourAtRest(graded())).toBe(false);
   });
 });
+

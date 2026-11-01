@@ -44,6 +44,37 @@ settings; a saved look is a **profile**. "Recipe" stays an internal word (the pe
 9. **Export colour grade to .cube / Hald** as a secondary action, for video editors and other apps,
    warning that spatial edits are stripped (Oli's summary). `tools/luts/bake-fuji.mjs` is the precedent.
 
+## Custom looks (decided and built 2026-11-01)
+
+Oli: imported LUTs and saved profiles should be one thing, **custom looks**, in one **Custom looks**
+collection; system looks (the bundled packs) can't be edited. A custom look is a name, hidden colour
+and tone settings, and optionally a LUT: a system look by reference, or a LUT file of the user's own.
+**Never grain** or other spatial effects (Lightroom's model): those stay visible sliders.
+
+- **Made by:** Import LUT (a look holding that file), Duplicate (of a system look, by reference, or a
+  custom one), New look from this photo (its LUT at its Amount plus Colour Grading, Contrast, Vibrance,
+  Saturation, Shadows, Curve; the photo switches to it with those sliders at zero).
+- **Permanent ids** (`lut:custom:<uuid>`), so editing keeps every photo that uses it. LUT files are
+  stored once by content hash (`looks/luts/`) and removed when no look uses them. Looks from the
+  first two days (`lut:mine:`, `lut:profile:` ids) are migrated, keeping their hash as their id.
+- **Edit look:** the look's settings go onto that photo's sliders and its LUT into the Collection/Look
+  controls (a file through a hidden "LUT file" collection), as an in-memory draft: no sidecar write, no
+  undo step. Done saves the look (updating every photo using it; the banner shows how many in the
+  folder) and Cancel discards; moving to another photo cancels. A look without a LUT gains one here.
+- **Detach** (Figma's detach component): the look's settings at its Amount onto the photo's own
+  sliders and its LUT used directly; the photo stops following the look. Offered only when those
+  sliders are at rest (two colour balance instances can't be merged exactly).
+
+## Next ideas (Oli, 2026-11-01), not built
+
+- **Recipes attached to looks:** a look can carry visible slider settings (a preset) applied when the
+  look is chosen, editable afterwards like any slider. This is where grain belongs when a look wants
+  it. Needs presets first; then a look links one. Decide what happens to those sliders on switching
+  looks (proposal: the new look's recipe replaces the old one's groups, one undo step).
+- **Colour-only LUT blending:** a per-look option to take only the LUT's colour and keep the base's
+  tones, darktable's "color" blend mode, so highlights stay with the tone controls. Port darktable's
+  blend mode code (`src/develop/blends/`), per the porting rule.
+
 ## Open: Oli to decide
 
 - **Which hidden settings a profile may carry.** Oli's summary includes spatial ones (highlight
@@ -81,3 +112,4 @@ settings; a saved look is a **profile**. "Recipe" stays an internal word (the pe
    sliders (one undo step); it renders within 1/255 of before (probe `savedProfile`). Not yet: saving a
    profile on top of another saved profile (the button explains), editing a profile's settings.
 5. Export colour grade to `.cube`.
+6. Recipes attached to looks (after presets); colour-only LUT blending.

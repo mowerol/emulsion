@@ -10,7 +10,7 @@ import { refreshUserLooks } from './library/userlooks';
 window.addEventListener('error', (e) => logToTerminal('error', `${e.message} at ${e.filename}:${e.lineno}`));
 window.addEventListener('unhandledrejection', (e) => logToTerminal('error', `Unhandled: ${String(e.reason)}`));
 
-// Imported looks join My looks before photos are drawn with them.
+// Custom looks are listed before photos are drawn with them.
 void refreshUserLooks().catch((e) => logToTerminal('error', `Imported looks: ${String(e)}`));
 
 ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(

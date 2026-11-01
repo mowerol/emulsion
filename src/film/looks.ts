@@ -8,18 +8,18 @@ import { STOCK, registerStock, type StockId } from './stocks';
 import catalogue from './lut-catalogue.json';
 import { LOCAL_LOOKS } from './local-looks';
 
-export type PackId = 'mine' | 't3mujinpack' | 'gmic-film' | 'picturefx' | 'fuji-test' | 'spektrafilm';
+export type PackId = 'custom' | 'files' | 't3mujinpack' | 'gmic-film' | 'picturefx' | 'fuji-test' | 'spektrafilm';
 
 /** A stock's LUT in a pack: a file under public/looks/<pack>/, one per push step if it has them. */
 export interface PackLook {
-  /** The LUT file; for My looks, the content hash of an imported LUT ('' for a saved profile). */
+  /** The LUT file; for the user's LUT files, its content hash ('' for a custom look). */
   file: string;
   category?: string;
   name?: string;
   push?: Partial<Record<Push, string>>;
-  /** An imported look a recipe names that is not installed (not offered in the picker). */
+  /** A custom look a recipe names that is not installed (not offered in the picker). */
   missing?: boolean;
-  /** A saved creative profile's hidden settings and the look LUT it refers to (My looks only). */
+  /** A custom look's hidden settings and its LUT. */
   settings?: ProfileSettings;
 }
 
@@ -30,8 +30,10 @@ export interface LookPack {
   looks: Partial<Record<StockId, PackLook>>;
   /** Files live in the ignored local-looks folder and are served only during development. */
   local?: boolean;
-  /** Looks the user imported, kept in the app's data folder (see library/userlooks.ts). */
+  /** Custom looks and the user's LUT files, kept in the app's data folder (see library/userlooks.ts). */
   user?: boolean;
+  /** Not offered as a collection unless a photo already uses it. */
+  hidden?: boolean;
 }
 
 const T3M: Partial<Record<StockId, string>> = {
@@ -56,7 +58,8 @@ const localPack = (id: PackId, name: string, hint: string): LookPack[] =>
     : [];
 
 export const PACKS: LookPack[] = [
-  { id: 'mine', name: 'My looks', hint: 'Looks you have imported (.cube, .3dl or Hald .png) or saved from a photo.', looks: {}, user: true },
+  { id: 'custom', name: 'Custom looks', hint: 'Your own looks: a LUT and hidden colour and tone settings, with one Amount.', looks: {}, user: true },
+  { id: 'files', name: 'LUT file', hint: 'A LUT file of your own, used directly.', looks: {}, user: true, hidden: true },
   {
     id: 't3mujinpack',
     name: 't3mujinpack',
@@ -86,11 +89,12 @@ export function lookFile(pack: PackId, stock: StockId, push: Push): string | nul
   const l = PACK[pack].looks[stock];
   if (!l) return null;
   if (PACK[pack].user) {
-    if (!l.settings) return `${USER_LOOKS_DIR}${l.file}`;
-    // A saved profile uses the LUT it refers to; one that is itself a profile is not followed.
-    const ref = l.settings.look;
-    if (!ref || !isPackId(ref.pack) || PACK[ref.pack].looks[ref.stock as StockId]?.settings) return null;
-    return lookFile(ref.pack, ref.stock as StockId, push);
+    if (!l.settings) return l.file ? `${USER_LOOKS_DIR}${l.file}` : null;
+    // A custom look uses its LUT file, or the system look it refers to.
+    const lut = l.settings.lut;
+    if (!lut) return null;
+    if (lut.kind === 'file') return `${USER_LOOKS_DIR}${lut.hash}`;
+    return isPackId(lut.pack) && !PACK[lut.pack].user ? lookFile(lut.pack, lut.stock as StockId, push) : null;
   }
   const file = `${pack}/${l.push?.[push] ?? l.file}`;
   return PACK[pack].local ? `/local-looks/${file}` : file;
@@ -113,45 +117,66 @@ export function stockForPack(pack: PackId, current: StockId): StockId {
 export const recipeLookFile = (recipe: import('./recipe').Recipe | null): string | null =>
   recipe?.lookEnabled ? lookFile(recipe.pack, recipe.stock, recipe.push) : null;
 
-// ---------- Imported looks ----------
+// ---------- Custom looks and the user's LUT files ----------
 
-/** lookFile's prefix for an imported look; lutstore reads these through the app, not a URL. */
+/** lookFile's prefix for a LUT file of the user's own; lutstore reads these through the app, not a URL. */
 export const USER_LOOKS_DIR = 'user-looks/';
-const USER_LOOK = /^lut:mine:([0-9a-f]{64})$/;
+const CUSTOM_LOOK = /^lut:custom:([0-9a-f]{64}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/;
+const FILE_LUT = /^lut:file:([0-9a-f]{64})$/;
+/** Ids from before Custom looks: imported LUTs and saved profiles, by content hash. */
+const OLD_LOOK = /^lut:(mine|profile):([0-9a-f]{64})$/;
 
-/** The content hash in an imported look's stock id, or null for any other stock. */
-export const userLookHash = (stock: unknown): string | null =>
-  typeof stock === 'string' ? USER_LOOK.exec(stock)?.[1] ?? null : null;
+/** A custom look's id in its stock id, or null for any other stock. */
+export const customLookOf = (stock: unknown): string | null =>
+  typeof stock === 'string' ? CUSTOM_LOOK.exec(stock)?.[1] ?? null : null;
 
-export const userLookId = (hash: string) => `lut:mine:${hash}` as StockId;
+export const customLookId = (id: string) => `lut:custom:${id}` as StockId;
+export const fileLutId = (hash: string) => `lut:file:${hash}` as StockId;
 
-/**
- * Add an imported look or a saved profile to My looks (or rename it); `missing` holds the place of
- * one not installed.
- */
-export function registerUserLook(hash: string, name: string, missing = false, settings?: ProfileSettings) {
-  const id = userLookId(hash);
-  PACK.mine.looks[id] = settings
-    ? { file: '', name, category: 'Saved profiles', settings }
-    : { file: hash, name, category: missing ? 'Imported' : 'Imported LUTs', missing };
+function put(pack: 'custom' | 'files', id: StockId, look: PackLook) {
+  PACK[pack].looks[id] = look;
+  const name = look.name ?? 'Look';
   registerStock({
-    id, name, maker: 'Imported', edge: name.toUpperCase(), bw: false,
+    id, name, maker: PACK[pack].name, edge: name.toUpperCase(), bw: false,
     halation: 0, halationColor: [1, 0.36, 0.14], iso: 400, grainIso: 400, grain: 0,
   });
 }
 
-
-/**
- * A recipe can name an imported look before the list of them has loaded (or after it was removed):
- * hold its place so the recipe keeps it. The list renames it when it arrives.
- */
-export function ensureUserLook(stock: unknown): boolean {
-  const hash = userLookHash(stock);
-  if (!hash) return false;
-  if (!PACK.mine.looks[userLookId(hash)]) registerUserLook(hash, 'Missing look', true);
-  return true;
+/** Add a custom look (or update it); without settings it holds the place of one not installed. */
+export function registerCustomLook(id: string, name: string, settings: ProfileSettings | null) {
+  put('custom', customLookId(id), settings ? { file: '', name, category: PACK.custom.name, settings } : { file: '', name, missing: true });
+  if (settings?.lut?.kind === 'file') registerFileLut(settings.lut.hash);
 }
 
-/** The hidden settings of the recipe's look when it is a saved profile, else null. */
+export function unregisterCustomLook(id: string) {
+  registerCustomLook(id, 'Missing look', null);
+}
+
+/** A LUT file of the user's own, chosen directly while a look is edited or after one is detached. */
+export function registerFileLut(hash: string) {
+  if (!PACK.files.looks[fileLutId(hash)]) put('files', fileLutId(hash), { file: hash, name: 'LUT file' });
+}
+
+/**
+ * Bring a recipe's look id up to date and hold the place of a custom look or LUT file the lists
+ * haven't loaded yet (or that was removed), so the recipe keeps it. Returns the pack and stock to use.
+ */
+export function resolveUserLook(pack: unknown, stock: unknown): { pack: PackId; stock: StockId } | null {
+  const old = typeof stock === 'string' ? OLD_LOOK.exec(stock) : null;
+  if (old && (pack === 'mine' || pack === 'profiles')) stock = customLookId(old[2]);
+  const custom = customLookOf(stock);
+  if (custom) {
+    if (!PACK.custom.looks[stock as StockId]) registerCustomLook(custom, 'Missing look', null);
+    return { pack: 'custom', stock: stock as StockId };
+  }
+  const file = typeof stock === 'string' ? FILE_LUT.exec(stock)?.[1] : null;
+  if (file && pack === 'files') {
+    registerFileLut(file);
+    return { pack: 'files', stock: stock as StockId };
+  }
+  return null;
+}
+
+/** The hidden settings of the recipe's look when it is a custom look, else null. */
 export const profileSettingsFor = (recipe: Recipe | null): ProfileSettings | null =>
   recipe?.lookEnabled ? PACK[recipe.pack]?.looks[recipe.stock]?.settings ?? null : null;

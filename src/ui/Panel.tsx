@@ -7,15 +7,15 @@ import { CameraProfileControls } from './CameraProfile';
 import { profileLabel, useProfileVersion } from '../engine/profilestore';
 import { LensControls } from './LensControls';
 import { ColourGradingControls } from './ColourGrading';
-import { PACK, PACKS, lookName, stockForPack, stocksForPack, type PackId } from '../film/looks';
+import { PACK, PACKS, customLookId, customLookOf, fileLutId, lookName, stockForPack, stocksForPack, type PackId } from '../film/looks';
 import { BRIGHT_RANGE, COLOR_CHANNELS, DEFAULT_STOCK, HUE_DEGREES, SAT_RANGE, PUSHES, SLIDER, SLIDERS, defaultRecipe, tidyColor, type ColorAdjust, resetAdjustments, resetSection, sectionChanged, sliderDefault, withSettingsFrom, withStock, type Push, type Recipe, type SectionId, type SliderDef } from '../film/recipe';
 import { SCANNER, SCANNERS, type ScannerId } from '../film/scanners';
 import { STOCK, type StockId } from '../film/stocks';
 import { open } from '@tauri-apps/plugin-dialog';
-import { importUserLook, onSavedProfile, removeUserLook, saveProfile, userLookCount, useUserLooksVersion } from '../library/userlooks';
-import { hasSettings, settingsFromRecipe, withoutProfileFields } from '../film/creative';
+import { deleteLook, duplicateLook, importLook, importLutFile, lutSourceOf, onLookWithSettings, saveLook, userLookCount, useUserLooksVersion, uuid } from '../library/userlooks';
+import { colourAtRest, hasSettings, recipeFromSettings, scaledSettings, settingsFromRecipe, withoutProfileFields } from '../film/creative';
 import {
-  activePhoto, copySettings, editActive, editRecipes, pasteSettings, redo, showToast, targets, undo, useApp, type Photo,
+  activePhoto, copySettings, editActive, editRecipes, endLookEdit, pasteSettings, redo, renameLookEdit, showToast, startLookEdit, targets, undo, useApp, type Photo,
 } from '../library/store';
 import { offscreenEngine, sourceForPreview, thumbs } from '../library/thumbs';
 import type { Source } from '../engine/engine';
@@ -306,8 +306,19 @@ export function Panel() {
   const workspace = useWorkspace();
   useUserLooksVersion();
   const [browseOpen, setBrowseOpen] = useState(false);
-  // The name being typed for "Save as profile", or null when the form is closed.
-  const [profileName, setProfileName] = useState<string | null>(null);
+  // The name being typed for "New look from this photo", or null when the form is closed.
+  const [newLookName, setNewLookName] = useState<string | null>(null);
+  // A custom look open for editing (on this photo's sliders); see startLookEdit.
+  const editing = useApp((s) => s.lookEdit);
+  const photos = useApp((s) => s.photos);
+  const usedBy = (stock: StockId) => photos.filter((p) => (editing?.path === p.path ? editing.original : p.recipe)?.stock === stock).length;
+  // Editing belongs to one photo: moving to another one stops it, without saving.
+  useEffect(() => {
+    if (editing && photo?.path !== editing.path) {
+      endLookEdit();
+      showToast(`Stopped editing ${editing.name} without saving`);
+    }
+  }, [photo?.path, editing]);
   const controlsBody = useRef<HTMLDivElement>(null);
   const grouped = view === 'develop' && workspace.layout === 'workflow';
   useEffect(() => { if (grouped && controlsBody.current) controlsBody.current.scrollTop = 0; }, [workspace.group, grouped]);
@@ -324,38 +335,82 @@ export function Panel() {
   // An unedited photo shows Neutral's settings, and any change starts a Neutral edit.
   const base = recipe ?? defaultRecipe();
   const clearLook = () => applyToTargets(r => ({ ...(r ?? defaultRecipe()), stock: 'neutral', lookEnabled: false }));
-  const importLook = async () => {
+  const fail = (e: unknown) => showToast(e instanceof Error ? e.message : String(e));
+  const chooseLut = async () => {
+    const path = await open({ multiple: false, title: 'Import a LUT', filters: [{ name: 'LUT', extensions: ['cube', '3dl', 'png'] }] });
+    return typeof path === 'string' ? path : null;
+  };
+  // Outside editing, a LUT comes in as a new custom look; while editing, it becomes the look's LUT.
+  const importLut = async () => {
     try {
-      const path = await open({ multiple: false, title: 'Import a look', filters: [{ name: 'LUT', extensions: ['cube', '3dl', 'png'] }] });
-      if (typeof path !== 'string') return;
-      const id = await importUserLook(path);
-      applyToTargets((r) => ({ ...withStock(r, id), pack: 'mine', lookEnabled: true }));
-      showToast(`Imported ${STOCK[id].name}`);
+      const path = await chooseLut();
+      if (!path) return;
+      if (editing) {
+        const hash = await importLutFile(path);
+        editActive((r) => ({ ...(r ?? defaultRecipe()), pack: 'files', stock: fileLutId(hash), lookEnabled: true, lookAmount: 100 }));
+        return;
+      }
+      const id = await importLook(path);
+      applyToTargets((r) => ({ ...withStock(r, id), pack: 'custom', lookEnabled: true }));
+      showToast(`Imported ${STOCK[id].name} into Custom looks`);
     } catch (e) {
-      showToast(e instanceof Error ? e.message : String(e));
+      fail(e);
     }
   };
-  const savable = !!recipe && !onSavedProfile(recipe) && (hasSettings(settingsFromRecipe(recipe, null)) || recipe.lookEnabled);
-  const saveAsProfile = async () => {
-    const name = profileName?.trim();
+  const useLook = (id: StockId) => applyToTargets((r) => ({ ...withStock(r, id), pack: 'custom', lookEnabled: true, lookAmount: 100 }));
+  const newLookSource = recipe ? lutSourceOf(recipe) : null;
+  const canMakeLook = !!recipe && !onLookWithSettings(recipe) && (hasSettings(settingsFromRecipe(recipe, null)) || !!newLookSource);
+  const makeLookFromPhoto = async () => {
+    const name = newLookName?.trim();
     if (!name || !recipe) return;
     try {
-      const id = await saveProfile(name, recipe);
-      // The photo now takes its colour and tone from the profile, so it looks the same with its sliders free.
-      editActive((r) => withoutProfileFields({ ...(r ?? defaultRecipe()), pack: 'mine', stock: id, lookEnabled: true, lookAmount: 100 }), `Save profile ${name}`);
-      setProfileName(null);
-      showToast(`Saved ${name} to My looks`);
+      const id = await saveLook(uuid(), name, settingsFromRecipe(recipe, newLookSource));
+      // The photo now takes its colour and tone from the look, so it looks the same with its sliders free.
+      editActive((r) => withoutProfileFields({ ...(r ?? defaultRecipe()), pack: 'custom', stock: id, lookEnabled: true, lookAmount: 100 }), `New look ${name}`);
+      setNewLookName(null);
+      showToast(`Saved ${name} to Custom looks`);
     } catch (e) {
-      showToast(e instanceof Error ? e.message : String(e));
+      fail(e);
     }
+  };
+  const duplicate = async () => {
+    try {
+      useLook(await duplicateLook(base.pack, base.stock));
+    } catch (e) {
+      fail(e);
+    }
+  };
+  const currentLook = base.lookEnabled ? PACK[base.pack].looks[base.stock] : undefined;
+  const customId = base.pack === 'custom' && currentLook && !currentLook.missing ? customLookOf(base.stock) : null;
+  const startEditing = () => {
+    if (!customId || !currentLook?.settings || !photo) return;
+    startLookEdit(photo.path, customId, currentLook.name ?? 'Look', recipeFromSettings(base, currentLook.settings));
+  };
+  const finishEditing = async () => {
+    if (!editing) return;
+    const draft = endLookEdit();
+    if (!draft) return;
+    try {
+      await saveLook(editing.id, editing.name.trim() || 'Look', settingsFromRecipe(draft, lutSourceOf(draft)));
+      showToast(`Saved ${editing.name}`);
+    } catch (e) {
+      fail(e);
+    }
+  };
+  // Detach: the look's settings onto this photo's own sliders, its LUT used directly; the photo no
+  // longer follows the look. Exact when the photo's own colour sliders are at rest.
+  const detach = () => {
+    if (!currentLook?.settings) return;
+    const settings = scaledSettings(currentLook.settings, base.lookAmount / 100);
+    editActive((r) => recipeFromSettings(r ?? defaultRecipe(), settings), `Detach ${currentLook.name}`);
   };
   const removeLook = async () => {
     const name = STOCK[base.stock].name;
     try {
-      await removeUserLook(base.stock);
-      showToast(`Removed ${name}`);
+      await deleteLook(base.stock);
+      showToast(`Deleted ${name}`);
     } catch (e) {
-      showToast(e instanceof Error ? e.message : String(e));
+      fail(e);
     }
   };
   const availableStocks = stocksForPack(base.pack);
@@ -385,9 +440,15 @@ export function Panel() {
       <CameraProfileControls raw={photo.raw} camera={photo.camera??null} value={base.profile} onChange={profile=>editActive(r=>({...(r??defaultRecipe()),profile}), 'Camera profile')} />
     </Section>,
     stock: <Section defaultOpen={!grouped} id="stock" title="Film stock" summary={base.lookEnabled ? lookName(base.pack, base.stock) : 'None'}>
+      {editing && <div className="look-edit" role="region" aria-label="Editing a look">
+        <label htmlFor="look-edit-name">Editing look</label>
+        <input id="look-edit-name" type="text" value={editing.name} maxLength={200} onChange={(e) => renameLookEdit(e.target.value)} />
+        <p className="hint">This photo shows the look by itself: its LUT here, its settings on Contrast, Vibrance, Saturation, Shadows, Colour Grading and the curve. Saving updates every photo that uses it ({usedBy(customLookId(editing.id))} in this folder).</p>
+        <div className="actions"><button type="button" className="btn" disabled={!editing.name.trim()} onClick={() => void finishEditing()}>Done</button><button type="button" className="btn" onClick={() => { endLookEdit(); }}>Cancel</button></div>
+      </div>}
       <div className="grain-speed"><label htmlFor="look-pack">Collection</label><select id="look-pack" value={base.lookEnabled ? base.pack : ''} onChange={e => e.target.value ? pickPack(e.target.value as PackId) : clearLook()}>
         <option value="">None</option>
-        {PACKS.filter(p => p.id !== 'mine' || userLookCount() > 0 || base.pack === 'mine').map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+        {PACKS.filter(p => base.pack === p.id || (!p.hidden && (!p.user || userLookCount(p.id) > 0) && !(editing && p.id === 'custom'))).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
       </select></div>
       {grouped && base.lookEnabled ? <div className="grain-speed"><label htmlFor="film-preset">Look</label><select id="film-preset" value={base.stock} onChange={e => pickStock(e.target.value as StockId)}>
         {!availableStocks.some(s => s.id === base.stock) && <option value={base.stock}>{recipe ? STOCK[base.stock].name : 'Original'}</option>}
@@ -396,18 +457,23 @@ export function Panel() {
         </optgroup>)}
       </select></div> : <p className="hint">{base.lookEnabled ? PACK[base.pack].hint : 'Optional film look, applied after the base profile.'}</p>}
       {base.lookEnabled && PACK[base.pack].looks[base.stock] && <SliderRow def={SLIDER.lookAmount} recipe={base} onChange={setSlider} />}
-      {base.lookEnabled && PACK[base.pack].looks[base.stock]?.missing && <p className="hint" role="alert">This photo's imported look isn't installed. Import the same file again to bring it back.</p>}
-      <div className="actions">
-        <button type="button" className="btn" onClick={importLook}>Import LUT…</button>
-        {profileName === null && <button type="button" className="btn" disabled={!savable} onClick={() => setProfileName(base.lookEnabled ? `${lookName(base.pack, base.stock)} (mine)` : 'My profile')}
-          title={onSavedProfile(recipe) ? 'Choose a look that isn’t a saved profile first: a profile can’t be saved on top of another yet' : "Save this photo's look, Colour Grading, Contrast, Vibrance, Saturation, Shadows and Curve as one profile"}>Save as profile…</button>}
-        {base.lookEnabled && base.pack === 'mine' && PACK.mine.looks[base.stock] && !PACK.mine.looks[base.stock]?.missing &&
-          <ConfirmButton label="Remove look" confirm="Remove from My looks?" onConfirm={removeLook} />}
-      </div>
-      {profileName !== null && <form className="profile-save" onSubmit={(e) => { e.preventDefault(); void saveAsProfile(); }}>
-        <input type="text" aria-label="Profile name" autoFocus value={profileName} maxLength={200} onChange={(e) => setProfileName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') setProfileName(null); }} />
-        <p className="hint">Saves the look, Colour Grading, Contrast, Vibrance, Saturation, Shadows and Curve as one profile with its own Amount. This photo switches to it and those sliders go back to zero.</p>
-        <div className="actions"><button type="submit" className="btn" disabled={!profileName.trim()}>Save</button><button type="button" className="btn" onClick={() => setProfileName(null)}>Cancel</button></div>
+      {base.lookEnabled && PACK[base.pack].looks[base.stock]?.missing && <p className="hint" role="alert">This photo's custom look isn't installed (it was deleted, or was made on another computer).</p>}
+      {editing ? <div className="actions">
+        <button type="button" className="btn" onClick={importLut}>Use a LUT file…</button>
+      </div> : <div className="actions">
+        <button type="button" className="btn" onClick={importLut}>Import LUT…</button>
+        {newLookName === null && <button type="button" className="btn" disabled={!canMakeLook} onClick={() => setNewLookName(base.lookEnabled ? `${lookName(base.pack, base.stock)} (mine)` : 'My look')}
+          title={onLookWithSettings(recipe) ? 'Edit or detach this custom look instead: two looks’ settings can’t be combined exactly' : "Make a custom look of this photo's look, Colour Grading, Contrast, Vibrance, Saturation, Shadows and Curve"}>New look from this photo…</button>}
+        {customId && currentLook?.settings && <button type="button" className="btn" onClick={startEditing}>Edit look</button>}
+        {currentLook && !currentLook.missing && !PACK[base.pack].hidden && <button type="button" className="btn" onClick={duplicate}>Duplicate</button>}
+        {customId && hasSettings(currentLook?.settings) && <button type="button" className="btn" disabled={!colourAtRest(base)} onClick={detach}
+          title={colourAtRest(base) ? 'Put this look’s settings on the photo’s own sliders; the photo stops following the look' : 'Reset Contrast, Vibrance, Saturation, Shadows, Colour Grading and the curve first: they can’t be combined with the look’s exactly'}>Detach</button>}
+        {customId && <ConfirmButton label="Delete look" confirm={`Delete for good? Used by ${usedBy(base.stock)} here`} onConfirm={removeLook} />}
+      </div>}
+      {newLookName !== null && <form className="profile-save" onSubmit={(e) => { e.preventDefault(); void makeLookFromPhoto(); }}>
+        <input type="text" aria-label="Look name" autoFocus value={newLookName} maxLength={200} onChange={(e) => setNewLookName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Escape') setNewLookName(null); }} />
+        <p className="hint">Makes a custom look of this photo's look, Colour Grading, Contrast, Vibrance, Saturation, Shadows and Curve, with one Amount. This photo switches to it and those sliders go back to zero.</p>
+        <div className="actions"><button type="submit" className="btn" disabled={!newLookName.trim()}>Save</button><button type="button" className="btn" onClick={() => setNewLookName(null)}>Cancel</button></div>
       </form>}
       {grouped ? <>
         <details className="preset-browse" onToggle={e => setBrowseOpen(e.currentTarget.open)}><summary>Browse looks</summary>{browseOpen && <StockPicker key={base.pack} photo={photo} current={base.lookEnabled ? base.stock : null} pack={base.pack} onPick={pickStock} />}</details>

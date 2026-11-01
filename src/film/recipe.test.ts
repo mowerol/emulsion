@@ -46,14 +46,12 @@ describe('recipes', () => {
     expect(normalizeRecipe({ stock: 'portra400', warmth: 40 })!.wb).toBeNull();
   });
 
-  it('switching stock keeps the grain amount and halation, and takes the new film speed', () => {
-    const r = { ...defaultRecipe('portra400'), exposure: 0.5, halation: 70, grain: 40 };
+  it('switching look moves no slider: grain, its size and halation stay', () => {
+    const r = { ...defaultRecipe('portra400'), exposure: 0.5, halation: 70, grain: 40, grainIso: 1600 };
     const s = withStock(r, 'trix400');
-    expect(s.exposure).toBe(0.5);
-    expect(s.halation).toBe(70);
-    expect(s.grain).toBe(40);
-    expect(s.grainIso).toBe(STOCK.trix400.iso);
-    expect(withStock(null, 'gold200')).toEqual(defaultRecipe('gold200'));
+    expect(s).toEqual({ ...r, stock: 'trix400', lookEnabled: true });
+    expect(withStock(null, 'ektar100')).toEqual({ ...defaultRecipe(), stock: 'ektar100', lookEnabled: true });
+    expect(withStock(null, 'ektar100').grainIso).toBe(defaultRecipe().grainIso);
   });
 
   it('reset keeps stock, development and scanner', () => {

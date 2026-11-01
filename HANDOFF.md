@@ -2,6 +2,10 @@
 
 Rewritten at the end of each session. Last updated 2026-10-31 (night).
 
+## Custom looks: one collection, editable, detachable (2026-11-01, uncommitted)
+
+Imported LUTs and saved profiles are now one thing, **custom looks** (Oli's call), in a **Custom looks** collection with permanent ids; system packs stay read-only. Film stock section: **Import LUT…**, **New look from this photo…**, **Duplicate** (system or custom), and for a custom look **Edit look**, **Detach** and **Delete look**. Edit mode puts the look on the photo's sliders as an in-memory draft (`lookEdit` in the store; edits don't save or enter undo), with a banner (name, how many photos in the folder use it, Done/Cancel); the Collection/Look controls and "Use a LUT file…" set its LUT. Detach (Figma-style) moves a look's settings onto the photo's own sliders. Rust `user_looks.rs` rewritten: `<id>.json` per look, shared `luts/<hash>.<ext>`, migration of the first layout (tested). Full detail and the two parked ideas (recipes attached to looks; colour-only LUT blending) in docs/plans/profiles-and-presets.md. Checks: 254 TS tests, 40 Rust tests, build, probe `savedProfile` 1/255. **Not tried in the real app:** any of the buttons, edit mode, detach, migration of the looks Oli made on 2026-10-31.
+
 ## Images toolbar and View options (2026-10-31, another agent; landed in `1d39349`)
 
 Written by another agent working in the same tree; its code was in the working tree when `1d39349` was committed, so it shipped in that commit (whose message doesn't mention it). Oli still to judge it in the app.

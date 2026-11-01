@@ -5,7 +5,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import catalogue from './lut-catalogue.json';
 import { LOCAL_LOOKS } from './local-looks';
-import { DEFAULT_PACK, PACKS, isPackId, lookFile, registerUserLook, stockForPack, stocksForPack, userLookHash } from './looks';
+import { DEFAULT_PACK, PACK, PACKS, customLookId, customLookOf, fileLutId, isPackId, lookFile, registerCustomLook, stockForPack, stocksForPack } from './looks';
 import { STOCK, isStockId } from './stocks';
 import { defaultRecipe, normalizeRecipe, resetAdjustments, withSettingsFrom, withStock } from './recipe';
 import { parseCube, tetrahedral } from '../engine/lut3d';
@@ -30,7 +30,7 @@ describe('bundled look catalogues', () => {
   });
 
   it('offers only supported presets and selects an actual look when changing packs', () => {
-    // My looks is empty until the user imports one (tested below).
+    // Custom looks are empty until the user makes one (tested below).
     for (const pack of PACKS.filter((p) => !p.user)) {
       const choices = stocksForPack(pack.id);
       expect(choices.length).toBeGreaterThan(0);
@@ -107,31 +107,44 @@ describe('bundled look catalogues', () => {
   });
 });
 
-describe('imported looks (My looks)', () => {
+describe('custom looks', () => {
+  const uuid = '0f4b2c1a-7d3e-4a91-9b2f-5c6d8e0a1b23';
+  const id = customLookId(uuid);
   const hash = 'ab'.repeat(32);
-  const id = `lut:mine:${hash}` as const;
 
-  it('keeps a recipe that names an imported look before the list has loaded, as Missing look', () => {
-    const r = normalizeRecipe({ stock: id, pack: 'mine', lookAmount: 60 })!;
-    expect(r).toMatchObject({ stock: id, pack: 'mine', lookEnabled: true, lookAmount: 60 });
+  it('keeps a recipe naming a custom look before the list has loaded, as Missing look', () => {
+    const r = normalizeRecipe({ stock: id, pack: 'custom', lookAmount: 60 })!;
+    expect(r).toMatchObject({ stock: id, pack: 'custom', lookEnabled: true, lookAmount: 60 });
     expect(STOCK[id].name).toBe('Missing look');
-    expect(stocksForPack('mine').some((s) => s.id === id)).toBe(false);
-    expect(lookFile('mine', id, 0)).toBe(`user-looks/${hash}`);
+    expect(stocksForPack('custom').some((s) => s.id === id)).toBe(false);
+    expect(lookFile('custom', id, 0)).toBeNull();
   });
 
-  it('offers a registered look and renames the placeholder', () => {
-    registerUserLook(hash, 'Warm print');
+  it('offers a registered look, with its own LUT file or the system look it refers to', () => {
+    registerCustomLook(uuid, 'Warm print', { colorBalance: null, curve: null, lut: { kind: 'file', hash, amount: 1 } });
     expect(STOCK[id].name).toBe('Warm print');
-    expect(stocksForPack('mine').map((s) => s.id)).toContain(id);
-    expect(stockForPack('mine', 'portra400')).toBe(id);
-    expect(isStockId(id)).toBe(true);
+    expect(stocksForPack('custom').map((s) => s.id)).toContain(id);
+    expect(lookFile('custom', id, 0)).toBe(`user-looks/${hash}`);
+    // Its file is also available directly (editing, detaching), but that collection is hidden.
+    expect(lookFile('files', fileLutId(hash), 0)).toBe(`user-looks/${hash}`);
+    expect(PACK.files.hidden).toBe(true);
+    const other = '11111111-2222-4333-8444-555555555555';
+    registerCustomLook(other, 'Portra copy', { colorBalance: null, curve: null, lut: { kind: 'pack', pack: 't3mujinpack', stock: 'portra400', amount: 1 } });
+    expect(lookFile('custom', customLookId(other), 0)).toBe(lookFile('t3mujinpack', 'portra400', 0));
   });
 
-  it('accepts only content-hash ids in My looks', () => {
-    expect(userLookHash(id)).toBe(hash);
-    expect(userLookHash('lut:mine:../x')).toBeNull();
-    expect(userLookHash('portra400')).toBeNull();
-    const r = normalizeRecipe({ stock: 'lut:mine:nope', pack: 'mine' })!;
-    expect(r).toMatchObject({ stock: 'neutral', lookEnabled: false });
+  it('brings the first ids across: imported LUTs and saved profiles become custom looks by their hash', () => {
+    for (const old of [`lut:mine:${hash}`, `lut:profile:${hash}`]) {
+      const r = normalizeRecipe({ stock: old, pack: old.includes('mine') ? 'mine' : 'profiles' })!;
+      expect(r).toMatchObject({ pack: 'custom', stock: customLookId(hash), lookEnabled: true });
+    }
+    expect(customLookOf(customLookId(hash))).toBe(hash);
+  });
+
+  it('accepts only custom look ids it can trust', () => {
+    expect(customLookOf('lut:custom:../x')).toBeNull();
+    expect(customLookOf('portra400')).toBeNull();
+    expect(normalizeRecipe({ stock: 'lut:custom:nope', pack: 'custom' })!).toMatchObject({ stock: 'neutral', lookEnabled: false });
+    expect(normalizeRecipe({ stock: fileLutId(hash), pack: 'files' })!).toMatchObject({ pack: 'files', stock: fileLutId(hash), lookEnabled: true });
   });
 });

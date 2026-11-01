@@ -45,11 +45,11 @@ export async function lutFormat(data: Blob): Promise<'png' | 'cube' | '3dl'> {
   return /^\s*LUT_3D_SIZE\b/m.test(await data.text()) ? 'cube' : '3dl';
 }
 
-/** An imported look's file, read through the app (it lives in the app's data folder). */
+/** A LUT file of the user's own, read through the app (it lives in the app's data folder). */
 async function userLook(file: string): Promise<{ name: string; blob: Blob }> {
-  const id = file.slice(USER_LOOKS_DIR.length);
-  const blob = new Blob([await invoke<ArrayBuffer>('read_user_look', { id })]);
-  return { name: `${id}.${await lutFormat(blob)}`, blob };
+  const hash = file.slice(USER_LOOKS_DIR.length);
+  const blob = new Blob([await invoke<ArrayBuffer>('read_look_lut', { hash })]);
+  return { name: `${hash}.${await lutFormat(blob)}`, blob };
 }
 
 /** Read a LUT file's contents: .cube, .3dl or a Hald CLUT image. */

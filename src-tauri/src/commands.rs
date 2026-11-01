@@ -177,49 +177,49 @@ pub async fn install_camera_profile(app: tauri::AppHandle, request: Request<'_>)
     blocking(move || crate::camera_profiles::install(&root, &bytes, name, camera, copyright)).await
 }
 
-/// Looks the user has imported, under the app's data folder.
+/// Custom looks, under the app's data folder.
 fn looks_root(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     use tauri::Manager;
     app.path().app_data_dir().map(|p| p.join("looks")).map_err(|e| e.to_string())
 }
 
 #[tauri::command]
-pub async fn user_looks(app: tauri::AppHandle) -> Result<Vec<crate::user_looks::LookEntry>, String> {
+pub async fn custom_looks(app: tauri::AppHandle) -> Result<Vec<crate::user_looks::CustomLook>, String> {
     let root = looks_root(&app)?;
     blocking(move || Ok(crate::user_looks::list(&root))).await
 }
 
 #[tauri::command]
-pub async fn read_user_look(app: tauri::AppHandle, id: String) -> Result<Response, String> {
+pub async fn read_look_lut(app: tauri::AppHandle, hash: String) -> Result<Response, String> {
     let root = looks_root(&app)?;
-    blocking(move || crate::user_looks::read(&root, &id).map(Response::new)).await
+    blocking(move || crate::user_looks::read_lut(&root, &hash).map(Response::new)).await
 }
 
 #[tauri::command]
-pub async fn read_user_look_file(path: String) -> Result<Response, String> {
+pub async fn read_lut_file(path: String) -> Result<Response, String> {
     blocking(move || crate::user_looks::read_file(std::path::Path::new(&path)).map(Response::new)).await
 }
 
+/// Body: the LUT file's bytes; header: its format. Returns its content hash.
 #[tauri::command]
-pub async fn install_user_look(app: tauri::AppHandle, request: Request<'_>) -> Result<crate::user_looks::LookEntry, String> {
-    let name = header(&request, "x-emulsion-look-name")?;
-    let ext = header(&request, "x-emulsion-look-ext")?;
+pub async fn store_look_lut(app: tauri::AppHandle, request: Request<'_>) -> Result<String, String> {
+    let ext = header(&request, "x-emulsion-lut-ext")?;
     let InvokeBody::Raw(bytes) = request.body() else {
-        return Err("Expected the look file's bytes".into());
+        return Err("Expected the LUT file's bytes".into());
     };
     let bytes = bytes.clone();
     let root = looks_root(&app)?;
-    blocking(move || crate::user_looks::install(&root, &bytes, name, ext)).await
+    blocking(move || crate::user_looks::store_lut(&root, &bytes, &ext)).await
 }
 
 #[tauri::command]
-pub async fn save_user_profile(app: tauri::AppHandle, name: String, settings: serde_json::Value) -> Result<crate::user_looks::LookEntry, String> {
+pub async fn save_custom_look(app: tauri::AppHandle, look: crate::user_looks::CustomLook) -> Result<crate::user_looks::CustomLook, String> {
     let root = looks_root(&app)?;
-    blocking(move || crate::user_looks::save_profile(&root, name, settings)).await
+    blocking(move || crate::user_looks::save(&root, look)).await
 }
 
 #[tauri::command]
-pub async fn delete_user_look(app: tauri::AppHandle, id: String) -> Result<(), String> {
+pub async fn delete_custom_look(app: tauri::AppHandle, id: String) -> Result<(), String> {
     let root = looks_root(&app)?;
     blocking(move || crate::user_looks::delete(&root, &id)).await
 }

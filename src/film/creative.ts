@@ -1,26 +1,28 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Creative profiles' hidden settings. A saved profile carries colour and tone settings that apply
-// without moving the photo's sliders, plus optionally a look LUT it refers to; its Amount scales all
-// of it. The settings run at their usual places in the pipeline: the colour balance as a second
-// instance just before the photo's own, the curve composed in front of the photo's own curve.
+// Custom looks' hidden settings. A custom look carries colour and tone settings that apply without
+// moving the photo's sliders, plus optionally a LUT (a system look's, or a file of the user's own);
+// its Amount scales all of it. The settings run at their usual places in the pipeline: the colour
+// balance as a second instance just before the photo's own, the curve composed in front of the
+// photo's own curve. Never grain or other spatial effects: those stay visible sliders.
 
 import { CB_DEFAULTS, colorBalanceParams, sliderParams, type CbParams } from '../engine/colorbalance';
 import { CURVE_RES, curveTable, isIdentity, normalizeCurve, type ToneCurve } from './curve';
 import { normalizeGrading } from './grading';
 import type { Recipe } from './recipe';
 
-/** A look LUT a profile refers to: a pack, the stock id it supplies, and how much of it (0 to 1). */
-export interface LookRef {
-  pack: string;
-  stock: string;
-  amount: number;
-}
+/**
+ * A custom look's LUT, with how much of it applies (0 to 1): a system look it refers to, or a LUT
+ * file of the user's own (by content hash).
+ */
+export type LutSource =
+  | { kind: 'pack'; pack: string; stock: string; amount: number }
+  | { kind: 'file'; hash: string; amount: number };
 
 export interface ProfileSettings {
   /** A colour balance rgb instance, darktable's units (the photo's own sliders and grading, combined). */
   colorBalance: Partial<CbParams> | null;
   curve: ToneCurve | null;
-  look: LookRef | null;
+  lut: LutSource | null;
 }
 
 /** The recipe fields a profile takes over when it is saved from a photo. */
@@ -30,7 +32,7 @@ export const PROFILE_FIELDS = ['contrast', 'vibrance', 'saturation', 'shadows', 
 const SCALED = /(_Y|_C)$|^(chroma|saturation|brilliance)_|^(vibrance|contrast|hue_angle)$/;
 
 /** The photo's colour and tone settings, as a profile's hidden settings. */
-export function settingsFromRecipe(r: Recipe, look: LookRef | null): ProfileSettings {
+export function settingsFromRecipe(r: Recipe, lut: LutSource | null): ProfileSettings {
   const cb: CbParams = { ...sliderParams(colorBalanceParams(r.contrast, r.vibrance, r.saturation, r.shadows)), ...r.grading };
   const changed = Object.fromEntries(
     (Object.keys(cb) as (keyof CbParams)[]).filter((k) => cb[k] !== CB_DEFAULTS[k] && k !== 'grey_fulcrum').map((k) => [k, cb[k]]),
@@ -40,13 +42,56 @@ export function settingsFromRecipe(r: Recipe, look: LookRef | null): ProfileSett
     // The contrast fulcrum is the photo's (Emulsion's middle grey unless Colour Grading moved it).
     colorBalance: any ? { ...changed, grey_fulcrum: cb.grey_fulcrum } : null,
     curve: isIdentity(r.curve) ? null : r.curve,
-    look,
+    lut,
   };
 }
+
+/**
+ * The photo with a look's settings on its own sliders, and the look's LUT chosen directly (a LUT file
+ * through the hidden LUT file collection): how a look is edited, and how it is detached. Exact when
+ * the photo's own colour sliders are at rest, which `colourAtRest` tells.
+ */
+export function recipeFromSettings(r: Recipe, s: ProfileSettings): Recipe {
+  const cb = s.colorBalance ?? {};
+  const out: Recipe = {
+    ...r,
+    contrast: (cb.contrast ?? 0) * 100,
+    vibrance: (cb.vibrance ?? 0) * 100,
+    saturation: (cb.saturation_global ?? 0) * 100,
+    shadows: (cb.shadows_Y ?? 0) * 100,
+    grading: normalizeGrading(cb),
+    curve: s.curve,
+  };
+  const lut = s.lut;
+  if (!lut) return { ...out, lookEnabled: false, stock: 'neutral', lookAmount: 100 };
+  const amount = Math.round(lut.amount * 100);
+  return lut.kind === 'pack'
+    ? { ...out, lookEnabled: true, pack: lut.pack as Recipe['pack'], stock: lut.stock as Recipe['stock'], lookAmount: amount }
+    : { ...out, lookEnabled: true, pack: 'files', stock: `lut:file:${lut.hash}`, lookAmount: amount };
+}
+
+/** Whether the photo's own colour and tone sliders (the ones a look's settings use) are at rest. */
+export const colourAtRest = (r: Recipe) =>
+  r.contrast === 0 && r.vibrance === 0 && r.saturation === 0 && r.shadows === 0 && !r.grading && isIdentity(r.curve);
 
 /** The photo with the settings a profile took over back at rest (the profile now supplies them). */
 export function withoutProfileFields(r: Recipe): Recipe {
   return { ...r, contrast: 0, vibrance: 0, saturation: 0, shadows: 0, grading: null, curve: null };
+}
+
+/** A look's settings at `amount` (0 to 1), as fixed settings: how a look at less than full Amount is detached. */
+export function scaledSettings(s: ProfileSettings, amount: number): ProfileSettings {
+  const cb = scaledColorBalance(s, amount);
+  const changed = cb && Object.fromEntries((Object.keys(cb) as (keyof CbParams)[]).filter((k) => cb[k] !== CB_DEFAULTS[k]).map((k) => [k, cb[k]]));
+  // A curve at part strength is a blend with the straight line; scaling its points matches that closely.
+  const curve = s.curve && amount < 1
+    ? Object.fromEntries(Object.entries(s.curve).map(([k, pts]) => [k, pts.map(([x, y]) => [x, x + (y - x) * amount])])) as ToneCurve
+    : s.curve;
+  return {
+    colorBalance: changed && Object.keys(changed).length ? changed : null,
+    curve: amount > 0 ? curve : null,
+    lut: s.lut && { ...s.lut, amount: s.lut.amount * amount },
+  };
 }
 
 export const hasSettings = (s: ProfileSettings | null | undefined) => !!s && (!!s.colorBalance || !!s.curve);
@@ -107,10 +152,16 @@ export function normalizeSettings(input: unknown): ProfileSettings | null {
     const merged = { ...graded, ...sliders } as Partial<CbParams>;
     colorBalance = Object.keys(merged).length ? merged : null;
   }
-  const ref = o.look as Partial<LookRef> | null | undefined;
-  const look = ref && typeof ref === 'object' && typeof ref.pack === 'string' && typeof ref.stock === 'string'
-    ? { pack: ref.pack, stock: ref.stock, amount: finite(ref.amount) ? Math.min(Math.max(ref.amount as number, 0), 1) : 1 }
-    : null;
-  return { colorBalance, curve: normalizeCurve(o.curve), look };
+  return { colorBalance, curve: normalizeCurve(o.curve), lut: normalizeLut(o.lut ?? (o.look && { kind: 'pack', ...(o.look as object) })) };
+}
+
+/** A look's LUT read from a file. Looks saved first wrote a system look as `look: { pack, stock, amount }`. */
+function normalizeLut(input: unknown): LutSource | null {
+  if (!input || typeof input !== 'object') return null;
+  const o = input as Record<string, unknown>;
+  const amount = finite(o.amount) ? Math.min(Math.max(o.amount as number, 0), 1) : 1;
+  if (o.kind === 'pack' && typeof o.pack === 'string' && typeof o.stock === 'string') return { kind: 'pack', pack: o.pack, stock: o.stock, amount };
+  if (o.kind === 'file' && typeof o.hash === 'string' && /^[0-9a-f]{64}$/.test(o.hash)) return { kind: 'file', hash: o.hash, amount };
+  return null;
 }
 

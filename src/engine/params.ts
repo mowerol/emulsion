@@ -122,7 +122,7 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
   const teqOn = recipe.highlights !== 0;
   const teq = teqOn ? bandFactors(bandGains(recipe.highlights)) : [0, 0, 0, 0, 0, 0, 0, 0];
   const cb = colorBalanceParams(recipe.contrast, recipe.vibrance, recipe.saturation, recipe.shadows);
-  // A saved creative profile's hidden settings, scaled by its Amount.
+  // A custom look's hidden settings, scaled by its Amount.
   const profile = profileSettingsFor(recipe);
   const profileCb = scaledColorBalance(profile, recipe.lookAmount / 100);
 
@@ -164,8 +164,8 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uScShadow: sc.shadowTint,
     uScHigh: sc.highlightTint,
     uFade: (recipe.fade / 100) * 0.16,
-    // A saved profile's LUT at the share it was saved with, times the profile's Amount.
-    ...(lut ? { uLutOn: 1, uLutId: lut.id, uLutAmount: (recipe.lookAmount / 100) * (profile?.look?.amount ?? 1) } : {}),
+    // A custom look's LUT at its share within the look, times the look's Amount.
+    ...(lut ? { uLutOn: 1, uLutId: lut.id, uLutAmount: (recipe.lookAmount / 100) * (profile?.lut?.amount ?? 1) } : {}),
   };
 }
 

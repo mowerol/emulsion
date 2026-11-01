@@ -1,28 +1,23 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Looks the user imports: LUT files kept in the app's data folder (src-tauri/src/user_looks.rs),
-// shown as the My looks pack. Recipes name them by content hash (`lut:mine:<hash>`).
+// Custom looks and the user's LUT files, kept in the app's data folder (src-tauri/src/user_looks.rs).
+// A custom look has a permanent id (`lut:custom:<id>` in recipes), so editing it keeps every photo
+// that uses it. It is made by importing a LUT, duplicating a system look, or from a photo's settings.
 
 import { useSyncExternalStore } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { isTauri } from '../backend/api';
 import { lutFormat, readLut } from '../engine/lutstore';
-import { PACK, registerUserLook, userLookHash, userLookId } from '../film/looks';
-import { hasSettings, normalizeSettings, settingsFromRecipe } from '../film/creative';
+import { PACK, customLookId, customLookOf, lookName, registerCustomLook, registerFileLut, unregisterCustomLook, type PackId } from '../film/looks';
+import { hasSettings, normalizeSettings, type LutSource, type ProfileSettings } from '../film/creative';
 import type { Recipe } from '../film/recipe';
 import type { StockId } from '../film/stocks';
 
-export interface UserLookEntry {
+interface CustomLookFile {
+  version: number;
   id: string;
   name: string;
-  /** An imported LUT's format; absent for a saved profile. */
-  ext?: string;
-  /** A saved profile's hidden settings. */
-  settings?: unknown;
-}
-
-function register(e: UserLookEntry) {
-  const settings = e.settings === undefined ? undefined : normalizeSettings(e.settings) ?? undefined;
-  registerUserLook(e.id, e.name, false, settings);
+  settings: unknown;
+  lut?: string;
 }
 
 let version = 0;
@@ -32,7 +27,7 @@ const changed = () => {
   listeners.forEach((l) => l());
 };
 
-/** Re-renders when imported looks are added, renamed or removed. */
+/** Re-renders when custom looks are added, edited or removed. */
 export function useUserLooksVersion() {
   return useSyncExternalStore(
     (cb) => {
@@ -43,12 +38,22 @@ export function useUserLooksVersion() {
   );
 }
 
-/** Load the list of imported looks into My looks. Call on start. */
+const register = (l: CustomLookFile) => registerCustomLook(l.id, l.name, normalizeSettings(l.settings) ?? { colorBalance: null, curve: null, lut: null });
+
+/** Load the custom looks into their collection. Call on start. */
 export async function refreshUserLooks() {
   if (!isTauri()) return;
-  const entries = await invoke<UserLookEntry[]>('user_looks');
-  for (const e of entries) register(e);
+  for (const l of await invoke<CustomLookFile[]>('custom_looks')) register(l);
   changed();
+}
+
+/** A random UUID: crypto.randomUUID needs a secure context, which Tauri's scheme may not count as. */
+export function uuid(): string {
+  const b = crypto.getRandomValues(new Uint8Array(16));
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
 
 /** The look's name from its file name: "Kodak 2383.cube" → "Kodak 2383". */
@@ -59,12 +64,9 @@ export const lookNameFromPath = (path: string) =>
     .replace(/\.(cube|3dl|png)$/i, '')
     .trim() || 'Imported look';
 
-/**
- * Import a LUT file: it must parse as a LUT before it is kept. Returns the look's stock id.
- * Importing the same file again keeps its identity (and takes the new name).
- */
-export async function importUserLook(path: string): Promise<StockId> {
-  const bytes = await invoke<ArrayBuffer>('read_user_look_file', { path });
+/** Keep a LUT file of the user's own: it must parse as a LUT first. Returns its content hash. */
+export async function importLutFile(path: string): Promise<string> {
+  const bytes = await invoke<ArrayBuffer>('read_lut_file', { path });
   const blob = new Blob([bytes]);
   const ext = await lutFormat(blob);
   try {
@@ -72,44 +74,63 @@ export async function importUserLook(path: string): Promise<StockId> {
   } catch (e) {
     throw new Error(`This file is not a LUT Emulsion can read (${e instanceof Error ? e.message : String(e)})`);
   }
-  const entry = await invoke<UserLookEntry>('install_user_look', new Uint8Array(bytes), {
-    headers: {
-      'x-emulsion-look-name': encodeURIComponent(lookNameFromPath(path)),
-      'x-emulsion-look-ext': ext,
-    },
+  const hash = await invoke<string>('store_look_lut', new Uint8Array(bytes), { headers: { 'x-emulsion-lut-ext': ext } });
+  registerFileLut(hash);
+  return hash;
+}
+
+/** Create or update a custom look. Returns its stock id. */
+export async function saveLook(id: string, name: string, settings: ProfileSettings): Promise<StockId> {
+  const saved = await invoke<CustomLookFile>('save_custom_look', {
+    look: { version: 2, id, name, settings, lut: settings.lut?.kind === 'file' ? settings.lut.hash : undefined },
   });
-  register(entry);
+  register(saved);
   changed();
-  return userLookId(entry.id);
+  return customLookId(saved.id);
 }
 
-/** Whether the photo's look is a saved profile (a new profile can't be saved on top of one yet). */
-export const onSavedProfile = (r: Recipe | null) => !!r?.lookEnabled && hasSettings(PACK[r.pack]?.looks[r.stock]?.settings);
+/** Import a LUT file as a new custom look. */
+export async function importLook(path: string): Promise<StockId> {
+  const hash = await importLutFile(path);
+  return saveLook(uuid(), lookNameFromPath(path), { colorBalance: null, curve: null, lut: { kind: 'file', hash, amount: 1 } });
+}
+
+/** Copy a look into Custom looks: a system look by reference, a custom look with its settings. */
+export async function duplicateLook(pack: PackId, stock: StockId): Promise<StockId> {
+  const own = PACK[pack].looks[stock]?.settings;
+  const settings: ProfileSettings = own ?? { colorBalance: null, curve: null, lut: { kind: 'pack', pack, stock, amount: 1 } };
+  return saveLook(uuid(), `${lookName(pack, stock)} copy`, settings);
+}
+
+/** Remove a custom look. Photos that use it keep its id and render without it, as Missing look. */
+export async function deleteLook(stock: StockId) {
+  const id = customLookOf(stock);
+  if (!id) return;
+  await invoke('delete_custom_look', { id });
+  unregisterCustomLook(id);
+  changed();
+}
+
+/** Whether the photo's look is a custom look with hidden settings. */
+export const onLookWithSettings = (r: Recipe | null) => !!r?.lookEnabled && hasSettings(PACK[r.pack]?.looks[r.stock]?.settings);
 
 /**
- * Save the photo's colour and tone settings (Colour Grading, Contrast, Vibrance, Saturation, Shadows
- * and the Curve), with its look LUT at its Amount, as a creative profile in My looks.
+ * The photo's LUT as a custom look's LUT: a system look by reference, a LUT file by hash, a custom
+ * look's own LUT. Null without a look, or for a custom look with hidden settings (those can't be
+ * combined with the photo's own exactly).
  */
-export async function saveProfile(name: string, r: Recipe): Promise<StockId> {
-  if (onSavedProfile(r)) throw new Error('Choose a look that isn’t a saved profile first: a profile can’t be saved on top of another yet.');
-  const look = r.lookEnabled && PACK[r.pack]?.looks[r.stock] ? { pack: r.pack, stock: r.stock, amount: r.lookAmount / 100 } : null;
-  const entry = await invoke<UserLookEntry>('save_user_profile', { name, settings: settingsFromRecipe(r, look) });
-  register(entry);
-  changed();
-  return userLookId(entry.id);
+export function lutSourceOf(r: Recipe): LutSource | null {
+  if (!r.lookEnabled) return null;
+  const amount = r.lookAmount / 100;
+  const look = PACK[r.pack]?.looks[r.stock];
+  if (!look || look.missing) return null;
+  if (r.pack === 'files') return { kind: 'file', hash: look.file, amount };
+  if (r.pack === 'custom') {
+    if (hasSettings(look.settings) || !look.settings?.lut) return null;
+    return { ...look.settings.lut, amount: look.settings.lut.amount * amount };
+  }
+  return { kind: 'pack', pack: r.pack, stock: r.stock, amount };
 }
 
-/**
- * Remove an imported look. Photos that use it keep its id and render without it, as Missing look;
- * importing the same file again brings it back.
- */
-export async function removeUserLook(stock: StockId) {
-  const hash = userLookHash(stock);
-  if (!hash) return;
-  await invoke('delete_user_look', { id: hash });
-  registerUserLook(hash, 'Missing look', true);
-  changed();
-}
-
-/** How many imported looks are installed. */
-export const userLookCount = () => Object.values(PACK.mine.looks).filter((l) => !l?.missing).length;
+/** How many looks a collection offers. */
+export const userLookCount = (pack: PackId) => Object.values(PACK[pack].looks).filter((l) => !l?.missing).length;

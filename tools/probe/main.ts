@@ -48,7 +48,7 @@ import { labL, labShiftL } from '../../src/engine/lab';
 import { LUT_UNIT } from '../../src/engine/params';
 import { loadLut, setLooksBase } from '../../src/engine/lutstore';
 import { tetrahedral, textureData, type Clut } from '../../src/engine/lut3d';
-import { PACKS, lookFile, registerUserLook, stockForPack, userLookId } from '../../src/film/looks';
+import { PACKS, customLookId, lookFile, registerCustomLook, stockForPack } from '../../src/film/looks';
 import { normalizeSettings, settingsFromRecipe, withoutProfileFields } from '../../src/film/creative';
 
 
@@ -633,9 +633,9 @@ try {
         grading: { shadows_C: 0.06, shadows_H: 230, highlights_C: 0.05, highlights_H: 45, brilliance_midtones: 0.1, hue_angle: 8 },
         curve: { rgb: [[0, 0.04], [0.5, 0.45], [1, 0.97]], r: [[0, 0], [0.5, 0.56], [1, 1]], g: [[0, 0], [1, 1]], b: [[0, 0.05], [1, 1]] },
       };
-      const hash = 'ef'.repeat(32);
-      registerUserLook(hash, 'Probe profile', false, normalizeSettings(JSON.parse(JSON.stringify(settingsFromRecipe(graded, null))))!);
-      const asProfile = withoutProfileFields({ ...graded, pack: 'mine', stock: userLookId(hash), lookEnabled: true, lookAmount: 100 });
+      const id = 'efefefef-efef-4fef-8fef-efefefefefef';
+      registerCustomLook(id, 'Probe look', normalizeSettings(JSON.parse(JSON.stringify(settingsFromRecipe(graded, null))))!);
+      const asProfile = withoutProfileFields({ ...graded, pack: 'custom', stock: customLookId(id), lookEnabled: true, lookAmount: 100 });
       const a = eng.readPixels(nsrc, graded, 256, 8, 1), b = eng.readPixels(nsrc, asProfile, 256, 8, 1);
       const z = eng.readPixels(nsrc, { ...asProfile, lookAmount: 0 }, 256, 8, 1);
       const plain = eng.readPixels(nsrc, { ...defaultRecipe('neutral'), scanner: 'straight' }, 256, 8, 1);
