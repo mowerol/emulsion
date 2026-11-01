@@ -8,7 +8,7 @@ import { ProfileGpu } from '../../src/engine/profilegpu';
 import { parsePayload } from '../../src/backend/api';
 import lensFixtures from '../../src/engine/fixtures/lens-metadata.json';
 import { LENS_DEFAULTS, lensCenter, lensColourUniforms, lensCorrectPixels, lensSpline, lensUniforms, type LensMetadata } from '../../src/engine/lenscorrection';
-import { setWorkspace, useWorkspace } from '../../src/ui/workspace';
+import { setWorkspace } from '../../src/ui/workspace';
 import App from '../../src/App';
 import { Engine, colorEqParams, type Source } from '../../src/engine/engine';
 import { updateGrade } from '../../src/film/grading';
@@ -68,9 +68,6 @@ const defaultRecipe = (stock: Recipe['stock'] = 'neutral', scanner: Recipe['scan
 });
 
 setLooksBase(new URL('../../../public/looks/', location.href).href);
-// Historical panel probes use the flat layout and their existing scroll targets.
-// This is probe-local state, not a change to saved workspace preferences.
-useWorkspace.setState({ layout: 'classic' });
 const COLOURS: Vec3[] = [
   [0.18, 0.18, 0.18], [0.001, 0.001, 0.001], [2.5, 2.5, 2.5], [0, 0, 0],
   [0.3, 0.17, 0.11], [0.06, 0.1, 0.25], [0.05, 0.11, 0.03], [0.5, 0.45, 0.4],

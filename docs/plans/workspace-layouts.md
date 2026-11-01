@@ -1,5 +1,7 @@
 # Workspace layouts
 
+Classic was retired on 2026-11-01 at Oli's request. Workflow is now the only workspace; its selector has been removed. Saved Classic preferences migrate to Workflow while keeping image columns and the selected control stage. The original implementation and validation notes below are historical.
+
 Oli chose prototype A (stage tabs, images left, selected photo centre, controls right) and requested a switch between one and two photo columns. Implemented 2026-10-31; Oli authorised committing and pushing this layout and the fixed photo-info bar.
 
 ## Current behavior

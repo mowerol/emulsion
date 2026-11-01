@@ -7,17 +7,17 @@ describe('workspace preferences', () => {
   it('recovers from invalid saved choices while retaining valid independent preferences', () => {
     expect(normalizeWorkspace(null)).toEqual(WORKSPACE_DEFAULTS);
     expect(normalizeWorkspace({ layout:'missing', imageColumns:3, group:'unknown' })).toEqual(WORKSPACE_DEFAULTS);
-    expect(normalizeWorkspace({ layout:'classic', imageColumns:1, group:'colour' })).toEqual({layout:'classic',imageColumns:1,group:'colour'});
+    expect(normalizeWorkspace({ layout:'classic', imageColumns:1, group:'colour' })).toEqual({layout:'workflow',imageColumns:1,group:'colour'});
   });
   it('migrates saved stage selections to the new three-tab layout', () => {
-    for (const group of ['prepare','look','tone']) expect(normalizeWorkspace({layout:'classic',imageColumns:1,group})).toEqual({layout:'classic',imageColumns:1,group:'develop'});
+    for (const group of ['prepare','look','tone']) expect(normalizeWorkspace({layout:'classic',imageColumns:1,group})).toEqual({layout:'workflow',imageColumns:1,group:'develop'});
     expect(normalizeWorkspace({group:'finish'}).group).toBe('refine');
     expect(normalizeWorkspace({group:'colour'}).group).toBe('colour');
   });
-  it('changes columns without overwriting the selected workspace or stage', () => {
-    setWorkspace({layout:'classic',group:'refine',imageColumns:2});
+  it('changes columns without overwriting the selected stage', () => {
+    setWorkspace({group:'refine',imageColumns:2});
     setWorkspace({imageColumns:1});
-    expect(useWorkspace.getState()).toEqual({layout:'classic',group:'refine',imageColumns:1});
+    expect(useWorkspace.getState()).toEqual({layout:'workflow',group:'refine',imageColumns:1});
     setWorkspace(WORKSPACE_DEFAULTS);
   });
   it('resets Tone and Colour basics without resetting white balance or each other', () => {

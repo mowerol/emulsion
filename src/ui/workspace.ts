@@ -11,12 +11,13 @@ export const CONTROL_GROUPS = [
 ] as const;
 export type ControlGroupId = typeof CONTROL_GROUPS[number]['id'];
 export type ControlSectionId = typeof CONTROL_GROUPS[number]['sections'][number];
-export interface WorkspacePreferences { layout: 'workflow' | 'classic'; imageColumns: 1 | 2; group: ControlGroupId }
+export interface WorkspacePreferences { layout: 'workflow'; imageColumns: 1 | 2; group: ControlGroupId }
 export const WORKSPACE_DEFAULTS: WorkspacePreferences = { layout: 'workflow', imageColumns: 2, group: 'develop' };
 export function normalizeWorkspace(input: unknown): WorkspacePreferences {
   const p = input && typeof input === 'object' ? input as Partial<Omit<WorkspacePreferences, 'group'>> & { group?: string } : {};
   const group = p.group === 'finish' ? 'refine' : ['prepare', 'look', 'tone'].includes(p.group ?? '') ? 'develop' : p.group;
-  return { layout: p.layout === 'classic' ? 'classic' : 'workflow', imageColumns: p.imageColumns === 1 ? 1 : 2, group: CONTROL_GROUPS.find(g => g.id === group)?.id ?? WORKSPACE_DEFAULTS.group };
+  // Classic is retired. Keep independent preferences when opening older settings.
+  return { layout: 'workflow', imageColumns: p.imageColumns === 1 ? 1 : 2, group: CONTROL_GROUPS.find(g => g.id === group)?.id ?? WORKSPACE_DEFAULTS.group };
 }
 const KEY = 'emulsion.workspace';
 function read(): WorkspacePreferences {

@@ -89,6 +89,7 @@ node tools/browser-tests/treatment-filters.mjs scanner-finish  # look inheritanc
 node tools/browser-tests/treatment-filters.mjs folder-restart  # folder tree restoration after restart
 node tools/browser-tests/treatment-filters.mjs histogram  # known pixels, RAW tone mapping and clipping overlay
 node tools/browser-tests/treatment-filters.mjs histogram-profile  # delayed RAW camera profiles and histogram refresh
+node tools/browser-tests/treatment-filters.mjs workspace  # retired Classic preference migration
 ```
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how the app and the film pipeline fit together, and where new modules go.
