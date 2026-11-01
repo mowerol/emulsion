@@ -7,7 +7,9 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { useProfileVersion } from '../engine/profilestore';
 import { useLutVersion } from '../engine/lutstore';
 import { logToTerminal } from '../backend/api';
-import { Engine, type Source } from '../engine/engine';
+import { Engine, type Source, type View } from '../engine/engine';
+import { pickStats, pickedRange } from '../engine/masks';
+import { RANGE_CHANNELS } from '../film/masks';
 import { histogram } from '../engine/histogram';
 import { defaultRecipe } from '../film/recipe';
 import { D65_XY, clampWhiteBalance, neutralizingWhite, temperatureTint } from '../engine/whitebalance';
@@ -19,7 +21,7 @@ import { ensureCapture, loadCachedImage, sourceFromBlob, thumbs } from '../libra
 import { Filmstrip } from './Filmstrip';
 import { FIT, imagePoint, label, layout, pan, step, zoomAt, type Layout, type Zoom } from './zoom';
 import { MaskOverlay } from './MaskOverlay';
-import { setMaskUi, useMaskUi } from './maskui';
+import { setMaskUi, updateMask, useMaskUi } from './maskui';
 
 /** Long edge of the interactive preview. Zooming past it loads the full resolution. */
 const PREVIEW_EDGE = 2560;
@@ -87,7 +89,7 @@ export function Develop() {
   const maskTool = useMaskUi((s) => !!s.tool);
   const maskIndex = photo?.recipe?.masks.findIndex((m) => m.id === maskSelected) ?? -1;
   const maskShow = masksOpen && maskOverlay && maskIndex >= 0 ? maskIndex : null;
-  useEffect(() => { if (!masksOpen) setMaskUi({ tool: null }); }, [masksOpen]);
+  useEffect(() => { if (!masksOpen) setMaskUi({ tool: null, pick: null }); }, [masksOpen]);
 
   // Start the GPU engine for this canvas.
   useLayoutEffect(() => {
@@ -415,7 +417,26 @@ export function Develop() {
     return () => window.removeEventListener('keydown', onKey);
   }, [current, src, box.w, box.h, zoom.scale, zoomTo, picking, cropping, cropEdit?.W, cropEdit?.H]);
 
-  useEffect(() => () => useApp.setState({ picking: false }), [frameId]);
+  useEffect(() => () => {
+    useApp.setState({ picking: false });
+    setMaskUi({ pick: null });
+  }, [frameId]);
+
+  /** Set the selected mask's picked range channel round what is in `box` (darktable's set-values picker). */
+  const pickRange = (box: View) => {
+    const engine = engineRef.current;
+    const l = loadedRef.current;
+    const channel = useMaskUi.getState().pick;
+    const recipe = photo?.recipe;
+    const index = recipe?.masks.findIndex((m) => m.id === maskSelected) ?? -1;
+    setMaskUi({ pick: null });
+    if (!engine || !l || l.path !== path || !channel || !recipe || index < 0) return;
+    const stats = pickStats(engine.sampleMaskInput(l.source, recipe, index, box));
+    if (!stats) return;
+    const range = pickedRange(stats, channel);
+    const name = RANGE_CHANNELS.find((c) => c.id === channel)!.label.toLowerCase();
+    updateMask(recipe.masks[index].id, (m) => ({ ...m, ranges: { ...m.ranges, [channel]: range } }), `Pick mask ${name} range`);
+  };
 
   /** Set white balance so the clicked spot becomes neutral. */
   const pickNeutral = (fx: number, fy: number) => {
@@ -498,7 +519,7 @@ export function Develop() {
           />
           {split !== undefined && showing && <SplitDivider at={splitAt} onMove={setSplitAt} />}
           {masksOpen && !cropping && !compare && showing && current && (maskIndex >= 0 || maskTool) && (
-            <MaskOverlay frame={frame} W={src!.fullW} H={src!.fullH} view={current.view} cssW={current.cssW} cssH={current.cssH} />
+            <MaskOverlay frame={frame} W={src!.fullW} H={src!.fullH} view={current.view} cssW={current.cssW} cssH={current.cssH} onPick={pickRange} />
           )}
           {cropEdit && showing && (
             <CropOverlay draft={cropEdit.draft} frame={frame} W={cropEdit.W} H={cropEdit.H} onChange={(c) => setCropDraft(() => c)} />

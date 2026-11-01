@@ -36,6 +36,7 @@ import usm from './shaders/usm.frag.glsl?raw';
 import colorequal from './shaders/stages/colorequal.glsl?raw';
 import lut from './shaders/stages/lut.glsl?raw';
 import ce from './shaders/ce.frag.glsl?raw';
+import maskrefine from './shaders/maskrefine.frag.glsl?raw';
 import eq from './shaders/eq.frag.glsl?raw';
 import cs from './shaders/cs.frag.glsl?raw';
 import llcurve from './shaders/llcurve.frag.glsl?raw';
@@ -85,6 +86,7 @@ export const SHADERS = {
   cs,
   usm,
   ce: assemble(ce, SHADER_FILES),
+  maskrefine: assemble(maskrefine, SHADER_FILES),
   brushVert,
   brushFrag,
 };

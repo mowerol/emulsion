@@ -6,7 +6,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Masks: each is a group of shapes, evaluated per source pixel, with its own masked exposure and
-// white balance (at the exposure stage) and colour balance instance (after the photo's own).
+// white balance (at the exposure stage) and colour balance instance (after the photo's own). A
+// mask is evaluated once, at its exposure instance (drawn × ranges × opacity, or its refined
+// raster from the mask stack), and later instances reuse that value, as darktable's raster masks
+// let one instance use another's final mask.
 
 #define MAX_MASKS 8
 #define MAX_SHAPES 32
@@ -15,7 +18,7 @@
 uniform vec4 uMaskShapes[MAX_SHAPES * 3];
 uniform float uMaskShapeCount;
 uniform float uMaskCount;
-// Per mask: [blend opacity 0-1, exposure gain, colour balance on, 0].
+// Per mask: [blend opacity 0-1, exposure gain, colour balance on, refined (read from the stack)].
 uniform vec4 uMaskMeta[MAX_MASKS];
 // Per mask: CAT16 from the photo's white to the mask's.
 uniform mat3 uMaskWb[MAX_MASKS];
@@ -29,13 +32,22 @@ uniform vec4 uMaskRange[MAX_MASKS * 3];
 uniform vec4 uMaskRangeOn[MAX_MASKS];
 // Working RGB to XYZ (D65), for JzAzBz.
 uniform mat3 uMaskToXyz;
-// Brush shapes rendered by BrushGpu, one channel each.
-uniform sampler2D uMaskBrush;
+// The mask stack (maskstack.ts): layer 0 the brush shapes (BrushGpu), one channel each; layers 1
+// and 2 refined masks, one channel per packed mask.
+uniform highp sampler2DArray uMaskStack;
+// The packed mask (slot) whose input and unrefined value the refinement tap writes, or -1.
+uniform float uMaskTap;
+
+float maskChannel(vec4 t, int c) {
+  return c == 0 ? t.r : c == 1 ? t.g : c == 2 ? t.b : t.a;
+}
 
 float maskBrush(float channel, vec2 uv) {
-  vec4 t = texture(uMaskBrush, uv);
-  int c = int(channel + 0.5);
-  return c == 0 ? t.r : c == 1 ? t.g : c == 2 ? t.b : t.a;
+  return maskChannel(texture(uMaskStack, vec3(uv, 0.0)), int(channel + 0.5));
+}
+
+float maskRefined(int i, vec2 uv) {
+  return maskChannel(texture(uMaskStack, vec3(uv, float(1 + i / 4))), i - (i / 4) * 4);
 }
 
 float maskErf(float x) {
@@ -117,8 +129,14 @@ float maskBlendif(float value, vec4 p, float on) {
 
 // Every mask's drawn value at a source point, after its blend opacity.
 float gMask[MAX_MASKS];
+// Every mask's final value, set at its exposure instance and reused after.
+float gMaskFinal[MAX_MASKS];
 // The shown mask's value as its exposure instance saw it.
 float gMaskShown;
+vec2 gMaskUv;
+// The refinement tap's output, (the instance's input, the unrefined mask), once written.
+vec4 gMaskTapOut;
+bool gMaskTapped;
 
 // The mask at an instance whose input is `x`: drawn times parametric (darktable's exclusive mode).
 float maskAt(int i, vec3 x) {
@@ -133,7 +151,10 @@ float maskAt(int i, vec3 x) {
 }
 
 void computeMasks(vec2 uv, vec2 dim) {
-  for (int i = 0; i < MAX_MASKS; i++) gMask[i] = 0.0;
+  gMaskUv = uv;
+  gMaskTapped = false;
+  gMaskTapOut = vec4(0.0);
+  for (int i = 0; i < MAX_MASKS; i++) { gMask[i] = 0.0; gMaskFinal[i] = 0.0; }
   int count = int(uMaskShapeCount + 0.5);
   vec2 px = uv * dim;
   for (int i = 0; i < MAX_SHAPES; i++) {
@@ -156,7 +177,13 @@ vec3 stageMaskExposure(vec3 x) {
   int masks = int(uMaskCount + 0.5);
   for (int i = 0; i < MAX_MASKS; i++) {
     if (i >= masks) break;
-    float m = maskAt(i, x);
+    if (float(i) == uMaskTap) {
+      gMaskTapOut = vec4(x, maskAt(i, x));
+      gMaskTapped = true;
+      return x;
+    }
+    float m = uMaskMeta[i].w > 0.5 ? maskRefined(i, gMaskUv) : maskAt(i, x);
+    gMaskFinal[i] = m;
     if (float(i) == uMaskShow) gMaskShown = m;
     if (m <= 0.0) continue;
     vec3 adjusted = (uMaskWb[i] * x) * uMaskMeta[i].y;
@@ -170,9 +197,8 @@ vec3 stageMaskColorBalance(vec3 x) {
   int masks = int(uMaskCount + 0.5);
   for (int i = 0; i < MAX_MASKS; i++) {
     if (i >= masks) break;
-    if (gMask[i] <= 0.0 || uMaskMeta[i].z < 0.5) continue;
-    float m = maskAt(i, x);
-    if (m <= 0.0) continue;
+    float m = gMaskFinal[i];
+    if (m <= 0.0 || uMaskMeta[i].z < 0.5) continue;
     vec4 P[10];
     for (int k = 0; k < 10; k++) P[k] = uMaskCb[i * 10 + k];
     x = mix(x, colorBalanceRgb(x, P), m);

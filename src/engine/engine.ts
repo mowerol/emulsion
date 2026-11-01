@@ -1,4 +1,7 @@
-import { BRUSH_UNIT, BrushGpu, brushShapes } from './brushgpu';
+import { BrushGpu, brushShapes, brushSize } from './brushgpu';
+import { MASK_UNIT, MaskStack, refinedLayer } from './maskstack';
+import { MaskRefineGpu, refineSize, type RefineJob } from './maskrefinegpu';
+import { postOperations } from './maskrefine';
 import { packShapes } from './masks';
 import { ProfileGpu } from './profilegpu';
 import { prepareProfile, profilePending } from './profilestore';
@@ -121,6 +124,8 @@ const uniformsOf = (file: string) => [...SHADER_FILES[file].matchAll(/uniform\s+
  */
 // Masks (exposure and colour balance) sit in both ranges; showing one as an overlay changes no map.
 const MASK_UNIFORMS = uniformsOf('stages/masks.glsl').filter((n) => n !== 'uMaskShow');
+/** What a mask's refinement depends on: everything up to the masks' exposure instances. */
+const BEFORE_MASKS = ['stages/input.glsl', 'stages/exposure.glsl'].flatMap(uniformsOf).concat('uSharp', 'uStore', ...MASK_UNIFORMS);
 const BEFORE_TEXTURE = ['stages/input.glsl', 'stages/exposure.glsl', 'stages/toneequalizer.glsl', 'stages/dehaze.glsl'].flatMap(uniformsOf).concat('uSharp', 'uStore', ...MASK_UNIFORMS);
 const TEXTURE_STAGE = uniformsOf('stages/texture.glsl').concat('uTextureMix');
 const COLOR_STAGE = uniformsOf('stages/colorequal.glsl');
@@ -135,8 +140,12 @@ export class Engine {
   private profiles: ProfileGpu;
   private extract: Program;
   private teqMask: Program;
-  /** Brush shapes of the masks, rendered to textures on BRUSH_UNITS. */
+  /** The masks' raster layers (brushes, refined masks), read on MASK_UNIT. */
+  private stack: MaskStack;
+  /** Brush shapes of the masks, drawn into the stack's first layer. */
   private brushes: BrushGpu;
+  private refiner: MaskRefineGpu;
+  private refineMade: { tex: WebGLTexture; key: string } | null = null;
   private sampleP: Program;
   /** The point curve's lookup table, re-uploaded only when the curve changes. */
   private curveTex: WebGLTexture | null = null;
@@ -182,7 +191,9 @@ export class Engine {
     this.develop = this.gpu.program(SHADERS.vertex, SHADERS.develop);
     this.extract = this.gpu.program(SHADERS.vertex, SHADERS.extract);
     this.teqMask = this.gpu.program(SHADERS.vertex, SHADERS.toneeqmask);
+    this.stack = new MaskStack(this.gpu);
     this.brushes = new BrushGpu(this.gpu, this.gpu.program(SHADERS.brushVert, SHADERS.brushFrag));
+    this.refiner = new MaskRefineGpu(this.gpu, this.gpu.program(SHADERS.vertex, SHADERS.maskrefine));
     this.sampleP = this.gpu.program(SHADERS.vertex, SHADERS.sample);
     this.blurP = this.gpu.program(SHADERS.vertex, SHADERS.blur);
     this.down = this.gpu.program(SHADERS.vertex, SHADERS.down);
@@ -411,7 +422,7 @@ export class Engine {
    * 32-bit floats where possible, as the variance is a small difference of two
    * large numbers.
    */
-  private toneEqualizerMap(src: Source, u: Uniforms, brushTex: WebGLTexture): WebGLTexture {
+  private toneEqualizerMap(src: Source, u: Uniforms, maskTex: WebGLTexture): WebGLTexture {
     const g = this.gpu;
     const ch = this.chain(src.w, src.h);
     const top = ch.pyramid.halation;
@@ -421,7 +432,7 @@ export class Engine {
     }
     g.bind(0, src.tex);
     this.teqMask.set({ ...u, uSrc: 0, uTexel: [1 / src.w, 1 / src.h] });
-    g.bind(BRUSH_UNIT, brushTex);
+    g.bindArray(MASK_UNIT, maskTex);
     g.draw(this.teqMask, ch.teq[0], ch.teq[0].w, ch.teq[0].h);
     for (let i = 1; i <= top; i++) this.downsample(ch.teq[i - 1], ch.teq[i]);
     const level = ch.teq[top];
@@ -795,15 +806,39 @@ export class Engine {
       sharpenMask?: boolean;
       /** Show this mask (its index in the recipe) over the photo. */
       maskShow?: number | null;
+      /** Draw, instead of the photo, the scene this mask (its index) adjusts at its exposure instance. */
+      pick?: number;
     },
   ) {
     const g = this.gpu;
+    const picking = opts.pick !== undefined && !!recipe;
+    // The picked mask's input: the masks before it have had their say, it and those after none.
+    if (picking) recipe = { ...recipe!, masks: recipe!.masks.slice(0, opts.pick) };
     // Capture sharpening replaces the source for everything after it.
     const iterations = recipe && !opts.compare && src.capture && g.hdr && g.float32 ? iterationsFor(recipe.captureSharpening) : 0;
     if (iterations > 0) src = { ...src, tex: this.captureSharpened(src, iterations) };
     src = this.lensCorrected(src, recipe);
-    // The masks' brushes; bound to BRUSH_UNIT just before each draw that reads them.
-    const brushTex = this.brushes.texture(recipe && !opts.compare ? brushShapes(recipe.masks, packShapes(recipe.masks, opts.maskShow ?? -1).index) : [], src.w, src.h);
+    // The masks' raster layers: brushes, and refined masks (drawn below, once the uniforms are
+    // known). One texture array, bound to MASK_UNIT just before each draw that reads it.
+    const packed = recipe && !opts.compare ? packShapes(recipe.masks, opts.maskShow ?? -1).index : [];
+    const brushList = recipe ? brushShapes(recipe.masks, packed) : [];
+    // Refinement needs 32-bit targets that filter.
+    const jobs: RefineJob[] = recipe && g.hdr && g.float32 ? packed.flatMap((mi, slot) => {
+      const m = recipe!.masks[mi];
+      const opacity = Math.min(1, Math.max(0, m.opacity / 100));
+      return postOperations(m.refine, opacity).length ? [{ slot, refine: m.refine, opacity }] : [];
+    }) : [];
+    const layerCount = jobs.length ? 1 + refinedLayer(jobs[jobs.length - 1].slot) : brushList.length ? 1 : 0;
+    let layers: ReturnType<MaskStack['ensure']> = [];
+    if (layerCount) {
+      const [bw, bh] = brushSize(src.w, src.h);
+      layers = this.stack.ensure(bw, bh, layerCount);
+      this.brushes.draw(brushList, layers[0], this.stack.generation);
+    } else this.stack.release();
+    if (!jobs.length) {
+      this.refiner.release();
+      this.refineMade = null;
+    }
     const profile = this.profiles.resolve(recipe?.profile ?? 'auto', src.mode === InputMode.SceneLinear ? src.camera : null);
     if (profile) {
       if (!g.hdr) throw Error('Camera profiles require floating-point WebGL render targets');
@@ -831,6 +866,12 @@ export class Engine {
     u.uOutside = opts.outside ?? [0, 0, 0];
     u.uGrainFull = [src.fullW, src.fullH];
     u.uView = [view.x, view.y, view.w, view.h];
+    if (jobs.length) {
+      const meta = [...(u.uMaskMeta as number[])];
+      for (const j of jobs) meta[j.slot * 4 + 3] = 1;
+      u.uMaskMeta = meta;
+    }
+    const maskTex = this.stack.texture;
     u.uClipShow = opts.clipping ? 1 : 0;
     u.uSplit = opts.split ?? -1;
     const passes = needsPasses(u);
@@ -838,35 +879,65 @@ export class Engine {
     let glow: WebGLTexture = g.blackTexture;
     let sharp: WebGLTexture = g.blackTexture;
     // Without float targets the map would be too coarse; the stage then corrects per pixel.
-    const teqLocal = passes.toneEqualizer && g.hdr;
+    const teqLocal = passes.toneEqualizer && g.hdr && !picking;
     // Make every texture this render needs before binding any: creating one can
     // disturb a binding (see Gpu.scratch).
-    const teq = teqLocal ? this.toneEqualizerMap(src, u, brushTex) : g.blackTexture;
+    let teq: WebGLTexture = g.blackTexture;
     const curve = u.uCurveOn === 1 && recipe ? this.curveTexture(recipe) : g.blackTexture;
     const lutTex = look ? this.lutTexture(look) : null;
     // Clarity needs float targets and at least two pyramid levels.
-    const ll = passes.clarity && g.hdr && numLevels(src.w, src.h) >= 2 ? this.llPyramids(src.w, src.h) : null;
+    const ll = !picking && passes.clarity && g.hdr && numLevels(src.w, src.h) >= 2 ? this.llPyramids(src.w, src.h) : null;
     // Texture needs float targets and at least one wavelet scale.
-    const eqOn = passes.texture && g.hdr && scales(src.w, src.h, src.fullW, src.fullH, 1).length > 0;
+    const eqOn = !picking && passes.texture && g.hdr && scales(src.w, src.h, src.fullW, src.fullH, 1).length > 0;
     if (eqOn) this.eqTargets(src.w, src.h);
     // Sharpening needs 32-bit targets, and a radius RawTherapee would blur at this size.
     const usmP = usmParams(recipe?.sharpen ?? 0, recipe?.sharpenRadius ?? 0.5, recipe?.sharpenMasking ?? 0);
     const usmKern = usmKernel(usmP.radius * (src.w / src.fullW));
-    const usmOn = passes.usm && g.hdr && g.float32 && usmKern.length > 1;
+    const usmOn = !picking && passes.usm && g.hdr && g.float32 && usmKern.length > 1;
     if (usmOn) this.usmTargets(src.w, src.h);
-    const ceOn = passes.colorEq && g.hdr && g.float32 && !!recipe?.color;
+    const ceOn = !picking && passes.colorEq && g.hdr && g.float32 && !!recipe?.color;
     if (ceOn) this.ceTargets(src.w, src.h);
-    if (passes.highlights || passes.sharpen) this.chain(src.w, src.h);
+    const highlights = passes.highlights && !picking;
+    if (highlights || passes.sharpen) this.chain(src.w, src.h);
     const teqU = { uTeqTex: 4, uTeqLocal: teqLocal ? 1 : 0, uCurveTex: 5 };
 
-    if (passes.highlights || passes.sharpen) {
-      const ch = this.chain(src.w, src.h);
-      if (passes.highlights) {
+    const ch = highlights || passes.sharpen ? this.chain(src.w, src.h) : null;
+    if (ch && passes.sharpen) {
+      g.bind(0, src.tex);
+      this.down.set({ uTex: 0, uTexel: [0.5 / src.w, 0.5 / src.h] });
+      g.draw(this.down, ch.hA, ch.hA.w, ch.hA.h);
+      this.blur(ch.hA, ch.hB, 1, 1);
+      sharp = ch.hA.tex;
+    }
+    // Refined masks, before anything that reads the masks (they need the scanner sharpness).
+    if (jobs.length) {
+      const [rw, rh] = refineSize(src.w, src.h);
+      const key = `${rw}x${rh}|${this.stack.generation}|${BrushGpu.key(brushList)}|${pick(u, BEFORE_MASKS)}|${JSON.stringify(jobs)}`;
+      if (this.refineMade?.tex !== src.tex || this.refineMade.key !== key) {
+        this.refiner.run(jobs, rw, rh, rw / src.fullW, layers, (slot, t) => {
+          g.bind(0, src.tex);
+          g.bind(1, sharp);
+          for (const unit of [2, 3, 4, 5, 6, 8, 9, 10]) g.bind(unit, g.blackTexture);
+          g.bind3d(LUT_UNIT, lutTex);
+          this.profiles.bind(profile);
+          this.develop.set({
+            ...u, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3, uTeqTex: 4, uTeqLocal: 0, uCurveTex: 5, uClarityTex: 6, uTextureTex: 8, uUsmTex: 9, uCeTex: 10,
+            uView: [0, 0, 1, 1], uGeoU: [1, 0, 0], uGeoV: [0, 1, 0], uSplit: -1, uClipShow: 0, uUsmOn: 0, uUsmShowMask: 0, uCeOn: 0, uTextureOn: 0, uClarityOn: 0, uTap: 6, uMaskTap: slot,
+          });
+          g.bindArray(MASK_UNIT, maskTex);
+          g.draw(this.develop, t, t.w, t.h);
+        });
+        this.refineMade = { tex: src.tex, key };
+      }
+    }
+    if (teqLocal) teq = this.toneEqualizerMap(src, u, maskTex);
+    if (ch) {
+      if (highlights) {
         const { levels, pyramid } = ch;
         g.bind(0, src.tex);
         g.bind(4, teq);
         this.extract.set({ ...u, ...teqU, uSrc: 0, uTexel: [1 / src.w, 1 / src.h] });
-        g.bind(BRUSH_UNIT, brushTex);
+        g.bindArray(MASK_UNIT, maskTex);
         g.draw(this.extract, levels[0], levels[0].w, levels[0].h);
         for (let i = 1; i < levels.length; i++) this.downsample(levels[i - 1], levels[i]);
         const halLevel = levels[pyramid.halation];
@@ -877,13 +948,6 @@ export class Engine {
         this.blur(glowLevel, ch.glowTmp, gp.spread, gp.iterations);
         hal = halLevel.tex;
         glow = glowLevel.tex;
-      }
-      if (passes.sharpen) {
-        g.bind(0, src.tex);
-        this.down.set({ uTex: 0, uTexel: [0.5 / src.w, 0.5 / src.h] });
-        g.draw(this.down, ch.hA, ch.hA.w, ch.hA.h);
-        this.blur(ch.hA, ch.hB, 1, 1);
-        sharp = ch.hA.tex;
       }
     }
 
@@ -909,7 +973,7 @@ export class Engine {
         ...u, ...teqU, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3, uClarityTex: 6, uTextureTex: 8, uUsmTex: 9,
         uView: [0, 0, 1, 1], uGeoU: [1, 0, 0], uGeoV: [0, 1, 0], uSplit: -1, uClipShow: 0, uUsmOn: 0, uUsmShowMask: 0, uCeTex: 10, uCeOn: ceOn ? 1 : 0, uTap, ...extra,
       });
-      g.bind(BRUSH_UNIT, brushTex);
+      g.bindArray(MASK_UNIT, maskTex);
       g.draw(this.develop, t, t.w, t.h);
     };
     // Each map depends on the photo and everything before it, not on the view or crop.
@@ -921,6 +985,12 @@ export class Engine {
     const llKey = `${ceKey}|${pick(u, BEFORE_CLARITY)}|${aspect}|${pick(u, CLARITY_STAGE)}`;
     const usmKey = `${llKey}|${recipe?.sharpen},${recipe?.sharpenRadius},${recipe?.sharpenMasking}`;
     let texture: WebGLTexture = g.blackTexture;
+    if (picking) {
+      if (opts.target === 'screen') throw Error('A pick renders into a target');
+      bindDevelop(g.blackTexture);
+      tap(opts.target, 5, { uView: u.uView, uGeoU: u.uGeoU, uGeoV: u.uGeoV, uTextureOn: 0, uClarityOn: 0, uCeOn: 0 });
+      return;
+    }
     if (eqOn && this.eqMade?.tex === src.tex && this.eqMade.key === textureKey) texture = this.eqMade.out.tex;
     else if (eqOn) {
       const out = this.textureMap(src, u.uTextureMix as number, (t) => {
@@ -966,14 +1036,14 @@ export class Engine {
       uUsmOn: usmOn ? 1 : 0, uUsmShowMask: usmOn && opts.sharpenMask ? 1 : 0,
     });
     if (opts.target === 'screen') {
-      g.bind(BRUSH_UNIT, brushTex);
+      g.bindArray(MASK_UNIT, maskTex);
       g.draw(this.develop, null, opts.width, opts.height, true);
       if (this.fence) g.gl.deleteSync(this.fence);
       this.fence = g.gl.fenceSync(g.gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
       g.gl.flush();
     }
     else {
-      g.bind(BRUSH_UNIT, brushTex);
+      g.bindArray(MASK_UNIT, maskTex);
       g.draw(this.develop, opts.target, opts.width, opts.height, false);
     }
   }
@@ -1016,6 +1086,38 @@ export class Engine {
     }
   }
 
+  /**
+   * The scene (linear Rec.2020) that mask `mask` (its index in the recipe) adjusts at its
+   * exposure instance, over `box` (a part of the frame, as a View), at most `max` pixels on its
+   * long side: what the range picker measures. RGBA floats, bottom row first.
+   */
+  sampleMaskInput(src: Source, recipe: Recipe, mask: number, box: View, max = 512): Float32Array {
+    const g = this.gpu;
+    const gl = g.gl;
+    const crop = recipe.crop ?? FULL;
+    const pw = box.w * crop.w * src.w;
+    const ph = box.h * crop.h * src.h;
+    const scale = Math.min(1, max / Math.max(pw, ph));
+    const w = Math.max(1, Math.round(pw * scale));
+    const h = Math.max(1, Math.round(ph * scale));
+    const t = g.target(w, h, g.hdr, g.float32);
+    try {
+      this.render(src, recipe, { target: t, width: w, height: h, seed: 0, view: box, pick: mask });
+      gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo);
+      const out = new Float32Array(w * h * 4);
+      if (g.hdr) gl.readPixels(0, 0, w, h, gl.RGBA, gl.FLOAT, out);
+      else {
+        const px = new Uint8Array(w * h * 4);
+        gl.readPixels(0, 0, w, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        px.forEach((v, i) => (out[i] = v / 255));
+      }
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      return out;
+    } finally {
+      g.free(t);
+    }
+  }
+
   /** Develop into RGBA8 pixels, top row first, at width × height; size it to the recipe's crop (`framePixels`). */
   readPixels(src: Source, recipe: Recipe | null, width: number, height: number, seed: number, compare = false, view?: View, split?: number): Uint8Array<ArrayBuffer> {
     const g = this.gpu;
@@ -1040,6 +1142,8 @@ export class Engine {
   dispose() {
     this.profiles.dispose();
     this.brushes.dispose();
+    this.stack.dispose();
+    this.refiner.release();
     if (this.lensMade) this.gpu.free(this.lensMade.out);
     this.lensMade = null;
     if (this.curveTex) this.gpu.gl.deleteTexture(this.curveTex);

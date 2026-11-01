@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // A mask's parametric ranges, drawn as darktable draws its blendif sliders: a bar of the channel
 // with four markers (the feather's outer edges and the full-effect span). Drag a marker; double-
-// click the bar to let everything through again.
+// click the bar to let everything through again. Each channel's picker is darktable's "set
+// values" picker: click or drag a box on the photo and the markers close round what is there.
 // Gradients: darktable src/develop/blend_gui.c (_gradient_gray, _gradient_chroma,
 // _gradient_JzCzhz_hue) at commit 20891f6c, Copyright (C) 2011-2025 darktable developers.
 
 import { useRef } from 'react';
 import { RANGE_CHANNELS, fullRange, type Mask, type MaskRange, type RangeChannel } from '../film/masks';
 import { srgbOetf } from '../engine/color';
-import { updateMask } from './maskui';
+import { setMaskUi, updateMask, useMaskUi } from './maskui';
 
 type Stop = [number, [number, number, number]];
 
@@ -83,6 +84,7 @@ export function MaskRanges({ mask }: { mask: Mask }) {
     updateMask(mask.id, (m) => ({ ...m, ranges: { ...m.ranges, [channel]: on ? fullRange(channel) : null } }), on ? 'Add mask range' : 'Remove mask range');
   const invert = (channel: RangeChannel, inv: boolean) =>
     updateMask(mask.id, (m) => ({ ...m, ranges: { ...m.ranges, [channel]: { ...m.ranges[channel]!, invert: inv } } }), 'Invert mask range');
+  const picking = useMaskUi((s) => s.pick);
   return (
     <div className="mask-ranges" role="group" aria-label="Ranges">
       <span className="mask-tools-label">Ranges</span>
@@ -92,8 +94,16 @@ export function MaskRanges({ mask }: { mask: Mask }) {
           <div key={c.id} className="mask-range">
             <div className="mask-range-head">
               <label className="mask-check" title={c.hint}><input type="checkbox" checked={!!r} onChange={(e) => toggle(c.id, e.target.checked)} /> {c.label}</label>
-              {r && <label className="mask-check"><input type="checkbox" checked={r.invert} onChange={(e) => invert(c.id, e.target.checked)} /> Invert</label>}
+              <span className="mask-range-tools">
+                {r && <label className="mask-check"><input type="checkbox" checked={r.invert} onChange={(e) => invert(c.id, e.target.checked)} /> Invert</label>}
+                <button type="button" className="btn eyedropper mask-range-pick" aria-pressed={picking === c.id} aria-label={`Pick ${c.label.toLowerCase()} from the photo`}
+                  title={`Pick ${c.label.toLowerCase()}: click the photo, or drag a box over what to select. Esc cancels`}
+                  onClick={() => setMaskUi({ pick: picking === c.id ? null : c.id, tool: null })}>
+                  <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true"><path d="M11.5 1.5a2.1 2.1 0 0 1 3 3L13 6l.8.8-1.1 1.1-.8-.8-6.2 6.2L3 14l-1 1-1-1 1-1 .7-2.7L8.9 4.1l-.8-.8 1.1-1.1.8.8z" fill="currentColor" /></svg>
+                </button>
+              </span>
             </div>
+            {picking === c.id && <p className="hint">Click the photo, or drag a box over what to select. Esc cancels.</p>}
             {r && <RangeBar mask={mask} channel={c.id} range={r} />}
           </div>
         );

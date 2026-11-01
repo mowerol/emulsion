@@ -52,6 +52,7 @@ function setUniform(gl: WebGL2RenderingContext, type: number, loc: WebGLUniformL
     case gl.INT:
     case gl.BOOL:
     case gl.SAMPLER_2D:
+    case gl.SAMPLER_2D_ARRAY:
     case gl.SAMPLER_3D: gl.uniform1i(loc, arr[0]); break;
     case gl.INT_VEC2: gl.uniform2iv(loc, arr); break;
     default: throw new GpuError(`Unsupported uniform type ${type}`);
@@ -206,6 +207,12 @@ export class Gpu {
     const gl = this.gl;
     gl.activeTexture(gl.TEXTURE0 + unit);
     gl.bindTexture(gl.TEXTURE_2D, tex);
+  }
+
+  bindArray(unit: number, tex: WebGLTexture) {
+    const gl = this.gl;
+    gl.activeTexture(gl.TEXTURE0 + unit);
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, tex);
   }
 
   bind3d(unit: number, tex: WebGLTexture | null) {

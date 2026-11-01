@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
-import { blendNormal, blendifFactor, combine, ellipseValue, erf, gradientValue, jzczhz, maskValue, packRanges, rangeUnits, packShapes, rangeParameters, rangeValue } from './masks';
+import { blendNormal, blendifFactor, combine, ellipseValue, erf, gradientValue, jzczhz, maskValue, packRanges, pickStats, pickedRange, rangeUnits, packShapes, rangeParameters, rangeValue } from './masks';
 import { MAX_MASKS, fullRange, newEllipse, newGradient, newMask, normalizeMasks, type Mask } from '../film/masks';
 import { defaultRecipe, normalizeRecipe, withSettingsFrom } from '../film/recipe';
 import { InputMode, developUniforms, maskUniforms } from './params';
@@ -217,3 +217,68 @@ describe('darktable blendif ranges (RGB scene, JzCzhz)', () => {
     expect(packRanges(sky).flags).toEqual([0, 0, 1, 0]);
   });
 });
+
+describe("darktable's blendif picker (set values)", () => {
+  const px = (...rgbs: [number, number, number][]) => rgbs.flatMap((c) => [...c, 1]);
+
+  it('gathers the least and greatest Jz, Cz, hz and hz turned half way round', () => {
+    const a: [number, number, number] = [0.1, 0.1, 0.1];
+    const b: [number, number, number] = [0.5, 0.2, 0.05];
+    const s = pickStats(px(a, b, [NaN, 0, 0]))!;
+    const ja = jzczhz(a);
+    const jb = jzczhz(b);
+    expect(s.min[0]).toBeCloseTo(Math.min(ja[0], jb[0]), 12);
+    expect(s.max[1]).toBeCloseTo(Math.max(ja[1], jb[1]), 12);
+    const turned = (h: number) => (h < 0.5 ? h + 0.5 : h - 0.5);
+    expect(s.max[3]).toBeCloseTo(Math.max(turned(ja[2]), turned(jb[2])), 12);
+    expect(pickStats(px([NaN, 0, 0]))).toBeNull();
+  });
+
+  it('hugs the picked span with a feather of 1% of the slider', () => {
+    const grey: [number, number, number] = [0.18, 0.18, 0.18];
+    const light: [number, number, number] = [0.3, 0.3, 0.3];
+    const r = pickedRange(pickStats(px(grey, light))!, 'luminance')!;
+    const lo = rangeUnits('luminance', jzczhz(grey)[0]);
+    const hi = rangeUnits('luminance', jzczhz(light)[0]);
+    expect(r.invert).toBe(false);
+    [lo - 1, lo + 1, hi - 1, hi + 1].forEach((v, i) => expect(r.points[i]).toBeCloseTo(v, 9));
+    // Between them it is fully selected. At the ends, darktable's floor of 0.001 on a feather in
+    // Jz (5 on this slider at its boost) leaves the picked extremes partly selected.
+    const m: Mask = { ...newMask(newGradient(), 0), ranges: { luminance: r, chroma: null, hue: null } };
+    expect(rangeValue(m, [0.24, 0.24, 0.24])).toBe(1);
+    expect(rangeValue(m, grey)).toBeCloseTo(0.2, 6);
+    expect(rangeValue(m, [0.05, 0.05, 0.05])).toBe(0);
+  });
+
+  it('keeps the inner markers on the span when it is narrower than the feathers', () => {
+    const grey: [number, number, number] = [0.18, 0.18, 0.18];
+    const r = pickedRange(pickStats(px(grey))!, 'luminance')!;
+    const v = rangeUnits('luminance', jzczhz(grey)[0]);
+    [v - 1, v, v, v + 1].forEach((x, i) => expect(r.points[i]).toBeCloseTo(x, 9));
+  });
+
+  it('takes a span of hues across red the short way round, inverted', () => {
+    // Reds either side of hz = 0 (red and pink-red).
+    const warm: [number, number, number] = [0.5, 0.02, 0.12];
+    const cool: [number, number, number] = [0.5, 0.02, 0.3];
+    const h = [jzczhz(warm)[2], jzczhz(cool)[2]];
+    expect(Math.min(...h)).toBeLessThan(0.1);
+    expect(Math.max(...h)).toBeGreaterThan(0.9);
+    const r = pickedRange(pickStats(px(warm, cool))!, 'hue')!;
+    expect(r.invert).toBe(true);
+    const lo = Math.min(...h) * 360;
+    const hi = Math.max(...h) * 360;
+    [lo - 3.6, lo + 3.6, hi - 3.6, hi + 3.6].forEach((x, i) => expect(r.points[i]).toBeCloseTo(x, 6));
+    // Inverted, the reds between are selected and cyan is not.
+    const m: Mask = { ...newMask(newGradient(), 0), ranges: { luminance: null, chroma: null, hue: r } };
+    expect(rangeValue(m, [0.5, 0.02, 0.2])).toBe(1);
+    expect(rangeValue(m, [0.02, 0.4, 0.4])).toBe(0);
+  });
+
+  it('turns a channel off when the markers span the whole slider', () => {
+    // Only reachable below zero, as darktable's test of the markers (not the span) has it.
+    expect(pickedRange({ min: [-1, 0, 0, 0.5], max: [10, 1, 1, 1] }, 'luminance')).toBeNull();
+    expect(pickedRange({ min: [0, 0, 0, 0.5], max: [10, 1, 1, 1] }, 'hue')).not.toBeNull();
+  });
+});
+

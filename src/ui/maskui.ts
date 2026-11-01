@@ -5,7 +5,7 @@
 import { create } from 'zustand';
 import { activePhoto, editActive, showToast, useApp } from '../library/store';
 import { defaultRecipe, type Recipe } from '../film/recipe';
-import { BRUSH_DEFAULTS, MAX_BRUSHES, MAX_MASKS, MAX_SHAPES, brushCount, newBrush, newId, newMask, shapeCount, type BrushNode, type BrushShape, type Mask, type MaskMode, type MaskShape } from '../film/masks';
+import { BRUSH_DEFAULTS, MAX_BRUSHES, MAX_MASKS, MAX_SHAPES, brushCount, newBrush, newId, newMask, shapeCount, type BrushNode, type BrushShape, type Mask, type MaskMode, type MaskShape, type RangeChannel } from '../film/masks';
 
 export interface MaskTool {
   kind: 'gradient' | 'ellipse' | 'brush';
@@ -24,9 +24,11 @@ interface MaskUi {
   overlay: boolean;
   /** The brush: darktable's border (units of the shorter side), hardness and density. */
   brush: { border: number; hardness: number; density: number };
+  /** The range picker is waiting for a click or a box on the photo, to set this channel of the selected mask. */
+  pick: RangeChannel | null;
 }
 
-export const useMaskUi = create<MaskUi>(() => ({ selected: null, shape: null, tool: null, overlay: true, brush: { ...BRUSH_DEFAULTS } }));
+export const useMaskUi = create<MaskUi>(() => ({ selected: null, shape: null, tool: null, overlay: true, brush: { ...BRUSH_DEFAULTS }, pick: null }));
 
 export const setMaskUi = (patch: Partial<MaskUi>) => useMaskUi.setState(patch);
 

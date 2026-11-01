@@ -557,6 +557,7 @@ input[type='range']:disabled { opacity: 0.35; cursor: default; }
 .mask-handle.turn { fill:#fff; stroke:var(--accent); cursor:grab; }
 .mask-handle.edge { fill:#fff; stroke:#0008; cursor:ns-resize; }
 .mask-ranges { display:flex; flex-direction:column; gap:8px; }
+.mask-refine { display:flex; flex-direction:column; gap:4px; }
 .mask-range { display:flex; flex-direction:column; gap:6px; }
 .mask-range-head { display:flex; align-items:center; justify-content:space-between; }
 .mask-range-tools { display:flex; align-items:center; gap:8px; }

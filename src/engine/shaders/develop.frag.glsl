@@ -41,7 +41,10 @@ uniform vec3 uGeoV;
 uniform vec3 uOutside;
 // Renders a multi-scale filter's input instead, over the whole source: 1, the print's
 // lightness for clarity (0 to 1); 2, the scene's L* for texture; 3, the print's lightness
-// after clarity, for sharpening (0 to 1); 4, the colour equalizer's analysis (ceAnalyse).
+// after clarity, for sharpening (0 to 1); 4, the colour equalizer's analysis (ceAnalyse); 5, the
+// scene after the masks' exposure instances, for the range picker (the engine leaves out the
+// picked mask and those after it, so this is that mask's exposure instance's input); 6, mask
+// uMaskTap's exposure instance's input and its unrefined value, for mask refinement.
 uniform float uTap;
 // 1 shows Sharpening's contrast mask as grey instead of the photo.
 uniform float uUsmShowMask;
@@ -71,6 +74,14 @@ void main() {
   x = stageSharpen(x, uv);
   x = stageExposure(x);
   x = stageMaskExposure(x);
+  if (uTap > 5.5) {
+    outColor = gMaskTapOut;
+    return;
+  }
+  if (uTap > 4.5) {
+    outColor = vec4(x, 1.0);
+    return;
+  }
   x = stageToneEqualizer(x, uv);
   x = stageDehaze(x, uv);
   if (uTap > 1.5 && uTap < 2.5) {
@@ -78,7 +89,7 @@ void main() {
     return;
   }
   x = stageTexture(x, uv);
-  if (uTap > 3.5) {
+  if (uTap > 3.5 && uTap < 4.5) {
     outColor = ceAnalyse(x);
     return;
   }

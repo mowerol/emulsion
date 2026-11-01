@@ -9,6 +9,8 @@
 // darktable keeps them in input image coordinates, so cropping or straightening never moves them.
 // Their parameters are darktable's own: see engine/masks.ts for the maths.
 
+import { NO_REFINE, type MaskRefine } from '../engine/maskrefine';
+
 /** darktable's mask states DT_MASKS_STATE_UNION ... EXCLUSION, as Lightroom names them. */
 export type MaskMode = 'add' | 'intersect' | 'subtract' | 'sum' | 'exclude';
 
@@ -135,6 +137,8 @@ export interface Mask extends MaskAdjust {
   shapes: MaskShape[];
   /** Parametric ranges, multiplied into the shapes (darktable's blendif, exclusive). */
   ranges: MaskRanges;
+  /** darktable's mask refinement: feathering, blur, and the mask's brightness and contrast. */
+  refine: MaskRefine;
 }
 
 export type MaskAdjustKey = keyof MaskAdjust;
@@ -181,7 +185,7 @@ export function newBrush(mode: MaskMode = 'add'): BrushShape {
 }
 
 export function newMask(shape: MaskShape, index: number): Mask {
-  return { id: newId(), name: `Mask ${index + 1}`, on: true, opacity: 100, shapes: [shape], ranges: NO_RANGES, ...NO_ADJUST };
+  return { id: newId(), name: `Mask ${index + 1}`, on: true, opacity: 100, shapes: [shape], ranges: NO_RANGES, refine: NO_REFINE, ...NO_ADJUST };
 }
 
 /** Whether a mask changes anything. */
@@ -238,6 +242,20 @@ function normalizeRanges(input: unknown): MaskRanges {
   return Object.fromEntries(RANGE_CHANNELS.map((c) => [c.id, normalizeRange(o[c.id], c.max)])) as MaskRanges;
 }
 
+/** darktable's slider ranges: feathering radius 0-250 px, blurring radius 0-100 px, mask opacity and contrast -1 to 1. */
+export const REFINE_SLIDERS: { key: keyof MaskRefine; label: string; min: number; max: number; step: number; hint: string }[] = [
+  { key: 'feather', label: 'Feather', min: 0, max: 250, step: 1, hint: "darktable's feathering radius: the mask follows edges in the photo (guided filter), in full-size pixels" },
+  { key: 'blur', label: 'Blur', min: 0, max: 100, step: 0.5, hint: "darktable's blurring radius, in full-size pixels" },
+  { key: 'brightness', label: 'Brightness', min: -1, max: 1, step: 0.01, hint: "darktable's mask opacity: lifts or lowers the mask's partial values" },
+  { key: 'contrast', label: 'Contrast', min: -1, max: 1, step: 0.01, hint: "darktable's mask contrast: steepens or softens the mask round its middle" },
+];
+
+function normalizeRefine(input: unknown): MaskRefine {
+  if (!input || typeof input !== 'object') return NO_REFINE;
+  const o = input as Record<string, unknown>;
+  return Object.fromEntries(REFINE_SLIDERS.map((d) => [d.key, num(o[d.key], 0, d.min, d.max)])) as unknown as MaskRefine;
+}
+
 /** Masks read from a sidecar: invalid shapes dropped, values clamped, at most MAX_MASKS and MAX_SHAPES. */
 export function normalizeMasks(input: unknown): Mask[] {
   if (!Array.isArray(input)) return [];
@@ -249,7 +267,7 @@ export function normalizeMasks(input: unknown): Mask[] {
     const list = (Array.isArray(o.shapes) ? o.shapes : []).map(normalizeShape).filter((s): s is MaskShape => !!s).slice(0, MAX_SHAPES - shapes);
     if (!list.length) continue;
     shapes += list.length;
-    const m: Mask = { id: str(o.id, newId()), name: str(o.name, `Mask ${out.length + 1}`), on: o.on !== false, opacity: num(o.opacity, 100, 0, 100), shapes: list, ranges: normalizeRanges(o.ranges), ...NO_ADJUST };
+    const m: Mask = { id: str(o.id, newId()), name: str(o.name, `Mask ${out.length + 1}`), on: o.on !== false, opacity: num(o.opacity, 100, 0, 100), shapes: list, ranges: normalizeRanges(o.ranges), refine: normalizeRefine(o.refine), ...NO_ADJUST };
     for (const d of MASK_SLIDERS) m[d.key] = num(o[d.key], 0, d.min, d.max);
     out.push(m);
   }

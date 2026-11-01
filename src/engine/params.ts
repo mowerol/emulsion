@@ -25,7 +25,7 @@ import { scaledColorBalance } from '../film/creative';
 import { profileSettingsFor } from '../film/looks';
 import { D65_XY, clampWhiteBalance, temperatureTint, whiteBalanceMatrix, whiteXy, type Xy } from './whitebalance';
 import { packRanges, packShapes } from './masks';
-import { BRUSH_UNIT } from './brushgpu';
+import { MASK_UNIT } from './maskstack';
 import { maskActive, type Mask } from '../film/masks';
 import { effectiveIso, zoomForIso } from './grain';
 import { EXPOSURE_BOOST, FEATHERING, SMOOTHING, bandFactors, bandGains } from './toneequalizer';
@@ -187,7 +187,7 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
   };
 }
 
-const NO_MASKS: Uniforms = { uMaskCount: 0, uMaskShapeCount: 0, uMaskShow: -1, uMaskBrush: BRUSH_UNIT };
+const NO_MASKS: Uniforms = { uMaskCount: 0, uMaskShapeCount: 0, uMaskShow: -1, uMaskStack: MASK_UNIT, uMaskTap: -1 };
 
 /**
  * The masks' shapes and their adjustments. Temperature moves the photo's white by that many
@@ -223,7 +223,7 @@ export function maskUniforms(masks: Mask[], recipe: Recipe, ctx: Pick<RenderCont
   }
   return {
     uMaskCount: index.length, uMaskShapeCount: count, uMaskShapes: shapes, uMaskMeta: meta, uMaskWb: wb, uMaskCb: cb,
-    uMaskRange: range, uMaskRangeOn: rangeOn, uMaskToXyz: columnMajor(REC2020_TO_XYZ), uMaskBrush: BRUSH_UNIT,
+    uMaskRange: range, uMaskRangeOn: rangeOn, uMaskToXyz: columnMajor(REC2020_TO_XYZ), uMaskStack: MASK_UNIT, uMaskTap: -1,
     uMaskShow: index.indexOf(show),
   };
 }

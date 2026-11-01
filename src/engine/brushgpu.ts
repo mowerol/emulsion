@@ -1,15 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Brush shapes rendered into a mask texture for the develop pass: up to MAX_BRUSHES shapes, one
-// channel each, at the source's shape and at most BRUSH_EDGE pixels long. Kept until the brushes
-// or the size change. The develop pass has no texture unit to spare but the upload unit (7), so
-// the engine binds the mask there just before each draw that reads it.
+// Brush shapes rendered into the mask stack's first layer for the develop pass: up to MAX_BRUSHES
+// shapes, one channel each, at the source's shape and at most BRUSH_EDGE pixels long. Kept until
+// the brushes or the stack change (see maskstack.ts).
 
-import { SCRATCH_UNIT, type Gpu, type Program, type Target } from './gpu';
+import type { Gpu, Program } from './gpu';
+import type { Layer } from './maskstack';
 import { MAX_BRUSHES, type BrushShape, type Mask } from '../film/masks';
 import { brushSegments } from './brush';
 
-/** The texture unit the develop pass reads the brush mask from: the upload unit, bound just before each draw. */
-export const BRUSH_UNIT = SCRATCH_UNIT;
 /** Longest edge of the brush mask: brushes are soft, and a full-size export keeps 50 MB at this. */
 export const BRUSH_EDGE = 3072;
 const ROW = 4096;
@@ -35,44 +33,37 @@ export function brushSegmentData(b: BrushShape, W: number, H: number): { data: F
 }
 
 export class BrushGpu {
-  private targets: Target[] = [];
   private key = '';
   private segTex: WebGLTexture | null = null;
 
   constructor(private gpu: Gpu, private program: Program) {}
 
-  /** The brush mask (rendered if the brushes changed), or the black texture when there are none. */
-  texture(brushes: BrushShape[], W: number, H: number): WebGLTexture {
-    if (!brushes.length) return this.gpu.blackTexture;
-    const [bw, bh] = brushSize(W, H);
-    const key = `${bw}x${bh}|${JSON.stringify(brushes.map((b) => b.strokes))}`;
-    if (key !== this.key) {
-      this.render(brushes, bw, bh);
-      this.key = key;
-    }
-    return this.targets[0].tex;
+  /** A key for what is drawn, so callers can tell when it changed. */
+  static key(brushes: BrushShape[]) {
+    return JSON.stringify(brushes.map((b) => b.strokes));
   }
 
-  private render(brushes: BrushShape[], bw: number, bh: number) {
+  /** Draw the brushes into `layer` unless it already holds them (`generation` tells a new stack). */
+  draw(brushes: BrushShape[], layer: Layer, generation: number) {
+    const key = `${generation}|${layer.w}x${layer.h}|${BrushGpu.key(brushes)}`;
+    if (key === this.key) return;
+    this.render(brushes, layer);
+    this.key = key;
+  }
+
+  private render(brushes: BrushShape[], layer: Layer) {
     const g = this.gpu;
     const gl = g.gl;
-    // The mask may still be bound for reading; drawing into it then would be a feedback loop.
-    g.bind(BRUSH_UNIT, g.blackTexture);
-    const need = 1;
-    if (this.targets.length && (this.targets[0].w !== bw || this.targets[0].h !== bh)) this.release();
-    while (this.targets.length < need) this.targets.push(g.target(bw, bh, g.hdr));
     this.segTex ??= gl.createTexture();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, layer.fbo);
+    gl.colorMask(true, true, true, true);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
     gl.enable(gl.BLEND);
     gl.blendEquation(gl.MAX);
     gl.blendFunc(gl.ONE, gl.ONE);
-    this.targets.forEach((t) => {
-      gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo);
-      gl.colorMask(true, true, true, true);
-      gl.clearColor(0, 0, 0, 0);
-      gl.clear(gl.COLOR_BUFFER_BIT);
-    });
     brushes.forEach((b, i) => {
-      const { data, count } = brushSegmentData(b, bw, bh);
+      const { data, count } = brushSegmentData(b, layer.w, layer.h);
       if (!count) return;
       g.scratch();
       gl.bindTexture(gl.TEXTURE_2D, this.segTex);
@@ -80,29 +71,22 @@ export class BrushGpu {
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
       g.bind(0, this.segTex!);
-      this.program.set({ uSeg: 0, uSegRow: ROW, uSize: [bw, bh] });
+      this.program.set({ uSeg: 0, uSegRow: ROW, uSize: [layer.w, layer.h] });
       const c = i % 4;
       gl.colorMask(c === 0, c === 1, c === 2, c === 3);
-      g.drawInstanced(this.program, this.targets[Math.floor(i / 4)], count);
+      g.drawInstanced(this.program, { ...layer, tex: this.segTex!, hdr: true }, count);
     });
     gl.colorMask(true, true, true, true);
     gl.disable(gl.BLEND);
     gl.blendEquation(gl.FUNC_ADD);
   }
 
-  /** The mask texture (for checks). */
-  target(i: number): Target | null {
-    return this.targets[i] ?? null;
-  }
-
-  release() {
-    for (const t of this.targets) this.gpu.free(t);
-    this.targets = [];
+  /** Forget what was drawn (the stack was made again). */
+  reset() {
     this.key = '';
   }
 
   dispose() {
-    this.release();
     if (this.segTex) this.gpu.gl.deleteTexture(this.segTex);
     this.segTex = null;
   }

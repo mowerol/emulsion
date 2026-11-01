@@ -1,6 +1,6 @@
 # Handoff
 
-**Tried by Oli in the real app (2026-11-01):** the Workflow layout restyle, custom looks (edit mode, detach, migration of his looks), the LUT Colour blend on real photos, GPU-paced rendering, Colour, grain and RAW+JPEG folding. The "Not tried in the real app" notes below predate this. Oli wants to keep going with big features next (masks first under discussion).
+**Tried by Oli in the real app (2026-11-01):** the Workflow layout restyle, custom looks (edit mode, detach, migration of his looks), the LUT Colour blend on real photos, GPU-paced rendering, Colour, grain and RAW+JPEG folding. The "Not tried in the real app" notes below predate this. Oli is building masks (phases 1–3 below).
 
 Rewritten at the end of each session. Last updated 2026-11-01.
 
@@ -35,6 +35,47 @@ Oli chose virtual copies next; **masks remain another agent's WIP**. Do not take
 - **Still to try in the desktop app:** Cmd/Ctrl `'` with native menus; edits/marks on real RAW copies; reopen and export multiple versions; mouse/trackpad interactions. The browser checks used synthetic photos and mocked file IPC; Rust tests cover real sidecar persistence/scanning.
 - **Commit and push requested by Oli.**
 - **Blank-window diagnosis:** the running Vite server returned HTTP 504 for cached React DOM modules while its dependency cache was missing. Restarting Vite by touching `vite.config.ts` rebuilt the cache and restored the interface. A fresh real dev-server load rendered `.app .topbar` with no JavaScript exceptions or failed requests. Frontend tests did not remove the rebuilt cache. No application source change was needed for this recovery.
+
+## Masks, phase 3: range picker and refinement (2026-11-01, committed)
+
+Oli asked for, in order: a range picker, mask refinement, then local Highlights/Clarity/Texture/Dehaze. Parts 1 and 2 are built; part 3 is planned, not built. Oli's decisions (2026-11-01): the mask texture lives on **unit 7 as a layer stack**, and **each mask is evaluated once, at its exposure instance, and reused** by its later instances (darktable's raster mask). Detail in [docs/plans/masks.md](docs/plans/masks.md).
+
+- **Range picker:** each channel row in Ranges has an eyedropper. Click the photo, or drag a box over it.
+  - It is darktable's "set values" picker: min/max over the box in JzCzhz, markers ±0.01 of the slider, and a hue span across red taken the short way round and inverted.
+  - It measures through the develop pass (`uTap` 5, `Engine.sampleMaskInput`): the scene after the photo's exposure and the earlier masks' exposure instances, at most 512 px across.
+  - Reference: `pickStats`/`pickedRange` in `engine/masks.ts`.
+  - darktable quirk kept: its 0.001 floor on a Jz feather leaves the picked extremes only about 0.2 selected.
+- **Refine** (Feather, Blur, Brightness, Contrast per mask; `recipe.masks[].refine`): darktable's `blend.c` post-processing. Order: blur, then guided-filter feathering with the instance's input as guide, then the mask tone curve.
+  - Reference `engine/maskrefine.ts`.
+  - GPU: `maskrefine.frag.glsl` + `maskrefinegpu.ts`. Box means are prefix-sum differences; the recursive Gaussian is convolved with its closed-form impulse response, which is the same filter.
+  - It works at ≤1536 px in eight RGBA32F images (~200 MB, kept while any mask is refined) and is stored in half floats.
+  - Cached on everything up to the masks' exposure instances.
+  - Needs 32-bit float targets that filter; without them masks stay unrefined.
+- **Mask stack** (`maskstack.ts`): one RGBA16F texture array on unit 7 (≤3072 px). Layer 0 is brushes (`BrushGpu.draw`); layers 1–2 are refined masks, one channel per packed mask. It is released when no mask needs it.
+- **Raster model:** `masks.glsl` keeps `gMaskFinal[i]` from the exposure instance. The colour balance instance reuses it and no longer re-checks ranges at its own input.
+- **Checks:**
+  - 336 TS tests, typecheck, build and probe pass on the committed tree (Rust untouched).
+  - Probe `out.rangePick`: worst 3.6e-6, glError 0.
+  - Probe `out.maskRefine`: feather, wide feather, and blur+feather+tone are all within 4.9e-4 of the reference (half-float storage), moving the mask by up to 0.69, glError 0.
+  - `out.masks` (raster model): 2.3e-5. `out.brushes`: 4.8e-4.
+  - Screenshots: `?maskview&show=0&pick=hue`, `?maskview&show=1`.
+- **Not tried in the real app:**
+  - the picker: click, box, Esc, undo
+  - Refine sliders while dragging (each change re-runs the refinement: about 120 draws at ≤1536 px)
+  - refined masks in exports (refined at ≤1536 px and upsampled)
+  - memory with refinement on
+- **Next, part 3 (planned, not built):** darktable runs each local module as a second instance after the photo's own, blended normally by the mask.
+  - Clarity (bilat) and Texture (atrous) are Lab modules changing only L, so a masked instance is L + m·ΔL. Run the filter on a tap after the previous instances and fold m·ΔL into the existing clarity/texture map; no new units are needed. Texture's map must first become a ΔL map.
+  - The tone equalizer gain and dehaze are per-pixel affine (x → αx + β), so masked instances fold into one more stack layer.
+- **Another agent:** a non-Claude agent is reworking dehaze into a cached dark-channel map (`dehaze.frag.glsl`, engine.ts; uncommitted, in the same tree, left out of the masks commit). It binds `uDehazeTex` to **unit 12, which is the camera profile's**. Expect INVALID_OPERATION with a DCP while dehaze is on. Not touched.
+- **UX ideas for Oli (not built):**
+  - Lightroom's mask list with thumbnails and nested shapes
+  - compact icon row for new masks, Add/Subtract on hover or ⌥
+  - picker-first Color/Luminance Range masks
+  - a mask-display key and live picker readout on the bars
+  - collapsible Shapes/Ranges/Refine/Adjustments groups with the adjustments first
+  - Amount on the list row
+  - mask presets
 
 ## Masks, phase 2: ranges and brush (2026-11-01, uncommitted)
 

@@ -4,7 +4,7 @@
 // the values that have no handle.
 
 import { useEffect } from 'react';
-import { BRUSH_DEFAULTS, MASK_MODES, MASK_SLIDERS, type EllipseShape, type GradientShape, type Mask, type MaskMode, type MaskShape, type MaskSliderDef } from '../film/masks';
+import { BRUSH_DEFAULTS, MASK_MODES, MASK_SLIDERS, REFINE_SLIDERS, type EllipseShape, type GradientShape, type Mask, type MaskMode, type MaskShape, type MaskSliderDef } from '../film/masks';
 import { formatEv, formatSigned } from '../film/recipe';
 import { MaskRanges } from './MaskRange';
 import { deleteMask, deleteShape, duplicateMask, setMaskUi, updateMask, updateShape, useMasks, useMaskUi, useSelectedMask, type MaskTool } from './maskui';
@@ -43,7 +43,7 @@ function ToolButtons({ mode, label }: { mode: MaskTool['mode']; label?: string }
         const on = tool?.kind === t.kind && tool.mode === mode;
         return (
           <button key={t.kind} type="button" className={`btn mask-tool ${t.kind}`} aria-pressed={on} title={t.hint} aria-label={label ? `${label} ${t.label.toLowerCase()}` : undefined}
-            onClick={() => setMaskUi({ tool: on ? null : { kind: t.kind, mode } })}>
+            onClick={() => setMaskUi({ tool: on ? null : { kind: t.kind, mode }, pick: null })}>
             <span className="mask-tool-icon" aria-hidden="true" />{label ? t.short : t.label}
           </button>
         );
@@ -125,6 +125,25 @@ function BrushSettings() {
   );
 }
 
+/** darktable's mask refinement: feathering (guided by the photo), blur, and the mask's tone curve. */
+function MaskRefineControls({ mask }: { mask: Mask }) {
+  const fmt = (key: string) => (v: number) => (key === 'feather' || key === 'blur' ? `${v} px` : formatSigned(Math.round(v * 100)));
+  return (
+    <div className="mask-refine" role="group" aria-label="Refine">
+      <span className="mask-tools-label">Refine</span>
+      <div className="sliders">
+        {REFINE_SLIDERS.map((d) => (
+          <div key={d.key} title={d.hint}>
+            <Slider id={`mask-refine-${d.key}-${mask.id}`} label={d.label} value={mask.refine[d.key]} min={d.min} max={d.max} step={d.step} format={fmt(d.key)}
+              onChange={(v) => updateMask(mask.id, (m) => ({ ...m, refine: { ...m.refine, [d.key]: v } }), `Mask ${d.label.toLowerCase()}`, { key: `mask-${mask.id}-refine-${d.key}`, continuous: false })}
+              onReset={() => updateMask(mask.id, (m) => ({ ...m, refine: { ...m.refine, [d.key]: 0 } }), `Mask ${d.label.toLowerCase()}`)} />
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function MaskEditor({ mask }: { mask: Mask }) {
   const overlay = useMaskUi((s) => s.overlay);
   const set = (d: MaskSliderDef, v: number, drag: boolean) =>
@@ -140,6 +159,7 @@ function MaskEditor({ mask }: { mask: Mask }) {
       <ToolButtons mode="add" label="Add" />
       <ToolButtons mode="subtract" label="Subtract" />
       <MaskRanges mask={mask} />
+      <MaskRefineControls mask={mask} />
       <div className="sliders">
         <Slider id={`mask-opacity-${mask.id}`} label="Amount" value={mask.opacity} min={0} max={100} step={1} format={(v) => `${v}%`}
           onChange={(v) => updateMask(mask.id, (m) => ({ ...m, opacity: v }), 'Mask amount', { key: `mask-${mask.id}-opacity`, continuous: false })}
@@ -167,7 +187,7 @@ export function MaskControls() {
     const key = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA') && (t as HTMLInputElement).type !== 'range' && (t as HTMLInputElement).type !== 'checkbox') return;
-      if (e.key === 'Escape' && useMaskUi.getState().tool) { e.preventDefault(); setMaskUi({ tool: null }); }
+      if (e.key === 'Escape' && (useMaskUi.getState().tool || useMaskUi.getState().pick)) { e.preventDefault(); setMaskUi({ tool: null, pick: null }); }
       else if (!e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === 'o' && useMaskUi.getState().selected) setMaskUi({ overlay: !useMaskUi.getState().overlay });
       else if ((e.key === '[' || e.key === ']') && useMaskUi.getState().tool?.kind === 'brush') {
         const b = useMaskUi.getState().brush;
@@ -189,7 +209,7 @@ export function MaskControls() {
               <input type="checkbox" checked={m.on} aria-label={`${m.name} on`} title="Turn this mask on or off"
                 onChange={(e) => updateMask(m.id, (x) => ({ ...x, on: e.target.checked }), e.target.checked ? 'Mask on' : 'Mask off')} />
               <button type="button" className="mask-item-name" aria-pressed={selected?.id === m.id}
-                onClick={() => setMaskUi({ selected: selected?.id === m.id ? null : m.id, shape: null })}>{m.name}</button>
+                onClick={() => setMaskUi({ selected: selected?.id === m.id ? null : m.id, shape: null, pick: null })}>{m.name}</button>
               <span className="mask-item-count">{m.shapes.length > 1 ? `${m.shapes.length} shapes` : shapeName(m.shapes[0])}</span>
             </li>
           ))}

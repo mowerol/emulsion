@@ -23,12 +23,19 @@ Linear gradient (darktable gradient: sigmoidal or linear transition, curvature) 
 1. **Ranges**: darktable's RGB (scene) blendif on JzCzhz: Luminance (Jz), Chroma (Cz) and Hue (hz), each a four-marker trapezoid with invert, multiplied into the shapes (darktable's exclusive combination), evaluated at each masked instance's own input (the exposure instance's, then the colour balance instance's). Jz and Cz boosts are fixed at +1 and +2 EV over darktable's default (white near 88, vivid colours under 80); darktable lets the user change them. Panel: darktable's gradient bars with four markers (`MaskRange.tsx`). Probe: `out.masks` covers ranges (22 of 64 colours partly selected; colours within 2.3e-5).
 2. **Brush**: darktable's brush: drawn points simplified at its medium smoothing (Ramer-Douglas-Peucker), joined by its Catmull-Rom spline, border eased between nodes, hardness and density linear, falloff full to hardness × border then linear. Strokes of a shape join as a union. Rendered by `BrushGpu` (instanced segments, MAX blending) into one RGBA half-float mask (one channel per brush shape, at most 4 per photo, at most 3072 px long), bound to unit 7 just before each masked draw: the develop pass already uses the other 15 units, and 16 is all WebGL2 guarantees. Tool: Brush (new mask, Add, Subtract to erase, ⌥ erases while brushing), Size, Hardness and Density, [ and ] for size. Probe: `out.brushes` (texels within 4.8e-4, half-float storage) and `out.engineBrush` (through the engine).
 
+**Built (2026-11-01, uncommitted):**
+
+3. **Range picker**: darktable's blendif "set values" picker per channel (click or box), measured at the mask's exposure instance's input (`uTap` 5).
+4. **Refinement**: darktable's blend.c post-processing (blur, guided-filter feathering guided by the input, mask tone curve), on the GPU into the **mask stack**: one half-float texture array on unit 7 (Oli's choice), layer 0 brushes, layers 1–2 refined masks.
+5. **One mask per Lightroom mask** (Oli's choice): evaluated, and refined, at the exposure instance and reused by the colour balance instance, as a darktable raster mask. Ranges are no longer re-checked at the colour instance's input.
+
 **Next:**
 
-1. A colour/luminance picker for ranges (Lightroom's Color Range is picker-first; darktable has one too). Needs the pixel at the masked instance's input: a tap like `sampleScene` after exposure.
-2. **Mask refinement** (`blend.c`): feathering by guided filter, blur and the tone curve on the mask.
-3. **More local adjustments**: Highlights (tone equalizer), Clarity and Texture (need their maps blended by the mask), Dehaze once it exists, Sharpness.
-4. Paths (darktable `path.c`) if Oli wants freeform shapes beyond the brush.
+1. **Local Highlights, Clarity, Texture, Dehaze** (planned). darktable would run each as a second instance after the photo's own, blended normally by the (raster) mask.
+   - Clarity (bilat) and Texture (atrous) change only Lab L, so the blend is L + m·ΔL. Each masked instance's filter runs on a tap after the previous instances, and m·ΔL folds into the existing map: no new texture unit. Texture's map has to become a ΔL map first.
+   - The tone equalizer gain (x·g) and dehaze ((x − A(1 − t))/t) are per-pixel affine, so all masked instances of each fold into one RGBA stack layer (α, β).
+   - Each costs one filter run per masked instance when its inputs change, cached like the other maps.
+2. Paths (darktable `path.c`) if Oli wants freeform shapes beyond the brush.
 
 ## Phase 3: AI subject and sky masks
 

@@ -2,7 +2,8 @@
 // The selected mask's shapes over the photo, with handles, and drawing a new shape with the
 // armed tool. Gradients: drag the middle line to move, the round handle to turn, the dashed line
 // to widen the transition. Radials: drag the centre to move, the axis handles to size (the long
-// one also turns), the outer handle to feather. Brush: paint with the pointer (⌥ erases).
+// one also turns), the outer handle to feather. Brush: paint with the pointer (⌥ erases). Range
+// picker: click, or drag a box, over what the selected mask's range should take in.
 
 import { useRef, useState } from 'react';
 import { FULL, sourcePoint, type Crop, type Rect } from '../film/crop';
@@ -27,12 +28,21 @@ interface Drag {
 const CLICK_SLOP = 4;
 /** Where the turn handle sits along a gradient's line, in diagonals from its middle. */
 const TURN_AT = 0.12;
+/** Half the side of the patch a click picks, in CSS pixels. */
+const PICK_PATCH = 4;
 
 let gestures = 0;
 
-export function MaskOverlay({ frame, W, H, view, cssW, cssH }: { frame: Rect & { angle: number }; W: number; H: number; view: View; cssW: number; cssH: number }) {
+export function MaskOverlay({ frame, W, H, view, cssW, cssH, onPick }: {
+  frame: Rect & { angle: number }; W: number; H: number; view: View; cssW: number; cssH: number;
+  /** The range picker's box, in frame coordinates. */
+  onPick: (box: View) => void;
+}) {
   const mask = useSelectedMask();
   const tool = useMaskUi((s) => s.tool);
+  const pick = useMaskUi((s) => (mask ? s.pick : null));
+  const pickBox = useRef<{ start: Pt; id: number } | null>(null);
+  const [pickDraft, setPickDraft] = useState<[Pt, Pt] | null>(null);
   const activeId = useMaskUi((s) => s.shape);
   const ref = useRef<SVGSVGElement>(null);
   const drag = useRef<Drag | null>(null);
@@ -56,6 +66,36 @@ export function MaskOverlay({ frame, W, H, view, cssW, cssH }: { frame: Rect & {
 
   const shapes = mask?.shapes ?? [];
   const active = shapes.find((s) => s.id === activeId) ?? shapes[shapes.length - 1] ?? null;
+
+  /** CSS pixels within the overlay. */
+  const local = (e: { clientX: number; clientY: number }): Pt => {
+    const r = ref.current!.getBoundingClientRect();
+    return [Math.min(r.width, Math.max(0, e.clientX - r.left)), Math.min(r.height, Math.max(0, e.clientY - r.top))];
+  };
+  const beginPick = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    e.preventDefault();
+    ref.current!.setPointerCapture(e.pointerId);
+    const p = local(e);
+    pickBox.current = { start: p, id: e.pointerId };
+    setPickDraft([p, p]);
+  };
+  const endPick = (e: React.PointerEvent) => {
+    const b = pickBox.current;
+    pickBox.current = null;
+    setPickDraft(null);
+    if (!b) return;
+    const p = local(e);
+    let [x0, x1] = [Math.min(b.start[0], p[0]), Math.max(b.start[0], p[0])];
+    let [y0, y1] = [Math.min(b.start[1], p[1]), Math.max(b.start[1], p[1])];
+    // A click picks a small patch around it.
+    if (Math.hypot(x1 - x0, y1 - y0) < CLICK_SLOP) [x0, x1, y0, y1] = [p[0] - PICK_PATCH, p[0] + PICK_PATCH, p[1] - PICK_PATCH, p[1] + PICK_PATCH];
+    const r = ref.current!.getBoundingClientRect();
+    const [u0, v0] = imagePoint(view, x0 / r.width, y0 / r.height);
+    const [u1, v1] = imagePoint(view, x1 / r.width, y1 / r.height);
+    onPick({ x: u0, y: v0, w: u1 - u0, h: v1 - v0 });
+  };
 
   const node = (p: Pt): BrushNode => ({ x: p[0], y: p[1], border: brush.border, hardness: brush.hardness, density: brush.density });
 
@@ -102,6 +142,10 @@ export function MaskOverlay({ frame, W, H, view, cssW, cssH }: { frame: Rect & {
   };
 
   const move = (e: React.PointerEvent) => {
+    if (pickBox.current) {
+      setPickDraft([pickBox.current.start, local(e)]);
+      return;
+    }
     if (tool?.kind === 'brush') setHover(toSource(e));
     const st = stroke.current;
     if (st) {
@@ -127,6 +171,7 @@ export function MaskOverlay({ frame, W, H, view, cssW, cssH }: { frame: Rect & {
   };
 
   const end = (e: React.PointerEvent) => {
+    if (pickBox.current) return endPick(e);
     const st = stroke.current;
     if (st) {
       stroke.current = null;
@@ -195,8 +240,14 @@ export function MaskOverlay({ frame, W, H, view, cssW, cssH }: { frame: Rect & {
   }
 
   return (
-    <svg ref={ref} className={`mask-overlay${tool ? ' drawing' : ''}`} width={cssW} height={cssH} onPointerMove={move} onPointerUp={end} onPointerCancel={() => { drag.current = null; setDraft(null); }}>
+    <svg ref={ref} className={`mask-overlay${tool || pick ? ' drawing' : ''}`} width={cssW} height={cssH} onPointerMove={move} onPointerUp={end}
+      onPointerCancel={() => { drag.current = null; setDraft(null); pickBox.current = null; setPickDraft(null); }}>
       {tool && <rect className="mask-capture" width={cssW} height={cssH} onPointerDown={(e) => (tool.kind === 'brush' ? beginStroke(e) : begin(e, 'create', null))} onPointerLeave={() => setHover(null)} />}
+      {pick && !tool && <rect className="mask-capture" width={cssW} height={cssH} onPointerDown={beginPick} />}
+      {pickDraft && (
+        <rect className="mask-pick-box" x={Math.min(pickDraft[0][0], pickDraft[1][0])} y={Math.min(pickDraft[0][1], pickDraft[1][1])}
+          width={Math.abs(pickDraft[1][0] - pickDraft[0][0])} height={Math.abs(pickDraft[1][1] - pickDraft[0][1])} />
+      )}
       {shapes.map((s) => drawShape(s, s.id === active?.id && !tool))}
       {draft && drawShape(draft, true, true)}
       {tool?.kind === 'brush' && hover && (() => {

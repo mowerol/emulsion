@@ -5,7 +5,8 @@
 // src/develop/blend.c (dt_develop_blendif_process_parameters, global opacity) with
 // blends/blendif_rgb_jzczhz.c (_blendif_compute_factor, _blendif_jzczhz, the exclusive mask
 // combination, _blend_normal), and src/common/colorspaces_inline_conversions.h
-// (dt_XYZ_2_JzAzBz, dt_JzAzBz_2_JzCzhz), with blend_gui.c's channel scales, at commit
+// (dt_XYZ_2_JzAzBz, dt_JzAzBz_2_JzCzhz), with blend_gui.c's channel scales and its "set values"
+// picker (blend_color_picker_apply, with common/color_picker.c's statistics), at commit
 // 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release 5.6.2). Translated from C to TypeScript, the
 // reference for stages/masks.glsl. Each shape is evaluated exactly at every pixel; darktable
 // samples a grid of 1 to 8 pixels and interpolates (and reads the gradient's erf from a table
@@ -173,10 +174,73 @@ export function rangeValue(m: Mask, rgb: Vec3): number {
 
 /**
  * The share of the adjusted pixel: darktable's exclusive, non-inverted combination of the drawn
- * mask and the parametric one, times the blend opacity. `rgb` is the masked instance's input.
+ * mask and the parametric one, times the blend opacity. `rgb` is the input of the mask's exposure
+ * instance; its colour balance instance reuses the value (darktable's raster mask).
  */
 export function maskValue(m: Mask, u: number, v: number, W: number, H: number, rgb?: Vec3): number {
   return drawnValue(m, u, v, W, H) * (rgb ? rangeValue(m, rgb) : 1) * clip(m.opacity / 100);
+}
+
+/**
+ * What darktable's area picker gathers over JzCzhz (color_picker.c, _update_stats_4ch): the
+ * least and greatest Jz, Cz and hz, and of hz turned half way round (the fourth channel, which
+ * the blendif picker uses to tell a range across red from one around cyan).
+ */
+export interface PickStats {
+  min: [number, number, number, number];
+  max: [number, number, number, number];
+}
+
+/** The statistics of some pixels (scene-linear Rec.2020, `stride` floats apart). Null with none. */
+export function pickStats(px: ArrayLike<number>, stride = 4): PickStats | null {
+  const min: PickStats['min'] = [Infinity, Infinity, Infinity, Infinity];
+  const max: PickStats['max'] = [-Infinity, -Infinity, -Infinity, -Infinity];
+  let n = 0;
+  for (let i = 0; i + 2 < px.length; i += stride) {
+    const rgb: Vec3 = [px[i], px[i + 1], px[i + 2]];
+    if (!rgb.every(Number.isFinite)) continue;
+    const [jz, cz, hz] = jzczhz(rgb);
+    const pick = [jz, cz, hz, hz < 0.5 ? hz + 0.5 : hz - 0.5];
+    for (let k = 0; k < 4; k++) {
+      min[k] = Math.min(min[k], pick[k]);
+      max[k] = Math.max(max[k], pick[k]);
+    }
+    n++;
+  }
+  return n ? { min, max } : null;
+}
+
+/**
+ * darktable's blendif "set values" picker (blend_gui.c, blend_color_picker_apply) for one
+ * channel: the markers hug the picked span with a feather of 0.01 of the slider each side, a hue
+ * span shorter the other way round is taken across red with the range inverted, and a channel
+ * whose markers span the whole slider is turned off (null).
+ */
+export function pickedRange(stats: PickStats, channel: RangeChannel): MaskRange | null {
+  const k = channel === 'luminance' ? 0 : channel === 'chroma' ? 1 : 2;
+  let lo = stats.min[k];
+  let hi = stats.max[k];
+  let reverse = false;
+  if (channel === 'hue' && stats.max[3] - stats.min[3] < stats.max[2] - stats.min[2] && stats.min[3] < 0.5 && stats.max[3] > 0.5) {
+    hi = stats.max[3] < 0.5 ? stats.max[3] + 0.5 : stats.max[3] - 0.5;
+    lo = stats.min[3] < 0.5 ? stats.min[3] + 0.5 : stats.min[3] - 0.5;
+    reverse = true;
+  }
+  // _blendif_scale: the slider's 0 to 1.
+  let a = lo / BOOST[channel];
+  let b = hi / BOOST[channel];
+  if (a > b) [a, b] = [b, a];
+  const feather = 0.01;
+  const v = [clip(a - feather), clip(a + feather), clip(b - feather), clip(b + feather)];
+  if (v[1] > v[2]) {
+    v[1] = clip(a);
+    v[2] = clip(b);
+  }
+  v[0] = Math.min(Math.max(v[0], 0), v[1]);
+  v[3] = Math.min(Math.max(v[3], v[2]), 1);
+  if (v[1] === 0 && v[2] === 1) return null;
+  const max = RANGE_CHANNELS.find((c) => c.id === channel)!.max;
+  return { points: v.map((x) => x * max) as MaskRange['points'], invert: reverse };
 }
 
 /** The ranges as the shader reads them: three vec4 of markers (Jz, Cz, hz) and one of flags. */

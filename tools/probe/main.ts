@@ -52,7 +52,9 @@ import { tetrahedral, textureData, type Clut } from '../../src/engine/lut3d';
 import { PACKS, customLookId, lookFile, registerCustomLook, stockForPack } from '../../src/film/looks';
 import { normalizeSettings, settingsFromRecipe, withoutProfileFields } from '../../src/film/creative';
 import { blendColor } from '../../src/engine/blend';
-import { drawnValue, maskValue, blendNormal, rangeValue } from '../../src/engine/masks';
+import { drawnValue, maskValue, blendNormal, rangeValue, pickStats, pickedRange } from '../../src/engine/masks';
+import { MaskStack } from '../../src/engine/maskstack';
+import { refineMask, type MaskRefine } from '../../src/engine/maskrefine';
 import { newBrush, newEllipse, newGradient, newMask, type Mask } from '../../src/film/masks';
 import { BrushGpu } from '../../src/engine/brushgpu';
 import { brushValue } from '../../src/engine/brush';
@@ -149,14 +151,15 @@ function probeBrushes(eng: Engine) {
   ];
   const errors: number[] = [gl.getError()];
   const bg = new BrushGpu(eng.gpu, eng.gpu.program(SHADERS.brushVert, SHADERS.brushFrag));
+  const stack = new MaskStack(eng.gpu);
   errors.push(gl.getError());
-  bg.texture(shapes, W, H);
+  const layers = stack.ensure(W, H, 1);
+  bg.draw(shapes, layers[0], stack.generation);
   errors.push(gl.getError());
   let worst = 0;
   let covered = 0;
   for (let t = 0; t < 1; t++) {
-    const target = bg.target(t)!;
-    gl.bindFramebuffer(gl.FRAMEBUFFER, target.fbo);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, layers[0].fbo);
     const px = new Float32Array(W * H * 4);
     gl.readPixels(0, 0, W, H, gl.RGBA, gl.FLOAT, px);
     errors.push(gl.getError());
@@ -173,6 +176,7 @@ function probeBrushes(eng: Engine) {
   }
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   bg.dispose();
+  stack.dispose();
   return { worstAbsoluteError: worst, coveredSamples: covered, errors };
 }
 
@@ -233,8 +237,11 @@ void main() {
   let colourError = 0;
   uv.forEach(([x, y], i) => {
     let c: number[] = cols[i];
+    // Each mask is evaluated once, at its exposure instance, and reused (darktable's raster mask).
+    const final: number[] = [];
     masks.forEach((mk, k) => {
       const mv = maskValue(mk, x, y, W, H, c as Vec3);
+      final[k] = mv;
       const M = wb.slice(k * 9, k * 9 + 9);
       const t = [0, 1, 2].map((r) => (M[r] * c[0] + M[3 + r] * c[1] + M[6 + r] * c[2]) * meta[k * 4 + 1]);
       c = blendNormal(c, t, mv);
@@ -243,7 +250,7 @@ void main() {
       if (meta[k * 4 + 2] < 0.5) return;
       const d = cbCommit(sliderParams(colorBalanceParams(mk.contrast, mk.vibrance, mk.saturation, mk.shadows)));
       void cbs;
-      c = blendNormal(c, colorBalanceRgb(c as Vec3, d), maskValue(mk, x, y, W, H, c as Vec3));
+      c = blendNormal(c, colorBalanceRgb(c as Vec3, d), final[k]);
     });
     for (let k = 0; k < 3; k++) colourError = Math.max(colourError, Math.abs(colour[i * 4 + k] - c[k]) / Math.max(0.01, Math.abs(c[k])));
   });
@@ -698,11 +705,13 @@ try {
     eng.render(msrc, recipe, { target: 'screen', width: MW, height: MH, seed: 1, maskShow: show });
     useApp.setState({ photos: [{ path: '/probe/m.jpg', rel: 'm.jpg', name: 'm.jpg', size: 1, modified: 0, recipe, seed: 1, white: null, rating: 0, label: null, heart: false, raw: false, pair: null }], active: 0, view: 'develop' });
     setWorkspace({ layout: 'workflow', group: 'masks' });
-    setMaskUi({ selected: recipe.masks[show].id, shape: null, tool: new URLSearchParams(location.search).get('tool') === 'brush' ? { kind: 'brush', mode: 'add' } : null });
+    const pickParam = new URLSearchParams(location.search).get('pick');
+    setMaskUi({ selected: recipe.masks[show].id, shape: null, tool: new URLSearchParams(location.search).get('tool') === 'brush' ? { kind: 'brush', mode: 'add' } : null,
+      pick: pickParam === 'luminance' || pickParam === 'chroma' || pickParam === 'hue' ? pickParam : null });
     const ov = document.createElement('div');
     ov.style.cssText = 'position:fixed;left:20px;top:20px;width:600px;height:400px';
     document.body.append(ov);
-    createRoot(ov).render(createElement(MaskOverlay, { frame: { ...FULL }, W: MW, H: MH, view: { x: 0, y: 0, w: 1, h: 1 }, cssW: MW, cssH: MH }));
+    createRoot(ov).render(createElement(MaskOverlay, { frame: { ...FULL }, W: MW, H: MH, view: { x: 0, y: 0, w: 1, h: 1 }, cssW: MW, cssH: MH, onPick: () => {} }));
     const ph = document.createElement('div');
     ph.style.cssText = 'position:fixed;top:0;left:640px;width:340px;height:900px;display:grid';
     document.body.append(ph);
@@ -766,6 +775,95 @@ try {
     const masked = eng.readPixels(gsrc, { ...base, masks: [brushed] }, gw, gh, 1);
     const at = (px: Uint8Array, x: number, y: number) => px[(y * gw + x) * 4 + 1];
     out.engineBrush = { plainCentre: at(plain, 150, 100), maskedCentre: at(masked, 150, 100), plainFar: at(plain, 150, 10), maskedFar: at(masked, 150, 10), glError: eng.gpu.gl.getError() };
+  }
+  // The range picker's tap: the scene a mask's exposure instance sees, against the reference.
+  {
+    const pw = 200, ph = 100;
+    const pc = document.createElement('canvas');
+    pc.width = pw; pc.height = ph;
+    const px2 = pc.getContext('2d')!;
+    const grad = px2.createLinearGradient(0, 0, pw, 0);
+    grad.addColorStop(0, 'rgb(200,60,50)'); grad.addColorStop(0.5, 'rgb(90,140,60)'); grad.addColorStop(1, 'rgb(60,90,200)');
+    px2.fillStyle = grad; px2.fillRect(0, 0, pw, ph);
+    const psrc = eng.sourceFromImage(pc, pw, ph);
+    const base = { ...defaultRecipe('neutral', 'straight'), grain: 0 };
+    // Mask 0: a radial +1 EV with a luminance range; mask 1, the one picked, after it.
+    const m0: Mask = { ...newMask(newEllipse([0.3, 0.45], [0.3, 0.25], 0, 0.15), 0), exposure: 1, ranges: { luminance: { points: [0, 0, 30, 50], invert: false }, chroma: null, hue: null } };
+    const m1: Mask = { ...newMask(newGradient(), 1), exposure: -1 };
+    const box = { x: 0.05, y: 0.15, w: 0.6, h: 0.5 };
+    eng.gpu.gl.getError();
+    const input0 = eng.sampleMaskInput(psrc, { ...base, masks: [m0, m1] }, 0, box);
+    const input1 = eng.sampleMaskInput(psrc, { ...base, masks: [m0, m1] }, 1, box);
+    const plainExp = eng.sampleMaskInput(psrc, { ...base, exposure: 1, masks: [m0, m1] }, 0, box);
+    const glError = eng.gpu.gl.getError();
+    // The box at most 512 px across: here 120 × 50 source pixels, one each.
+    const bw = Math.round(box.w * pw), bh = Math.round(box.h * ph);
+    let worst = 0, worstExposure = 0, partly = 0;
+    for (let j = 0; j < bh; j++) for (let i = 0; i < bw; i++) {
+      const k = (j * bw + i) * 4;
+      const rgb: [number, number, number] = [input0[k], input0[k + 1], input0[k + 2]];
+      const u = box.x + ((i + 0.5) / bw) * box.w, v = box.y + ((j + 0.5) / bh) * box.h;
+      const m = maskValue(m0, u, v, pw, ph, rgb);
+      if (m > 0.01 && m < 0.99) partly++;
+      for (let c = 0; c < 3; c++) {
+        const want = rgb[c] * (1 + m);
+        worst = Math.max(worst, Math.abs(input1[k + c] - want) / Math.max(want, 1e-3));
+        worstExposure = Math.max(worstExposure, Math.abs(plainExp[k + c] - 2 * rgb[c]) / Math.max(2 * rgb[c], 1e-3));
+      }
+    }
+    const left = pickStats(eng.sampleMaskInput(psrc, base, 0, { x: 0, y: 0, w: 0.04, h: 1 }))!;
+    out.rangePick = {
+      size: input0.length / 4 === bw * bh, pixels: bw * bh, partlyMasked: partly, worstRelative: worst, worstExposureRelative: worstExposure, glError,
+      leftHue: pickedRange(left, 'hue'), leftLuminance: pickedRange(left, 'luminance'),
+    };
+    eng.release(psrc);
+  }
+  // Mask refinement on the GPU against maskrefine.ts: a radial mask over a photo with an edge.
+  {
+    const rw = 240, rh = 160;
+    const rc = document.createElement('canvas');
+    rc.width = rw; rc.height = rh;
+    const rx = rc.getContext('2d')!;
+    rx.fillStyle = 'rgb(40,50,60)'; rx.fillRect(0, 0, rw, rh);
+    rx.fillStyle = 'rgb(200,190,150)'; rx.fillRect(110, 0, rw - 110, rh);
+    rx.fillStyle = 'rgb(90,160,80)'; rx.fillRect(150, 90, 60, 50);
+    const rsrc = eng.sourceFromImage(rc, rw, rh);
+    const base = { ...defaultRecipe('neutral', 'straight'), grain: 0 };
+    const mk = (refine: MaskRefine): Mask => ({ ...newMask(newEllipse([0.5, 0.5], [0.3, 0.3], 0, 0.02), 0), exposure: 1, opacity: 80, refine });
+    const gl = eng.gpu.gl;
+    gl.getError();
+    const anyEng = eng as unknown as { refiner: { target(i: number): { fbo: WebGLFramebuffer; w: number; h: number } | null }; stack: { layers: { fbo: WebGLFramebuffer; w: number; h: number }[] } };
+    const read = (fbo: WebGLFramebuffer, w: number, h: number) => {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+      const px = new Float32Array(w * h * 4);
+      gl.readPixels(0, 0, w, h, gl.RGBA, gl.FLOAT, px);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      return px;
+    };
+    // First with feathering only, so the tap is left as it was.
+    const cases: Record<string, MaskRefine> = {
+      feather: { feather: 8, blur: 0, brightness: 0, contrast: 0 },
+      featherWide: { feather: 60, blur: 0, brightness: 0, contrast: 0 },
+      all: { feather: 5, blur: 4, brightness: 0.3, contrast: 0.4 },
+    };
+    eng.readPixels(rsrc, { ...base, masks: [mk(cases.feather)] }, rw, rh, 1);
+    const T = anyEng.refiner.target(0)!;
+    const tapPx = read(T.fbo, T.w, T.h);
+    const guide = Array.from(tapPx);
+    const mask = Array.from({ length: rw * rh }, (_, i) => tapPx[i * 4 + 3]);
+    const result: Record<string, unknown> = { size: [T.w, T.h], maskRange: [Math.min(...mask), Math.max(...mask)] };
+    for (const [name, r] of Object.entries(cases)) {
+      const plain = eng.readPixels(rsrc, { ...base, masks: [mk(r)] }, rw, rh, 1);
+      const layer = anyEng.stack.layers[1];
+      const got = read(layer.fbo, layer.w, layer.h);
+      const want = refineMask(mask, guide, 4, rw, rh, r, 0.8, 1);
+      let worst = 0, moved = 0;
+      // Readback rows run bottom up; the tap was drawn the same way, so indices line up.
+      want.forEach((v, i) => { worst = Math.max(worst, Math.abs(got[i * 4] - v)); moved = Math.max(moved, Math.abs(v - mask[i])); });
+      result[name] = { worstAbsolute: worst, movedBy: moved, centre: plain[(80 * rw + 120) * 4 + 1], glError: gl.getError() };
+    }
+    out.maskRefine = result;
+    eng.release(rsrc);
   }
   // The full module, as a stock's grade: every control at once.
   {
