@@ -28,4 +28,11 @@ describe('shader assembly', () => {
       expect(SHADERS.develop).toMatch(new RegExp(`\\b${fn}\\(`));
     }
   });
+
+  it('uses a cached dark-channel map for dehaze', () => {
+    expect(SHADERS.develop).toContain('uniform sampler2D uDehazeTex');
+    expect(SHADERS.develop).toContain('texture(uDehazeTex');
+    expect(SHADERS.develop).not.toMatch(/dehazeDark\([^)]*,/);
+    expect(SHADERS.dehaze).toContain('for (int y = -4; y <= 4; y++)');
+  });
 });

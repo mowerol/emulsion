@@ -29,6 +29,7 @@ import finish from './shaders/stages/finish.glsl?raw';
 import curve from './shaders/stages/curve.glsl?raw';
 import clarity from './shaders/stages/clarity.glsl?raw';
 import dehaze from './shaders/stages/dehaze.glsl?raw';
+import dehazePass from './shaders/dehaze.frag.glsl?raw';
 import lab from './shaders/stages/lab.glsl?raw';
 import texture from './shaders/stages/texture.glsl?raw';
 import usmStage from './shaders/stages/usm.glsl?raw';
@@ -74,6 +75,7 @@ export const SHADERS = {
   vertex: quadVert,
   lenscorrect: assemble(lenscorrect, SHADER_FILES),
   develop: assemble(develop, SHADER_FILES),
+  dehaze: assemble(dehazePass, SHADER_FILES),
   extract: assemble(extract, SHADER_FILES),
   toneeqmask: assemble(toneeqmask, SHADER_FILES),
   sample: assemble(sample, SHADER_FILES),

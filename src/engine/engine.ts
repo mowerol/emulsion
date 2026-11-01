@@ -38,6 +38,10 @@ import { profileSettingsFor } from '../film/looks';
 import type { Xy } from './whitebalance';
 import { SHADERS, SHADER_FILES } from './shaders';
 
+// DCP calibration uses 12 only in its separate early pass. The develop shader
+// reads the late DCP tables (13–15), leaving 12 for the cached dark channel.
+const DEHAZE_UNIT = 12;
+
 export { GpuError, InputMode };
 
 /** Pixels decoded by the backend: RGBA half floats. */
@@ -137,6 +141,7 @@ const pick = (u: Uniforms, names: string[]) => JSON.stringify(names.map((n) => u
 export class Engine {
   readonly gpu: Gpu;
   private develop: Program;
+  private dehazeP: Program;
   private dcpPass: Program;
   private profiles: ProfileGpu;
   private extract: Program;
@@ -183,6 +188,8 @@ export class Engine {
   private store: number;
   private lensP: Program;
   private lensMade: { input: WebGLTexture; key: string; out: Target } | null = null;
+  /** Source-sized dark channel for dehaze, independent of the dehaze sliders. */
+  private dehazeMade: { input: WebGLTexture; key: string; out: Target } | null = null;
 
   constructor(canvas: HTMLCanvasElement) {
     this.gpu = new Gpu(canvas);
@@ -190,6 +197,7 @@ export class Engine {
     this.dcpPass = this.gpu.program(SHADERS.vertex, SHADERS.dcp);
     this.lensP = this.gpu.program(SHADERS.vertex, SHADERS.lenscorrect);
     this.develop = this.gpu.program(SHADERS.vertex, SHADERS.develop);
+    this.dehazeP = this.gpu.program(SHADERS.vertex, SHADERS.dehaze);
     this.extract = this.gpu.program(SHADERS.vertex, SHADERS.extract);
     this.teqMask = this.gpu.program(SHADERS.vertex, SHADERS.toneeqmask);
     this.stack = new MaskStack(this.gpu);
@@ -262,8 +270,21 @@ export class Engine {
   release(src: Source | null | undefined) {
     if (!src) return;
     this.gpu.gl.deleteTexture(src.tex);
+    if (this.dehazeMade?.input === src.tex) { this.gpu.free(this.dehazeMade.out); this.dehazeMade = null; }
     if (this.lensMade?.input === src.tex) { this.gpu.free(this.lensMade.out); this.lensMade = null; }
     if (src.capture) this.gpu.gl.deleteTexture(src.capture.clip);
+  }
+
+  private dehazeMap(src: Source, u: Uniforms): WebGLTexture {
+    const key = `${src.w}x${src.h}|${pick(u, ['uInputMode', 'uToWorking', 'uSigN'])}`;
+    if (this.dehazeMade?.input === src.tex && this.dehazeMade.key === key) return this.dehazeMade.out.tex;
+    if (this.dehazeMade) this.gpu.free(this.dehazeMade.out);
+    const out = this.gpu.target(src.w, src.h, this.gpu.hdr);
+    this.gpu.bind(0, src.tex);
+    this.dehazeP.set({ ...u, uSrc: 0 });
+    this.gpu.draw(this.dehazeP, out, src.w, src.h);
+    this.dehazeMade = { input: src.tex, key, out };
+    return out.tex;
   }
 
   /** Give a RAW source its capture sharpening data: the radius, the camera matrix and the clip mask at the source's size. */
@@ -375,6 +396,7 @@ export class Engine {
 
   /** Free the intermediate buffers for one source size (after a large export). */
   dropBuffers(w: number, h: number) {
+    if (this.dehazeMade?.out.w === w && this.dehazeMade.out.h === h) { this.gpu.free(this.dehazeMade.out); this.dehazeMade = null; }
     if (this.lensMade?.out.w === w && this.lensMade.out.h === h) { this.gpu.free(this.lensMade.out); this.lensMade = null; }
     if (this.csOut && this.csOut.w === w && this.csOut.h === h) {
       this.gpu.free(this.csOut);
@@ -868,6 +890,7 @@ export class Engine {
     u.uOutside = opts.outside ?? [0, 0, 0];
     u.uGrainFull = [src.fullW, src.fullH];
     u.uView = [view.x, view.y, view.w, view.h];
+    const dehaze = u.uDehazeOn === 1 ? this.dehazeMap(src, u) : g.blackTexture;
     if (jobs.length) {
       const meta = [...(u.uMaskMeta as number[])];
       for (const j of jobs) meta[j.slot * 4 + 3] = 1;
@@ -920,10 +943,11 @@ export class Engine {
           g.bind(0, src.tex);
           g.bind(1, sharp);
           for (const unit of [2, 3, 4, 5, 6, 8, 9, 10]) g.bind(unit, g.blackTexture);
+          g.bind(DEHAZE_UNIT, dehaze);
           g.bind3d(LUT_UNIT, lutTex);
           this.profiles.bind(profile);
           this.develop.set({
-            ...u, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3, uTeqTex: 4, uTeqLocal: 0, uCurveTex: 5, uClarityTex: 6, uTextureTex: 8, uUsmTex: 9, uCeTex: 10,
+            ...u, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3, uTeqTex: 4, uTeqLocal: 0, uCurveTex: 5, uClarityTex: 6, uTextureTex: 8, uUsmTex: 9, uCeTex: 10, uDehazeTex: DEHAZE_UNIT,
             uView: [0, 0, 1, 1], uGeoU: [1, 0, 0], uGeoV: [0, 1, 0], uGeoW: [0, 0, 1], uSplit: -1, uClipShow: 0, uUsmOn: 0, uUsmShowMask: 0, uCeOn: 0, uTextureOn: 0, uClarityOn: 0, uTap: 6, uMaskTap: slot,
           });
           g.bindArray(MASK_UNIT, maskTex);
@@ -966,6 +990,7 @@ export class Engine {
       g.bind(8, texture);
       g.bind(9, usm);
       g.bind(10, ceTex);
+      g.bind(DEHAZE_UNIT, dehaze);
       g.bind3d(LUT_UNIT, lutTex);
       this.profiles.bind(profile);
     };
@@ -973,7 +998,7 @@ export class Engine {
     const tap = (t: Target, uTap: number, extra: Uniforms) => {
       this.develop.set({
         ...u, ...teqU, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3, uClarityTex: 6, uTextureTex: 8, uUsmTex: 9,
-        uView: [0, 0, 1, 1], uGeoU: [1, 0, 0], uGeoV: [0, 1, 0], uGeoW: [0, 0, 1], uSplit: -1, uClipShow: 0, uUsmOn: 0, uUsmShowMask: 0, uCeTex: 10, uCeOn: ceOn ? 1 : 0, uTap, ...extra,
+        uDehazeTex: DEHAZE_UNIT, uView: [0, 0, 1, 1], uGeoU: [1, 0, 0], uGeoV: [0, 1, 0], uGeoW: [0, 0, 1], uSplit: -1, uClipShow: 0, uUsmOn: 0, uUsmShowMask: 0, uCeTex: 10, uCeOn: ceOn ? 1 : 0, uTap, ...extra,
       });
       g.bindArray(MASK_UNIT, maskTex);
       g.draw(this.develop, t, t.w, t.h);
@@ -1034,7 +1059,7 @@ export class Engine {
     }
     bindDevelop(clarity);
     this.develop.set({
-      ...u, ...teqU, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3, uClarityTex: 6, uTextureTex: 8, uUsmTex: 9, uCeTex: 10, uCeOn: ceOn ? 1 : 0, uTap: 0, uClarityOn: ll ? 1 : 0, uTextureOn: eqOn ? 1 : 0,
+      ...u, ...teqU, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3, uClarityTex: 6, uTextureTex: 8, uUsmTex: 9, uCeTex: 10, uDehazeTex: DEHAZE_UNIT, uCeOn: ceOn ? 1 : 0, uTap: 0, uClarityOn: ll ? 1 : 0, uTextureOn: eqOn ? 1 : 0,
       uUsmOn: usmOn ? 1 : 0, uUsmShowMask: usmOn && opts.sharpenMask ? 1 : 0,
     });
     if (opts.target === 'screen') {
@@ -1148,6 +1173,8 @@ export class Engine {
     this.refiner.release();
     if (this.lensMade) this.gpu.free(this.lensMade.out);
     this.lensMade = null;
+    if (this.dehazeMade) this.gpu.free(this.dehazeMade.out);
+    this.dehazeMade = null;
     if (this.curveTex) this.gpu.gl.deleteTexture(this.curveTex);
     this.curveTex = null;
     this.lutTex.clear();

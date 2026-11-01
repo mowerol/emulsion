@@ -81,6 +81,19 @@ Each stage is one GLSL file in `src/engine/shaders/stages/`, included into `deve
 
 The neutral sigmoid’s maths is mirrored in `engine/tone.ts` so it can be unit-tested; the shader receives its constants from there. Emulsion's neutral curve uses sigmoid contrast 1.15 and skew 0.11 rather than darktable's 1.5 and 0, fitted to the curve the stocks were first tuned on, and a display black of 0 so the inverse is exact. Without a DCP tone curve, the base renders the neutral curve per channel, the exact inverse of the display-referred input stage. A DCP uses its own tone curve for both the edited photo and Compare.
 
+### Dehaze cache
+
+`dehaze.frag.glsl` materializes the source's dark channel in one source-sized
+floating-point map after lens and camera-profile correction. The develop stage
+samples the map while evaluating slider-dependent transmission. Strength,
+distance, zoom and crop changes reuse it; a different source texture or input
+conversion remakes it. Source release, export buffer cleanup and disposal free it.
+Texture unit 12 is available in develop because DCP calibration runs in a separate
+early pass and its sampler is inactive in develop. The browser regression
+`node tools/browser-tests/treatment-filters.mjs dehaze` verifies that binding with
+a real synthetic DCP, parity against the former on-demand shader, cache reuse
+and cleanup.
+
 ### Transform geometry
 
 `recipe.transform` is null for legacy/unaltered geometry, otherwise stores camera

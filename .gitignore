@@ -28,3 +28,6 @@ tools/probe/dist
 
 # Private LUT experiments, served locally by Vite and excluded from app builds
 /local-looks/
+
+# TypeScript incremental build metadata
+*.tsbuildinfo

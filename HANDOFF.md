@@ -4,6 +4,24 @@
 
 Rewritten at the end of each session. Last updated 2026-11-01.
 
+## Cached dehaze (2026-11-01)
+
+Oli requested committing the remaining dehaze work after perspective correction
+(`aa632e5`). `dehaze.frag.glsl` now computes the source-sized dark channel once;
+the develop stage reuses it while strength, distance and view change. Cache
+identity follows the lens-corrected/profiled source texture and input uniforms.
+Source release, export buffer cleanup and engine disposal free the map.
+
+Texture unit 12 is shared across separate passes: the early DCP shader reads its
+3D calibration there; develop's calibration sampler is optimized out, leaving
+that unit for the 2D dark-channel map. The earlier conflict warning below was
+checked and corrected. Keep early calibration in its separate pass.
+
+Regression: `node tools/browser-tests/treatment-filters.mjs dehaze` renders a
+synthetic DCP with positive and negative dehaze, compares the cached output with
+the former on-demand shader (worst difference one RGBA8 level), checks that slider
+changes build the map once, and verifies export cleanup. No WebGL errors.
+
 ## Scanner inline in Look (2026-11-01)
 
 Matched Oli's follow-up reference: Scanner is now a compact labelled dropdown between Amount and Edit/Remove inside the Look section. Removed the separate photo Scanner finish section in both layouts; the full scanner ingredient section remains in the Look editor. Inherited option reads e.g. Frontier · look; concrete choices show · override when a Look is active. Renderer/source storage unchanged. Hidden photo Look controls are unmounted during look authoring so the editor has exactly one scanner selector. Production build, scanner inheritance/editor browser regression (including inline placement) and Look browser regression pass.
@@ -97,7 +115,7 @@ Oli asked for, in order: a range picker, mask refinement, then local Highlights/
 - **Next, part 3 (planned, not built):** darktable runs each local module as a second instance after the photo's own, blended normally by the mask.
   - Clarity (bilat) and Texture (atrous) are Lab modules changing only L, so a masked instance is L + m·ΔL. Run the filter on a tap after the previous instances and fold m·ΔL into the existing clarity/texture map; no new units are needed. Texture's map must first become a ΔL map.
   - The tone equalizer gain and dehaze are per-pixel affine (x → αx + β), so masked instances fold into one more stack layer.
-- **Another agent:** a non-Claude agent is reworking dehaze into a cached dark-channel map (`dehaze.frag.glsl`, engine.ts; uncommitted, in the same tree, left out of the masks commit). It binds `uDehazeTex` to **unit 12, which is the camera profile's**. Expect INVALID_OPERATION with a DCP while dehaze is on. Not touched.
+- **Dehaze caching:** completed; see “Cached dehaze” above for verified DCP compatibility and the browser regression.
 - **UX ideas for Oli (not built):**
   - Lightroom's mask list with thumbnails and nested shapes
   - compact icon row for new masks, Add/Subtract on hover or ⌥
