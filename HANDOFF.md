@@ -2,7 +2,9 @@
 
 Rewritten at the end of each session. Last updated 2026-10-31 (night).
 
-## Images toolbar and View options (2026-10-31, uncommitted)
+## Images toolbar and View options (2026-10-31, another agent; landed in `1d39349`)
+
+Written by another agent working in the same tree; its code was in the working tree when `1d39349` was committed, so it shipped in that commit (whose message doesn't mention it). Oli still to judge it in the app.
 
 Oli wanted the photo filters in the top toolbar, connected visually to the left
 Images pane, with workspace options separate from actual filtering. The toolbar
@@ -31,7 +33,7 @@ errors); browser import, camera defaults, and adding/removing the creative LUT
 all passed. The earlier profile-only `npm run check` passed 241 TS/37 Rust tests.
 No manufacturer DCP pack is bundled; see the camera-profile reference note.
 
-## Legacy rendering removed (2026-10-31, uncommitted)
+## Legacy rendering removed (2026-10-31, `1d39349`)
 
 Oli: "the legacy stuff needs to go. it's done at this point." He chose to remove both the Legacy camera profile and Emulsion's own parametric stocks. The model now is: **the camera profile renders the base print; a film look is an optional LUT on top of it.**
 
@@ -42,15 +44,15 @@ Oli: "the legacy stuff needs to go. it's done at this point." He chose to remove
 - `lutstore.loadLut` bug fixed: a second caller during a load got `null`; loads in flight are now shared. It made the probe's t3mujinpack check fail.
 - NOTICE (sigmoid without primaries; colour balance one instance) and ARCHITECTURE updated.
 
-## Save as profile: creative profiles with hidden settings (2026-10-31, uncommitted)
+## Save as profile: creative profiles with hidden settings (2026-10-31, `1d39349`)
 
 Step 4 of the profiles plan, Oli: "let's do it" with the proposed defaults. Film stock → **Save as profile…** stores the photo's look (LUT at its Amount), Colour Grading, Contrast, Vibrance, Saturation, Shadows and Curve in My looks ("Saved profiles"), switches the photo to it and zeroes those sliders. The hidden settings run as a second colour balance instance (`stageProfileColorBalance`) and a curve composed into the curve table; Amount scales all of it. Colour (equalizer) is not included in v1. `src/film/creative.ts` + tests; Rust `save_user_profile` (settings-only entries, no file). Probe `savedProfile`: worst 1/255 against the original grade, Amount 0 exact. **Not tried in the real app:** the name form, saving with/without a LUT, Amount on a saved profile, removing one that photos use.
 
-## Import LUT → My looks (2026-10-31, uncommitted)
+## Import LUT → My looks (2026-10-31, `1d39349`)
 
 Steps 1-2 of [docs/plans/profiles-and-presets.md](docs/plans/profiles-and-presets.md), with Oli's go-ahead. Film stock section: **Import LUT…** (.cube, .3dl, Hald .png) adds the file to a **My looks** pack (shown once it has a look) and applies it to the selected photos; **Remove look** takes it out of My looks. Files live in `app_data_dir()/looks/`, named by content hash. The section is now "Film stock" in both layouts, its dropdown "Look". Tests cover the registry, sidecars naming a look not yet loaded or removed, and format detection; Rust tests cover storage. **Not tried in the real app:** the import dialog, a large Hald, removing a look other photos use, export and thumbnails with an imported look.
 
-## Camera profiles (DCP) — built by another agent alongside this session (uncommitted)
+## Camera profiles (DCP) — built by another agent alongside this session (`1d39349`)
 
 Codex/opencode built RawTherapee DCP support in parallel: `src/engine/dcp.ts`, `profilegpu.ts`, `profilestore.ts`, `stages/dcp.glsl`, `dcp.frag.glsl`, `ui/CameraProfile.tsx`, `src-tauri/src/camera_profiles.rs`, commands in `commands.rs`, camera metadata in the decoder payload (flag 4), fixtures and `tools/probe/dcp-reference/`. Details in `docs/plans/camera-profiles-reference.md` and ARCHITECTURE. Its code arrived minified; it was reformatted (prettier/rustfmt/by hand) without changing behaviour. Not yet checked by Claude against the real app: importing a DCP, "Use as camera default", thumbnails/export with a DCP.
 
