@@ -59,7 +59,34 @@ export interface EllipseShape extends ShapeBase {
   proportional: boolean;
 }
 
-export type MaskShape = GradientShape | EllipseShape;
+/**
+ * A node of darktable's brush (dt_masks_point_brush_t): where it is (source coordinates), its
+ * size (border, in units of the shorter side), hardness and density, each 0 to 1. The curve
+ * between nodes is darktable's Catmull-Rom spline; see engine/brush.ts.
+ */
+export interface BrushNode {
+  x: number;
+  y: number;
+  border: number;
+  hardness: number;
+  density: number;
+}
+
+/** Brush strokes, each one of darktable's brush forms, joined (union) into one shape. */
+export interface BrushShape extends ShapeBase {
+  kind: 'brush';
+  strokes: BrushNode[][];
+}
+
+export type MaskShape = GradientShape | EllipseShape | BrushShape;
+
+/** darktable's brush defaults (darktableconfig.xml.in): border 0.05, hardness 0.66, density 1. */
+export const BRUSH_DEFAULTS = { border: 0.05, hardness: 0.66, density: 1 };
+
+/** How many brush shapes a photo holds over all its masks (one RGBA mask texture). */
+export const MAX_BRUSHES = 4;
+/** Nodes in one shape's strokes, all together; enough for a long session of brushing. */
+export const MAX_BRUSH_NODES = 20000;
 
 /** A mask's own adjustments, Lightroom's ranges. */
 export interface MaskAdjust {
@@ -73,6 +100,31 @@ export interface MaskAdjust {
   saturation: number;
 }
 
+/** A parametric range on one channel: darktable's four blendif markers and its invert, in its slider units. */
+export interface MaskRange {
+  /** Lower edge of the feather, lower and upper end of full effect, upper edge of the feather. */
+  points: [number, number, number, number];
+  invert: boolean;
+}
+
+/** darktable's RGB (scene) blendif channels of JzCzhz: lightness and chroma 0 to 100, hue 0 to 360. */
+export type RangeChannel = 'luminance' | 'chroma' | 'hue';
+export type MaskRanges = Record<RangeChannel, MaskRange | null>;
+
+export const RANGE_CHANNELS: { id: RangeChannel; label: string; max: number; unit: string; hint: string }[] = [
+  { id: 'luminance', label: 'Luminance', max: 100, unit: '', hint: "darktable's Jz: how light, perceptually" },
+  { id: 'chroma', label: 'Chroma', max: 100, unit: '', hint: "darktable's Cz: how colourful" },
+  { id: 'hue', label: 'Hue', max: 360, unit: '°', hint: "darktable's hz" },
+];
+
+/** A channel's range when it is first turned on: everything passes, as in darktable. */
+export const fullRange = (c: RangeChannel): MaskRange => {
+  const max = RANGE_CHANNELS.find((r) => r.id === c)!.max;
+  return { points: [0, 0, max, max], invert: false };
+};
+
+export const NO_RANGES: MaskRanges = { luminance: null, chroma: null, hue: null };
+
 export interface Mask extends MaskAdjust {
   id: string;
   name: string;
@@ -81,6 +133,8 @@ export interface Mask extends MaskAdjust {
   /** darktable's blend opacity, 0 to 100. */
   opacity: number;
   shapes: MaskShape[];
+  /** Parametric ranges, multiplied into the shapes (darktable's blendif, exclusive). */
+  ranges: MaskRanges;
 }
 
 export type MaskAdjustKey = keyof MaskAdjust;
@@ -122,14 +176,21 @@ export function newEllipse(center: [number, number] = [0.5, 0.5], radius: [numbe
   return { id: newId(), kind: 'ellipse', mode: 'add', invert: false, opacity: 1, center, radius, rotation, border, proportional: false };
 }
 
+export function newBrush(mode: MaskMode = 'add'): BrushShape {
+  return { id: newId(), kind: 'brush', mode, invert: false, opacity: 1, strokes: [] };
+}
+
 export function newMask(shape: MaskShape, index: number): Mask {
-  return { id: newId(), name: `Mask ${index + 1}`, on: true, opacity: 100, shapes: [shape], ...NO_ADJUST };
+  return { id: newId(), name: `Mask ${index + 1}`, on: true, opacity: 100, shapes: [shape], ranges: NO_RANGES, ...NO_ADJUST };
 }
 
 /** Whether a mask changes anything. */
 export const maskActive = (m: Mask) => m.on && m.opacity > 0 && m.shapes.length > 0 && MASK_SLIDERS.some((d) => m[d.key] !== 0);
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+
+/** How many brush shapes a list of masks holds. */
+export const brushCount = (masks: Mask[]) => masks.reduce((n, m) => n + m.shapes.filter((s) => s.kind === 'brush').length, 0);
 const num = (v: unknown, fallback: number, lo: number, hi: number) => (typeof v === 'number' && Number.isFinite(v) ? clamp(v, lo, hi) : fallback);
 const pair = (v: unknown, fallback: [number, number], lo: number, hi: number): [number, number] =>
   Array.isArray(v) && v.length === 2 ? [num(v[0], fallback[0], lo, hi), num(v[1], fallback[1], lo, hi)] : fallback;
@@ -144,11 +205,37 @@ function normalizeShape(input: unknown): MaskShape | null {
     const d = newGradient();
     return { ...d, ...base, anchor: pair(o.anchor, d.anchor, -2, 3), rotation: num(o.rotation, 0, -360, 360), compression: num(o.compression, d.compression, 0, 1), curvature: num(o.curvature, 0, -2, 2), linear: o.linear === true };
   }
+  if (o.kind === 'brush') {
+    let nodes = 0;
+    const strokes = (Array.isArray(o.strokes) ? o.strokes : []).map((st) => (Array.isArray(st) ? st : []).map((n): BrushNode | null => {
+      if (!n || typeof n !== 'object') return null;
+      const q = n as Record<string, unknown>;
+      if (typeof q.x !== 'number' || typeof q.y !== 'number' || !Number.isFinite(q.x) || !Number.isFinite(q.y)) return null;
+      return { x: num(q.x, 0, -2, 3), y: num(q.y, 0, -2, 3), border: num(q.border, BRUSH_DEFAULTS.border, 0.0005, 1), hardness: num(q.hardness, BRUSH_DEFAULTS.hardness, 0, 1), density: num(q.density, BRUSH_DEFAULTS.density, 0, 1) };
+    }).filter((n): n is BrushNode => !!n)).filter((st) => st.length > 0 && (nodes += st.length) <= MAX_BRUSH_NODES);
+    return { ...newBrush(), ...base, strokes };
+  }
   if (o.kind === 'ellipse') {
     const d = newEllipse();
     return { ...d, ...base, center: pair(o.center, d.center, -2, 3), radius: pair(o.radius, d.radius, 0.001, 2), rotation: num(o.rotation, 0, -360, 360), border: num(o.border, d.border, 0.001, 1), proportional: o.proportional === true };
   }
   return null;
+}
+
+function normalizeRange(input: unknown, max: number): MaskRange | null {
+  if (!input || typeof input !== 'object') return null;
+  const o = input as Record<string, unknown>;
+  if (!Array.isArray(o.points) || o.points.length !== 4) return null;
+  const p = o.points.map((v) => num(v, 0, 0, max));
+  // Markers stay in order, as darktable's slider keeps them.
+  for (let i = 1; i < 4; i++) p[i] = Math.max(p[i], p[i - 1]);
+  return { points: p as MaskRange['points'], invert: o.invert === true };
+}
+
+function normalizeRanges(input: unknown): MaskRanges {
+  if (!input || typeof input !== 'object') return NO_RANGES;
+  const o = input as Record<string, unknown>;
+  return Object.fromEntries(RANGE_CHANNELS.map((c) => [c.id, normalizeRange(o[c.id], c.max)])) as MaskRanges;
 }
 
 /** Masks read from a sidecar: invalid shapes dropped, values clamped, at most MAX_MASKS and MAX_SHAPES. */
@@ -162,7 +249,7 @@ export function normalizeMasks(input: unknown): Mask[] {
     const list = (Array.isArray(o.shapes) ? o.shapes : []).map(normalizeShape).filter((s): s is MaskShape => !!s).slice(0, MAX_SHAPES - shapes);
     if (!list.length) continue;
     shapes += list.length;
-    const m: Mask = { id: str(o.id, newId()), name: str(o.name, `Mask ${out.length + 1}`), on: o.on !== false, opacity: num(o.opacity, 100, 0, 100), shapes: list, ...NO_ADJUST };
+    const m: Mask = { id: str(o.id, newId()), name: str(o.name, `Mask ${out.length + 1}`), on: o.on !== false, opacity: num(o.opacity, 100, 0, 100), shapes: list, ranges: normalizeRanges(o.ranges), ...NO_ADJUST };
     for (const d of MASK_SLIDERS) m[d.key] = num(o[d.key], 0, d.min, d.max);
     out.push(m);
   }

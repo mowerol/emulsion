@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
-import { blendNormal, combine, ellipseValue, erf, gradientValue, maskValue, packShapes } from './masks';
-import { MAX_MASKS, newEllipse, newGradient, newMask, normalizeMasks, type Mask } from '../film/masks';
+import { blendNormal, blendifFactor, combine, ellipseValue, erf, gradientValue, jzczhz, maskValue, packRanges, rangeUnits, packShapes, rangeParameters, rangeValue } from './masks';
+import { MAX_MASKS, fullRange, newEllipse, newGradient, newMask, normalizeMasks, type Mask } from '../film/masks';
 import { defaultRecipe, normalizeRecipe, withSettingsFrom } from '../film/recipe';
 import { InputMode, developUniforms, maskUniforms } from './params';
 
@@ -111,13 +111,15 @@ describe('darktable group', () => {
 describe('mask recipes', () => {
   it('normalises what a sidecar holds', () => {
     const masks = normalizeMasks([
-      { name: 'Sky', exposure: -9, shapes: [{ kind: 'gradient', anchor: [0.5, 0.3], rotation: 10, compression: 4, mode: 'nope' }, { kind: 'star' }] },
+      { name: 'Sky', exposure: -9, ranges: { hue: { points: [300, 200, 400, 10] }, chroma: 'x' }, shapes: [{ kind: 'gradient', anchor: [0.5, 0.3], rotation: 10, compression: 4, mode: 'nope' }, { kind: 'star' }] },
       { shapes: [] },
       'junk',
     ]);
     expect(masks).toHaveLength(1);
     expect(masks[0].exposure).toBe(-4);
     expect(masks[0].shapes).toHaveLength(1);
+    // Markers clamped to the channel and kept in order.
+    expect(masks[0].ranges).toEqual({ luminance: null, chroma: null, hue: { points: [300, 300, 360, 360], invert: false } });
     expect(masks[0].shapes[0]).toMatchObject({ kind: 'gradient', compression: 1, mode: 'add', opacity: 1 });
     expect(normalizeMasks(Array.from({ length: 12 }, () => ({ shapes: [{ kind: 'ellipse' }] })))).toHaveLength(MAX_MASKS);
     expect(normalizeRecipe({ stock: 'neutral' })!.masks).toEqual([]);
@@ -166,5 +168,52 @@ describe('mask uniforms', () => {
     const u = maskUniforms([m], defaultRecipe(), {});
     expect((u.uMaskMeta as number[])[2]).toBe(1);
     expect((u.uMaskCb as number[]).length).toBe(40);
+  });
+});
+
+describe('darktable blendif ranges (RGB scene, JzCzhz)', () => {
+  it('converts to JzCzhz: lightness grows with light, greys have little chroma, hues sit where expected', () => {
+    const grey = jzczhz([0.18, 0.18, 0.18]);
+    const white = jzczhz([1, 1, 1]);
+    expect(white[0]).toBeGreaterThan(grey[0]);
+    // On the Luminance slider, diffuse white sits near the top and middle grey near a third.
+    expect(rangeUnits('luminance', white[0])).toBeGreaterThan(80);
+    expect(rangeUnits('luminance', white[0])).toBeLessThan(95);
+    expect(rangeUnits('luminance', grey[0])).toBeCloseTo(29.3, 0);
+    expect(grey[1]).toBeLessThan(0.0005);
+    const red = jzczhz([0.5, 0.02, 0.02]);
+    const blue = jzczhz([0.02, 0.03, 0.6]);
+    expect(red[1]).toBeGreaterThan(grey[1] * 10);
+    expect(red[2]).toBeLessThan(0.15);
+    expect(blue[2]).toBeGreaterThan(0.6);
+    expect(blue[2]).toBeLessThan(0.8);
+  });
+
+  it('computes the trapezoid as _blendif_compute_factor, with open ends', () => {
+    const p = rangeParameters({ points: [20, 40, 60, 80], invert: false }, 'hue');
+    expect(blendifFactor(30 / 360, p, false)).toBeCloseTo(0.5, 9);
+    expect(blendifFactor(50 / 360, p, false)).toBe(1);
+    expect(blendifFactor(70 / 360, p, false)).toBeCloseTo(0.5, 9);
+    expect(blendifFactor(90 / 360, p, false)).toBe(0);
+    expect(blendifFactor(90 / 360, p, true)).toBe(1);
+    const open = rangeParameters(fullRange('luminance'), 'luminance');
+    expect(blendifFactor(1e6, open, false)).toBe(1);
+    expect(blendifFactor(-1, open, false)).toBe(1);
+    // Feathers narrower than darktable's 0.001 floor (in channel units) are widened to it.
+    const sharp = rangeParameters({ points: [10, 10.01, 50, 50], invert: false }, 'luminance');
+    expect(sharp[4]).toBe(1000);
+  });
+
+  it('multiplies the ranges into the drawn mask', () => {
+    const base: Mask = { ...newMask(newEllipse([0.5, 0.5], [0.4, 0.4], 0, 0.05), 0), exposure: 1 };
+    const sky: Mask = { ...base, ranges: { luminance: null, chroma: null, hue: { points: [200, 220, 280, 300], invert: false } } };
+    const blue: [number, number, number] = [0.02, 0.03, 0.6];
+    const red: [number, number, number] = [0.5, 0.02, 0.02];
+    expect(rangeValue(sky, blue)).toBe(1);
+    expect(rangeValue(sky, red)).toBe(0);
+    expect(maskValue(sky, 0.5, 0.5, W, H, red)).toBe(0);
+    expect(maskValue(sky, 0.5, 0.5, W, H, blue)).toBe(1);
+    expect(rangeValue(base, red)).toBe(1);
+    expect(packRanges(sky).flags).toEqual([0, 0, 1, 0]);
   });
 });

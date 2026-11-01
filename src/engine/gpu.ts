@@ -240,6 +240,16 @@ export class Gpu {
     gl.bindVertexArray(this.vao);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
+
+  /** Draw `count` instances of the quad (the vertex shader places each by gl_InstanceID). */
+  drawInstanced(program: Program, target: Target, count: number) {
+    const gl = this.gl;
+    program.set({ uFlipY: 0 });
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target.fbo);
+    gl.viewport(0, 0, target.w, target.h);
+    gl.bindVertexArray(this.vao);
+    gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, count);
+  }
 }
 
 /** Map with least-recently-used eviction. */

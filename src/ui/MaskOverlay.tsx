@@ -2,7 +2,7 @@
 // The selected mask's shapes over the photo, with handles, and drawing a new shape with the
 // armed tool. Gradients: drag the middle line to move, the round handle to turn, the dashed line
 // to widen the transition. Radials: drag the centre to move, the axis handles to size (the long
-// one also turns), the outer handle to feather.
+// one also turns), the outer handle to feather. Brush: paint with the pointer (⌥ erases).
 
 import { useRef, useState } from 'react';
 import { FULL, sourcePoint, type Crop, type Rect } from '../film/crop';
@@ -10,7 +10,9 @@ import { alongNormal, compressionForEdge, edgeForCompression, ellipseFromDrag, e
 import { newEllipse, newGradient, type EllipseShape, type GradientShape, type MaskShape } from '../film/masks';
 import type { View } from '../engine/engine';
 import { imagePoint } from './zoom';
-import { placeShape, setMaskUi, updateShape, useMaskUi, useSelectedMask } from './maskui';
+import { placeShape, setMaskUi, startStroke, updateShape, updateStroke, useMaskUi, useSelectedMask } from './maskui';
+import { simplify, strokeEpsilon } from '../engine/brush';
+import type { BrushNode } from '../film/masks';
 
 type Handle = 'g-move' | 'g-turn' | 'g-edge' | 'e-move' | 'e-a' | 'e-b' | 'e-feather';
 
@@ -35,6 +37,9 @@ export function MaskOverlay({ frame, W, H, view, cssW, cssH }: { frame: Rect & {
   const ref = useRef<SVGSVGElement>(null);
   const drag = useRef<Drag | null>(null);
   const [draft, setDraft] = useState<MaskShape | null>(null);
+  const brush = useMaskUi((st) => st.brush);
+  const [hover, setHover] = useState<Pt | null>(null);
+  const stroke = useRef<{ at: { mask: string; shape: string; stroke: number }; nodes: BrushNode[]; last: Pt } | null>(null);
   if (!mask && !tool) return null;
 
   const crop: Crop = { ...FULL, ...frame };
@@ -51,6 +56,19 @@ export function MaskOverlay({ frame, W, H, view, cssW, cssH }: { frame: Rect & {
 
   const shapes = mask?.shapes ?? [];
   const active = shapes.find((s) => s.id === activeId) ?? shapes[shapes.length - 1] ?? null;
+
+  const node = (p: Pt): BrushNode => ({ x: p[0], y: p[1], border: brush.border, hardness: brush.hardness, density: brush.density });
+
+  const beginStroke = (e: React.PointerEvent) => {
+    if (e.button !== 0 || !tool) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const p = toSource(e);
+    const at = startStroke(node(p), e.altKey && tool.mode !== 'new' ? 'subtract' : tool.mode);
+    if (!at) return;
+    ref.current!.setPointerCapture(e.pointerId);
+    stroke.current = { at, nodes: [node(p)], last: toScreen(p) };
+  };
 
   const begin = (e: React.PointerEvent, handle: Drag['handle'], shape: MaskShape | null) => {
     if (e.button !== 0) return;
@@ -84,6 +102,18 @@ export function MaskOverlay({ frame, W, H, view, cssW, cssH }: { frame: Rect & {
   };
 
   const move = (e: React.PointerEvent) => {
+    if (tool?.kind === 'brush') setHover(toSource(e));
+    const st = stroke.current;
+    if (st) {
+      const p = toSource(e);
+      const sp = toScreen(p);
+      // A node every two screen pixels or so; the stroke is simplified when it ends.
+      if (Math.hypot(sp[0] - st.last[0], sp[1] - st.last[1]) < 2) return;
+      st.nodes.push(node(p));
+      st.last = sp;
+      updateStroke(st.at, st.nodes);
+      return;
+    }
     const d = drag.current;
     if (!d) return;
     const p = toSource(e);
@@ -97,6 +127,13 @@ export function MaskOverlay({ frame, W, H, view, cssW, cssH }: { frame: Rect & {
   };
 
   const end = (e: React.PointerEvent) => {
+    const st = stroke.current;
+    if (st) {
+      stroke.current = null;
+      // darktable's node elimination at its medium smoothing.
+      updateStroke(st.at, simplify(st.nodes, strokeEpsilon(brush.border)));
+      return;
+    }
     const d = drag.current;
     drag.current = null;
     setDraft(null);
@@ -130,6 +167,7 @@ export function MaskOverlay({ frame, W, H, view, cssW, cssH }: { frame: Rect & {
         </g>
       );
     }
+    if (s.kind === 'brush') return null;
     const h = ellipseHandles(s, W, H);
     const c = toScreen(s.center);
     const [a, b, f] = [toScreen(h.a), toScreen(h.b), toScreen(h.feather)];
@@ -158,9 +196,18 @@ export function MaskOverlay({ frame, W, H, view, cssW, cssH }: { frame: Rect & {
 
   return (
     <svg ref={ref} className={`mask-overlay${tool ? ' drawing' : ''}`} width={cssW} height={cssH} onPointerMove={move} onPointerUp={end} onPointerCancel={() => { drag.current = null; setDraft(null); }}>
-      {tool && <rect className="mask-capture" width={cssW} height={cssH} onPointerDown={(e) => begin(e, 'create', null)} />}
+      {tool && <rect className="mask-capture" width={cssW} height={cssH} onPointerDown={(e) => (tool.kind === 'brush' ? beginStroke(e) : begin(e, 'create', null))} onPointerLeave={() => setHover(null)} />}
       {shapes.map((s) => drawShape(s, s.id === active?.id && !tool))}
       {draft && drawShape(draft, true, true)}
+      {tool?.kind === 'brush' && hover && (() => {
+        const c = toScreen(hover);
+        const edge = toScreen([hover[0] + (brush.border * Math.min(W, H)) / W, hover[1]]);
+        const r = Math.hypot(edge[0] - c[0], edge[1] - c[1]);
+        return <g className="mask-brush-cursor">
+          <circle cx={c[0]} cy={c[1]} r={r} />
+          {brush.hardness > 0.02 && <circle cx={c[0]} cy={c[1]} r={r * brush.hardness} className="inner" />}
+        </g>;
+      })()}
     </svg>
   );
 }

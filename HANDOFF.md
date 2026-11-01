@@ -4,6 +4,24 @@
 
 Rewritten at the end of each session. Last updated 2026-10-31 (night).
 
+## Masks, phase 2: ranges and brush (2026-11-01, uncommitted)
+
+Oli: "commit and keep going" (phase 1 + LUT blend + layout committed as `53720ce`; another agent's dehaze landed as `fb0da6a`). Detail in [docs/plans/masks.md](docs/plans/masks.md).
+
+- **Ranges:** darktable's RGB (scene) blendif on JzCzhz. Each mask gets Luminance, Chroma and Hue ranges (four markers and invert), multiplied into its shapes and evaluated at each masked instance's input.
+  - Jz/Cz boosts are fixed at +1/+2 EV so the 0–100 sliders span a photo (white about 88).
+  - Panel: darktable's gradient bars (`MaskRange.tsx`). Double-click a bar to reset it.
+- **Brush:** darktable's brush (Ramer-Douglas-Peucker at medium smoothing, Catmull-Rom spline, eased border, its falloff), drawn on the GPU into one half-float RGBA mask (`BrushGpu`, instanced segments, MAX blend). At most **4 brush shapes per photo**.
+  - Tool: Brush (new mask, Add, Subtract). ⌥ erases while brushing; [ and ] change the size. Size, Hardness and Density sliders. Each stroke is one undo step.
+- **Texture units are full:** the develop pass already samples 15 units. The brush mask lives on unit 7 (the upload unit), bound just before every masked draw (develop, taps, extract, tone equalizer map). A first try on units 12/13 clashed with the camera profile's 3D textures and every develop draw failed silently (`gl.getError()` 1282). CLAUDE.md's gotcha now says so.
+- **Checks:** 290 TS / 40 Rust tests, `npm run check` passes.
+  - Probe `out.masks`: ranges vary (22 of 64 colours partly selected), colours within 2.3e-5.
+  - Probe `out.brushes`: within 4.8e-4 (half floats).
+  - Probe `out.engineBrush`: through the engine, grey 118 → 156 under a +1 EV stroke, 118 elsewhere, no GL errors.
+  - Screenshot: `?maskview&show=2&tool=brush`.
+- **Not tried in the real app:** painting with mouse, trackpad or pen (no pressure yet); ⌥ erase; [ ]; range bar dragging; brush speed on long strokes (the whole mask is redrawn on each move).
+- **Next:** a picker for ranges, mask refinement (feather/blur), local Highlights/Clarity/Texture/Dehaze, then AI (now needs a texture-unit plan; see the masks plan).
+
 ## Masks, phase 1 (2026-11-01, uncommitted)
 
 Oli: "start implementing" masks, darktable as upstream. Full plan, phases and the AI research in [docs/plans/masks.md](docs/plans/masks.md).

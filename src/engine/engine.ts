@@ -1,3 +1,5 @@
+import { BRUSH_UNIT, BrushGpu, brushShapes } from './brushgpu';
+import { packShapes } from './masks';
 import { ProfileGpu } from './profilegpu';
 import { prepareProfile, profilePending } from './profilestore';
 // SPDX-License-Identifier: GPL-3.0-or-later
@@ -133,6 +135,8 @@ export class Engine {
   private profiles: ProfileGpu;
   private extract: Program;
   private teqMask: Program;
+  /** Brush shapes of the masks, rendered to textures on BRUSH_UNITS. */
+  private brushes: BrushGpu;
   private sampleP: Program;
   /** The point curve's lookup table, re-uploaded only when the curve changes. */
   private curveTex: WebGLTexture | null = null;
@@ -178,6 +182,7 @@ export class Engine {
     this.develop = this.gpu.program(SHADERS.vertex, SHADERS.develop);
     this.extract = this.gpu.program(SHADERS.vertex, SHADERS.extract);
     this.teqMask = this.gpu.program(SHADERS.vertex, SHADERS.toneeqmask);
+    this.brushes = new BrushGpu(this.gpu, this.gpu.program(SHADERS.brushVert, SHADERS.brushFrag));
     this.sampleP = this.gpu.program(SHADERS.vertex, SHADERS.sample);
     this.blurP = this.gpu.program(SHADERS.vertex, SHADERS.blur);
     this.down = this.gpu.program(SHADERS.vertex, SHADERS.down);
@@ -406,7 +411,7 @@ export class Engine {
    * 32-bit floats where possible, as the variance is a small difference of two
    * large numbers.
    */
-  private toneEqualizerMap(src: Source, u: Uniforms): WebGLTexture {
+  private toneEqualizerMap(src: Source, u: Uniforms, brushTex: WebGLTexture): WebGLTexture {
     const g = this.gpu;
     const ch = this.chain(src.w, src.h);
     const top = ch.pyramid.halation;
@@ -416,6 +421,7 @@ export class Engine {
     }
     g.bind(0, src.tex);
     this.teqMask.set({ ...u, uSrc: 0, uTexel: [1 / src.w, 1 / src.h] });
+    g.bind(BRUSH_UNIT, brushTex);
     g.draw(this.teqMask, ch.teq[0], ch.teq[0].w, ch.teq[0].h);
     for (let i = 1; i <= top; i++) this.downsample(ch.teq[i - 1], ch.teq[i]);
     const level = ch.teq[top];
@@ -796,6 +802,8 @@ export class Engine {
     const iterations = recipe && !opts.compare && src.capture && g.hdr && g.float32 ? iterationsFor(recipe.captureSharpening) : 0;
     if (iterations > 0) src = { ...src, tex: this.captureSharpened(src, iterations) };
     src = this.lensCorrected(src, recipe);
+    // The masks' brushes; bound to BRUSH_UNIT just before each draw that reads them.
+    const brushTex = this.brushes.texture(recipe && !opts.compare ? brushShapes(recipe.masks, packShapes(recipe.masks, opts.maskShow ?? -1).index) : [], src.w, src.h);
     const profile = this.profiles.resolve(recipe?.profile ?? 'auto', src.mode === InputMode.SceneLinear ? src.camera : null);
     if (profile) {
       if (!g.hdr) throw Error('Camera profiles require floating-point WebGL render targets');
@@ -833,7 +841,7 @@ export class Engine {
     const teqLocal = passes.toneEqualizer && g.hdr;
     // Make every texture this render needs before binding any: creating one can
     // disturb a binding (see Gpu.scratch).
-    const teq = teqLocal ? this.toneEqualizerMap(src, u) : g.blackTexture;
+    const teq = teqLocal ? this.toneEqualizerMap(src, u, brushTex) : g.blackTexture;
     const curve = u.uCurveOn === 1 && recipe ? this.curveTexture(recipe) : g.blackTexture;
     const lutTex = look ? this.lutTexture(look) : null;
     // Clarity needs float targets and at least two pyramid levels.
@@ -858,6 +866,7 @@ export class Engine {
         g.bind(0, src.tex);
         g.bind(4, teq);
         this.extract.set({ ...u, ...teqU, uSrc: 0, uTexel: [1 / src.w, 1 / src.h] });
+        g.bind(BRUSH_UNIT, brushTex);
         g.draw(this.extract, levels[0], levels[0].w, levels[0].h);
         for (let i = 1; i < levels.length; i++) this.downsample(levels[i - 1], levels[i]);
         const halLevel = levels[pyramid.halation];
@@ -900,6 +909,7 @@ export class Engine {
         ...u, ...teqU, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3, uClarityTex: 6, uTextureTex: 8, uUsmTex: 9,
         uView: [0, 0, 1, 1], uGeoU: [1, 0, 0], uGeoV: [0, 1, 0], uSplit: -1, uClipShow: 0, uUsmOn: 0, uUsmShowMask: 0, uCeTex: 10, uCeOn: ceOn ? 1 : 0, uTap, ...extra,
       });
+      g.bind(BRUSH_UNIT, brushTex);
       g.draw(this.develop, t, t.w, t.h);
     };
     // Each map depends on the photo and everything before it, not on the view or crop.
@@ -956,12 +966,16 @@ export class Engine {
       uUsmOn: usmOn ? 1 : 0, uUsmShowMask: usmOn && opts.sharpenMask ? 1 : 0,
     });
     if (opts.target === 'screen') {
+      g.bind(BRUSH_UNIT, brushTex);
       g.draw(this.develop, null, opts.width, opts.height, true);
       if (this.fence) g.gl.deleteSync(this.fence);
       this.fence = g.gl.fenceSync(g.gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
       g.gl.flush();
     }
-    else g.draw(this.develop, opts.target, opts.width, opts.height, false);
+    else {
+      g.bind(BRUSH_UNIT, brushTex);
+      g.draw(this.develop, opts.target, opts.width, opts.height, false);
+    }
   }
 
   /**
@@ -1025,6 +1039,7 @@ export class Engine {
 
   dispose() {
     this.profiles.dispose();
+    this.brushes.dispose();
     if (this.lensMade) this.gpu.free(this.lensMade.out);
     this.lensMade = null;
     if (this.curveTex) this.gpu.gl.deleteTexture(this.curveTex);

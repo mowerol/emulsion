@@ -52,8 +52,10 @@ import { tetrahedral, textureData, type Clut } from '../../src/engine/lut3d';
 import { PACKS, customLookId, lookFile, registerCustomLook, stockForPack } from '../../src/film/looks';
 import { normalizeSettings, settingsFromRecipe, withoutProfileFields } from '../../src/film/creative';
 import { blendColor } from '../../src/engine/blend';
-import { maskValue, blendNormal } from '../../src/engine/masks';
-import { newEllipse, newGradient, newMask, type Mask } from '../../src/film/masks';
+import { drawnValue, maskValue, blendNormal, rangeValue } from '../../src/engine/masks';
+import { newBrush, newEllipse, newGradient, newMask, type Mask } from '../../src/film/masks';
+import { BrushGpu } from '../../src/engine/brushgpu';
+import { brushValue } from '../../src/engine/brush';
 import { MaskOverlay } from '../../src/ui/MaskOverlay';
 import { setMaskUi } from '../../src/ui/maskui';
 
@@ -134,6 +136,46 @@ void main() { vec3 c = uIn[int(gl_FragCoord.x)]; outColor = vec4(${call}, 1.0); 
   return { worstRelativeError: worst, worstAbsoluteError, worstSample, byCase: report };
 }
 
+/** Brushes rendered by BrushGpu against brush.ts, at texel centres of the brush masks. */
+function probeBrushes(eng: Engine) {
+  const gl = eng.gpu.gl;
+  const W = 1200, H = 800;
+  const stroke = (pts: [number, number][], border: number, hardness: number, density: number) => pts.map(([x, y]) => ({ x, y, border, hardness, density }));
+  const shapes = [
+    { ...newBrush(), strokes: [stroke([[0.1, 0.2], [0.3, 0.35], [0.5, 0.3], [0.7, 0.6], [0.8, 0.5]], 0.04, 0.5, 1), stroke([[0.2, 0.8]], 0.08, 0.2, 0.6)] },
+    { ...newBrush(), strokes: [stroke([[0.9, 0.1], [0.6, 0.9]], 0.03, 0.9, 0.7)] },
+    { ...newBrush(), strokes: [stroke([[0.1, 0.9], [0.4, 0.6], [0.45, 0.62]], 0.1, 0, 1)] },
+    { ...newBrush(), strokes: [stroke([[0.5, 0.5], [0.55, 0.52]], 0.02, 0.66, 1)] },
+  ];
+  const errors: number[] = [gl.getError()];
+  const bg = new BrushGpu(eng.gpu, eng.gpu.program(SHADERS.brushVert, SHADERS.brushFrag));
+  errors.push(gl.getError());
+  bg.texture(shapes, W, H);
+  errors.push(gl.getError());
+  let worst = 0;
+  let covered = 0;
+  for (let t = 0; t < 1; t++) {
+    const target = bg.target(t)!;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, target.fbo);
+    const px = new Float32Array(W * H * 4);
+    gl.readPixels(0, 0, W, H, gl.RGBA, gl.FLOAT, px);
+    errors.push(gl.getError());
+    for (let k = 0; k < 4; k++) {
+      const b = shapes[t * 4 + k];
+      if (!b) continue;
+      for (let y = 3; y < H; y += 17) for (let x = 5; x < W; x += 13) {
+        const want = brushValue(b, (x + 0.5) / W, (y + 0.5) / H, W, H);
+        const got = px[(y * W + x) * 4 + k];
+        if (want > 0) covered++;
+        worst = Math.max(worst, Math.abs(got - want));
+      }
+    }
+  }
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+  bg.dispose();
+  return { worstAbsoluteError: worst, coveredSamples: covered, errors };
+}
+
 const stageCtx = { width: 16, height: 1, seed: 1, inputMode: InputMode.SceneLinear, store: 1 };
 
 /**
@@ -162,6 +204,7 @@ void main() {
   const sky: Mask = { ...newMask({ ...newGradient([0.5, 0.45], 12, 0.15), curvature: 0.4 }, 0), exposure: -0.7, temperature: -25, saturation: 20,
     shapes: [{ ...newGradient([0.5, 0.45], 12, 0.15), curvature: 0.4 }, { ...newEllipse([0.6, 0.3], [0.12, 0.08], 30, 0.06), mode: 'subtract', opacity: 0.8 }] };
   const face: Mask = { ...newMask(newEllipse([0.4, 0.6], [0.2, 0.1], -20, 0.3), 1), opacity: 70, exposure: 0.5, tint: 15, contrast: 20, vibrance: -30, shadows: 25,
+    ranges: { luminance: { points: [20, 35, 50, 65], invert: false }, chroma: { points: [10, 30, 100, 100], invert: false }, hue: { points: [0, 0, 180, 250], invert: false } },
     shapes: [{ ...newEllipse([0.4, 0.6], [0.2, 0.1], -20, 0.3), proportional: false }, { ...newGradient([0.5, 0.7], 200, 0.05), mode: 'intersect', invert: true, linear: true }] };
   const edge: Mask = { ...newMask(newEllipse([0.5, 0.5], [0.3, 0.2], 0, 0.4), 2), contrast: -15,
     shapes: [{ ...newEllipse([0.5, 0.5], [0.3, 0.2], 0, 0.4), invert: true, proportional: true }, { ...newGradient([0.3, 0.5], 90, 0.2), mode: 'exclude' }, { ...newEllipse([0.8, 0.8], [0.1, 0.1], 0, 0.05), mode: 'sum', opacity: 0.5 }] };
@@ -184,30 +227,31 @@ void main() {
   };
   const values = read(0);
   let maskError = 0;
-  uv.forEach(([x, y], i) => masks.forEach((m, k) => { maskError = Math.max(maskError, Math.abs(values[i * 4 + k] - maskValue(m, x, y, W, H))); }));
+  uv.forEach(([x, y], i) => masks.forEach((m, k) => { maskError = Math.max(maskError, Math.abs(values[i * 4 + k] - drawnValue(m, x, y, W, H) * m.opacity / 100)); }));
   const wb = u.uMaskWb as number[], meta = u.uMaskMeta as number[], cbs = u.uMaskCb as number[];
   const colour = read(1);
   let colourError = 0;
   uv.forEach(([x, y], i) => {
     let c: number[] = cols[i];
-    const m = masks.map((mk) => maskValue(mk, x, y, W, H));
-    masks.forEach((_, k) => {
+    masks.forEach((mk, k) => {
+      const mv = maskValue(mk, x, y, W, H, c as Vec3);
       const M = wb.slice(k * 9, k * 9 + 9);
       const t = [0, 1, 2].map((r) => (M[r] * c[0] + M[3 + r] * c[1] + M[6 + r] * c[2]) * meta[k * 4 + 1]);
-      c = blendNormal(c, t, m[k]);
+      c = blendNormal(c, t, mv);
     });
     masks.forEach((mk, k) => {
       if (meta[k * 4 + 2] < 0.5) return;
       const d = cbCommit(sliderParams(colorBalanceParams(mk.contrast, mk.vibrance, mk.saturation, mk.shadows)));
       void cbs;
-      c = blendNormal(c, colorBalanceRgb(c as Vec3, d), m[k]);
+      c = blendNormal(c, colorBalanceRgb(c as Vec3, d), maskValue(mk, x, y, W, H, c as Vec3));
     });
     for (let k = 0; k < 3; k++) colourError = Math.max(colourError, Math.abs(colour[i * 4 + k] - c[k]) / Math.max(0.01, Math.abs(c[k])));
   });
   gl.bindFramebuffer(gl.FRAMEBUFFER, null);
   gl.deleteFramebuffer(fbo);
   gl.deleteTexture(tex);
-  return { worstMaskError: maskError, worstColourRelativeError: colourError, coverage: masks.map((_, k) => uv.reduce((a, __, i) => a + values[i * 4 + k], 0) / n) };
+  const ranged = cols.map((c) => rangeValue(face, c));
+  return { rangeMin: Math.min(...ranged), rangeMax: Math.max(...ranged), rangePartial: ranged.filter((v) => v > 0 && v < 1).length, worstMaskError: maskError, worstColourRelativeError: colourError, coverage: masks.map((_, k) => uv.reduce((a, __, i) => a + values[i * 4 + k], 0) / n) };
 }
 
 
@@ -643,14 +687,18 @@ try {
     const eng = new Engine(view);
     const skyMask: Mask = { ...newMask(newGradient([0.5, 0.33], 8, 0.06), 0), name: 'Sky', exposure: -0.8, saturation: 30 };
     const faceMask: Mask = { ...newMask(newEllipse([0.633, 0.625], [0.14, 0.1], -15, 0.08), 1), name: 'Face', exposure: 0.6, temperature: 20,
+      ranges: { luminance: { points: [30, 45, 70, 85], invert: false }, chroma: null, hue: { points: [0, 10, 60, 90], invert: false } },
       shapes: [newEllipse([0.633, 0.625], [0.14, 0.1], -15, 0.08), { ...newGradient([0.6, 0.75], 0, 0.02), mode: 'subtract' }] };
     const show = Number(new URLSearchParams(location.search).get('show') ?? 0);
-    const recipe = { ...defaultRecipe('neutral', 'straight'), masks: [skyMask, faceMask] };
+    const st = (pts: [number, number][]) => pts.map(([x, y]) => ({ x, y, border: 0.05, hardness: 0.66, density: 1 }));
+    const brushMask: Mask = { ...newMask({ ...newBrush(), strokes: [st([[0.1, 0.8], [0.3, 0.7], [0.5, 0.85], [0.75, 0.75]])] }, 2), name: 'Grass', exposure: 0.8, saturation: 40 };
+    brushMask.shapes.push({ ...newBrush('subtract'), strokes: [st([[0.28, 0.72], [0.32, 0.7]])] });
+    const recipe = { ...defaultRecipe('neutral', 'straight'), masks: [skyMask, faceMask, brushMask] };
     const msrc = eng.sourceFromImage(scene, MW, MH);
     eng.render(msrc, recipe, { target: 'screen', width: MW, height: MH, seed: 1, maskShow: show });
     useApp.setState({ photos: [{ path: '/probe/m.jpg', rel: 'm.jpg', name: 'm.jpg', size: 1, modified: 0, recipe, seed: 1, white: null, rating: 0, label: null, heart: false, raw: false, pair: null }], active: 0, view: 'develop' });
     setWorkspace({ layout: 'workflow', group: 'masks' });
-    setMaskUi({ selected: recipe.masks[show].id, shape: null });
+    setMaskUi({ selected: recipe.masks[show].id, shape: null, tool: new URLSearchParams(location.search).get('tool') === 'brush' ? { kind: 'brush', mode: 'add' } : null });
     const ov = document.createElement('div');
     ov.style.cssText = 'position:fixed;left:20px;top:20px;width:600px;height:400px';
     document.body.append(ov);
@@ -702,6 +750,23 @@ try {
   }
   out.colorBalance = probeColorBalance(eng);
   out.masks = probeMasks(eng);
+  out.brushes = probeBrushes(eng);
+  // Through the engine: a +1 EV brushed mask (and a radial one with a hue range) on grey.
+  {
+    const gw = 300, gh = 200;
+    const gc = document.createElement('canvas');
+    gc.width = gw; gc.height = gh;
+    const gx = gc.getContext('2d')!;
+    gx.fillStyle = 'rgb(118,118,118)'; gx.fillRect(0, 0, gw, gh);
+    const gsrc = eng.sourceFromImage(gc, gw, gh);
+    const stroke = [{ x: 0.2, y: 0.5, border: 0.1, hardness: 0.9, density: 1 }, { x: 0.8, y: 0.5, border: 0.1, hardness: 0.9, density: 1 }];
+    const brushed: Mask = { ...newMask({ ...newBrush(), strokes: [stroke] }, 0), exposure: 1 };
+    const base = { ...defaultRecipe('neutral', 'straight'), grain: 0 };
+    const plain = eng.readPixels(gsrc, base, gw, gh, 1);
+    const masked = eng.readPixels(gsrc, { ...base, masks: [brushed] }, gw, gh, 1);
+    const at = (px: Uint8Array, x: number, y: number) => px[(y * gw + x) * 4 + 1];
+    out.engineBrush = { plainCentre: at(plain, 150, 100), maskedCentre: at(masked, 150, 100), plainFar: at(plain, 150, 10), maskedFar: at(masked, 150, 10), glError: eng.gpu.gl.getError() };
+  }
   // The full module, as a stock's grade: every control at once.
   {
     const grades: Record<string, Partial<CbParams>> = {

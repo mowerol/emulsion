@@ -24,7 +24,8 @@ import { isIdentity } from '../film/curve';
 import { scaledColorBalance } from '../film/creative';
 import { profileSettingsFor } from '../film/looks';
 import { D65_XY, clampWhiteBalance, temperatureTint, whiteBalanceMatrix, whiteXy, type Xy } from './whitebalance';
-import { packShapes } from './masks';
+import { packRanges, packShapes } from './masks';
+import { BRUSH_UNIT } from './brushgpu';
 import { maskActive, type Mask } from '../film/masks';
 import { effectiveIso, zoomForIso } from './grain';
 import { EXPOSURE_BOOST, FEATHERING, SMOOTHING, bandFactors, bandGains } from './toneequalizer';
@@ -63,7 +64,7 @@ export interface RenderContext {
   maskShow?: number | null;
 }
 
-/** Texture unit of the look LUT (0-6 and 8-10 are taken, 7 is for uploads). */
+/** Texture unit of the look LUT (0-6 and 8-10 are taken; 7 is for uploads, and holds the brush mask during masked draws). */
 export const LUT_UNIT = 11;
 
 const WORKING = columnMajor(SRGB_TO_REC2020);
@@ -186,7 +187,7 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
   };
 }
 
-const NO_MASKS: Uniforms = { uMaskCount: 0, uMaskShapeCount: 0, uMaskShow: -1 };
+const NO_MASKS: Uniforms = { uMaskCount: 0, uMaskShapeCount: 0, uMaskShow: -1, uMaskBrush: BRUSH_UNIT };
 
 /**
  * The masks' shapes and their adjustments. Temperature moves the photo's white by that many
@@ -203,7 +204,12 @@ export function maskUniforms(masks: Mask[], recipe: Recipe, ctx: Pick<RenderCont
   const meta: number[] = [];
   const wb: number[] = [];
   const cb: number[] = [];
+  const range: number[] = [];
+  const rangeOn: number[] = [];
   for (const i of index) {
+    const r = packRanges(masks[i]);
+    range.push(...r.points);
+    rangeOn.push(...r.flags);
     // A mask that is only shown changes nothing.
     const m = maskActive(masks[i]) ? masks[i] : { ...masks[i], exposure: 0, temperature: 0, tint: 0, contrast: 0, vibrance: 0, saturation: 0, shadows: 0 };
     const cbOn = m.contrast !== 0 || m.vibrance !== 0 || m.saturation !== 0 || m.shadows !== 0;
@@ -217,6 +223,7 @@ export function maskUniforms(masks: Mask[], recipe: Recipe, ctx: Pick<RenderCont
   }
   return {
     uMaskCount: index.length, uMaskShapeCount: count, uMaskShapes: shapes, uMaskMeta: meta, uMaskWb: wb, uMaskCb: cb,
+    uMaskRange: range, uMaskRangeOn: rangeOn, uMaskToXyz: columnMajor(REC2020_TO_XYZ), uMaskBrush: BRUSH_UNIT,
     uMaskShow: index.indexOf(show),
   };
 }

@@ -1,6 +1,7 @@
 // Copyright (C) 2013-2025 darktable developers.
-// Ported from darktable src/develop/masks/gradient.c, ellipse.c, group.c and src/develop/blend.c
-// with blends/blendif_rgb_jzczhz.c at commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release
+// Copyright (C) 2009-2026 darktable developers (colour space conversions).
+// Ported from darktable src/develop/masks/gradient.c, ellipse.c, group.c, src/develop/blend.c
+// with blends/blendif_rgb_jzczhz.c, and src/common/colorspaces_inline_conversions.h at commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release
 // 5.6.2). Translated from C to GLSL; mirrors src/engine/masks.ts (see there for what differs).
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
@@ -22,6 +23,20 @@ uniform mat3 uMaskWb[MAX_MASKS];
 uniform vec4 uMaskCb[MAX_MASKS * 10];
 // Which mask to show as an overlay (its index), or -1.
 uniform float uMaskShow;
+// Per mask, darktable's blendif markers for Jz, Cz and hz (three vec4 each), and which are on
+// (0 off, 1 on, 2 on and inverted) in xyz.
+uniform vec4 uMaskRange[MAX_MASKS * 3];
+uniform vec4 uMaskRangeOn[MAX_MASKS];
+// Working RGB to XYZ (D65), for JzAzBz.
+uniform mat3 uMaskToXyz;
+// Brush shapes rendered by BrushGpu, one channel each.
+uniform sampler2D uMaskBrush;
+
+float maskBrush(float channel, vec2 uv) {
+  vec4 t = texture(uMaskBrush, uv);
+  int c = int(channel + 0.5);
+  return c == 0 ? t.r : c == 1 ? t.g : c == 2 ? t.b : t.a;
+}
 
 float maskErf(float x) {
   float a = abs(x);
@@ -72,8 +87,50 @@ float maskCombine(float mode, float dest, float mask) {
   return pos * max((1.0 - dest) * mask, dest * (1.0 - mask)) + (1.0 - pos) * max(dest, mask);
 }
 
-// Every mask's value at a source point, after its blend opacity.
+// darktable's dt_XYZ_2_JzAzBz and dt_JzAzBz_2_JzCzhz.
+vec3 maskJzCzhz(vec3 rgb) {
+  vec3 xyz = uMaskToXyz * rgb;
+  vec3 p = vec3(1.15 * xyz.x - 0.15 * xyz.z, 0.66 * xyz.y + 0.34 * xyz.x, xyz.z);
+  vec3 lms = vec3(0.41478972 * p.x + 0.579999 * p.y + 0.014648 * p.z,
+                  -0.20151 * p.x + 1.120649 * p.y + 0.0531008 * p.z,
+                  -0.0166008 * p.x + 0.2648 * p.y + 0.6684799 * p.z);
+  vec3 t = pow(max(lms / 10000.0, vec3(0.0)), vec3(0.159301758));
+  lms = pow((0.8359375 + 18.8515625 * t) / (1.0 + 18.6875 * t), vec3(134.034375));
+  float iz = 0.5 * lms.x + 0.5 * lms.y;
+  float az = 3.524 * lms.x - 4.066708 * lms.y + 0.542708 * lms.z;
+  float bz = 0.199076 * lms.x + 1.096799 * lms.y - 1.295875 * lms.z;
+  float jz = max(0.44 * iz / (1.0 - 0.56 * iz) - 1.6295499532821566e-11, 0.0);
+  float h = atan(bz, az) / 6.283185307179586;
+  return vec3(jz, length(vec2(az, bz)), h >= 0.0 ? h : 1.0 + h);
+}
+
+// darktable's _blendif_compute_factor, with the slopes of dt_develop_blendif_process_parameters.
+float maskBlendif(float value, vec4 p, float on) {
+  float f;
+  if (value <= p.x) f = 0.0;
+  else if (value < p.y) f = (value - p.x) / max(0.001, p.y - p.x);
+  else if (value <= p.z) f = 1.0;
+  else if (value < p.w) f = 1.0 - (value - p.z) / max(0.001, p.w - p.z);
+  else f = 0.0;
+  return on > 1.5 ? 1.0 - f : f;
+}
+
+// Every mask's drawn value at a source point, after its blend opacity.
 float gMask[MAX_MASKS];
+// The shown mask's value as its exposure instance saw it.
+float gMaskShown;
+
+// The mask at an instance whose input is `x`: drawn times parametric (darktable's exclusive mode).
+float maskAt(int i, vec3 x) {
+  vec4 on = uMaskRangeOn[i];
+  if (gMask[i] <= 0.0 || on.x + on.y + on.z < 0.5) return gMask[i];
+  vec3 j = maskJzCzhz(x);
+  float f = 1.0;
+  if (on.x > 0.5) f *= maskBlendif(j.x, uMaskRange[i * 3], on.x);
+  if (on.y > 0.5) f *= maskBlendif(j.y, uMaskRange[i * 3 + 1], on.y);
+  if (on.z > 0.5) f *= maskBlendif(j.z, uMaskRange[i * 3 + 2], on.z);
+  return gMask[i] * f;
+}
 
 void computeMasks(vec2 uv, vec2 dim) {
   for (int i = 0; i < MAX_MASKS; i++) gMask[i] = 0.0;
@@ -82,7 +139,7 @@ void computeMasks(vec2 uv, vec2 dim) {
   for (int i = 0; i < MAX_SHAPES; i++) {
     if (i >= count) break;
     vec4 h = uMaskShapes[i * 3], p = uMaskShapes[i * 3 + 1], q = uMaskShapes[i * 3 + 2];
-    float raw = h.x < 1.5 ? maskGradient(p, q, px, dim) : maskEllipse(p, q, px, dim);
+    float raw = h.x < 1.5 ? maskGradient(p, q, px, dim) : h.x < 2.5 ? maskEllipse(p, q, px, dim) : maskBrush(p.x, uv);
     float invert = h.x < 1.5 ? q.z : q.w;
     float value = h.z * (invert > 0.5 ? 1.0 - raw : raw);
     int m = int(h.w + 0.5);
@@ -90,6 +147,7 @@ void computeMasks(vec2 uv, vec2 dim) {
   }
   int masks = int(uMaskCount + 0.5);
   for (int i = 0; i < MAX_MASKS; i++) if (i < masks) gMask[i] *= uMaskMeta[i].x;
+  gMaskShown = 0.0;
 }
 
 // Masked exposure and white balance, as darktable's exposure (and a white balance) instance with a
@@ -98,9 +156,11 @@ vec3 stageMaskExposure(vec3 x) {
   int masks = int(uMaskCount + 0.5);
   for (int i = 0; i < MAX_MASKS; i++) {
     if (i >= masks) break;
-    if (gMask[i] <= 0.0) continue;
+    float m = maskAt(i, x);
+    if (float(i) == uMaskShow) gMaskShown = m;
+    if (m <= 0.0) continue;
     vec3 adjusted = (uMaskWb[i] * x) * uMaskMeta[i].y;
-    x = mix(x, adjusted, gMask[i]);
+    x = mix(x, adjusted, m);
   }
   return x;
 }
@@ -111,18 +171,18 @@ vec3 stageMaskColorBalance(vec3 x) {
   for (int i = 0; i < MAX_MASKS; i++) {
     if (i >= masks) break;
     if (gMask[i] <= 0.0 || uMaskMeta[i].z < 0.5) continue;
+    float m = maskAt(i, x);
+    if (m <= 0.0) continue;
     vec4 P[10];
     for (int k = 0; k < 10; k++) P[k] = uMaskCb[i * 10 + k];
-    x = mix(x, colorBalanceRgb(x, P), gMask[i]);
+    x = mix(x, colorBalanceRgb(x, P), m);
   }
   return x;
 }
 
-// The shown mask over the display image, darktable's yellow mask display at half strength.
+// The shown mask (as its exposure instance saw it) over the display image, darktable's yellow
+// mask display at half strength.
 vec3 maskOverlay(vec3 d) {
   if (uMaskShow < -0.5) return d;
-  int s = int(uMaskShow + 0.5);
-  float m = 0.0;
-  for (int i = 0; i < MAX_MASKS; i++) if (i == s) m = gMask[i];
-  return mix(d, vec3(1.0, 0.85, 0.0), 0.5 * m);
+  return mix(d, vec3(1.0, 0.85, 0.0), 0.5 * gMaskShown);
 }

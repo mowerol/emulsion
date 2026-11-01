@@ -14,6 +14,8 @@ import input from './shaders/stages/input.glsl?raw';
 import exposure from './shaders/stages/exposure.glsl?raw';
 import colorbalance from './shaders/stages/colorbalance.glsl?raw';
 import masks from './shaders/stages/masks.glsl?raw';
+import brushVert from './shaders/brush.vert.glsl?raw';
+import brushFrag from './shaders/brush.frag.glsl?raw';
 import toneequalizer from './shaders/stages/toneequalizer.glsl?raw';
 import toneeqmask from './shaders/toneeqmask.frag.glsl?raw';
 import sample from './shaders/sample.frag.glsl?raw';
@@ -83,4 +85,6 @@ export const SHADERS = {
   cs,
   usm,
   ce: assemble(ce, SHADER_FILES),
+  brushVert,
+  brushFrag,
 };

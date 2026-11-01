@@ -40,7 +40,7 @@ Results are the JSON in `<pre id="result">`. Swap `--dump-dom` for `--screenshot
 
 ## Gotchas that have cost time
 
-- **Texture units:** creating or uploading a WebGL texture binds it into the active unit and can replace a shader's input. Make textures after `Gpu.scratch()` (unit 7), and bind each pass's inputs just before its draw.
+- **Texture units:** creating or uploading a WebGL texture binds it into the active unit and can replace a shader's input. Make textures after `Gpu.scratch()` (unit 7), and bind each pass's inputs just before its draw. All 16 units are in use: the develop pass samples 0-6 and 8-15 (12-15 are the camera profile's, some 3D), and unit 7 holds the brush mask only during masked draws. Two samplers of different types on one unit make the draw fail with INVALID_OPERATION, silently unless you check `gl.getError()`.
 - **macOS menu:** Tauri's default Edit menu takes Cmd+Z, Cmd+Shift+Z and Cmd+A before the webview sees them. The app defines its own menu in `src-tauri/src/lib.rs` that forwards them as `menu` events.
 - **GLSL:** `shared` is reserved. JSX attribute strings don't process escapes; use `{'...'}`.
 - **Float precision:** `pow(1 - k, n)` for tiny k loses precision in 32-bit floats; use a series for ln(1 - k).

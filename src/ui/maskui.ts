@@ -5,10 +5,10 @@
 import { create } from 'zustand';
 import { activePhoto, editActive, showToast, useApp } from '../library/store';
 import { defaultRecipe, type Recipe } from '../film/recipe';
-import { MAX_MASKS, MAX_SHAPES, newId, newMask, shapeCount, type Mask, type MaskMode, type MaskShape } from '../film/masks';
+import { BRUSH_DEFAULTS, MAX_BRUSHES, MAX_MASKS, MAX_SHAPES, brushCount, newBrush, newId, newMask, shapeCount, type BrushNode, type BrushShape, type Mask, type MaskMode, type MaskShape } from '../film/masks';
 
 export interface MaskTool {
-  kind: 'gradient' | 'ellipse';
+  kind: 'gradient' | 'ellipse' | 'brush';
   /** A new mask, or a shape joining the selected one. */
   mode: 'new' | MaskMode;
 }
@@ -22,9 +22,11 @@ interface MaskUi {
   tool: MaskTool | null;
   /** Show the selected mask over the photo. */
   overlay: boolean;
+  /** The brush: darktable's border (units of the shorter side), hardness and density. */
+  brush: { border: number; hardness: number; density: number };
 }
 
-export const useMaskUi = create<MaskUi>(() => ({ selected: null, shape: null, tool: null, overlay: true }));
+export const useMaskUi = create<MaskUi>(() => ({ selected: null, shape: null, tool: null, overlay: true, brush: { ...BRUSH_DEFAULTS } }));
 
 export const setMaskUi = (patch: Partial<MaskUi>) => useMaskUi.setState(patch);
 
@@ -98,4 +100,38 @@ export function duplicateMask(id: string) {
   const copy: Mask = { ...m, id: newId(), name: `${m.name} copy`, shapes: m.shapes.map((s) => ({ ...s, id: newId() })) };
   editMasks((list) => { const i = list.findIndex((x) => x.id === id); return [...list.slice(0, i + 1), copy, ...list.slice(i + 1)]; }, 'Duplicate mask');
   setMaskUi({ selected: copy.id, shape: null });
+}
+
+/**
+ * Start a brush stroke at `node`: on a new mask, or on the selected mask's brush shape of the
+ * mode (one to add, one to subtract, made when first needed). Returns where the stroke went.
+ */
+export function startStroke(node: BrushNode, mode: MaskTool['mode']): { mask: string; shape: string; stroke: number } | null {
+  const masks = current();
+  const selected = masks.find((m) => m.id === useMaskUi.getState().selected);
+  const key = `stroke-${newId()}`;
+  if (mode === 'new' || !selected) {
+    if (masks.length >= MAX_MASKS) { showToast(`A photo can hold ${MAX_MASKS} masks.`); return null; }
+    if (brushCount(masks) >= MAX_BRUSHES || shapeCount(masks) >= MAX_SHAPES) { showToast(`A photo can hold ${MAX_BRUSHES} brushes over all its masks.`); return null; }
+    const shape: BrushShape = { ...newBrush(), strokes: [[node]] };
+    const mask = newMask(shape, masks.length);
+    editMasks((list) => [...list, mask], 'New brush mask', { key, continuous: true });
+    setMaskUi({ selected: mask.id, shape: shape.id, tool: { kind: 'brush', mode: 'add' } });
+    strokeKey = key;
+    return { mask: mask.id, shape: shape.id, stroke: 0 };
+  }
+  const want = mode === 'subtract' ? 'subtract' : 'add';
+  const existing = selected.shapes.find((s): s is BrushShape => s.kind === 'brush' && (selected.shapes[0] === s ? 'add' : s.mode) === want);
+  if (!existing && (brushCount(masks) >= MAX_BRUSHES || shapeCount(masks) >= MAX_SHAPES)) { showToast(`A photo can hold ${MAX_BRUSHES} brushes over all its masks.`); return null; }
+  const shape: BrushShape = existing ? { ...existing, strokes: [...existing.strokes, [node]] } : { ...newBrush(want), strokes: [[node]] };
+  updateMask(selected.id, (m) => ({ ...m, shapes: existing ? m.shapes.map((s) => (s.id === shape.id ? shape : s)) : [...m.shapes, shape] }), want === 'subtract' ? 'Erase' : 'Brush', { key, continuous: true });
+  strokeKey = key;
+  return { mask: selected.id, shape: shape.id, stroke: shape.strokes.length - 1 };
+}
+
+let strokeKey = '';
+
+/** Change the stroke being drawn (all of it is one undo step). */
+export function updateStroke(at: { mask: string; shape: string; stroke: number }, nodes: BrushNode[]) {
+  updateShape(at.mask, at.shape, (s) => (s.kind === 'brush' ? { ...s, strokes: s.strokes.map((st, i) => (i === at.stroke ? nodes : st)) } : s), 'Brush', { key: strokeKey, continuous: true });
 }
