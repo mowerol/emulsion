@@ -1,3 +1,20 @@
+# LUTs, Looks and Presets — implemented 2026-11-01
+
+This section supersedes the historical decisions below.
+
+- **LUT:** a direct colour transform, with per-photo Strength and Normal/Colour blend. Imported LUTs and bundled packs live in the LUT browser.
+- **Look:** a saved treatment with colour balance, Colour Grading, curve and optional LUT. Develop exposes only its overall Amount. Its LUT strength/blend are ingredients edited in a dedicated Look editor.
+- **Tone character:** a photo-owned slider beside Contrast (-100..100, 0 neutral), changing sigmoid slope without affecting grain; included in presets’ Tone group. Replaces the Push/Pull UI. Legacy saved push values retain their grain-only behavior.
+- **Preset:** a named set of selected adjustment groups. Applying replaces those groups, including neutral values, without changing excluded groups. Treatment is included by default; Exposure and White balance are opt-in. Camera profile, crop, lens and masks are excluded.
+- One treatment slot: LUT, Look or none. The browser has separate LUTs/Looks tabs. Browsing does not apply anything.
+- The Look editor starts fresh or from a LUT. It previews the selected photo with camera rendering, lens, WB and exposure, excluding its personal colour/spatial adjustments. Local undo/redo never writes sidecars. Save changes the library; Save and apply also sets the active photo's treatment in one undo step. Cancel requires explicit discard. Photo navigation is blocked while authoring.
+- Applying a custom asset embeds its name, revision, kind and settings in `Recipe.lookSnapshot`. Render, curve composition, LUT resolution, thumbnails and export consume that snapshot. Revising/removing an asset preserves existing photo and preset rendering. LUT blobs are retained.
+- Old custom entries are classified as LUT-only or Looks. Before changing/removing an old definition, Rust archives its first definition under `looks/legacy/`; old sidecars hydrate from those definitions, including in folders opened later. Snapshot fields are additive; sidecar envelopes remain compatible.
+- Presets live in atomic JSON files in app data `presets/`, with stable ids, concrete recipes and group lists. Save/update never changes the photo. Search, rename, update from current photo and delete are available in both panel layouts. Selected frames share one undoable application.
+- Deferred: look creation from photo sliders, look/preset sharing, LUT baking, spatial look ingredients, linked updates and automatic asset cleanup.
+
+## Historical decisions (superseded)
+
 # Profiles and presets: decisions so far
 
 **Status:** planned, not started. Collected 2026-10-31 from Oli's opencode planning session

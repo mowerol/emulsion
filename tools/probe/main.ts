@@ -277,10 +277,10 @@ function probeColorBalance(eng: Engine) {
 }
 
 function probeTone(eng: Engine) {
-  const settings = { neutral: [0, 0], whitesUp: [80, 0], whitesDown: [-80, 0], blacksUp: [0, 70], both: [-60, 50] };
-  const cases = Object.fromEntries(Object.entries(settings).map(([name, [whites, blacks]]) => [name, {
-    uniforms: developUniforms({ ...defaultRecipe(), whites, blacks }, stageCtx),
-    ref: (c: Vec3) => toneProfileRgb(c, whites, blacks),
+  const settings = { neutral: [0, 0, 0], whitesUp: [80, 0, 0], whitesDown: [-80, 0, 0], blacksUp: [0, 70, 0], both: [-60, 50, 0], softer: [0, 0, -100], harder: [0, 0, 100], characterTargets: [-40, 30, 70] };
+  const cases = Object.fromEntries(Object.entries(settings).map(([name, [whites, blacks, toneCharacter]]) => [name, {
+    uniforms: developUniforms({ ...defaultRecipe(), whites, blacks, toneCharacter }, stageCtx),
+    ref: (c: Vec3) => toneProfileRgb(c, whites, blacks, toneCharacter),
   }]));
   const tone = probeStage(eng, ['stages/tone.glsl'], 'stageToneProfile(c)', COLOURS, cases);
   // The input stage's inverse followed by the original's neutral curve must give back the display value.

@@ -91,6 +91,7 @@ const FIELD_LABELS: Partial<Record<keyof Recipe, string>> = {
   lookEnabled: 'Look',
   lookBlend: 'LUT blend',
   stock: 'Film look',
+  toneCharacter: 'Tone character',
   push: 'Development',
   scanner: 'Scanner',
   curve: 'Tone curve',

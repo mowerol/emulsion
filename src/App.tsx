@@ -38,6 +38,7 @@ function menuAction(id: string) {
     document.execCommand(id === 'select-all' ? 'selectAll' : id);
     return;
   }
+  if (useApp.getState().lookEdit && id !== 'undo' && id !== 'redo') return;
   if (id === 'undo') undo();
   else if (id === 'redo') redo();
   else if (id === 'select-all' && (useApp.getState().view === 'library' || (useApp.getState().view === 'develop' && useWorkspace.getState().layout === 'workflow'))) selectAll();
@@ -64,6 +65,7 @@ function useShortcuts() {
         redo();
         return;
       }
+      if (s.lookEdit) return;
       const onRange = (e.target as HTMLElement)?.tagName === 'INPUT';
       const k = e.key.toLowerCase();
       if (mod && k === 'o') { e.preventDefault(); chooseFolder(); return; }
@@ -127,7 +129,12 @@ function useDesktop() {
         }
       }),
       listen<string>('menu', (e) => menuAction(e.payload)),
-      getCurrentWindow().onCloseRequested(async () => {
+      getCurrentWindow().onCloseRequested(async (event) => {
+        if (useApp.getState().lookEdit) {
+          event.preventDefault();
+          showToast('Save or cancel the look draft before closing');
+          return;
+        }
         await flushSaves();
       }),
     ];
@@ -144,12 +151,13 @@ export default function App() {
   const hasFolder = useApp((s) => s.folder !== null);
   useShortcuts();
   const dropping = useDesktop();
+  const editingLook = useApp(s => !!s.lookEdit);
   const layout = useWorkspace(s => s.layout);
-  const workflow = layout === 'workflow' && view === 'develop' && hasFolder;
+  const workflow = !editingLook && layout === 'workflow' && view === 'develop' && hasFolder;
 
   return (
-    <div className="app">
-      <TopBar />
+    <div className={`app${editingLook ? ' app-look-editor' : ''}`}>
+      {!editingLook && <TopBar />}
       <div className={`workspace${workflow ? ' workspace-workflow' : view !== 'develop' || !hasFolder ? ' workspace-library' : ''}`}>
         {workflow && <Images key="images" />}
         <div className="main" key="main">{view === 'develop' && hasFolder ? <Develop /> : <Library />}</div>

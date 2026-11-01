@@ -14,6 +14,8 @@ export type PackId = 'custom' | 'files' | 't3mujinpack' | 'gmic-film' | 'picture
 export interface PackLook {
   /** The LUT file; for the user's LUT files, its content hash ('' for a custom look). */
   file: string;
+  kind?: 'lut' | 'look';
+  revision?: number;
   category?: string;
   name?: string;
   push?: Partial<Record<Push, string>>;
@@ -115,7 +117,21 @@ export function stockForPack(pack: PackId, current: StockId): StockId {
 
 /** A recipe's optional creative layer; the base camera profile remains independent. */
 export const recipeLookFile = (recipe: import('./recipe').Recipe | null): string | null =>
-  recipe?.lookEnabled ? lookFile(recipe.pack, recipe.stock, recipe.push) : null;
+  recipe?.lookEnabled ? (recipe.lookSnapshot ? snapshotLutFile(recipe) : lookFile(recipe.pack, recipe.stock, recipe.push)) : null;
+
+function snapshotLutFile(r: Recipe): string | null {
+  const lut = r.lookSnapshot?.settings.lut;
+  return !lut ? null : lut.kind === 'file' ? `${USER_LOOKS_DIR}${lut.hash}` : lookFile(lut.pack as PackId, lut.stock as StockId, r.push);
+}
+
+export const legacyLooks = new Map<string, { name: string; settings: ProfileSettings; kind?: 'lut' | 'look'; revision?: number }>();
+
+export function captureLook(r: Recipe): Recipe {
+  if (!r.lookEnabled || r.lookSnapshot || r.pack !== 'custom') return r;
+  const entry = legacyLooks.get(r.stock) ?? PACK.custom.looks[r.stock];
+  if (!entry?.settings) return r;
+  return { ...r, lookSnapshot: { id: r.stock, name: entry.name ?? 'Look', revision: entry.revision ?? 1, kind: 'kind' in entry ? entry.kind : undefined, settings: structuredClone(entry.settings) } };
+}
 
 // ---------- Custom looks and the user's LUT files ----------
 
@@ -143,8 +159,8 @@ function put(pack: 'custom' | 'files', id: StockId, look: PackLook) {
 }
 
 /** Add a custom look (or update it); without settings it holds the place of one not installed. */
-export function registerCustomLook(id: string, name: string, settings: ProfileSettings | null) {
-  put('custom', customLookId(id), settings ? { file: '', name, category: PACK.custom.name, settings } : { file: '', name, missing: true });
+export function registerCustomLook(id: string, name: string, settings: ProfileSettings | null, kind?: 'lut' | 'look', revision = 1) {
+  put('custom', customLookId(id), settings ? { file: '', name, category: PACK.custom.name, settings, kind: kind ?? (settings.colorBalance || settings.curve ? 'look' : 'lut'), revision } : { file: '', name, missing: true });
   if (settings?.lut?.kind === 'file') registerFileLut(settings.lut.hash);
 }
 
@@ -179,4 +195,4 @@ export function resolveUserLook(pack: unknown, stock: unknown): { pack: PackId; 
 
 /** The hidden settings of the recipe's look when it is a custom look, else null. */
 export const profileSettingsFor = (recipe: Recipe | null): ProfileSettings | null =>
-  recipe?.lookEnabled ? PACK[recipe.pack]?.looks[recipe.stock]?.settings ?? null : null;
+  recipe?.lookEnabled ? recipe.lookSnapshot?.settings ?? PACK[recipe.pack]?.looks[recipe.stock]?.settings ?? null : null;

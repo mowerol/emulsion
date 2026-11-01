@@ -205,3 +205,20 @@ it('validates saved versions and gives same-name copies distinct safe export ste
   expect(new TextEncoder().encode(`${exportStem({ ...frames[1], name: '旅'.repeat(80) + '.jpg', copyName: '暖'.repeat(120), copyId: 'a'.repeat(80) })}.jpg`).length).toBeLessThanOrEqual(255);
   expect(savedFrames(frames).copies).toHaveLength(2);
 });
+
+it('undoes and redoes a look draft locally without persisting or consuming photo history', async () => {
+  editActive(() => ({ ...defaultRecipe(), exposure: 1 }));
+  await flushSaves();
+  const before = useApp.getState().history;
+  startLookEdit(photoId(activePhoto()!), 'draft', 'Draft', defaultRecipe());
+  editActive(r => ({ ...r!, contrast: 30 }));
+  undo();
+  expect(activePhoto()?.recipe?.contrast).toBe(0);
+  redo();
+  expect(activePhoto()?.recipe?.contrast).toBe(30);
+  await flushSaves();
+  expect(disk.get('/photos/a.jpg')?.recipe).toMatchObject({ exposure: 1, contrast: 0 });
+  endLookEdit();
+  expect(activePhoto()?.recipe?.exposure).toBe(1);
+  expect(useApp.getState().history).toEqual(before);
+});

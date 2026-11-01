@@ -4,9 +4,9 @@
 import { create } from 'zustand';
 
 export const CONTROL_GROUPS = [
-  { id: 'develop', name: 'Develop', sections: ['profile', 'stock', 'whitebalance', 'exposure', 'hdr', 'curve'] },
+  { id: 'develop', name: 'Develop', sections: ['profile', 'stock', 'presets', 'whitebalance', 'exposure', 'hdr', 'curve'] },
   { id: 'colour', name: 'Colour Grading', sections: ['color', 'grading'] },
-  { id: 'refine', name: 'Refine', sections: ['detail', 'optics', 'grain', 'lens'] },
+  { id: 'refine', name: 'Refine', sections: ['detail', 'optics', 'grain', 'scanner', 'lens'] },
   { id: 'masks', name: 'Masks', sections: ['masks'] },
 ] as const;
 export type ControlGroupId = typeof CONTROL_GROUPS[number]['id'];

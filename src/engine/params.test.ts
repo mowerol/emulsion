@@ -129,3 +129,16 @@ describe('LUT white and black targets', () => {
     expect(developUniforms({ ...r, whites: 50, blacks: 25 }, ctx).uSigS).toEqual(at(50, 25).uSigS);
   });
 });
+
+it('tone character changes the output curve without changing grain or the Contrast slider instance', () => {
+  const base = { ...defaultRecipe(), grain: 0 };
+  const neutral = developUniforms(base, ctx);
+  for (const toneCharacter of [-100, 100]) {
+    const u = developUniforms({ ...base, toneCharacter }, ctx);
+    expect(u.uSigS).not.toEqual(neutral.uSigS);
+    expect(u.uProfileTargetsOn).toBe(1); // Includes camera profiles supplying a tone curve.
+    expect(u.uCbP).toEqual(neutral.uCbP);
+    expect(u.uGrain).toEqual(neutral.uGrain);
+    expect((u.uGrain as number[])[0]).toBe(0);
+  }
+});

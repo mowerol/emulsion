@@ -585,3 +585,58 @@ input[type='range']:disabled { opacity: 0.35; cursor: default; }
 
 .cell-img { position: relative; }
 .copy-badge { position: absolute; bottom: 5px; left: 5px; border-radius: 3px; background: #1c1b19cc; color: var(--fg); padding: 2px 5px; font-size: 10px; pointer-events: none; }
+
+/* Treatment authoring and saved photo settings. */
+.treatment-controls, .preset-controls, .look-editor-header { display: flex; flex-direction: column; gap: 12px; }
+.treatment-controls label, .look-editor-header label, .preset-controls form > label { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.treatment-controls select, .preset-controls input[type="search"], .look-editor-header input { min-width: 0; max-width: 100%; }
+.preset-groups { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin: 12px 0; }
+.preset-groups label { display: flex; gap: 6px; align-items: center; }
+.preset-entry { padding: 10px 0; border-bottom: 1px solid #ffffff15; }
+.preset-entry summary { cursor: pointer; font-size: 12px; margin-top: 8px; }
+.preset-apply { width: 100%; text-align: left; }
+.look-editor-header { padding: 16px; }
+.look-editor-header h2, .look-editor-header h3 { margin: 0; }
+
+.app.app-look-editor { grid-template-rows: minmax(0, 1fr); }
+
+.treatment-tabs { display: grid; grid-template-columns: 1fr 1fr; padding: 3px; gap: 3px; background: var(--bg); border: 1px solid var(--line); border-radius: 7px; }
+.treatment-tabs .btn { border: 0; background: transparent; color: var(--muted); padding: 6px 12px; font-size: 12px; border-radius: 4px; }
+.treatment-tabs .btn[aria-pressed="true"] { background: var(--raise); color: var(--fg); box-shadow: 0 1px 3px #0004; }
+.treatment-current { display: flex; align-items: center; justify-content: space-between; gap: 10px; color: var(--muted); font-size: 12px; padding: 1px 0 3px; }
+.treatment-current > span { min-width: 0; }
+.treatment-current small { display: block; font-size: 9px; letter-spacing: .1em; color: var(--faint); margin-bottom: 2px; }
+.treatment-current strong { display: block; color: var(--fg); font-size: 13px; font-weight: 550; overflow-wrap: anywhere; }
+.treatment-remove { background: none; border: 0; padding: 2px 5px; color: var(--muted); font-size: 20px; cursor: pointer; }
+.treatment-remove:hover { color: var(--fg); }
+.treatment-amount { font-size: 12px; }
+.treatment-amount input { min-width: 0; flex: 1; }
+.treatment-collection { font-size: 12px; color: var(--muted); }
+.treatment-collection select { flex: 1; }
+.treatment-browser .stocks { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.treatment-browser .stock { border-radius: 5px; overflow: hidden; text-align: left; }
+.treatment-browser .stock-name { font-size: 12px; font-weight: 500; line-height: 1.35; padding: 7px 8px; }
+.treatment-browser .stock-maker { font-size: 10px; padding: 0 8px 7px; }
+.treatment-browser .stock[aria-pressed="true"] { border-color: var(--accent); background: #d4893c15; }
+.treatment-footer { display: flex; gap: 12px; padding-top: 2px; }
+.treatment-text-action { background: none; border: 0; padding: 3px 0; font-size: 12px; color: var(--accent); cursor: pointer; text-align: left; }
+.treatment-text-action:hover { color: var(--fg); }
+.treatment-manage summary { cursor: pointer; font-size: 11px; color: var(--muted); }
+.treatment-manage .actions { margin-top: 8px; }
+.treatment-empty { padding: 12px 0; }
+
+.preset-controls input[type="search"], .preset-controls form input:not([type="checkbox"]), .look-editor-header input:not([type="range"]), .treatment-controls form input {
+  width: 100%; border: 1px solid var(--line); border-radius: 5px; background: var(--raise); padding: 7px 9px; font-size: 12px;
+}
+
+/* Keep removal from the photo and deletion from the library easy to find. */
+.treatment-remove { flex-shrink: 0; font-size: 11px; padding: 5px 7px; border: 1px solid var(--line); border-radius: 4px; }
+.treatment-card { display: flex; flex-direction: column; min-width: 0; }
+.treatment-card > .stock { width: 100%; flex: 1; }
+.treatment-card-actions { padding: 5px 3px 1px; }
+.treatment-card-actions > button { display: block; margin-left: auto; }
+.treatment-card-actions button { background: none; border: 0; padding: 3px 4px; color: var(--muted); font-size: 11px; cursor: pointer; }
+.treatment-card-actions button:hover { color: var(--fg); }
+.treatment-card-actions button:disabled { opacity: .5; cursor: default; }
+.treatment-card-actions p { font-size: 11px; color: var(--muted); margin: 3px 0 6px; }
+.treatment-card-actions .actions button:first-child { color: var(--danger); }

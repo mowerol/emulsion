@@ -8,7 +8,6 @@
 //! this layout (`<hash>.json` with an `ext`, or with `settings` only) are migrated on listing.
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::HashSet,
     fs,
     path::{Path, PathBuf},
 };
@@ -139,6 +138,7 @@ pub fn save(root: &Path, look: CustomLook) -> Result<CustomLook, String> {
             return Err("This look's LUT file is not installed".into());
         }
     }
+    archive(root, &look.id)?;
     let look = CustomLook { version: VERSION, name: checked_name(&look.name)?, ..look };
     fs::create_dir_all(root).map_err(|e| e.to_string())?;
     write_atomic(&root.join(format!("{}.json", look.id)), &serde_json::to_vec(&look).map_err(|e| e.to_string())?)?;
@@ -155,22 +155,29 @@ fn read_look(path: &Path) -> Option<CustomLook> {
 pub fn list(root: &Path) -> Vec<CustomLook> {
     migrate(root);
     let mut out: Vec<CustomLook> = json_files(root).filter_map(|p| read_look(&p)).collect();
+    for mut old in json_files(&root.join("legacy")).filter_map(|p| read_look(&p)) {
+        old.settings["_legacy"] = serde_json::json!(true);
+        out.push(old);
+    }
     out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
     out
 }
 
-/// Remove a look, and any of the user's LUT files no remaining look uses.
-pub fn delete(root: &Path, id: &str) -> Result<(), String> {
-    checked_id(id)?;
-    fs::remove_file(root.join(format!("{id}.json"))).map_err(|_| "This look is not installed".to_string())?;
-    let used: HashSet<String> = list(root).into_iter().filter_map(|l| l.lut).collect();
-    for path in fs::read_dir(luts(root)).into_iter().flatten().flatten().map(|e| e.path()) {
-        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_string();
-        if !used.contains(&stem) {
-            let _ = fs::remove_file(path);
-        }
+/// Retain the original definition for legacy sidecars and all LUT blobs for snapshots.
+fn archive(root: &Path, id: &str) -> Result<(), String> {
+    let source = root.join(format!("{id}.json"));
+    let dest = root.join("legacy").join(format!("{id}.json"));
+    if source.is_file() && !dest.exists() {
+        fs::create_dir_all(root.join("legacy")).map_err(|e| e.to_string())?;
+        write_atomic(&dest, &fs::read(source).map_err(|e| e.to_string())?)?;
     }
     Ok(())
+}
+
+pub fn delete(root: &Path, id: &str) -> Result<(), String> {
+    checked_id(id)?;
+    archive(root, id)?;
+    fs::remove_file(root.join(format!("{id}.json"))).map_err(|_| "This look is not installed".to_string())
 }
 
 fn json_files(root: &Path) -> impl Iterator<Item = PathBuf> {
@@ -250,8 +257,10 @@ mod tests {
         delete(root.path(), &a.id).unwrap();
         assert!(read_lut(root.path(), &hash).is_ok());
         delete(root.path(), &b.id).unwrap();
-        assert!(read_lut(root.path(), &hash).is_err());
-        assert!(list(root.path()).is_empty());
+        assert!(read_lut(root.path(), &hash).is_ok());
+        let archived = list(root.path());
+        assert!(archived.iter().all(|l| l.settings["_legacy"] == true));
+        assert!(archived.iter().any(|l| l.id == ID && l.name == "Warm"));
     }
 
     #[test]

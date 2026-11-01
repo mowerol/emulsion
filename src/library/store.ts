@@ -1,4 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+import { captureLook } from '../film/looks';
 // App state: the open folder (the roll), its photos and their recipes,
 // selection, and which view is showing.
 
@@ -88,7 +89,7 @@ interface State {
    * sliders, as a draft kept in memory only (no sidecar write, no undo step). `original` is the
    * photo's saved recipe, which comes back when editing ends.
    */
-  lookEdit: { id: string; name: string; path: string; original: Recipe | null } | null;
+  lookEdit: { id: string; name: string; path: string; original: Recipe | null; past: (Recipe | null)[]; future: (Recipe | null)[] } | null;
   /** The crop being edited, for the photo at `path` of size W × H; it is saved when cropping ends. */
   cropEdit: { path: string; draft: Crop; W: number; H: number } | null;
   /** Size of the photo open in the develop view. */
@@ -241,6 +242,7 @@ const scannedPhoto = (e: Entry): Photo => ({
 
 let folderRequest = 0;
 export async function openFolder(path: string) {
+  if (get().lookEdit) return showToast('Save or cancel the look draft first');
   const request = ++folderRequest;
   finishCrop(true);
   endLookEdit();
@@ -343,12 +345,14 @@ export function closeFolder() {
 }
 
 export const setView = (view: View) => {
+  if (get().lookEdit) return showToast('Save or cancel the look draft first');
   if (view === 'develop' && !get().photos.length) return;
   if (view !== 'develop') finishCrop(true);
   set({ view });
 };
 
 export function setActive(index: number, mode: 'single' | 'toggle' | 'range' | 'keep' = 'single') {
+  if (get().lookEdit && index !== get().active) return showToast('Save or cancel the look draft first');
   if (index !== get().active) finishCrop(true);
   const { photos, anchor, selected } = get();
   if (index < 0 || index >= photos.length) return;
@@ -554,14 +558,16 @@ export function editRecipes(paths: string[], change: (r: Recipe | null, p: Photo
   const editing = get().lookEdit;
   if (editing) {
     if (!paths.includes(editing.path)) return;
-    set({ photos: get().photos.map((p) => (photoId(p) === editing.path ? { ...p, recipe: change(p.recipe, p) } : p)) });
+    const current = get().photos.find(p => photoId(p) === editing.path)!;
+    set({ lookEdit: { ...editing, past: [...editing.past.slice(-199), current.recipe], future: [] }, photos: get().photos.map((p) => (photoId(p) === editing.path ? { ...p, recipe: change(p.recipe, p) } : p)) });
     return;
   }
   const wanted = new Set(paths);
   const changes: Change[] = [];
   const photos = get().photos.map((p) => {
     if (!wanted.has(photoId(p))) return p;
-    const recipe = change(p.recipe, p);
+    const changed = change(p.recipe, p);
+    const recipe = changed ? captureLook(changed) : null;
     if (recipe === p.recipe) return p;
     changes.push({ path: photoId(p), before: p.recipe, after: recipe });
     return { ...p, recipe };
@@ -630,7 +636,7 @@ function applyStep(step: Step, side: 'before' | 'after', verb: string) {
 }
 
 export function undo() {
-  if (get().lookEdit) return showToast('Finish editing the look first');
+  if (get().lookEdit) return lookDraftHistory('past');
   finishCrop(true);
   const s = history.undo();
   if (s) applyStep(s, 'before', 'Undid');
@@ -638,7 +644,7 @@ export function undo() {
 }
 
 export function redo() {
-  if (get().lookEdit) return showToast('Finish editing the look first');
+  if (get().lookEdit) return lookDraftHistory('future');
   finishCrop(true);
   const s = history.redo();
   if (s) applyStep(s, 'after', 'Redid');
@@ -738,10 +744,11 @@ export function setPhotoCamera(path: string, camera: import('../film/profiles').
 
 /** Open a custom look for editing on the photo at `path`, with `draft` (the look on its sliders) shown. */
 export function startLookEdit(path: string, id: string, name: string, draft: Recipe) {
+  finishCrop(true);
   const p = get().photos.find((x) => photoId(x) === path);
   if (!p || get().lookEdit) return;
   set({
-    lookEdit: { id, name, path, original: p.recipe },
+    lookEdit: { id, name, path, original: p.recipe, past: [], future: [] }, picking: false, compare: false,
     photos: get().photos.map((x) => (photoId(x) === path ? { ...x, recipe: draft } : x)),
   });
 }
@@ -759,4 +766,13 @@ export function endLookEdit(): Recipe | null {
   const draft = get().photos.find((x) => photoId(x) === e.path)?.recipe ?? null;
   set({ lookEdit: null, photos: get().photos.map((x) => (photoId(x) === e.path ? { ...x, recipe: e.original } : x)) });
   return draft;
+}
+
+function lookDraftHistory(side: 'past' | 'future') {
+  const e = get().lookEdit;
+  if (!e || !e[side].length) return;
+  const p = get().photos.find(p => photoId(p) === e.path)!;
+  const other = side === 'past' ? 'future' : 'past';
+  const recipe = e[side][e[side].length - 1];
+  set({ lookEdit: { ...e, [side]: e[side].slice(0, -1), [other]: [...e[other], p.recipe] }, photos: get().photos.map(p => photoId(p) === e.path ? { ...p, recipe } : p) });
 }

@@ -7,7 +7,7 @@ import { useSyncExternalStore } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { isTauri } from '../backend/api';
 import { lutFormat, readLut } from '../engine/lutstore';
-import { PACK, customLookId, customLookOf, lookName, registerCustomLook, registerFileLut, unregisterCustomLook, type PackId } from '../film/looks';
+import { PACK, customLookId, customLookOf, lookName, registerCustomLook, registerFileLut, unregisterCustomLook, type PackId, legacyLooks, profileSettingsFor } from '../film/looks';
 import { hasSettings, normalizeSettings, type LutSource, type ProfileSettings } from '../film/creative';
 import type { Recipe } from '../film/recipe';
 import type { StockId } from '../film/stocks';
@@ -38,7 +38,12 @@ export function useUserLooksVersion() {
   );
 }
 
-const register = (l: CustomLookFile) => registerCustomLook(l.id, l.name, normalizeSettings(l.settings) ?? { colorBalance: null, curve: null, lut: null });
+const register = (l: CustomLookFile) => {
+  const meta = l.settings as Record<string, unknown>;
+  const settings = normalizeSettings(l.settings) ?? { colorBalance: null, curve: null, lut: null };
+  if (meta._legacy) { legacyLooks.set(customLookId(l.id), { name: l.name, settings, kind: meta._kind === 'look' ? 'look' : meta._kind === 'lut' ? 'lut' : undefined, revision: typeof meta._revision === 'number' ? meta._revision : 1 }); return; }
+  registerCustomLook(l.id, l.name, settings, meta._kind === 'look' ? 'look' : meta._kind === 'lut' ? 'lut' : undefined, typeof meta._revision === 'number' ? meta._revision : 1);
+};
 
 /** Load the custom looks into their collection. Call on start. */
 export async function refreshUserLooks() {
@@ -80,9 +85,9 @@ export async function importLutFile(path: string): Promise<string> {
 }
 
 /** Create or update a custom look. Returns its stock id. */
-export async function saveLook(id: string, name: string, settings: ProfileSettings): Promise<StockId> {
+export async function saveLook(id: string, name: string, settings: ProfileSettings, kind: 'lut' | 'look' = 'look'): Promise<StockId> {
   const saved = await invoke<CustomLookFile>('save_custom_look', {
-    look: { version: 2, id, name, settings, lut: settings.lut?.kind === 'file' ? settings.lut.hash : undefined },
+    look: { version: 2, id, name, settings: { ...settings, _kind: kind, _revision: (PACK.custom.looks[customLookId(id)]?.revision ?? 0) + 1 }, lut: settings.lut?.kind === 'file' ? settings.lut.hash : undefined },
   });
   register(saved);
   changed();
@@ -92,7 +97,7 @@ export async function saveLook(id: string, name: string, settings: ProfileSettin
 /** Import a LUT file as a new custom look. */
 export async function importLook(path: string): Promise<StockId> {
   const hash = await importLutFile(path);
-  return saveLook(uuid(), lookNameFromPath(path), { colorBalance: null, curve: null, lut: { kind: 'file', hash, amount: 1 } });
+  return saveLook(uuid(), lookNameFromPath(path), { colorBalance: null, curve: null, lut: { kind: 'file', hash, amount: 1 } }, 'lut');
 }
 
 /** Copy a look into Custom looks: a system look by reference, a custom look with its settings. */
@@ -102,7 +107,7 @@ export async function duplicateLook(pack: PackId, stock: StockId): Promise<Stock
   return saveLook(uuid(), `${lookName(pack, stock)} copy`, settings);
 }
 
-/** Remove a custom look. Photos that use it keep its id and render without it, as Missing look. */
+/** Remove a library entry; applied photo snapshots and stored LUT files remain intact. */
 export async function deleteLook(stock: StockId) {
   const id = customLookOf(stock);
   if (!id) return;
@@ -112,7 +117,7 @@ export async function deleteLook(stock: StockId) {
 }
 
 /** Whether the photo's look is a custom look with hidden settings. */
-export const onLookWithSettings = (r: Recipe | null) => !!r?.lookEnabled && hasSettings(PACK[r.pack]?.looks[r.stock]?.settings);
+export const onLookWithSettings = (r: Recipe | null) => !!r?.lookEnabled && hasSettings(profileSettingsFor(r));
 
 /**
  * The photo's LUT as a custom look's LUT: a system look by reference, a LUT file by hash, a custom
@@ -122,7 +127,7 @@ export const onLookWithSettings = (r: Recipe | null) => !!r?.lookEnabled && hasS
 export function lutSourceOf(r: Recipe): LutSource | null {
   if (!r.lookEnabled) return null;
   const amount = r.lookAmount / 100;
-  const look = PACK[r.pack]?.looks[r.stock];
+  const look = r.lookSnapshot ? { settings: r.lookSnapshot.settings, file: '', missing: false } : PACK[r.pack]?.looks[r.stock];
   if (!look || look.missing) return null;
   const blend = r.lookBlend === 'color' ? { blend: 'color' as const } : {};
   if (r.pack === 'files') return { kind: 'file', hash: look.file, amount, ...blend };

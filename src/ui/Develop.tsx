@@ -43,6 +43,7 @@ const dpr = () => Math.min(window.devicePixelRatio || 1, 2);
 const rgb = (hex: string): [number, number, number] => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255) as [number, number, number];
 
 export function Develop() {
+  const editingLook = useApp(s => !!s.lookEdit);
   const workflow = useWorkspace(s => s.layout === 'workflow');
   // Masks are edited on the photo while their controls are open (always, in Classic).
   const masksOpen = useWorkspace(s => s.layout !== 'workflow' || s.group === 'masks');
@@ -469,14 +470,14 @@ export function Develop() {
 
   return (
     <section className={`develop${workflow ? ' develop-workflow' : ''}`}>
-      {workflow && <div className="photo-tools-host"><PhotoTools ready={!!current} scale={zoom.scale} zoomLabel={current ? label(zoom, current) : 'Fit'}
+      {workflow && !editingLook && <div className="photo-tools-host"><PhotoTools ready={!!current} scale={zoom.scale} zoomLabel={current ? label(zoom, current) : 'Fit'}
         onZoom={scale => scale === null ? setZoom(FIT) : zoomTo(scale, 0.5, 0.5)} onStep={zoomStep} before={before} onBefore={setBefore} /></div>}
       <div
         className={`stage${stage.light ? ' light' : ''}`}
         style={{ background: stage.hex }}
         onContextMenu={(e) => {
           e.preventDefault();
-          setMenu({ x: e.clientX, y: e.clientY });
+          if (!editingLook) setMenu({ x: e.clientX, y: e.clientY });
         }}
       >
         {menu && <StageMenu x={menu.x} y={menu.y} onClose={closeMenu} />}
@@ -533,7 +534,7 @@ export function Develop() {
         )}
       </div>
       {workflow && <PhotoInfo toolbar />}
-      {!workflow && <Filmstrip />}
+      {!workflow && !editingLook && <Filmstrip />}
     </section>
   );
 }

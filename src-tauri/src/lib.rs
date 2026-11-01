@@ -11,6 +11,7 @@ mod exposure;
 mod library;
 mod lens;
 mod raw;
+mod presets;
 mod sidecar;
 mod thumbs;
 mod user_looks;
@@ -103,6 +104,9 @@ pub fn run() {
             commands::read_camera_profile_file,
             commands::install_camera_profile,
             commands::custom_looks,
+            commands::list_presets,
+            commands::save_preset,
+            commands::delete_preset,
             commands::read_look_lut,
             commands::read_lut_file,
             commands::store_look_lut,

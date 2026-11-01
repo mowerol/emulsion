@@ -256,3 +256,19 @@ pub async fn delete_custom_look(app: tauri::AppHandle, id: String) -> Result<(),
     let root = looks_root(&app)?;
     blocking(move || crate::user_looks::delete(&root, &id)).await
 }
+
+#[tauri::command]
+pub async fn list_presets(app: tauri::AppHandle) -> Result<Vec<serde_json::Value>, String> {
+    let root = looks_root(&app)?.with_file_name("presets");
+    blocking(move || Ok(crate::presets::list(&root))).await
+}
+#[tauri::command]
+pub async fn save_preset(app: tauri::AppHandle, preset: serde_json::Value) -> Result<(), String> {
+    let root = looks_root(&app)?.with_file_name("presets");
+    blocking(move || crate::presets::save(&root, preset)).await
+}
+#[tauri::command]
+pub async fn delete_preset(app: tauri::AppHandle, id: String) -> Result<(), String> {
+    let root = looks_root(&app)?.with_file_name("presets");
+    blocking(move || crate::presets::delete(&root, &id)).await
+}

@@ -4,6 +4,24 @@
 
 Rewritten at the end of each session. Last updated 2026-11-01.
 
+## Scanner UI placement (2026-11-01)
+
+Oli chose to preserve scanner styles and make them easier to find. Removed the nested Film options container from Treatment. Scanner finish now sits with Detail, Optics and Grain under Refine, and after Grain in Classic. Options are None (the existing `straight` value), Frontier, Noritsu and Flatbed; selected style remains in the section summary when folded. Preset checkboxes/summaries display Scanner finish while retaining the existing Film options group id for compatibility. Rendering, defaults, recipe fields and saved preset identifiers are unchanged.
+
+## Tone character slider (2026-11-01)
+
+Oli chose to retire the Push/Pull UI and restore its tonal role as **Tone character** beside Contrast, in Workflow Exposure and Classic Adjustments. Range -100..100, default 0; scales sigmoid contrast by 1 + 0.18 * value/100, preserves the grey pivot and output endpoints, and activates the same output-curve remapping for DCPs with tone curves. It does not touch grain. Old `push` values retain their existing grain-only rendering for compatibility, with no new tonal reinterpretation; presets now group that legacy value under Grain rather than Film options. Tone character is in presets' Tone group and normal save/copy/reset/undo paths. The new control remains photo-owned, outside the currently supported Look editor ingredients. Applied treatment summary moved above the browser tabs at Oli's suggestion. Scanner behavior unchanged, pending discussion.
+
+Validation: 337 frontend tests and 46 Rust tests pass (4 optional ignored), production build and probe build pass. Added curve direction/pivot/rolloff and grain independence tests, plus softer/harder cases to the GPU/reference probe. Probe cases built but not run in this step.
+
+## LUTs, Looks and Presets redesign (2026-11-01)
+
+Implemented the conversational plan: distinct LUT/Look browser tabs; isolated Look editor with Save, Save and apply, Cancel/discard and local undo/redo; no Detach or conversion of photo sliders into a look. Looks retain supported colour/tone ingredients plus optional LUT; spatial effects stay in presets. Applying snapshots a custom treatment's settings/name/revision in the sidecar; library edits/deletion preserve existing renders. Rust archives original definitions for old sidecars and retains LUT blobs. Presets have named searchable entries, group capture/update/rename/delete and selection-wide undoable application; Treatment default on, Exposure/WB default off, geometry/camera/masks excluded. See docs/plans/profiles-and-presets.md for current decisions; old notes there are historical.
+
+Oli saw the initial controls and asked for a more deliberate UI. Replaced the oversized None action with a compact active-treatment summary/remove button, styled the LUTs/Looks selector, moved authoring/management to secondary actions and changed previews to two columns without redundant Custom looks captions. Follow-up: active treatment now has a labelled Remove button, and every custom LUT/Look card exposes Delete… without requiring application first. Card deletion confirms inline, supports cancellation and retries after errors, and preserves photo snapshots. Production build and browser checks passed for removal/undo, deleting either asset kind, cancel and simulated disk failure/retry.
+
+Validation: full check passed after the chooser polish (335 frontend tests, build, 46 Rust tests; 4 optional Rust tests ignored). Browser checks exercise the actual Panel with mocked IPC: editor Save preserves photo settings, preset defaults/capture/application preserve exposure, and Looks hide LUT blend. Final typecheck passed after the small search-input styling and draft-history bound changes. Restart the desktop core to register the new preset IPC commands. Real RAW desktop preview/export comparison remains manual validation; browser fixture used synthetic state. Preserve unrelated concurrent mask/dehaze work.
+
 ## Virtual copies (2026-11-01, implemented)
 
 Oli chose virtual copies next; **masks remain another agent's WIP**. Do not take over the masks/refinement work from this section.

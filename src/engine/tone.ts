@@ -106,8 +106,8 @@ export const whiteTargetFor = (whites: number) => NEUTRAL.whiteTarget * Math.pow
 export const blackTargetFor = (blacks: number) => NEUTRAL.blackTarget + (Math.max(blacks, 0) / 100) * 2;
 
 /** The neutral curve with the Whites and Blacks sliders' display targets. */
-export function toneCurveFor(whites: number, blacks: number): SigmoidCurve {
-  return sigmoidCurve({ ...NEUTRAL, whiteTarget: whiteTargetFor(whites), blackTarget: blackTargetFor(blacks) });
+export function toneCurveFor(whites: number, blacks: number, character = 0): SigmoidCurve {
+  return sigmoidCurve({ ...NEUTRAL, contrast: NEUTRAL.contrast * (1 + 0.18 * Math.max(-100, Math.min(100, character)) / 100), whiteTarget: whiteTargetFor(whites), blackTarget: blackTargetFor(blacks) });
 }
 
 const NEUTRAL_CURVE = sigmoidCurve(NEUTRAL);
@@ -119,8 +119,8 @@ export const toneForward = (x: number): number => srgbOetf(sigmoid(x, NEUTRAL_CU
 export const toneInverse = (e: number): number => sigmoidInverse(srgbEotf(Math.min(Math.max(e, 0), 1)), NEUTRAL_CURVE);
 
 /** The camera profile's print (stageToneProfile): the curve per channel under Whites and Blacks. */
-export function toneProfileRgb(x: Vec3, whites: number, blacks: number): Vec3 {
-  const curve = toneCurveFor(whites, blacks);
+export function toneProfileRgb(x: Vec3, whites: number, blacks: number, character = 0): Vec3 {
+  const curve = toneCurveFor(whites, blacks, character);
   return x.map((v) => srgbOetf(sigmoid(v, curve))) as Vec3;
 }
 

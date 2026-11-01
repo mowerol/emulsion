@@ -97,3 +97,17 @@ describe('tone stage', () => {
   });
 });
 
+
+it('tone character softens or hardens around the same grey while keeping endpoints and roll-off', () => {
+  const at = (x: number, character: number) => toneProfileRgb([x,x,x], 0, 0, character)[0];
+  expect(at(.03, -100)).toBeGreaterThan(at(.03, 0));
+  expect(at(.03, 100)).toBeLessThan(at(.03, 0));
+  expect(at(.7, -100)).toBeLessThan(at(.7, 0));
+  expect(at(.7, 100)).toBeGreaterThan(at(.7, 0));
+  for (const character of [-100, 0, 100]) {
+    expect(at(SIGMOID_GREY, character)).toBeCloseTo(at(SIGMOID_GREY, 0), 7);
+    expect(at(0, character)).toBe(0);
+    expect(at(100, character)).toBeLessThan(1);
+    expect(toneProfileRgb([-.1,.3,5], 0, 0, character).every(Number.isFinite)).toBe(true);
+  }
+});

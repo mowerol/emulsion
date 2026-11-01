@@ -2,6 +2,8 @@
 // A recipe is everything Emulsion knows about how one frame is developed.
 // It is what gets saved to the photo's sidecar.
 
+import { normalizeSettings, type ProfileSettings } from './creative';
+import { captureLook } from './looks';
 import { normalizeProfile, type CameraProfileId } from './profiles';
 import { normalizeLens, type LensAdjust } from '../engine/lenscorrection';
 import { normalizeGrading, type ColourGrading } from './grading';
@@ -21,6 +23,7 @@ export type LookBlend = 'normal' | 'color';
 
 export interface Recipe {
   v: typeof RECIPE_VERSION;
+  lookSnapshot?: { id: string; name: string; revision: number; kind?: 'lut' | 'look'; settings: ProfileSettings };
   /** Base camera rendering. Missing in older sidecars: preserve their original pipeline. */
   profile: CameraProfileId;
   /** A creative LUT is optional and never selects or replaces the camera profile. */
@@ -40,6 +43,8 @@ export interface Recipe {
   scanner: ScannerId;
   exposure: number;
   contrast: number;
+  /** Softer/harder output tone curve, independent of grain. */
+  toneCharacter: number;
   highlights: number;
   shadows: number;
   whites: number;
@@ -124,7 +129,7 @@ function normalizeColor(input: unknown): ColorAdjust | null {
   return tidyColor({ hue: list(o.hue, -HUE_MAX, HUE_MAX), sat: list(o.sat, -100, 100), bright: list(o.bright, -100, 100) });
 }
 
-export type SliderKey = Exclude<keyof Recipe, 'v' | 'profile' | 'lookEnabled' | 'stock' | 'pack' | 'lookBlend' | 'push' | 'scanner' | 'curve' | 'wb' | 'crop' | 'color' | 'grading' | 'lens' | 'masks'>;
+export type SliderKey = Exclude<keyof Recipe, 'v' | 'profile' | 'lookEnabled' | 'stock' | 'pack' | 'lookBlend' | 'push' | 'scanner' | 'curve' | 'wb' | 'crop' | 'color' | 'grading' | 'lens' | 'masks' | 'lookSnapshot'>;
 
 export interface SliderDef {
   key: SliderKey;
@@ -151,6 +156,7 @@ export const formatEv = (v: number) => `${v > 0 ? '+' : v < 0 ? MINUS : ''}${Mat
 export const SLIDERS: SliderDef[] = [
   { key: 'lookAmount', label: 'Amount', group: 'look', min: 0, max: 100, step: 1, default: 100, hint: 'How strongly the look applies: 0 is Neutral, 100 the full look.', format: (v) => `${v}%` },
   { key: 'exposure', label: 'Exposure', group: 'adjust', min: -3, max: 3, step: 0.05, format: formatEv },
+  { key: 'toneCharacter', label: 'Tone character', group: 'adjust', min: -100, max: 100, step: 1, default: 0, format: formatSigned, hint: 'Softer ← 0 → Harder. Changes the output tone curve independently of grain.' },
   { key: 'contrast', label: 'Contrast', group: 'adjust', min: -50, max: 50, step: 1, format: formatSigned },
   { key: 'highlights', label: 'Highlights', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'shadows', label: 'Shadows', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
@@ -205,6 +211,7 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
     scanner,
     exposure: 0,
     contrast: 0,
+    toneCharacter: 0,
     highlights: 0,
     shadows: 0,
     whites: 0,
@@ -241,12 +248,12 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
  * halation stay as they are, and a first edit starts from the defaults.
  */
 export function withStock(recipe: Recipe | null, stock: StockId): Recipe {
-  return { ...(recipe ?? defaultRecipe()), stock, lookEnabled: stock !== 'neutral' };
+  return { ...(recipe ?? defaultRecipe()), stock, lookSnapshot: undefined, lookEnabled: stock !== 'neutral' };
 }
 
 /** Reset the sliders, keeping stock, development, scanner, crop and masks. */
 export function resetAdjustments(recipe: Recipe): Recipe {
-  return { ...defaultRecipe(recipe.stock, recipe.scanner), profile: recipe.profile, lookEnabled: recipe.lookEnabled, pack: recipe.pack, lookAmount: recipe.lookAmount, lookBlend: recipe.lookBlend, push: recipe.push, crop: recipe.crop, masks: recipe.masks };
+  return { ...defaultRecipe(recipe.stock, recipe.scanner), profile: recipe.profile, lookEnabled: recipe.lookEnabled, pack: recipe.pack, lookAmount: recipe.lookAmount, lookBlend: recipe.lookBlend, push: recipe.push, lookSnapshot: recipe.lookSnapshot, crop: recipe.crop, masks: recipe.masks };
 }
 
 /**
@@ -269,7 +276,7 @@ const SECTION_FIELDS: Record<SectionId, (keyof Recipe)[]> = {
   grading: ['grading', 'shadows', 'saturation'],
   lens: ['lens'],
   whitebalance: ['wb'],
-  exposure: ['exposure', 'contrast', 'saturation', 'vibrance'],
+  exposure: ['exposure', 'contrast', 'toneCharacter', 'saturation', 'vibrance'],
   hdr: ['highlights', 'shadows', 'whites', 'blacks'],
   'refine-optics': ['fade', ...SLIDERS.filter(d => d.group === 'optics').map(d => d.key)],
   'colour-basics': ['vibrance', 'saturation'],
@@ -326,7 +333,12 @@ export function normalizeRecipe(input: unknown): Recipe | null {
     const v = read(def.key);
     if (typeof v === 'number' && Number.isFinite(v)) out[def.key] = clamp(v, def.min, def.max);
   }
-  return out;
+  const snap = o.lookSnapshot as Recipe['lookSnapshot'];
+  if (snap && typeof snap.id === 'string' && typeof snap.name === 'string' && Number.isSafeInteger(snap.revision)) {
+    const settings = normalizeSettings(snap.settings);
+    if (settings) out.lookSnapshot = { id: snap.id, name: snap.name, revision: snap.revision, kind: snap.kind === 'lut' || snap.kind === 'look' ? snap.kind : settings.colorBalance || settings.curve ? 'look' : 'lut', settings };
+  }
+  return captureLook(out);
 }
 
 export const recipeKey = (r: Recipe | null) => (r ? JSON.stringify(r) : 'original');
