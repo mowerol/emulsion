@@ -6,6 +6,7 @@ import { normalizeSettings, type ProfileSettings } from './creative';
 import { captureLook } from './looks';
 import { normalizeProfile, type CameraProfileId } from './profiles';
 import { normalizeLens, type LensAdjust } from '../engine/lenscorrection';
+import { normalizePerspective, type Perspective } from '../engine/perspective';
 import { normalizeGrading, type ColourGrading } from './grading';
 import { STOCK, isStockId, type StockId } from './stocks';
 import { isScannerId, type ScannerId } from './scanners';
@@ -84,6 +85,7 @@ export interface Recipe {
   /** Additional controls for the recipe colour balance instance, in upstream units. */
   grading: ColourGrading | null;
   lens: LensAdjust | null;
+  transform: Perspective | null;
   /** Local adjustments (film/masks.ts), applied in order; empty when there are none. */
   masks: Mask[];
 }
@@ -131,7 +133,7 @@ function normalizeColor(input: unknown): ColorAdjust | null {
   return tidyColor({ hue: list(o.hue, -HUE_MAX, HUE_MAX), sat: list(o.sat, -100, 100), bright: list(o.bright, -100, 100) });
 }
 
-export type SliderKey = Exclude<keyof Recipe, 'v' | 'profile' | 'lookEnabled' | 'stock' | 'pack' | 'lookBlend' | 'push' | 'scanner' | 'scannerFromLook' | 'curve' | 'wb' | 'crop' | 'color' | 'grading' | 'lens' | 'masks' | 'lookSnapshot'>;
+export type SliderKey = Exclude<keyof Recipe, 'v' | 'profile' | 'lookEnabled' | 'stock' | 'pack' | 'lookBlend' | 'push' | 'scanner' | 'scannerFromLook' | 'curve' | 'wb' | 'crop' | 'color' | 'grading' | 'lens' | 'transform' | 'masks' | 'lookSnapshot'>;
 
 export interface SliderDef {
   key: SliderKey;
@@ -241,6 +243,7 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
     color: null,
     grading: null,
     lens: null,
+    transform: null,
     masks: [],
   };
 }
@@ -255,23 +258,24 @@ export function withStock(recipe: Recipe | null, stock: StockId): Recipe {
 
 /** Reset the sliders, keeping stock, development, scanner, crop and masks. */
 export function resetAdjustments(recipe: Recipe): Recipe {
-  return { ...defaultRecipe(recipe.stock, recipe.scanner), profile: recipe.profile, lookEnabled: recipe.lookEnabled, pack: recipe.pack, lookAmount: recipe.lookAmount, lookBlend: recipe.lookBlend, push: recipe.push, scannerFromLook: recipe.scannerFromLook, lookSnapshot: recipe.lookSnapshot, crop: recipe.crop, masks: recipe.masks };
+  return { ...defaultRecipe(recipe.stock, recipe.scanner), profile: recipe.profile, lookEnabled: recipe.lookEnabled, pack: recipe.pack, lookAmount: recipe.lookAmount, lookBlend: recipe.lookBlend, push: recipe.push, scannerFromLook: recipe.scannerFromLook, lookSnapshot: recipe.lookSnapshot, crop: recipe.crop, transform: recipe.transform, masks: recipe.masks };
 }
 
 /**
  * Another frame's settings applied to this one. The crop and masks stay this frame's own:
  * they belong to the composition, and frames differ in shape and content.
  */
-export const withSettingsFrom = (from: Recipe, target: Recipe | null): Recipe => ({ ...from, profile: target?.profile ?? 'auto', crop: target?.crop ?? null, masks: target?.masks ?? [] });
+export const withSettingsFrom = (from: Recipe, target: Recipe | null): Recipe => ({ ...from, profile: target?.profile ?? 'auto', crop: target?.crop ?? null, transform: target?.transform ?? null, masks: target?.masks ?? [] });
 
 /** Panel sections that can be reset on their own. */
-export type SectionId = 'masks' | 'development' | 'scanner' | 'crop' | 'adjust' | 'curve' | 'color' | 'grading' | 'lens' | 'whitebalance' | 'colour-basics' | 'tone' | 'exposure' | 'hdr' | 'refine-optics' | 'detail' | 'optics' | 'grain';
+export type SectionId = 'masks' | 'development' | 'scanner' | 'crop' | 'transform' | 'adjust' | 'curve' | 'color' | 'grading' | 'lens' | 'whitebalance' | 'colour-basics' | 'tone' | 'exposure' | 'hdr' | 'refine-optics' | 'detail' | 'optics' | 'grain';
 
 const SECTION_FIELDS: Record<SectionId, (keyof Recipe)[]> = {
   masks: ['masks'],
   development: ['push'],
   scanner: ['scanner', 'scannerFromLook'],
   crop: ['crop'],
+  transform: ['transform'],
   adjust: ['wb', ...SLIDERS.filter((d) => d.group === 'adjust').map((d) => d.key)],
   curve: ['curve'],
   color: ['color'],
@@ -328,7 +332,7 @@ export function normalizeRecipe(input: unknown): Recipe | null {
   const base = defaultRecipe(stock, scanner);
   const push = typeof o.push === 'number' && [-1, 0, 1, 2].includes(o.push) ? (o.push as Push) : 0;
   const lookEnabled = supplied && (typeof o.lookEnabled === 'boolean' ? o.lookEnabled : true);
-  const out: Recipe = { ...base, profile: normalizeProfile(o.profile), lookEnabled, pack, push, lookBlend: o.lookBlend === 'color' ? 'color' : 'normal', curve: normalizeCurve(o.curve), wb: normalizeWhiteBalance(o.wb), crop: normalizeCrop(o.crop), color: normalizeColor(o.color), grading: normalizeGrading(o.grading), lens: normalizeLens(o.lens), masks: normalizeMasks(o.masks) };
+  const out: Recipe = { ...base, profile: normalizeProfile(o.profile), lookEnabled, pack, push, lookBlend: o.lookBlend === 'color' ? 'color' : 'normal', curve: normalizeCurve(o.curve), wb: normalizeWhiteBalance(o.wb), crop: normalizeCrop(o.crop), color: normalizeColor(o.color), grading: normalizeGrading(o.grading), lens: normalizeLens(o.lens), transform: normalizePerspective(o.transform), masks: normalizeMasks(o.masks) };
   // Capture sharpening was saved as `sharpening` before the unsharp mask came.
   const read = (key: string) => (key === 'captureSharpening' && o.captureSharpening === undefined ? o.sharpening : o[key]);
   for (const def of SLIDERS) {

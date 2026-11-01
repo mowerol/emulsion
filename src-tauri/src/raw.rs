@@ -26,11 +26,12 @@ struct EmuRawInfo {
     shutter: f32,
     aperture: f32,
     focal_length: f32,
+    focal_length35: f32,
 }
 
 impl EmuRawInfo {
     fn empty() -> Self {
-        EmuRawInfo { width: 0, height: 0, cam_xyz: [[0.0; 3]; 3], cam_mul: [0.0; 3], full_width: 0, full_height: 0, make: [0; 64], model: [0; 64], iso: 0.0, shutter: 0.0, aperture: 0.0, focal_length: 0.0 }
+        EmuRawInfo { width: 0, height: 0, cam_xyz: [[0.0; 3]; 3], cam_mul: [0.0; 3], full_width: 0, full_height: 0, make: [0; 64], model: [0; 64], iso: 0.0, shutter: 0.0, aperture: 0.0, focal_length: 0.0, focal_length35: 0.0 }
     }
 }
 
@@ -156,7 +157,9 @@ pub fn exposure(path: &Path) -> Option<crate::exposure::Exposure> {
     let mut err = [0 as c_char; 256];
     let rc = unsafe { emu_raw_info(path.as_ptr(), &mut info, err.as_mut_ptr(), err.len()) };
     if rc != 0 { return None; }
-    Some(crate::exposure::Exposure::new(info.iso as f64, info.shutter as f64, info.aperture as f64, info.focal_length as f64))
+    let mut result = crate::exposure::Exposure::new(info.iso as f64, info.shutter as f64, info.aperture as f64, info.focal_length as f64);
+    result.focal_length35 = (info.focal_length35.is_finite() && info.focal_length35 > 0.0).then_some(info.focal_length35 as f64);
+    Some(result)
 }
 
 /// Profile metadata is independent of lens-profile availability.

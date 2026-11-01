@@ -12,6 +12,7 @@ mod library;
 mod lens;
 mod raw;
 mod presets;
+mod perspective;
 mod sidecar;
 mod thumbs;
 mod user_looks;
@@ -93,6 +94,7 @@ pub fn run() {
             }
         })
         .invoke_handler(tauri::generate_handler![
+            commands::auto_perspective,
             commands::scan_folder,
             commands::photo_exposure,
             commands::browse_directory,

@@ -6,8 +6,10 @@
 // picker: click, or drag a box, over what the selected mask's range should take in.
 
 import { useRef, useState } from 'react';
-import { FULL, sourcePoint, type Crop, type Rect } from '../film/crop';
-import { alongNormal, compressionForEdge, edgeForCompression, ellipseFromDrag, ellipseHandles, ellipseLocal, ellipseOutline, featherFor, framePoint, gradientFromDrag, gradientLine, normalDistance, type Pt } from '../film/maskgeometry';
+import { geometryMatrix, project, type Perspective } from '../engine/perspective';
+import { invert3 } from '../engine/color';
+import { FULL, type Crop, type Rect } from '../film/crop';
+import { alongNormal, compressionForEdge, edgeForCompression, ellipseFromDrag, ellipseHandles, ellipseLocal, ellipseOutline, featherFor, gradientFromDrag, gradientLine, normalDistance, type Pt } from '../film/maskgeometry';
 import { newEllipse, newGradient, type EllipseShape, type GradientShape, type MaskShape } from '../film/masks';
 import type { View } from '../engine/engine';
 import { imagePoint } from './zoom';
@@ -33,7 +35,8 @@ const PICK_PATCH = 4;
 
 let gestures = 0;
 
-export function MaskOverlay({ frame, W, H, view, cssW, cssH, onPick }: {
+export function MaskOverlay({ transform, frame, W, H, view, cssW, cssH, onPick }: {
+  transform?: Perspective | null;
   frame: Rect & { angle: number }; W: number; H: number; view: View; cssW: number; cssH: number;
   /** The range picker's box, in frame coordinates. */
   onPick: (box: View) => void;
@@ -53,14 +56,16 @@ export function MaskOverlay({ frame, W, H, view, cssW, cssH, onPick }: {
   if (!mask && !tool) return null;
 
   const crop: Crop = { ...FULL, ...frame };
+  const geometry = geometryMatrix(crop, W, H, transform);
+  const inverse = invert3(geometry);
   const toScreen = (p: Pt): Pt => {
-    const [fu, fv] = framePoint(crop, W, H, p[0], p[1]);
+    const [fu, fv] = project(inverse, p[0], p[1]);
     return [((fu - view.x) / view.w) * cssW, ((fv - view.y) / view.h) * cssH];
   };
   const toSource = (e: { clientX: number; clientY: number }): Pt => {
     const r = ref.current!.getBoundingClientRect();
     const [fu, fv] = imagePoint(view, (e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height);
-    return sourcePoint(crop, W, H, fu, fv);
+    return project(geometry, fu, fv);
   };
   const path = (pts: Pt[], close = false) => pts.map((p, i) => `${i ? 'L' : 'M'}${toScreen(p).map((v) => v.toFixed(1)).join(' ')}`).join(' ') + (close ? ' Z' : '');
 

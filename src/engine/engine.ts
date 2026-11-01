@@ -15,7 +15,8 @@ import { prepareProfile, profilePending } from './profilestore';
 
 import type { Recipe } from '../film/recipe';
 import { lensCenter, lensColourUniforms, lensSpline, lensUniforms, type LensMetadata } from './lenscorrection';
-import { FULL, cropAffine, type Rect } from '../film/crop';
+import { geometryMatrix } from './perspective';
+import { FULL, type Rect } from '../film/crop';
 import { Gpu, GpuError, Lru, type Program, type Target } from './gpu';
 import { InputMode, LUT_UNIT, colorBalanceUniforms, developUniforms, needsPasses, type Uniforms } from './params';
 import { textureData } from './lut3d';
@@ -860,9 +861,10 @@ export class Engine {
       width: opts.width / view.w / frame.w, height: opts.height / view.h / frame.h, seed: opts.seed, inputMode: src.mode, store: this.store, compare: opts.compare, white: src.white, look, maskShow: opts.maskShow,
     });
     Object.assign(u,this.profiles.uniforms(profile));
-    const [a, b, c, d, e, f] = cropAffine({ ...FULL, ...frame }, src.w, src.h);
-    u.uGeoU = [a, b, e];
-    u.uGeoV = [c, d, f];
+    const geo = geometryMatrix({ ...FULL, ...frame }, src.fullW, src.fullH, recipe?.transform);
+    u.uGeoU = geo[0];
+    u.uGeoV = geo[1];
+    u.uGeoW = geo[2];
     u.uOutside = opts.outside ?? [0, 0, 0];
     u.uGrainFull = [src.fullW, src.fullH];
     u.uView = [view.x, view.y, view.w, view.h];
@@ -922,7 +924,7 @@ export class Engine {
           this.profiles.bind(profile);
           this.develop.set({
             ...u, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3, uTeqTex: 4, uTeqLocal: 0, uCurveTex: 5, uClarityTex: 6, uTextureTex: 8, uUsmTex: 9, uCeTex: 10,
-            uView: [0, 0, 1, 1], uGeoU: [1, 0, 0], uGeoV: [0, 1, 0], uSplit: -1, uClipShow: 0, uUsmOn: 0, uUsmShowMask: 0, uCeOn: 0, uTextureOn: 0, uClarityOn: 0, uTap: 6, uMaskTap: slot,
+            uView: [0, 0, 1, 1], uGeoU: [1, 0, 0], uGeoV: [0, 1, 0], uGeoW: [0, 0, 1], uSplit: -1, uClipShow: 0, uUsmOn: 0, uUsmShowMask: 0, uCeOn: 0, uTextureOn: 0, uClarityOn: 0, uTap: 6, uMaskTap: slot,
           });
           g.bindArray(MASK_UNIT, maskTex);
           g.draw(this.develop, t, t.w, t.h);
@@ -971,7 +973,7 @@ export class Engine {
     const tap = (t: Target, uTap: number, extra: Uniforms) => {
       this.develop.set({
         ...u, ...teqU, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3, uClarityTex: 6, uTextureTex: 8, uUsmTex: 9,
-        uView: [0, 0, 1, 1], uGeoU: [1, 0, 0], uGeoV: [0, 1, 0], uSplit: -1, uClipShow: 0, uUsmOn: 0, uUsmShowMask: 0, uCeTex: 10, uCeOn: ceOn ? 1 : 0, uTap, ...extra,
+        uView: [0, 0, 1, 1], uGeoU: [1, 0, 0], uGeoV: [0, 1, 0], uGeoW: [0, 0, 1], uSplit: -1, uClipShow: 0, uUsmOn: 0, uUsmShowMask: 0, uCeTex: 10, uCeOn: ceOn ? 1 : 0, uTap, ...extra,
       });
       g.bindArray(MASK_UNIT, maskTex);
       g.draw(this.develop, t, t.w, t.h);
@@ -988,7 +990,7 @@ export class Engine {
     if (picking) {
       if (opts.target === 'screen') throw Error('A pick renders into a target');
       bindDevelop(g.blackTexture);
-      tap(opts.target, 5, { uView: u.uView, uGeoU: u.uGeoU, uGeoV: u.uGeoV, uTextureOn: 0, uClarityOn: 0, uCeOn: 0 });
+      tap(opts.target, 5, { uView: u.uView, uGeoU: u.uGeoU, uGeoV: u.uGeoV, uGeoW: u.uGeoW, uTextureOn: 0, uClarityOn: 0, uCeOn: 0 });
       return;
     }
     if (eqOn && this.eqMade?.tex === src.tex && this.eqMade.key === textureKey) texture = this.eqMade.out.tex;

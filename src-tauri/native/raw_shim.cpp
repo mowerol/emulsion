@@ -27,6 +27,7 @@ struct EmuRawInfo {
   float shutter;
   float aperture;
   float focal_length;
+  float focal_length35;
 };
 
 struct EmuRawThumb {
@@ -83,6 +84,7 @@ static void fill_colour_info(LibRaw *raw, EmuRawInfo *info) {
   info->shutter = raw->imgdata.other.shutter;
   info->aperture = raw->imgdata.other.aperture;
   info->focal_length = raw->imgdata.other.focal_len;
+  info->focal_length35 = raw->imgdata.lens.FocalLengthIn35mmFormat;
 }
 
 // Decode to 16-bit linear camera RGB, white balanced as shot and oriented.

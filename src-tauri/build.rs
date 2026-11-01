@@ -37,5 +37,11 @@ fn build_libraw() {
 
 fn main() {
     build_libraw();
+    cc::Build::new().cpp(true).std("c++14")
+        .include("vendor/rawtherapee-perspective")
+        .file("native/perspective.cpp").opt_level(3).warnings(false)
+        .compile("emulsion_perspective");
+    println!("cargo:rerun-if-changed=native/perspective.cpp");
+    println!("cargo:rerun-if-changed=vendor/rawtherapee-perspective");
     tauri_build::build()
 }

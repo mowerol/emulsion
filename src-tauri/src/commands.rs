@@ -135,6 +135,19 @@ fn header(request: &Request<'_>, name: &str) -> Result<String, String> {
     percent_decode_str(raw).decode_utf8().map(|s| s.into_owned()).map_err(|_| format!("Invalid {name}"))
 }
 
+/// Neutral, lens-corrected RGBA8 preview. Geometry is fitted off the UI thread.
+#[tauri::command]
+pub async fn auto_perspective(request: Request<'_>) -> Result<crate::perspective::Perspective, String> {
+    let width: u32 = header(&request, "x-emulsion-width")?.parse().map_err(|_| "Invalid width")?;
+    let height: u32 = header(&request, "x-emulsion-height")?.parse().map_err(|_| "Invalid height")?;
+    let axis = header(&request, "x-emulsion-axis")?;
+    let current = serde_json::from_str(&header(&request, "x-emulsion-perspective")?).map_err(|_| "Invalid perspective parameters")?;
+    let InvokeBody::Raw(bytes) = request.body() else { return Err("Expected raw pixel data".into()); };
+    if bytes.len() > 4_000_000 { return Err("Perspective preview is too large".into()); }
+    let pixels = bytes.clone();
+    blocking(move || crate::perspective::fit(&pixels, width, height, &axis, current)).await
+}
+
 /// Body: RGBA8 pixels, top row first. Headers carry the destination and size.
 #[tauri::command]
 pub async fn write_export(request: Request<'_>) -> Result<String, String> {

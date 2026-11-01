@@ -12,6 +12,7 @@ Version 0.1. Working today:
 - Library grid with adjustable thumbnail size, multi-select (Shift and Cmd/Ctrl click, select all).
 - The last browsed folder and its import scope reopen on launch. ISO, shutter speed, aperture and focal length appear beneath the Develop histogram, in the Workflow footer, and on Library/import tiles when recorded by the camera. Metadata is read lazily without decoding the photo.
 - Develop view with filmstrip and a live preview, rendered on the GPU. Zoom to 100% and beyond (the full resolution loads when needed), pan, and a clipping overlay. The side panel keeps the histogram pinned and folds sections away.
+- Transform with automatic Vertical, Horizontal or Both perspective correction (RawTherapee), manual correction and rotation, and Constrain crop to remove blank borders. Saved per photo and used in thumbnails and exports. In the Workflow layout, open Refine → Transform; in Classic, open Transform.
 - Point tone curve, master and per channel, on the final image (darktable's monotone spline), with the frame's histogram behind it.
 - Film grain from the statistics of the Boolean grain model (Newson et al., 2017): coarse and broken up in thin shadows, strongest in the midtones, smooth in dense highlights, clumping more when pushed. Amount, Size and Roughness, with film speed presets from ISO 50 to 3200; each stock starts at its own ISO. Grain and halation are off (0) until turned up.
 - Live histogram of the developed frame (red, green, blue and luma) with clipping readouts.

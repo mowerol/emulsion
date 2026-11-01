@@ -7,6 +7,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { useProfileVersion } from '../engine/profilestore';
 import { useLutVersion } from '../engine/lutstore';
 import { logToTerminal } from '../backend/api';
+import { geometrySourcePoint } from '../engine/perspective';
 import { Engine, type Source, type View } from '../engine/engine';
 import { pickStats, pickedRange } from '../engine/masks';
 import { RANGE_CHANNELS } from '../film/masks';
@@ -15,7 +16,7 @@ import { defaultRecipe } from '../film/recipe';
 import { D65_XY, clampWhiteBalance, neutralizingWhite, temperatureTint } from '../engine/whitebalance';
 import { STAGE_COLORS, activePhoto, editActive, finishCrop, setCropDraft, setPhotoWhite, setPhotoLens, setPhotoCamera, showToast, startCrop, useApp } from '../library/store';
 import { StageMenu } from './StageMenu';
-import { FULL, bounds, framePixels, rotateFrame, sourcePoint } from '../film/crop';
+import { FULL, bounds, framePixels, rotateFrame } from '../film/crop';
 import { CropOverlay } from './CropOverlay';
 import { ensureCapture, loadCachedImage, sourceFromBlob, thumbs } from '../library/thumbs';
 import { Filmstrip } from './Filmstrip';
@@ -444,7 +445,7 @@ export function Develop() {
     const l = loadedRef.current;
     if (!engine || !l || l.path !== path || !current) return;
     const [fu, fv] = imagePoint(current.view, fx, fy);
-    const [u, v] = sourcePoint({ ...FULL, ...frame }, l.source.w, l.source.h, fu, fv);
+    const [u, v] = geometrySourcePoint({ ...FULL, ...frame }, l.source.fullW, l.source.fullH, fu, fv, photo?.recipe?.transform);
     const sample = engine.sampleScene(l.source, u, v, photo?.recipe ?? null);
     const w = neutralizingWhite(sample, l.source.white ?? D65_XY);
     useApp.setState({ picking: false });
@@ -519,7 +520,7 @@ export function Develop() {
           />
           {split !== undefined && showing && <SplitDivider at={splitAt} onMove={setSplitAt} />}
           {masksOpen && !cropping && !compare && showing && current && (maskIndex >= 0 || maskTool) && (
-            <MaskOverlay frame={frame} W={src!.fullW} H={src!.fullH} view={current.view} cssW={current.cssW} cssH={current.cssH} onPick={pickRange} />
+            <MaskOverlay transform={recipe?.transform} frame={frame} W={src!.fullW} H={src!.fullH} view={current.view} cssW={current.cssW} cssH={current.cssH} onPick={pickRange} />
           )}
           {cropEdit && showing && (
             <CropOverlay draft={cropEdit.draft} frame={frame} W={cropEdit.W} H={cropEdit.H} onChange={(c) => setCropDraft(() => c)} />

@@ -12,12 +12,13 @@ pub struct Exposure {
     pub shutter: Option<f64>,
     pub aperture: Option<f64>,
     pub focal_length: Option<f64>,
+    pub focal_length35: Option<f64>,
 }
 
 impl Exposure {
     pub fn new(iso: f64, shutter: f64, aperture: f64, focal_length: f64) -> Self {
         let valid = |v: f64| (v.is_finite() && v > 0.0).then_some(v);
-        Self { iso: valid(iso), shutter: valid(shutter), aperture: valid(aperture), focal_length: valid(focal_length) }
+        Self { iso: valid(iso), shutter: valid(shutter), aperture: valid(aperture), focal_length: valid(focal_length), focal_length35: None }
     }
 }
 
@@ -38,7 +39,9 @@ fn settings(exif: &Exif) -> Exposure {
         .or_else(|| number(exif, Tag::ShutterSpeedValue).map(|v| 2.0f64.powf(-v))).unwrap_or(0.0);
     let aperture = number(exif, Tag::FNumber).filter(|v| *v > 0.0)
         .or_else(|| number(exif, Tag::ApertureValue).map(|v| 2.0f64.powf(v / 2.0))).unwrap_or(0.0);
-    Exposure::new(iso, shutter, aperture, number(exif, Tag::FocalLength).unwrap_or(0.0))
+    let mut result = Exposure::new(iso, shutter, aperture, number(exif, Tag::FocalLength).unwrap_or(0.0));
+    result.focal_length35 = number(exif, Tag::FocalLengthIn35mmFilm).filter(|v| *v > 0.0);
+    result
 }
 
 pub fn read(path: &Path) -> Option<Exposure> {
@@ -90,6 +93,7 @@ mod tests {
         let tiff = tiff(&[
             (0x829a, 5, rational(1, 250)), (0x829d, 5, rational(28, 10)),
             (0x8827, 3, 400u16.to_le_bytes().to_vec()), (0x920a, 5, rational(35, 1)),
+            (0xa405, 3, 52u16.to_le_bytes().to_vec()),
         ]);
         let mut jpeg = vec![0xff, 0xd8, 0xff, 0xe1];
         jpeg.extend(((tiff.len() + 8) as u16).to_be_bytes());
@@ -104,6 +108,7 @@ mod tests {
             assert_eq!(exposure.shutter, Some(1.0 / 250.0));
             assert_eq!(exposure.aperture, Some(2.8));
             assert_eq!(exposure.focal_length, Some(35.0));
+            assert_eq!(exposure.focal_length35, Some(52.0));
         }
     }
 

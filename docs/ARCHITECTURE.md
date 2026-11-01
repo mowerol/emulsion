@@ -81,6 +81,31 @@ Each stage is one GLSL file in `src/engine/shaders/stages/`, included into `deve
 
 The neutral sigmoid’s maths is mirrored in `engine/tone.ts` so it can be unit-tested; the shader receives its constants from there. Emulsion's neutral curve uses sigmoid contrast 1.15 and skew 0.11 rather than darktable's 1.5 and 0, fitted to the curve the stocks were first tuned on, and a display black of 0 so the inverse is exact. Without a DCP tone curve, the base renders the neutral curve per channel, the exact inverse of the display-referred input stage. A DCP uses its own tone curve for both the edited photo and Compare.
 
+### Transform geometry
+
+`recipe.transform` is null for legacy/unaltered geometry, otherwise stores camera
+rotation, vertical pitch, horizontal yaw (degrees), 35mm-equivalent focal length
+and `autoCrop`. It stays local to each photo when copying settings or applying
+presets, and is preserved by Reset sliders. Reset Transform clears it in one
+undo step.
+
+`library/perspective.ts` renders a 900px neutral, lens-corrected, uncropped source
+preview; `auto_perspective` sends binary RGBA8 through Tauri to a bounded Rust
+boundary and RawTherapee's native LSD → RANSAC → Nelder-Mead fitter on a blocking
+worker. Requests are discarded if the active frame or recipe changes. RAW and
+JPEG 35mm-equivalent focal length is read from camera metadata when available;
+missing metadata uses upstream's generic 28mm camera model, editable in the UI.
+
+`engine/perspective.ts` ports the same native homography, re-centers it on the
+source center, and optionally scales a centered rectangle to keep every corner
+inside the photo. The inverse is composed with the crop affine. The final GPU
+pass divides `uGeoU/V` by `uGeoW`; analysis taps explicitly reset all three rows
+to identity so masks and detail maps stay in source coordinates. Full sensor
+aspect keeps geometry consistent across preview and export sizes. CPU mask
+handles and white-balance picking share this projective map. Compare retains
+geometry, as it retains crop. See `tools/probe/perspective-reference/README.md`
+for independent native, GPU and browser checks, and NOTICE for upstream licences.
+
 ### Passes
 
 `engine/engine.ts` runs these passes per render:
@@ -114,7 +139,7 @@ Halation and glow are blurred on small, fixed-size levels of a downsample pyrami
 
 ### Crop and straighten
 
-A recipe's `crop` (`film/crop.ts`) turns the photo about its centre by `angle`, then cuts a rectangle from it, measured in units of the source's width and height (so with no rotation it is the ordinary crop in image coordinates). The develop pass maps each frame pixel to the source with one affine map (`uGeoU`, `uGeoV`); every other pass (tone equalizer map, highlight pyramid, sharpening) still works on the whole source, which the develop pass samples at the mapped point. Grain, vignette, halation and glow belong to the film, so they stay tied to the uncropped frame and cropping enlarges them, as it would a negative. While cropping, the canvas shows the whole straightened photo (`bounds`) with the stage colour around it, and `CropOverlay` edits a draft in the store that is saved as one undo step when cropping ends. Everything that sizes a render (export, thumbnails, stock tiles, histogram) uses `framePixels`. Pasted settings keep each frame's own crop.
+A recipe's `crop` (`film/crop.ts`) turns the photo about its centre by `angle`, then cuts a rectangle from it, measured in units of the source's width and height (so with no rotation it is the ordinary crop in image coordinates). The develop pass composes crop with perspective and maps each frame pixel to the source with one projective map (`uGeoU`, `uGeoV`, `uGeoW`); every other pass (tone equalizer map, highlight pyramid, sharpening) still works on the whole source, which the develop pass samples at the mapped point. Grain, vignette, halation and glow belong to the film, so they stay tied to the uncropped frame and cropping enlarges them, as it would a negative. While cropping, the canvas shows the whole straightened photo (`bounds`) with the stage colour around it, and `CropOverlay` edits a draft in the store that is saved as one undo step when cropping ends. Everything that sizes a render (export, thumbnails, stock tiles, histogram) uses `framePixels`. Pasted settings keep each frame's own crop.
 
 ### Preview and export
 

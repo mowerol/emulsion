@@ -8,6 +8,7 @@ import { photoId } from '../library/copies';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { CameraProfileControls } from './CameraProfile';
 import { profileLabel, useProfileVersion } from '../engine/profilestore';
+import { TransformControls, transformSummary } from './TransformControls';
 import { LensControls } from './LensControls';
 import { ColourGradingControls } from './ColourGrading';
 import { BRIGHT_RANGE, COLOR_CHANNELS, DEFAULT_STOCK, HUE_DEGREES, SAT_RANGE, SLIDER, SLIDERS, defaultRecipe, tidyColor, type ColorAdjust, resetAdjustments, resetSection, sectionChanged, sliderDefault, withSettingsFrom, type Recipe, type SectionId, type SliderDef } from '../film/recipe';
@@ -242,10 +243,11 @@ export function Panel() {
     optics: <Section id="optics" title="Optics" onReset={resetFor(grouped ? 'refine-optics' : 'optics', 'Optics')}>{rows(grouped ? [...sliderGroup('optics'), 'fade'] : sliderGroup('optics'))}</Section>,
     grain: <Section id="grain" title="Grain" onReset={resetFor('grain', 'Grain')}><GrainSpeed recipe={base} />{rows(sliderGroup('grain'))}</Section>,
     lens: photo.raw && <Section id="lens" title="Lens corrections" summary={photo.lens?.correction ? (base.lens?.enabled === false ? 'Off' : 'Embedded profile') : 'No profile'} onReset={resetFor('lens', 'Lens')}><LensControls recipe={base} metadata={photo.lens} /></Section>,
+    transform: <Section id="transform" title="Transform" summary={transformSummary(base.transform)} onReset={resetFor('transform', 'Transform')}><TransformControls recipe={base} /></Section>,
     masks: <Section id="masks" title="Masks" summary={recipe?.masks.length ? `${recipe.masks.length} ${recipe.masks.length === 1 ? 'mask' : 'masks'}` : 'None'} onReset={resetFor('masks', 'Masks')}><MaskControls /></Section>,
     crop: !grouped && <Section id="crop" title="Crop" summary={cropSummary(recipe?.crop ?? null)} onReset={resetFor('crop', 'Crop')}><CropControls recipe={recipe} /></Section>,
   };
-  const classic = view === 'develop' ? ['profile', 'stock', 'presets', 'lens', 'crop', 'adjust', 'curve', 'color', 'grading', 'masks', 'detail', 'optics', 'grain'] : ['profile', 'stock', 'presets'];
+  const classic = view === 'develop' ? ['profile', 'stock', 'presets', 'lens', 'crop', 'transform', 'adjust', 'curve', 'color', 'grading', 'masks', 'detail', 'optics', 'grain'] : ['profile', 'stock', 'presets'];
   const visible: readonly string[] = editing ? ['look-editor', 'look-tone', 'curve', 'grading', 'scanner'] : grouped ? CONTROL_GROUPS.find(g => g.id === workspace.group)!.sections : classic;
   // Group configuration owns both membership and ordering. Keep other sections mounted so
   // switching tabs preserves each colour module's local view state.

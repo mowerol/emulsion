@@ -37,6 +37,7 @@ uniform float uSplit;
 // Crop and straighten: the source point under a frame point f is (dot(uGeoU, (f, 1)), dot(uGeoV, (f, 1))).
 uniform vec3 uGeoU;
 uniform vec3 uGeoV;
+uniform vec3 uGeoW;
 // Display colour for frame pixels off the photo (only while cropping).
 uniform vec3 uOutside;
 // Renders a multi-scale filter's input instead, over the whole source: 1, the print's
@@ -51,7 +52,9 @@ uniform float uUsmShowMask;
 
 void main() {
   vec3 f = vec3(uView.xy + vUv * uView.zw, 1.0);
-  vec2 uv = vec2(dot(uGeoU, f), dot(uGeoV, f));
+  float denominator = dot(uGeoW, f);
+  if (abs(denominator) < 1e-8) { outColor = vec4(uOutside, 1.0); return; }
+  vec2 uv = vec2(dot(uGeoU, f), dot(uGeoV, f)) / denominator;
   vec2 edge = 0.5 / vec2(textureSize(uSrc, 0));
   if (any(lessThan(uv, -edge)) || any(greaterThan(uv, 1.0 + edge))) {
     outColor = vec4(uOutside, 1.0);

@@ -46,6 +46,7 @@ export interface Exposure {
   shutter: number | null;
   aperture: number | null;
   focalLength: number | null;
+  focalLength35?: number | null;
 }
 export const photoExposure = (path: string) => invoke<Exposure | null>('photo_exposure', { path });
 
@@ -154,4 +155,11 @@ export const startupOptions = () => invoke<StartupOptions>('startup_options');
 
 export function logToTerminal(level: 'error' | 'warn' | 'info', message: string) {
   if (isTauri()) invoke('log_message', { level, message }).catch(() => {});
+}
+
+/** Fit perspective from a neutral, oriented and lens-corrected RGBA preview. */
+export function autoPerspective(pixels: Uint8Array, width: number, height: number, axis: 'vertical' | 'horizontal' | 'both', current: import('../engine/perspective').Perspective) {
+  return invoke<Pick<import('../engine/perspective').Perspective, 'rotation' | 'vertical' | 'horizontal' | 'focalLength'>>('auto_perspective', pixels, {
+    headers: { 'x-emulsion-width': String(width), 'x-emulsion-height': String(height), 'x-emulsion-axis': axis, 'x-emulsion-perspective': JSON.stringify(current) },
+  });
 }
