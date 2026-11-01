@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { ScannerFinishControls } from './ScannerFinish';
 import type { ScannerId } from '../film/scanners';
-import { lookName, type PackId } from '../film/looks';
+import { PACK, PACKS, lookName, type PackId } from '../film/looks';
 import type { StockId } from '../film/stocks';
 import type { Recipe } from '../film/recipe';
 import { useUserLooksVersion } from '../library/userlooks';
@@ -47,6 +47,27 @@ export function LookChooser({ recipe, onPick, onAmount, onEdit, onNew, onRemove,
   const active = items.find(i => i.key === key);
   const favourites = items.filter(i => preferences.favourites.includes(i.key));
   const matches = items.filter(i => i.name.toLowerCase().includes(query.trim().toLowerCase()) && (filter === 'all' || (filter === 'bw' ? i.bw : !i.bw)));
+  const groups: { id: string; title: string; entries: LookChoice[] }[] = [
+    { id: 'favourites', title: 'Favourites', entries: matches.filter(i => preferences.favourites.includes(i.key)) },
+    { id: 'custom', title: 'My looks', entries: matches.filter(i => i.custom) },
+    ...PACKS.filter(p => !p.hidden && !p.user).flatMap(p => {
+      const entries = matches.filter(i => i.pack === p.id);
+      if (p.id !== 'gmic-film') return [{ id: p.id, title: p.name, entries }];
+      const categories = [
+        ['Colour negative', 'Negative'],
+        ['Colour slide', 'Slide'],
+        ['Black & white', 'Black & white'],
+        ['Instant consumer', 'Instant consumer'],
+        ['Instant professional', 'Instant professional'],
+        ['Negative — newer', 'Negative (newer)'],
+        ['Negative — older', 'Negative (older)'],
+      ];
+      return categories.map(([category, label]) => ({
+        id: `${p.id}:${category}`, title: `${p.name} - ${label}`,
+        entries: entries.filter(i => PACK[i.pack].looks[i.stock]?.category === category),
+      }));
+    }),
+  ];
   const quickItems = query.trim() ? items.filter(i => i.name.toLowerCase().includes(query.trim().toLowerCase())) : favourites;
   const close = () => { setBrowse(false); setQuick(false); setQuery(''); trigger.current?.focus(); };
   const openBrowser = (button?: HTMLButtonElement) => { if(button) trigger.current=button; setQuick(false); setQuery(''); setBrowse(true); };
@@ -73,11 +94,7 @@ export function LookChooser({ recipe, onPick, onAmount, onEdit, onNew, onRemove,
     <header className="look-browser-heading"><div><strong>{name}</strong><button className="btn" onClick={close}>Close</button></div>{amount}</header>
     <div className="look-browser-toolbar"><div className="look-colour-filters" role="group" aria-label="Look colour filter">{(['all','colour','bw'] as const).map(f=><button key={f} aria-pressed={filter===f} onClick={()=>setFilter(f)}>{f==='all'?'All':f==='colour'?'Colour':'B&W'}</button>)}</div><div className="look-view-buttons" role="group" aria-label="Look browser layout"><button aria-label="List view" aria-pressed={preferences.view==='list'} onClick={()=>setLookBrowserView('list')}>☰</button><button aria-label="Grid view" aria-pressed={preferences.view==='grid'} onClick={()=>setLookBrowserView('grid')}><GridIcon/></button></div></div>
     <input className="look-search" type="search" aria-label="Search looks" placeholder="Search looks…" value={query} onChange={e=>setQuery(e.target.value)}/>
-    <div className="look-browser-groups">{[
-      ['Favourites', matches.filter(i=>preferences.favourites.includes(i.key))],
-      ['My looks', matches.filter(i=>i.custom)],
-      ['Built-in', matches.filter(i=>!i.custom)],
-    ].map(([title, entries]) => { const group=entries as LookChoice[];return group.length>0 && <details open key={title as string} className="look-browser-group"><summary>{title as string} <span>({group.length})</span></summary><div className={`look-entries ${preferences.view}`}>{group.map(item=><LookRow key={item.key} item={item} selected={key===item.key} favourite={preferences.favourites.includes(item.key)} onPick={()=>pick(item)} onDelete={()=>onDelete(item.stock)} onDuplicate={()=>{close();onDuplicate(item.pack,item.stock);}}/>)}</div></details>; })}
+    <div className="look-browser-groups">{groups.map(({ id, title, entries }) => entries.length > 0 && <details open key={id} className="look-browser-group"><summary>{title} <span>({entries.length})</span></summary><div className={`look-entries ${preferences.view}`}>{entries.map(item=><LookRow key={item.key} item={item} selected={key===item.key} favourite={preferences.favourites.includes(item.key)} onPick={()=>pick(item)} onDelete={()=>onDelete(item.stock)} onDuplicate={()=>{close();onDuplicate(item.pack,item.stock);}}/>)}</div></details>)}
     {!matches.length && <p className="look-empty">{query ? 'No matching looks.' : 'No looks in this category.'}</p>}</div>
     <footer><button onClick={()=>{close();onNew();}}>＋ New look…</button></footer>
   </div>;

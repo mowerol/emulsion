@@ -38,7 +38,7 @@ export function TreatmentControls({ photo, editor = false }: { photo: Photo; edi
       setCollection('files');
     } catch (e) { fail(e); }
   };
-  const collections = PACKS.filter(p => editor ? !p.user || p.id === 'files' && Object.keys(p.looks).length > 0 : !p.hidden);
+  const collections = PACKS.filter(p => editor ? !p.hidden && !p.user || p.id === 'files' && Object.keys(p.looks).length > 0 : !p.hidden);
   const pack = collections.some(p => p.id === collection) ? collection : 't3mujinpack';
   if (!editor) return <LookChooser recipe={r} onPick={pick}
     onScannerChange={choice => apply(r => choice === 'look' ? { ...r, scannerFromLook: true } : { ...r, scanner: choice, scannerFromLook: false }, 'Scanner finish')}

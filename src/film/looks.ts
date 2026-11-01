@@ -56,7 +56,7 @@ const bundledLooks = (pack: PackId): LookPack['looks'] => Object.fromEntries(
 /** A pack served from the ignored local-looks folder, only in development. */
 const localPack = (id: PackId, name: string, hint: string): LookPack[] =>
   import.meta.env.DEV && LOCAL_LOOKS.some((l) => l.pack === id)
-    ? [{ id, name, hint, looks: bundledLooks(id), local: true }]
+    ? [{ id, name, hint, looks: bundledLooks(id), local: true, hidden: true }]
     : [];
 
 export const PACKS: LookPack[] = [
@@ -69,12 +69,12 @@ export const PACKS: LookPack[] = [
     looks: Object.fromEntries(Object.entries(T3M).map(([s, name]) => [s, { file: `t3mujinpack - ${name}.png`, kind: 'look' as const }])),
   },
   {
-    id: 'gmic-film', name: "G’MIC / Pat David", hint: 'Pat David’s film emulations, distributed as Cube LUTs by G’MIC and YahiaAngelo.',
+    id: 'gmic-film', name: 'Pat David', hint: 'Pat David’s film emulations, distributed as Cube LUTs by G’MIC and YahiaAngelo.',
     looks: bundledLooks('gmic-film'),
   },
   {
     id: 'picturefx', name: 'PictureFX (legacy)', hint: 'Marc Roovers’ legacy AnalogFX, GoldFX, TechnicalFX and ZilverFX looks.',
-    looks: bundledLooks('picturefx'),
+    looks: bundledLooks('picturefx'), hidden: true,
   },
   ...localPack('fuji-test', 'Fujifilm (local test)',
     'Ten official Fujifilm simulations adapted for Emulsion’s sRGB LUT stage. Local test versions.'),
