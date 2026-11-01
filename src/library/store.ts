@@ -5,7 +5,7 @@
 import { create } from 'zustand';
 import type { Histogram } from '../engine/histogram';
 import type { Xy } from '../engine/whitebalance';
-import { scanFolder, whitePoints } from '../backend/api';
+import { scanFolder, whitePoints, type Entry } from '../backend/api';
 import { folderImport, importedPaths, saveFolderImport, type FolderImport } from './folders';
 import { defaultRecipe, normalizeRecipe, withSettingsFrom, type Recipe } from '../film/recipe';
 import { FULL, isFull, type Crop } from '../film/crop';
@@ -59,6 +59,7 @@ interface State {
   candidates: Photo[];
   importChoice: FolderImport | null;
   choosingImport: boolean;
+  includeSubfolders: boolean;
   photos: Photo[];
   view: View;
   active: number;
@@ -189,6 +190,7 @@ export const useApp = create<State>(() => ({
   candidates: [],
   importChoice: null,
   choosingImport: false,
+  includeSubfolders: false,
   photos: [],
   view: 'library',
   active: -1,
@@ -226,6 +228,12 @@ export function showToast(message: string, action?: Toast['action'], ms = 3200) 
   }, action ? ms * 2 : ms);
 }
 
+const scannedPhoto = (e: Entry): Photo => ({
+  path: e.path, rel: e.rel, name: e.name, size: e.size, modified: e.modified,
+  recipe: normalizeRecipe(e.recipe), seed: seedFor(e.path), white: null,
+  ...normalizeMarks(e.rating, e.label, e.heart), raw: e.raw, pair: null,
+});
+
 let folderRequest = 0;
 export async function openFolder(path: string) {
   const request = ++folderRequest;
@@ -235,29 +243,23 @@ export async function openFolder(path: string) {
   try {
     await flushSaves();
     if (request !== folderRequest) return;
-    const res = await scanFolder(path, false);
+    const recursive = folderImport(path)?.includeSubfolders === true;
+    let res = await scanFolder(path, recursive);
     if (request !== folderRequest) return;
-    const all: Photo[] = res.entries.map((e) => ({
-      path: e.path,
-      rel: e.rel,
-      name: e.name,
-      size: e.size,
-      modified: e.modified,
-      recipe: normalizeRecipe(e.recipe),
-      seed: seedFor(e.path),
-      white: null,
-      ...normalizeMarks(e.rating, e.label, e.heart),
-      raw: e.raw,
-      pair: null,
-    }));
-    history.clear();
     const choice = folderImport(res.root);
+    if (choice?.includeSubfolders && !recursive) {
+      res = await scanFolder(res.root, true);
+      if (request !== folderRequest) return;
+    }
+    const all = res.entries.map(scannedPhoto);
+    history.clear();
     set({
       folder: { root: res.root, name: res.name, unreadable: res.unreadable },
       subfolders: res.folders ?? [],
       candidates: all,
       importChoice: choice,
       choosingImport: !choice,
+      includeSubfolders: choice?.includeSubfolders === true,
       view: 'library',
       compare: false,
       ...historyState(),
@@ -290,6 +292,11 @@ export function importFolderPhotos(choice: FolderImport) {
   // Preserve in-memory edits when adding more photos or enabling sync.
   const current = new Map([...photos, ...hidden].map(p => [p.path, p]));
   const all = candidates.map(p => current.get(p.path) ?? p);
+  choice = { ...choice, includeSubfolders: get().includeSubfolders };
+  if (choice.mode === 'selected') {
+    const available = new Set(all.map(p => p.path));
+    choice.paths = choice.paths.filter(path => available.has(path));
+  }
   saveFolderImport(folder.root, choice);
   set({ importChoice: choice, choosingImport: false, candidates: all });
   displayImported(all, choice);
@@ -297,13 +304,32 @@ export function importFolderPhotos(choice: FolderImport) {
 
 export function chooseImport(choosingImport: boolean) { set({ choosingImport }); }
 
+/** Preview the requested scope without changing which photos have been imported. */
+export async function setIncludeSubfolders(include: boolean) {
+  const { folder } = get();
+  if (!folder || get().loading || include === get().includeSubfolders) return;
+  const request = ++folderRequest;
+  set({ loading: true });
+  try {
+    const res = await scanFolder(folder.root, include);
+    if (request !== folderRequest) return;
+    const current = new Map([...get().candidates, ...get().photos, ...get().hidden].map(p => [p.path, p]));
+    set({ candidates: res.entries.map(e => current.get(e.path) ?? scannedPhoto(e)), includeSubfolders: include });
+    if (res.unreadable) showToast(`${res.unreadable} items could not be read.`);
+  } catch (err) {
+    if (request === folderRequest) showToast(`Could not read that folder. ${String(err)}`);
+  } finally {
+    if (request === folderRequest) set({ loading: false });
+  }
+}
+
 export function closeFolder() {
   ++folderRequest;
   finishCrop(true);
   endLookEdit();
   history.clear();
   set({ folder: null, photos: [], hidden: [], candidates: [], subfolders: [], importChoice: null,
-    choosingImport: false, loading: false, active: -1, selected: new Set(), view: 'library', ...historyState() });
+    choosingImport: false, includeSubfolders: false, loading: false, active: -1, selected: new Set(), view: 'library', ...historyState() });
 }
 
 export const setView = (view: View) => {

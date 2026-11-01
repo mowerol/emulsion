@@ -1,15 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /** Membership is separate from edits: browsing a folder never imports its photos. */
-export type FolderImport = { mode: 'sync' } | { mode: 'selected'; paths: string[] };
+export type FolderImport = ({ mode: 'sync' } | { mode: 'selected'; paths: string[] }) & { includeSubfolders?: boolean };
 const KEY = 'emulsion.folderImports';
 let memory: Record<string, FolderImport> = {};
 
 export function folderImport(root: string): FolderImport | null {
   try {
     const value = JSON.parse(localStorage.getItem(KEY) || '{}')[root];
-    if (value?.mode === 'sync') return { mode: 'sync' };
+    if (value?.mode === 'sync') return { mode: 'sync', includeSubfolders: value.includeSubfolders === true };
     if (value?.mode === 'selected' && Array.isArray(value.paths)) {
-      return { mode: 'selected', paths: value.paths.filter((p: unknown): p is string => typeof p === 'string') };
+      return { mode: 'selected', paths: value.paths.filter((p: unknown): p is string => typeof p === 'string'), includeSubfolders: value.includeSubfolders === true };
     }
   } catch { /* Fall back to this session when storage is unavailable. */ }
   return memory[root] ?? null;

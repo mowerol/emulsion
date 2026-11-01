@@ -8,7 +8,7 @@ Emulsion is a desktop app: a Rust core (folders, decoding, thumbnails, sidecars,
 
 Version 0.1. Working today:
 
-- A folder Library replaces the welcome page: browse your computer and external drives in the left directory pane, with photo tiles on the right. Optionally choose a root folder. Choose to sync all photos or import only selected photos. Sync updates when a folder is opened or refreshed; selective imports remember the chosen files. Subfolders are imported separately. Hidden files, macOS `._` files and the export folder are skipped.
+- A folder Library replaces the welcome page: browse your computer and external drives in the left directory pane, with photo tiles on the right. Optionally choose a root folder. Choose to sync all photos or import only selected photos, optionally including subfolders and grouping RAW+JPEG pairs. Selecting a grouped pair imports both files; ungroup to pick either file separately. Sync updates when a folder is opened or refreshed; selective imports remember the chosen files and subfolder scope. Hidden files, macOS `._` files and the export folder are skipped.
 - Library grid with adjustable thumbnail size, multi-select (Shift and Cmd/Ctrl click, select all).
 - Develop view with filmstrip and a live preview, rendered on the GPU. Zoom to 100% and beyond (the full resolution loads when needed), pan, and a clipping overlay. The side panel keeps the histogram pinned and folds sections away.
 - Point tone curve, master and per channel, on the final image (darktable's monotone spline), with the frame's histogram behind it.

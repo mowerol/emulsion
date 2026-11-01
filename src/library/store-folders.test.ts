@@ -6,7 +6,7 @@ vi.mock('../backend/api', () => ({
   isTauri: () => false, logToTerminal: () => {},
 }));
 import { scanFolder, whitePoints, type ScanResult } from '../backend/api';
-import { closeFolder, importFolderPhotos, openFolder, useApp } from './store';
+import { closeFolder, importFolderPhotos, openFolder, setIncludeSubfolders, useApp } from './store';
 import { NO_FILTER } from './filter';
 
 function scan(root = '/photos', names = ['a.jpg', 'b.jpg']): ScanResult {
@@ -77,4 +77,29 @@ it('does not reopen a folder after returning to the folder Library during a scan
   finish(scan());
   await opening;
   expect(useApp.getState().folder).toBeNull();
+});
+
+it('previews subfolders without importing them, then remembers the sync scope on reopen', async () => {
+  vi.mocked(scanFolder).mockImplementation(async (root, recursive) => scan(root, recursive ? ['a.jpg', 'Trip/b.jpg'] : ['a.jpg']));
+  await openFolder('/nested');
+  await setIncludeSubfolders(true);
+  expect(scanFolder).toHaveBeenLastCalledWith('/nested', true);
+  expect(useApp.getState().candidates).toHaveLength(2);
+  expect(useApp.getState().photos).toHaveLength(0);
+  importFolderPhotos({ mode: 'sync' });
+  closeFolder();
+  await openFolder('/nested');
+  expect(scanFolder).toHaveBeenLastCalledWith('/nested', true);
+  expect(useApp.getState().includeSubfolders).toBe(true);
+  expect(useApp.getState().photos.map(p => p.rel)).toEqual(['a.jpg', 'Trip/b.jpg']);
+});
+
+it('excludes selections from subfolders when their scope is turned off', async () => {
+  vi.mocked(scanFolder).mockImplementation(async (root, recursive) => scan(root, recursive ? ['a.jpg', 'Trip/b.jpg'] : ['a.jpg']));
+  await openFolder('/exclude');
+  await setIncludeSubfolders(true);
+  await setIncludeSubfolders(false);
+  importFolderPhotos({ mode: 'selected', paths: ['/exclude/a.jpg', '/exclude/Trip/b.jpg'] });
+  expect(useApp.getState().importChoice).toEqual({ mode: 'selected', paths: ['/exclude/a.jpg'], includeSubfolders: false });
+  expect(useApp.getState().photos.map(p => p.rel)).toEqual(['a.jpg']);
 });

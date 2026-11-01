@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { browseDirectory, computerFolders, isTauri, type Directory } from '../backend/api';
-import { chooseImport, importFolderPhotos, openFolder, showToast, useApp, type Photo } from '../library/store';
+import { chooseImport, importFolderPhotos, openFolder, setFoldJpegs, setIncludeSubfolders, showToast, useApp, type Photo } from '../library/store';
+import { findPairs, foldPairs } from '../library/pairs';
 import { Thumb, useVisible } from './common';
 
 export function FolderIcon() {
@@ -76,11 +77,13 @@ export function FolderDirectory() {
   </aside>;
 }
 
-function ImportTile({ photo, checked, toggle }: { photo: Photo; checked: boolean; toggle: () => void }) {
+function ImportTile({ photo, checked, partial, toggle }: { photo: Photo; checked: boolean; partial: boolean; toggle: () => void }) {
   const [ref, visible] = useVisible<HTMLLabelElement>();
-  return <label ref={ref} className={`import-tile${checked ? ' checked' : ''}`} title={photo.name}>
+  const checkbox = useRef<HTMLInputElement>(null);
+  useEffect(() => { if (checkbox.current) checkbox.current.indeterminate = partial; }, [partial]);
+  return <label ref={ref} className={`import-tile${checked || partial ? ' checked' : ''}`} title={photo.pair ? `${photo.name} + ${photo.pair.split(/[\\/]/).pop()}` : photo.name}>
     <div className="import-thumb"><Thumb photo={photo} visible={visible} /></div>
-    <span><input type="checkbox" checked={checked} onChange={toggle} />{photo.name}</span>
+    <span><input ref={checkbox} type="checkbox" checked={checked} onChange={toggle} /><span className="import-tile-name">{photo.name}</span>{photo.pair && <span className="pair-tag">RAW+JPG</span>}</span>
   </label>;
 }
 
@@ -88,24 +91,36 @@ export function FolderImportView() {
   const candidates = useApp(s => s.candidates);
   const choice = useApp(s => s.importChoice);
   const loading = useApp(s => s.loading);
+  const foldJpegs = useApp(s => s.foldJpegs);
+  const includeSubfolders = useApp(s => s.includeSubfolders);
+  const pairCount = useMemo(() => findPairs(candidates).size, [candidates]);
+  const tiles = useMemo(() => foldJpegs ? foldPairs(candidates).shown : candidates, [candidates, foldJpegs]);
   const [picked, setPicked] = useState(() => new Set(choice?.mode === 'selected' ? choice.paths : []));
-  const toggle = (path: string) => setPicked(current => {
+  const selectedCount = tiles.filter(p => picked.has(p.path) || (p.pair && picked.has(p.pair))).length;
+  const toggle = (photo: Photo) => setPicked(current => {
     const next = new Set(current);
-    if (next.has(path)) next.delete(path); else next.add(path);
+    const paths = photo.pair ? [photo.path, photo.pair] : [photo.path];
+    const remove = paths.every(path => current.has(path));
+    for (const path of paths) { if (remove) next.delete(path); else next.add(path); }
     return next;
   });
-  if (!candidates.length) return <div className="folder-empty"><h2>No photos in this folder</h2><p>Open a subfolder above, or add another folder.</p></div>;
   return <section className="folder-import" aria-label="Import photos">
     <div className="import-toolbar" role="toolbar" aria-label="Import options">
-      <span className="import-count" role="status">{picked.size ? `${picked.size} of ${candidates.length} selected` : `${candidates.length} photos`}</span>
-      <button type="button" className="import-select" onClick={() => setPicked(new Set(candidates.map(p => p.path)))}>Select all</button>
+      <span className="import-count" role="status">{selectedCount ? `${selectedCount} of ${tiles.length} selected` : `${tiles.length} photos`}</span>
+      <button type="button" className="import-select" disabled={loading} onClick={() => setPicked(new Set(candidates.map(p => p.path)))}>Select all</button>
       {picked.size > 0 && <button type="button" className="import-select" onClick={() => setPicked(new Set())}>Clear</button>}
+      <label className="import-view-option" title="Show matching RAW and JPEG files as one tile. Selecting a pair imports both files."><input type="checkbox" checked={foldJpegs} disabled={!pairCount} onChange={e => setFoldJpegs(e.target.checked)} /> Group RAW + JPEG</label>
+      <label className="import-view-option"><input type="checkbox" checked={includeSubfolders} disabled={loading} onChange={e => void setIncludeSubfolders(e.target.checked)} /> Include subfolders</label>
       <div className="import-actions">
         {choice && <button type="button" className="btn" onClick={() => chooseImport(false)}>Cancel</button>}
-        <button type="button" className="btn" disabled={loading} title="Import every photo in this folder. New photos are included when you reopen or refresh it. Originals stay in place." onClick={() => importFolderPhotos({ mode: 'sync' })}>Sync all photos</button>
-        <button type="button" className="btn primary" disabled={!picked.size || loading} title={picked.size ? 'Import only the selected photos. Originals stay in place.' : 'Select photos below to import them.'} onClick={() => importFolderPhotos({ mode: 'selected', paths: [...picked] })}>Import selected{picked.size > 0 ? ` (${picked.size})` : ''}</button>
+        <button type="button" className="btn" disabled={loading || !candidates.length} title="Import every photo in the current scope. New photos are included when you reopen or refresh it. Originals stay in place." onClick={() => importFolderPhotos({ mode: 'sync' })}>Sync all photos</button>
+        <button type="button" className="btn primary" disabled={!selectedCount || loading} title={picked.size ? 'Import only the selected photos. Originals stay in place.' : 'Select photos below to import them.'} onClick={() => importFolderPhotos({ mode: 'selected', paths: [...picked] })}>Import selected{selectedCount > 0 ? ` (${selectedCount})` : ''}</button>
       </div>
     </div>
-    <div className="import-grid">{candidates.map(photo => <ImportTile key={photo.path} photo={photo} checked={picked.has(photo.path)} toggle={() => toggle(photo.path)} />)}</div>
+    <div className="import-grid">{tiles.map(photo => {
+      const rawPicked = picked.has(photo.path), jpegPicked = photo.pair ? picked.has(photo.pair) : rawPicked;
+      return <ImportTile key={photo.path} photo={photo} checked={rawPicked && jpegPicked} partial={rawPicked !== jpegPicked} toggle={() => toggle(photo)} />;
+    })}</div>
+    {!candidates.length && <div className="folder-empty"><h2>No photos in this folder</h2><p>{includeSubfolders ? 'Choose another folder on the left.' : 'Include subfolders to look for photos inside them.'}</p></div>}
   </section>;
 }
