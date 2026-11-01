@@ -8,6 +8,7 @@ vi.mock('../backend/api', () => ({
 import { scanFolder, whitePoints, type ScanResult } from '../backend/api';
 import { closeFolder, importFolderPhotos, openFolder, setIncludeSubfolders, useApp } from './store';
 import { NO_FILTER } from './filter';
+import { lastFolder } from './folders';
 
 function scan(root = '/photos', names = ['a.jpg', 'b.jpg']): ScanResult {
   return { root, name: 'Photos', unreadable: 0, focus: null,
@@ -102,4 +103,14 @@ it('excludes selections from subfolders when their scope is turned off', async (
   importFolderPhotos({ mode: 'selected', paths: ['/exclude/a.jpg', '/exclude/Trip/b.jpg'] });
   expect(useApp.getState().importChoice).toEqual({ mode: 'selected', paths: ['/exclude/a.jpg'], includeSubfolders: false });
   expect(useApp.getState().photos.map(p => p.rel)).toEqual(['a.jpg']);
+});
+
+it('remembers the last successfully browsed folder, including folders awaiting import', async () => {
+  await openFolder('/photos');
+  expect(lastFolder()).toBe('/photos');
+  closeFolder();
+  expect(lastFolder()).toBe('/photos');
+  vi.mocked(scanFolder).mockRejectedValue(new Error('Drive disconnected'));
+  await openFolder('/unavailable');
+  expect(lastFolder()).toBe('/photos');
 });

@@ -21,6 +21,11 @@ pub async fn scan_folder(path: String, recursive: bool) -> Result<library::ScanR
 }
 
 #[tauri::command]
+pub async fn photo_exposure(path: String) -> Result<Option<crate::exposure::Exposure>, String> {
+    blocking(move || Ok(crate::exposure::read(Path::new(&path)))).await
+}
+
+#[tauri::command]
 pub async fn browse_directory(path: String) -> Result<Vec<library::FolderEntry>, String> {
     blocking(move || library::directories(Path::new(&path)).map_err(|e| e.to_string())).await
 }

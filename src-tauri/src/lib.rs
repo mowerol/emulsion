@@ -7,6 +7,7 @@ mod capture;
 mod commands;
 mod decode;
 mod export;
+mod exposure;
 mod library;
 mod lens;
 mod raw;
@@ -92,6 +93,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::scan_folder,
+            commands::photo_exposure,
             commands::browse_directory,
             commands::computer_folders,
             commands::thumbnail,

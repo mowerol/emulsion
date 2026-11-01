@@ -23,6 +23,10 @@ struct EmuRawInfo {
   int full_height;
   char make[64];
   char model[64];
+  float iso;
+  float shutter;
+  float aperture;
+  float focal_length;
 };
 
 struct EmuRawThumb {
@@ -75,6 +79,10 @@ static void fill_colour_info(LibRaw *raw, EmuRawInfo *info) {
   info->full_height = turned ? s.width : s.height;
   copy_str(info->make, raw->imgdata.idata.normalized_make, sizeof info->make);
   copy_str(info->model, raw->imgdata.idata.normalized_model, sizeof info->model);
+  info->iso = raw->imgdata.other.iso_speed;
+  info->shutter = raw->imgdata.other.shutter;
+  info->aperture = raw->imgdata.other.aperture;
+  info->focal_length = raw->imgdata.other.focal_len;
 }
 
 // Decode to 16-bit linear camera RGB, white balanced as shot and oriented.

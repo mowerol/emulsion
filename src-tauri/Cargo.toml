@@ -32,6 +32,7 @@ natord = "1.0.9"
 thiserror = "2"
 rayon = "1.12.0"
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png", "tiff", "webp", "rayon"] }
+kamadak-exif = "0.6.1"
 tauri-plugin-opener = "2"
 percent-encoding = "2.3.2"
 tauri = { version = "2", features = [] }

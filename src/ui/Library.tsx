@@ -7,6 +7,7 @@ import { shownIndices } from '../library/filter';
 import { FilterBar } from './FilterBar';
 import { recipeLabel } from './common';
 import { MarkBadges, Thumb, useVisible } from './common';
+import { ExposureInfo } from './ExposureInfo';
 
 /** Columns in the grid, for up/down arrow navigation. */
 export let gridColumns = 1;
@@ -58,6 +59,7 @@ const Cell = memo(function Cell({ photo, index, active, selected }: { photo: Pho
       <div className="cell-marks">
         <MarkBadges photo={photo} />
       </div>
+      <ExposureInfo photo={photo} visible={visible} />
     </div>
   );
 });

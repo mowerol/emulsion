@@ -5,6 +5,7 @@
 import { useEffect, useRef } from 'react';
 import { BINS, heights, type Histogram as Data } from '../engine/histogram';
 import { activePhoto, useApp } from '../library/store';
+import { ExposureInfo } from './ExposureInfo';
 
 const HEIGHT = 88;
 /** Clipping under this fraction of the frame is not flagged. */
@@ -94,6 +95,7 @@ export function Histogram() {
           {high >= CLIP_NOTICE ? percent(high) : ''} ◣
         </button>
       </div>
+      <ExposureInfo photo={photo} />
     </div>
   );
 }

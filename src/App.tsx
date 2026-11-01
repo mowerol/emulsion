@@ -6,6 +6,7 @@ import { listen } from '@tauri-apps/api/event';
 import { isTauri, startupOptions } from './backend/api';
 import { flushSaves, onSaveError } from './library/sidecars';
 import { markForKey } from './library/marks';
+import { lastFolder } from './library/folders';
 import {
   copySettings, markPhotos, openFolder, pasteSettings, redo, selectAll, setCompare, setExportOpen, setView, showToast, step, stepToEnd, undo, useApp,
 } from './library/store';
@@ -111,7 +112,8 @@ function useDesktop() {
     onSaveError((m) => showToast(`Could not save edits. ${m}`));
     startupOptions()
       .then((o) => {
-        if (o.openPath) openFolder(o.openPath);
+        const path = o.openPath ?? lastFolder();
+        if (path) openFolder(path);
       })
       .catch(() => {});
     const unlisten: Promise<() => void>[] = [

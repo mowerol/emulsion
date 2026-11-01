@@ -155,6 +155,7 @@ These are used as libraries, not copied, and keep their own licences.
 | `rayon`, `half`, `serde`, `percent-encoding` | MIT OR Apache-2.0 |
 | `walkdir` | Unlicense OR MIT |
 | `natord` | MIT |
+| `kamadak-exif`, `mutate_once` | BSD-2-Clause |
 | `cc` (build only) | MIT OR Apache-2.0 |
 | `blake3` | CC0-1.0 OR Apache-2.0 |
 | React, React DOM | MIT |

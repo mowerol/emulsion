@@ -5,6 +5,7 @@ import { browseDirectory, computerFolders, isTauri, type Directory } from '../ba
 import { chooseImport, importFolderPhotos, openFolder, setFoldJpegs, setIncludeSubfolders, showToast, useApp, type Photo } from '../library/store';
 import { findPairs, foldPairs } from '../library/pairs';
 import { Thumb, useVisible } from './common';
+import { ExposureInfo } from './ExposureInfo';
 
 export function FolderIcon() {
   return <svg viewBox="0 0 64 48" fill="none" aria-hidden="true"><path d="M4 12V7a3 3 0 0 1 3-3h16l6 7h28a3 3 0 0 1 3 3v26a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V12Z" fill="currentColor" opacity=".16"/><path d="M4 16h56v24a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V7a3 3 0 0 1 3-3h16l6 7h28a3 3 0 0 1 3 3v2" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"/></svg>;
@@ -84,6 +85,7 @@ function ImportTile({ photo, checked, partial, toggle }: { photo: Photo; checked
   return <label ref={ref} className={`import-tile${checked || partial ? ' checked' : ''}`} title={photo.pair ? `${photo.name} + ${photo.pair.split(/[\\/]/).pop()}` : photo.name}>
     <div className="import-thumb"><Thumb photo={photo} visible={visible} /></div>
     <span><input ref={checkbox} type="checkbox" checked={checked} onChange={toggle} /><span className="import-tile-name">{photo.name}</span>{photo.pair && <span className="pair-tag">RAW+JPG</span>}</span>
+    <ExposureInfo photo={photo} visible={visible} />
   </label>;
 }
 

@@ -22,11 +22,15 @@ struct EmuRawInfo {
     full_height: c_int,
     make: [c_char; 64],
     model: [c_char; 64],
+    iso: f32,
+    shutter: f32,
+    aperture: f32,
+    focal_length: f32,
 }
 
 impl EmuRawInfo {
     fn empty() -> Self {
-        EmuRawInfo { width: 0, height: 0, cam_xyz: [[0.0; 3]; 3], cam_mul: [0.0; 3], full_width: 0, full_height: 0, make: [0; 64], model: [0; 64] }
+        EmuRawInfo { width: 0, height: 0, cam_xyz: [[0.0; 3]; 3], cam_mul: [0.0; 3], full_width: 0, full_height: 0, make: [0; 64], model: [0; 64], iso: 0.0, shutter: 0.0, aperture: 0.0, focal_length: 0.0 }
     }
 }
 
@@ -143,6 +147,16 @@ fn error_text(buf: &[c_char]) -> String {
 
 fn c_path(path: &Path) -> Result<CString, String> {
     CString::new(path.to_string_lossy().as_bytes()).map_err(|_| format!("Invalid path {}", path.display()))
+}
+
+/// Capture settings without unpacking or decoding the sensor data.
+pub fn exposure(path: &Path) -> Option<crate::exposure::Exposure> {
+    let path = c_path(path).ok()?;
+    let mut info = EmuRawInfo::empty();
+    let mut err = [0 as c_char; 256];
+    let rc = unsafe { emu_raw_info(path.as_ptr(), &mut info, err.as_mut_ptr(), err.len()) };
+    if rc != 0 { return None; }
+    Some(crate::exposure::Exposure::new(info.iso as f64, info.shutter as f64, info.aperture as f64, info.focal_length as f64))
 }
 
 /// Profile metadata is independent of lens-profile availability.

@@ -6,7 +6,7 @@ import { create } from 'zustand';
 import type { Histogram } from '../engine/histogram';
 import type { Xy } from '../engine/whitebalance';
 import { scanFolder, whitePoints, type Entry } from '../backend/api';
-import { folderImport, importedPaths, saveFolderImport, type FolderImport } from './folders';
+import { folderImport, importedPaths, rememberFolder, saveFolderImport, type FolderImport } from './folders';
 import { defaultRecipe, normalizeRecipe, withSettingsFrom, type Recipe } from '../film/recipe';
 import { FULL, isFull, type Crop } from '../film/crop';
 import { NO_FILTER, normalizeFilter, passes, rangeWithin, shownIndices, stepWithin, type Filter } from './filter';
@@ -265,6 +265,7 @@ export async function openFolder(path: string) {
       ...historyState(),
     });
     displayImported(all, choice);
+    rememberFolder(res.root);
     if (res.unreadable) showToast(`${res.unreadable} items could not be read.`);
   } catch (err) {
     if (request === folderRequest) showToast(`Could not open that folder. ${String(err)}`);

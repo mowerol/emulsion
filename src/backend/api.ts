@@ -39,6 +39,14 @@ export const scanFolder = (path: string, recursive = true) => invoke<ScanResult>
 export interface Directory { path: string; name: string }
 export const browseDirectory = (path: string) => invoke<Directory[]>('browse_directory', { path });
 export const computerFolders = () => invoke<Directory[]>('computer_folders');
+export interface Exposure {
+  iso: number | null;
+  /** Exposure time in seconds. */
+  shutter: number | null;
+  aperture: number | null;
+  focalLength: number | null;
+}
+export const photoExposure = (path: string) => invoke<Exposure | null>('photo_exposure', { path });
 
 export async function thumbnail(path: string, maxEdge = 512): Promise<Blob> {
   const buf = await invoke<ArrayBuffer>('thumbnail', { path, maxEdge });

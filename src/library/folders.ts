@@ -3,6 +3,18 @@
 export type FolderImport = ({ mode: 'sync' } | { mode: 'selected'; paths: string[] }) & { includeSubfolders?: boolean };
 const KEY = 'emulsion.folderImports';
 let memory: Record<string, FolderImport> = {};
+const LAST_FOLDER_KEY = 'emulsion.lastFolder';
+
+export function lastFolder(): string | null {
+  try {
+    const path = localStorage.getItem(LAST_FOLDER_KEY);
+    return path?.trim() ? path : null;
+  } catch { return null; }
+}
+
+export function rememberFolder(path: string) {
+  try { localStorage.setItem(LAST_FOLDER_KEY, path); } catch { /* session only */ }
+}
 
 export function folderImport(root: string): FolderImport | null {
   try {
