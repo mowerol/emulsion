@@ -26,7 +26,7 @@ import { profileSettingsFor } from '../film/looks';
 import { D65_XY, clampWhiteBalance, temperatureTint, whiteBalanceMatrix, whiteXy, type Xy } from './whitebalance';
 import { packRanges, packShapes } from './masks';
 import { MASK_UNIT } from './maskstack';
-import { maskActive, type Mask } from '../film/masks';
+import { NO_ADJUST, maskActive, type Mask } from '../film/masks';
 import { effectiveIso, zoomForIso } from './grain';
 import { EXPOSURE_BOOST, FEATHERING, SMOOTHING, bandFactors, bandGains } from './toneequalizer';
 import { clarityParams } from './locallaplacian';
@@ -147,10 +147,9 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uDehazeOn: recipe.dehaze !== 0 ? 1 : 0,
     uDehazeStrength: recipe.dehaze / 100,
     uDehazeDistance: recipe.dehazeDistance / 100,
-    // Darktable estimates this from the brightest pixels in the most hazy
-    // part of the frame. The shader uses the scene white as the stable GPU
-    // equivalent; keeping it explicit makes the recovery equation identical.
+    // The engine measures the ambient light and sets the minimum transmission (Engine.dehazeMap).
     uDehazeA0: [1, 1, 1],
+    uDehazeTmin: 1,
     uTextureOn: recipe.texture !== 0 ? 1 : 0,
     uTextureMix: recipe.texture / 100,
     uUsmOn: recipe.sharpen > 0 ? 1 : 0,
@@ -187,7 +186,7 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
   };
 }
 
-const NO_MASKS: Uniforms = { uMaskCount: 0, uMaskShapeCount: 0, uMaskShow: -1, uMaskStack: MASK_UNIT, uMaskTap: -1 };
+const NO_MASKS: Uniforms = { uTeqTiles: 1, uMaskCount: 0, uMaskShapeCount: 0, uMaskShow: -1, uMaskStack: MASK_UNIT, uMaskTap: -1 };
 
 /**
  * The masks' shapes and their adjustments. Temperature moves the photo's white by that many
@@ -206,12 +205,16 @@ export function maskUniforms(masks: Mask[], recipe: Recipe, ctx: Pick<RenderCont
   const cb: number[] = [];
   const range: number[] = [];
   const rangeOn: number[] = [];
+  const teq: number[] = [];
+  const local: number[] = [];
+  // The tone equalizer's map atlas: tile 0 is the photo's instance, then one per masked instance.
+  let teqTile = 0;
   for (const i of index) {
     const r = packRanges(masks[i]);
     range.push(...r.points);
     rangeOn.push(...r.flags);
     // A mask that is only shown changes nothing.
-    const m = maskActive(masks[i]) ? masks[i] : { ...masks[i], exposure: 0, temperature: 0, tint: 0, contrast: 0, vibrance: 0, saturation: 0, shadows: 0 };
+    const m = maskActive(masks[i]) ? masks[i] : { ...masks[i], ...NO_ADJUST };
     const cbOn = m.contrast !== 0 || m.vibrance !== 0 || m.saturation !== 0 || m.shadows !== 0;
     meta.push(Math.min(1, Math.max(0, m.opacity / 100)), 2 ** m.exposure, cbOn ? 1 : 0, 0);
     if (m.temperature !== 0 || m.tint !== 0) {
@@ -219,10 +222,14 @@ export function maskUniforms(masks: Mask[], recipe: Recipe, ctx: Pick<RenderCont
       const moved = clampWhiteBalance({ temperature: 1e6 / (1e6 / chosenTT.temperature - m.temperature), tint: chosenTT.tint + m.tint });
       wb.push(...columnMajor(whiteBalanceMatrix(chosen, whiteXy(moved.temperature, moved.tint))));
     } else wb.push(...IDENTITY);
+    const teqOn = m.highlights !== 0;
+    teq.push(...(teqOn ? bandFactors(bandGains(m.highlights)) : [0, 0, 0, 0, 0, 0, 0, 0]));
+    local.push(teqOn ? 1 : 0, teqOn ? ++teqTile : 0, 0, 0);
     cb.push(...(cbOn ? cbUniform(cbCommit(sliderParams(colorBalanceParams(m.contrast, m.vibrance, m.saturation, m.shadows)))) : CB_NONE));
   }
   return {
     uMaskCount: index.length, uMaskShapeCount: count, uMaskShapes: shapes, uMaskMeta: meta, uMaskWb: wb, uMaskCb: cb,
+    uMaskTeq: teq, uMaskLocal: local, uTeqTiles: teqTile + 1,
     uMaskRange: range, uMaskRangeOn: rangeOn, uMaskToXyz: columnMajor(REC2020_TO_XYZ), uMaskStack: MASK_UNIT, uMaskTap: -1,
     uMaskShow: index.indexOf(show),
   };
@@ -233,7 +240,7 @@ export function needsPasses(u: Uniforms) {
   return {
     highlights: u.uCompare !== 1 && ((u.uHal as number) > 0 || (u.uGlow as number) > 0),
     sharpen: u.uCompare !== 1 && (u.uSharp as number) !== 0,
-    toneEqualizer: u.uCompare !== 1 && u.uTeqOn === 1,
+    toneEqualizer: u.uCompare !== 1 && (u.uTeqOn === 1 || (u.uTeqTiles as number) > 1),
     clarity: u.uCompare !== 1 && u.uClarityOn === 1,
     texture: u.uCompare !== 1 && u.uTextureOn === 1,
     usm: u.uCompare !== 1 && u.uUsmOn === 1,

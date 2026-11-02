@@ -10,13 +10,12 @@
 // the whole photo; this stage adds their result.
 #include "stages/lab.glsl"
 
-// 1 applies the equalizer from uTextureTex: .r the coarsest residue, .g the boosted
-// detail, .b the lightness it started from (all L*), so the change is r + g - b.
+// 1 applies the change in L* in uTextureTex (.r): the photo's instance and the masks'
+// masked instances folded together (maskfold.frag).
 uniform float uTextureOn;
 uniform sampler2D uTextureTex;
 
 vec3 stageTexture(vec3 x, vec2 uv) {
   if (uTextureOn < 0.5) return x;
-  vec3 t = texture(uTextureTex, uv).rgb;
-  return labShiftL(x, t.r + t.g - t.b);
+  return labShiftL(x, texture(uTextureTex, uv).r);
 }

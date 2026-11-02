@@ -194,6 +194,22 @@ export class Gpu {
     return { ...a, fbo };
   }
 
+  /** A target that draws into all of `ts` at once (outputs 0, 1, ...); free it with freePair. */
+  group(ts: Target[]): Target {
+    const gl = this.gl;
+    const fbo = gl.createFramebuffer()!;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+    ts.forEach((t, i) => gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0 + i, gl.TEXTURE_2D, t.tex, 0));
+    gl.drawBuffers(ts.map((_, i) => gl.COLOR_ATTACHMENT0 + i));
+    const ok = gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    if (!ok) {
+      gl.deleteFramebuffer(fbo);
+      throw new GpuError(`Could not group ${ts.length} render targets`);
+    }
+    return { ...ts[0], fbo };
+  }
+
   freePair(p: Target) {
     this.gl.deleteFramebuffer(p.fbo);
   }

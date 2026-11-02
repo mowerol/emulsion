@@ -97,7 +97,14 @@ export interface MaskAdjust {
   temperature: number;
   tint: number;
   contrast: number;
+  /** A masked tone equalizer instance, with the photo's Highlights slider mapping. */
+  highlights: number;
   shadows: number;
+  /** Masked contrast equalizer and local laplacian instances, with the photo's slider mappings. */
+  texture: number;
+  clarity: number;
+  /** A masked haze removal instance, with the photo's Dehaze mapping (and the photo's Distance). */
+  dehaze: number;
   vibrance: number;
   saturation: number;
 }
@@ -156,7 +163,11 @@ export const MASK_SLIDERS: MaskSliderDef[] = [
   { key: 'temperature', label: 'Temperature', min: -100, max: 100, step: 1 },
   { key: 'tint', label: 'Tint', min: -100, max: 100, step: 1 },
   { key: 'contrast', label: 'Contrast', min: -50, max: 50, step: 1 },
+  { key: 'highlights', label: 'Highlights', min: -100, max: 100, step: 1 },
   { key: 'shadows', label: 'Shadows', min: -100, max: 100, step: 1 },
+  { key: 'texture', label: 'Texture', min: -100, max: 100, step: 1 },
+  { key: 'clarity', label: 'Clarity', min: -100, max: 100, step: 1 },
+  { key: 'dehaze', label: 'Dehaze', min: -100, max: 100, step: 1 },
   { key: 'vibrance', label: 'Vibrance', min: -100, max: 100, step: 1 },
   { key: 'saturation', label: 'Saturation', min: -100, max: 100, step: 1 },
 ];
@@ -165,7 +176,7 @@ export const MASK_SLIDERS: MaskSliderDef[] = [
 export const MAX_MASKS = 8;
 export const MAX_SHAPES = 32;
 
-const NO_ADJUST: MaskAdjust = { exposure: 0, temperature: 0, tint: 0, contrast: 0, shadows: 0, vibrance: 0, saturation: 0 };
+export const NO_ADJUST: MaskAdjust = { exposure: 0, temperature: 0, tint: 0, contrast: 0, highlights: 0, shadows: 0, texture: 0, clarity: 0, dehaze: 0, vibrance: 0, saturation: 0 };
 
 let counter = 0;
 export const newId = () => `${Date.now().toString(36)}${(counter++).toString(36)}`;

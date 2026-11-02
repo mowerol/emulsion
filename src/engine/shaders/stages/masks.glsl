@@ -5,8 +5,11 @@
 // 5.6.2). Translated from C to GLSL; mirrors src/engine/masks.ts (see there for what differs).
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
+// Needs stages/toneequalizer.glsl and stages/colorbalance.glsl included first.
+//
 // Masks: each is a group of shapes, evaluated per source pixel, with its own masked exposure and
-// white balance (at the exposure stage) and colour balance instance (after the photo's own). A
+// white balance (at the exposure stage), tone equalizer and colour balance instances (after the
+// photo's own). A
 // mask is evaluated once, at its exposure instance (drawn × ranges × opacity, or its refined
 // raster from the mask stack), and later instances reuse that value, as darktable's raster masks
 // let one instance use another's final mask.
@@ -22,6 +25,11 @@ uniform float uMaskCount;
 uniform vec4 uMaskMeta[MAX_MASKS];
 // Per mask: CAT16 from the photo's white to the mask's.
 uniform mat3 uMaskWb[MAX_MASKS];
+// Per mask, its local instances: x tone equalizer on, y its tile in the tone equalizer's atlas,
+// z its haze removal instance's mask refined at that instance (stack layers 3 and 4).
+uniform vec4 uMaskLocal[MAX_MASKS];
+// Per mask, the tone equalizer's band factors (two vec4).
+uniform vec4 uMaskTeq[MAX_MASKS * 2];
 // Per mask, a colour balance instance (cbUniform), ten vec4 each.
 uniform vec4 uMaskCb[MAX_MASKS * 10];
 // Which mask to show as an overlay (its index), or -1.
@@ -33,7 +41,8 @@ uniform vec4 uMaskRangeOn[MAX_MASKS];
 // Working RGB to XYZ (D65), for JzAzBz.
 uniform mat3 uMaskToXyz;
 // The mask stack (maskstack.ts): layer 0 the brush shapes (BrushGpu), one channel each; layers 1
-// and 2 refined masks, one channel per packed mask.
+// and 2 refined masks, one channel per packed mask; layers 3 and 4 likewise, refined at the masks'
+// haze removal instances.
 uniform highp sampler2DArray uMaskStack;
 // The packed mask (slot) whose input and unrefined value the refinement tap writes, or -1.
 uniform float uMaskTap;
@@ -48,6 +57,11 @@ float maskBrush(float channel, vec2 uv) {
 
 float maskRefined(int i, vec2 uv) {
   return maskChannel(texture(uMaskStack, vec3(uv, float(1 + i / 4))), i - (i / 4) * 4);
+}
+
+// A mask refined at its haze removal instance's input (layers 3 and 4, as 1 and 2).
+float maskRefinedDehaze(int i, vec2 uv) {
+  return maskChannel(texture(uMaskStack, vec3(uv, float(3 + i / 4))), i - (i / 4) * 4);
 }
 
 float maskErf(float x) {
@@ -188,6 +202,20 @@ vec3 stageMaskExposure(vec3 x) {
     if (m <= 0.0) continue;
     vec3 adjusted = (uMaskWb[i] * x) * uMaskMeta[i].y;
     x = mix(x, adjusted, m);
+  }
+  return x;
+}
+
+// Masked tone equalizer instances, after the photo's own: each with its own map (made from its
+// own input, see Engine.toneEqualizerMap), blended normally by the mask.
+vec3 stageMaskToneEqualizer(vec3 x, vec2 uv) {
+  int masks = int(uMaskCount + 0.5);
+  for (int i = 0; i < MAX_MASKS; i++) {
+    if (i >= masks) break;
+    float m = gMaskFinal[i];
+    vec4 l = uMaskLocal[i];
+    if (m <= 0.0 || l.x < 0.5) continue;
+    x = mix(x, x * teqGain(x, uv, l.y, uMaskTeq[i * 2], uMaskTeq[i * 2 + 1]), m);
   }
   return x;
 }

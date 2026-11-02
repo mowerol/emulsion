@@ -16,8 +16,10 @@
 uniform float uTeqOn;
 // 1 to use the blurred map (edge-aware); 0 for a plain per-pixel correction.
 uniform float uTeqLocal;
-// Blurred map: .r mean brightness, .g mean of brightness squared.
+// Blurred maps: .r mean brightness, .g mean of brightness squared. An atlas of uTeqTiles maps
+// side by side: tile 0 the photo's instance, then the masked instances' (masks.glsl).
 uniform sampler2D uTeqTex;
+uniform float uTeqTiles;
 // Weights of the 8 band Gaussians.
 uniform vec4 uTeqF0;
 uniform vec4 uTeqF1;
@@ -29,26 +31,33 @@ const float TEQ_MIN_FLOAT = 1.52587890625e-05; // 2^-16
 // Brightness map value: euclidean RGB norm with the exposure boost.
 float teqLuminance(vec3 x) { return max(uTeqParams.x * length(x), TEQ_MIN_FLOAT); }
 
-float teqCorrection(float lum) {
+float teqCorrection(float lum, vec4 f0, vec4 f1) {
   float ev = clamp(log2(lum), -8.0, 0.0);
   float r = 0.0;
   for (int i = 0; i < 8; i++) {
     float d = ev - float(-56 + 8 * i) / 7.0;
-    float w = i < 4 ? uTeqF0[i] : uTeqF1[i - 4];
+    float w = i < 4 ? f0[i] : f1[i - 4];
     r += exp(-d * d / uTeqParams.z) * w;
   }
   return clamp(r, 0.25, 4.0);
 }
 
-vec3 stageToneEqualizer(vec3 x, vec2 uv) {
-  if (uTeqOn < 0.5) return x;
+// The instance's gain for x at uv, its map in atlas tile `tile` (EIGF, then the bands).
+float teqGain(vec3 x, vec2 uv, float tile, vec4 f0, vec4 f1) {
   float lum = teqLuminance(x);
   if (uTeqLocal > 0.5) {
-    vec2 m = texture(uTeqTex, uv).rg;
+    float tiles = max(uTeqTiles, 1.0);
+    float inset = 0.5 * tiles / float(textureSize(uTeqTex, 0).x);
+    vec2 m = texture(uTeqTex, vec2((tile + clamp(uv.x, inset, 1.0 - inset)) / tiles, uv.y)).rg;
     float avg = m.x;
     float nv = max(m.y - avg * avg, 0.0) / max(avg * lum, 1e-6);
     float a = nv / (nv + uTeqParams.y);
     lum = max(lum * a + (avg - a * avg), TEQ_MIN_FLOAT);
   }
-  return x * teqCorrection(lum);
+  return teqCorrection(lum, f0, f1);
+}
+
+vec3 stageToneEqualizer(vec3 x, vec2 uv) {
+  if (uTeqOn < 0.5) return x;
+  return x * teqGain(x, uv, 0.0, uTeqF0, uTeqF1);
 }

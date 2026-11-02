@@ -130,3 +130,12 @@ export function toneEqualize(rgb: Vec3, mean: number, meanSquare: number, factor
   const k = correction(smoothed, factors);
   return rgb.map((v) => v * k) as Vec3;
 }
+
+/**
+ * A masked instance (a mask's Highlights): darktable's second tone equalizer instance with its
+ * own map, made from its own input, blended normally (_blend_normal) at the mask's value.
+ */
+export function maskedToneEqualize(rgb: Vec3, mean: number, meanSquare: number, factors: number[], mask: number): Vec3 {
+  const t = toneEqualize(rgb, mean, meanSquare, factors);
+  return rgb.map((v, i) => v * (1 - mask) + t[i] * mask) as Vec3;
+}

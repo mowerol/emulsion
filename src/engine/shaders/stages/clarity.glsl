@@ -10,7 +10,8 @@
 
 #include "stages/lab.glsl"
 
-// 1 applies the filter's change from uClarityTex (.r: change in lightness, 0 to 1 scale).
+// 1 applies the filter's change from uClarityTex (.r: change in lightness, 0 to 1 scale): the
+// photo's instance and the masks' masked instances folded together (maskfold.frag).
 uniform float uClarityOn;
 uniform sampler2D uClarityTex;
 

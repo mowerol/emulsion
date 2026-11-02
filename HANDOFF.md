@@ -2,25 +2,91 @@
 
 **Tried by Oli in the real app (2026-11-01):** the Workflow layout restyle, custom looks (edit mode, detach, migration of his looks), the LUT Colour blend on real photos, GPU-paced rendering, Colour, grain and RAW+JPEG folding. The "Not tried in the real app" notes below predate this. Oli is building masks (phases 1–3 below).
 
-Rewritten at the end of each session. Last updated 2026-11-01.
+Rewritten at the end of each session. Last updated 2026-11-02.
+
+## Masks: local Dehaze (2026-11-02)
+
+Oli: "ok let's add it" (after hearing it costs about 400 MB per mask at preview size).
+
+- **Model:** `dehaze` on each mask (−100 to 100, the photo's mapping). Distance is the photo's Distance. The slider sits after Clarity.
+- **Engine:** darktable's second haze removal instance per mask, after the photo's and still before exposure. Each one has its own input (the source through the instances before it), its own ambient light (measured on that input, cached per input), and its own transition map and guided filter. It is blended normally by its mask.
+  - Every instance is affine per pixel, so all of them, the photo's included, fold into one (β, α) image on unit 12, and the stage is now `αx + β` (`dehazegf.frag` modes 7–9).
+  - The mask is evaluated at the instance's input (develop tap 10: drawn × ranges there). A refined mask is refined there too (tap 9, into new mask stack layers 3–4), as darktable refines each instance's mask at its own input. So for a Dehaze instance, ranges and feathering see the scene before exposure.
+  - The cache key `uDehazeKey` (a hash of the chain) feeds the downstream map keys.
+- **Checks:** `npm run check` passes. The browser regression passes. Probe `out.dehaze.masked` (glError 0):
+  - a whole-frame mask equals the photo's Dehaze (0 levels);
+  - a half-frame mask equals it on its side (0) and the plain render on the other (0);
+  - a mask that covers nothing changes nothing (0);
+  - a feathered whole-frame mask is within 1 level (half-float stack).
+  - The photo's transmission and stage probes are unchanged (stage now 6e-7).
+- **Speed and memory:** a mask's Dehaze drag takes about 141 ms on the preview (the photo's takes about 110, Exposure 85). Each masked instance holds nine 32-bit images, about 450 MB at preview size.
+- **Not tried in the real app:** real photos, refined and brushed masks with Dehaze, two Dehaze masks, export memory with several.
+- **Another agent** was building AI noise reduction in the same tree at the same time (`noise.*`, `denoise.rs`, edits in `engine.ts` and `recipe.ts`). Both sets of changes coexist and the check passes. Commit them separately.
+
+## Masks: local Texture and Clarity (2026-11-02)
+
+Oli: "masked texture and clarity is more important" (than masked Dehaze).
+
+- **Model:** `texture` and `clarity` on each mask (−100 to 100, the photo's mappings). The sliders come after Shadows; old sidecars read 0.
+- **Engine:** darktable's second contrast equalizer / local laplacian instance after the photo's own, on its own input, blended normally by the mask. Both change only Lab L, so each instance adds m·ΔL, and all of them fold into the stage's one ΔL map. No new texture units.
+  - `Engine.textureDelta` and `clarityDelta` run the filter once per instance, then fold it in with `maskfold.frag.glsl` (two single-channel targets in turn).
+  - Each masked instance's input is a develop tap after the stage with the sum so far applied: uTap 7 for Texture, 8 for Clarity. The tap also writes the mask's value, which rides through the filter in `eq.frag` .a and `llcurve.frag` B[0].a.
+  - Texture's map is now a ΔL map (`stages/texture.glsl` reads .r).
+  - The cache keys include each mask's value. A masked instance costs one more filter run when its inputs change (about 50 ms for Texture, 70 ms for Clarity at preview size).
+  - Taps 5 and 6 are now bounded (`uTap > 5.5 && uTap < 6.5`), so the new taps don't fall into them.
+- **Reference:** `maskedLightness` in `engine/masks.ts`, tested.
+- **Checks:** `npm run check` passes (381 TS tests, build, 51 Rust). Probe `out.maskDetail` (texture and clarity, glError 0):
+  - a whole-frame mask equals the photo's slider (0 levels);
+  - a half-frame mask equals it on its side (0) and the plain render on the other (1 level);
+  - an extra mask that covers nothing changes the result by at most 1 level. Where a mask is 0, the Lab round trip of a zero change can round differently in 8-bit.
+  - The texture, clarity, map cache, Highlights and Dehaze probes are unchanged.
+- **Not tried in the real app:** the sliders on real photos, with brushes and refined masks, several masks at once (speed), and export.
+
+## Dehaze ported faithfully from darktable (2026-11-02)
+
+Oli: "please update dehaze to work properly. they did it wrong". The earlier version (`fb0da6a`, `95114ab`) got four things wrong:
+- it ran after the tone equalizer, where darktable runs haze removal after lens correction and before exposure;
+- A0 was fixed at white;
+- the depth limit came from each pixel's own dark channel, not from the image's 95% quantile;
+- the transmission was refined with a made-up similarity weighting.
+
+Now it is darktable 5.6.2 `hazeremoval.c` with `guided_filter.c` and `box_filters.cc`:
+- **Reference:** `src/engine/dehaze.ts`, tested in `dehaze.test.ts` (windows, box filters, order statistic, ambient light, guided filter, identity at 0).
+- **GPU:** `dehaze.frag.glsl` writes the module's input; `dehazegf.frag.glsl` runs the transition map, box max/min and the guided filter; `stages/dehaze.glsl` does the recovery, before exposure. The tone equalizer map and halation extraction also see it.
+- **What differs from darktable:** A0 and the depth are always measured on a ≤1280 px copy. That is what darktable's darkroom does through its preview pipe, and it means the preview and an export agree.
+- **Cache:** the guide's means are kept per source, so a strength drag reruns 9 cheap passes. Distance only changes a uniform.
+- **Cost:** a drag takes about 108 ms on a 24 MP photo's preview (Exposure takes 80). Memory is about 400 MB at preview size, and about 2.2 GB during a 24 MP export (freed afterwards).
+- **Checks:** `npm run check` passes (379 TS tests, build, 51 Rust). The browser regression `treatment-filters.mjs dehaze` passes, with a DCP on the shared unit 12. Probe `out.dehaze`:
+  - A0 and the depth are identical to the reference;
+  - the transmission is within 8e-7 per pixel at +60 and −40;
+  - the stage is within 3e-6;
+  - glError 0.
+- **Looks different from before:** photos with Dehaze set will render differently. Probably stronger, since A0 is now measured and usually below white, but not compared on real photos. As in darktable, it sees the photo before exposure, so exposure and white balance no longer change its input.
+- **Not tried in the real app:** real hazy photos, export at full size (memory), and the slider feel.
+- **Masked Dehaze:** built, see the top.
+
+## Masks, phase 3 part 3: local Highlights (2026-11-02)
+
+Oli: "continue with masks". Of part 3 (local Highlights, Clarity, Texture, Dehaze), **Highlights is built**.
+
+- **Model:** `highlights` on each mask (−100 to 100, the photo's slider mapping, `bandGains`/`bandFactors`). Old sidecars read 0. The slider sits after Contrast (generic `MASK_SLIDERS`).
+- **Engine:** darktable's second tone equalizer instance. It runs after the photo's own (`stageMaskToneEqualizer` in `masks.glsl`, also in `extract.frag`) and is blended normally by the mask's raster value.
+  - Each instance builds its own brightness map from its own input: the scene after the photo's instance and the earlier masked ones.
+  - The maps share unit 4 as an atlas, one tile each (tile 0 the photo's). `Engine.toneEqualizerMap` builds them in order and blits each into its tile.
+  - Uniforms: `uMaskLocal` (x on, y tile), `uMaskTeq` (band factors), `uTeqTiles`.
+  - `masks.glsl` now needs `toneequalizer.glsl` included before it.
+- **Reference:** `maskedToneEqualize` in `toneequalizer.ts`. Tests cover the uniforms, the tiles and the blend.
+- **Checks:** `npm run check` passes (372 TS tests, build, 51 Rust). Probe `out.maskHighlights` (0 levels apart in every case, glError 0):
+  - a whole-frame mask at −80 equals the photo's Highlights at −80;
+  - a half-frame mask equals that render on its side and the plain render on the other;
+  - an extra mask that covers nothing changes nothing (atlas indexing).
+  - Other mask, refinement, picker and tone equalizer probes are unchanged.
+- **Not tried in the real app:** the slider on real photos, with and without the photo's own Highlights, and on a refined or brushed mask; export.
+- **Next:** local Texture, Clarity and Dehaze are built (see the top).
 
 ## Cached dehaze (2026-11-01)
 
-Oli requested committing the remaining dehaze work after perspective correction
-(`aa632e5`). `dehaze.frag.glsl` now computes the source-sized dark channel once;
-the develop stage reuses it while strength, distance and view change. Cache
-identity follows the lens-corrected/profiled source texture and input uniforms.
-Source release, export buffer cleanup and engine disposal free the map.
-
-Texture unit 12 is shared across separate passes: the early DCP shader reads its
-3D calibration there; develop's calibration sampler is optimized out, leaving
-that unit for the 2D dark-channel map. The earlier conflict warning below was
-checked and corrected. Keep early calibration in its separate pass.
-
-Regression: `node tools/browser-tests/treatment-filters.mjs dehaze` renders a
-synthetic DCP with positive and negative dehaze, compares the cached output with
-the former on-demand shader (worst difference one RGBA8 level), checks that slider
-changes build the map once, and verifies export cleanup. No WebGL errors.
+Superseded by the faithful port at the top (2026-11-02).
 
 ## Scanner inline in Look (2026-11-01)
 
@@ -112,7 +178,7 @@ Oli asked for, in order: a range picker, mask refinement, then local Highlights/
   - Refine sliders while dragging (each change re-runs the refinement: about 120 draws at ≤1536 px)
   - refined masks in exports (refined at ≤1536 px and upsampled)
   - memory with refinement on
-- **Next, part 3 (planned, not built):** darktable runs each local module as a second instance after the photo's own, blended normally by the mask.
+- **Next, part 3 (Highlights built 2026-11-02, see the top; the rest planned):** darktable runs each local module as a second instance after the photo's own, blended normally by the mask.
   - Clarity (bilat) and Texture (atrous) are Lab modules changing only L, so a masked instance is L + m·ΔL. Run the filter on a tap after the previous instances and fold m·ΔL into the existing clarity/texture map; no new units are needed. Texture's map must first become a ΔL map.
   - The tone equalizer gain and dehaze are per-pixel affine (x → αx + β), so masked instances fold into one more stack layer.
 - **Dehaze caching:** completed; see “Cached dehaze” above for verified DCP compatibility and the browser regression.

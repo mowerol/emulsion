@@ -56,6 +56,8 @@ import { drawnValue, maskValue, blendNormal, rangeValue, pickStats, pickedRange 
 import { MaskStack } from '../../src/engine/maskstack';
 import { refineMask, type MaskRefine } from '../../src/engine/maskrefine';
 import { newBrush, newEllipse, newGradient, newMask, type Mask } from '../../src/film/masks';
+import { SQRT_EPS as DEHAZE_SQRT_EPS, ambientLight as dehazeAmbient, guidedFilter as dehazeGuided, recover as dehazeRecover, transitionMap as dehazeTransition, windows as dehazeWindows } from '../../src/engine/dehaze';
+const DEHAZE_EPS = DEHAZE_SQRT_EPS;
 import { BrushGpu } from '../../src/engine/brushgpu';
 import { brushValue } from '../../src/engine/brush';
 import { MaskOverlay } from '../../src/ui/MaskOverlay';
@@ -187,6 +189,7 @@ function probeMasks(eng: Engine) {
   const gl = eng.gpu.gl;
   const frag = assemble(`#version 300 es
 #include "common.glsl"
+#include "stages/toneequalizer.glsl"
 #include "stages/colorbalance.glsl"
 #include "stages/masks.glsl"
 uniform vec3 uIn[64];
@@ -773,6 +776,178 @@ try {
     const at = (px: Uint8Array, x: number, y: number) => px[(y * gw + x) * 4 + 1];
     out.engineBrush = { plainCentre: at(plain, 150, 100), maskedCentre: at(masked, 150, 100), plainFar: at(plain, 150, 10), maskedFar: at(masked, 150, 10), glError: eng.gpu.gl.getError() };
   }
+  // Haze removal on the GPU against dehaze.ts: the ambient light, the guided filter's
+  // transmission per pixel, and the stage's recovery.
+  {
+    const hw = 160, hh = 120;
+    const hc = document.createElement('canvas');
+    hc.width = hw; hc.height = hh;
+    const hx = hc.getContext('2d')!;
+    for (let y = 0; y < hh; y += 4) for (let x = 0; x < hw; x += 4) {
+      const haze = 0.75 * (1 - y / hh);
+      const d = 40 + 120 * (((x >> 3) + (y >> 3)) % 2) * (x / hw);
+      const c = [d * 1.1, d, d * 0.6].map((v, k) => Math.round(v * (1 - haze) + [205, 215, 230][k] * haze));
+      hx.fillStyle = `rgb(${c[0]},${c[1]},${c[2]})`; hx.fillRect(x, y, 4, 4);
+    }
+    const hsrc = eng.sourceFromImage(hc, hw, hh);
+    const gl = eng.gpu.gl;
+    gl.getError();
+    const anyEng = eng as unknown as { dh: { I: { fbo: WebGLFramebuffer }; s1: { fbo: WebGLFramebuffer } }; dhAmbient: { A0: number[]; distanceMax: number } };
+    const read = (fbo: WebGLFramebuffer) => {
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+      const px = new Float32Array(hw * hh * 4);
+      gl.readPixels(0, 0, hw, hh, gl.RGBA, gl.FLOAT, px);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      return px;
+    };
+    const base = { ...defaultRecipe('neutral', 'straight'), grain: 0 };
+    const result: Record<string, unknown> = {};
+    for (const strength of [60, -40]) {
+      const plain = eng.readPixels(hsrc, base, hw, hh, 1);
+      const px = eng.readPixels(hsrc, { ...base, dehaze: strength, dehazeDistance: 20 }, hw, hh, 1);
+      const I = read(anyEng.dh.I.fbo), ab = read(anyEng.dh.s1.fbo);
+      const { w1, w2 } = dehazeWindows(1);
+      const amb = dehazeAmbient(I, hw, hh, w1);
+      const t = dehazeGuided(I, dehazeTransition(I, hw, hh, w1, amb.A0, strength / 100), hw, hh, w2, DEHAZE_EPS);
+      let worstT = 0, moved = 0;
+      for (let i = 0; i < hw * hh; i++) {
+        const got = ab[4 * i] * I[4 * i] + ab[4 * i + 1] * I[4 * i + 1] + ab[4 * i + 2] * I[4 * i + 2] + ab[4 * i + 3];
+        worstT = Math.max(worstT, Math.abs(got - t[i]));
+      }
+      px.forEach((v, i) => { if (i % 4 < 3) moved = Math.max(moved, Math.abs(v - plain[i])); });
+      result[`strength${strength}`] = {
+        A0: anyEng.dhAmbient.A0, A0Reference: amb.A0, distanceMax: anyEng.dhAmbient.distanceMax, distanceMaxReference: amb.distanceMax,
+        tRange: [Math.min(...t), Math.max(...t)], worstTransmission: worstT, movesUpTo: moved, glError: gl.getError(),
+      };
+    }
+    eng.release(hsrc);
+    // The stage alone, with a 1 × 1 fold texture (beta, alpha) on its unit, made from a
+    // transmission t as dehazegf.frag's mode 7 makes it.
+    const abTex = gl.createTexture()!;
+    const A0 = [0.8, 0.85, 0.9], tStage = 0.45;
+    const coef = [...A0.map((a) => a * (1 - 1 / tStage)), 1 / tStage];
+    gl.activeTexture(gl.TEXTURE12);
+    gl.bindTexture(gl.TEXTURE_2D, abTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 1, 1, 0, gl.RGBA, gl.FLOAT, new Float32Array(coef));
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.activeTexture(gl.TEXTURE0);
+    result.stage = probeStage(eng, ['stages/tone.glsl', 'stages/input.glsl', 'stages/dehaze.glsl'], 'stageDehaze(c, vec2(0.5))', COLOURS, {
+      recover: { uniforms: { uDehazeOn: 1, uDehazeTex: 12 }, ref: (c: Vec3) => dehazeRecover(c, A0, tStage, 0) as Vec3 },
+    });
+    gl.deleteTexture(abTex);
+    // Masked instances through the engine.
+    {
+      const hsrc2 = eng.sourceFromImage(hc, hw, hh);
+      const base2 = { ...base, dehazeDistance: 20 };
+      const whole: Mask = { ...newMask(newEllipse([0.5, 0.5], [2, 2], 0, 0.001), 0), dehaze: 60 };
+      const nowhere: Mask = { ...newMask(newEllipse([-1, -1], [0.01, 0.01], 0, 0.001), 1), dehaze: -80 };
+      const left: Mask = { ...newMask(newEllipse([0, 0.5], [0.5, 2], 0, 0.001), 0), dehaze: 60 };
+      const feathered: Mask = { ...whole, refine: { feather: 20, blur: 0, brightness: 0, contrast: 0 } };
+      gl.getError();
+      const worst = (a: Uint8Array, b: Uint8Array, x0 = 0, x1 = hw) => {
+        let w = 0;
+        for (let y = 0; y < hh; y++) for (let x = x0; x < x1; x++) for (let c = 0; c < 3; c++) w = Math.max(w, Math.abs(a[(y * hw + x) * 4 + c] - b[(y * hw + x) * 4 + c]));
+        return w;
+      };
+      const plain = eng.readPixels(hsrc2, base2, hw, hh, 1);
+      const photo = eng.readPixels(hsrc2, { ...base2, dehaze: 60 }, hw, hh, 1);
+      const masked = eng.readPixels(hsrc2, { ...base2, masks: [whole] }, hw, hh, 1);
+      const two = eng.readPixels(hsrc2, { ...base2, masks: [nowhere, whole] }, hw, hh, 1);
+      const half = eng.readPixels(hsrc2, { ...base2, masks: [left] }, hw, hh, 1);
+      const stacked = eng.readPixels(hsrc2, { ...base2, dehaze: 60, masks: [whole] }, hw, hh, 1);
+      const refined = eng.readPixels(hsrc2, { ...base2, masks: [feathered] }, hw, hh, 1);
+      result.masked = {
+        wholeVsPhoto: worst(masked, photo), photoMoves: worst(plain, photo), secondMaskNowhere: worst(two, masked),
+        halfLeftVsPhoto: worst(half, photo, 0, 50), halfRightVsPlain: worst(half, plain, 70, hw),
+        stackedMovesFromPhoto: worst(stacked, photo), featheredWholeVsPhoto: worst(refined, photo),
+        glError: gl.getError(),
+      };
+      eng.release(hsrc2);
+    }
+    out.dehaze = result;
+  }
+  // A mask's Texture and Clarity through the engine: masked instances after the photo's own,
+  // folded into one map of the change in lightness.
+  {
+    const tw = 300, th = 200;
+    const tc = document.createElement('canvas');
+    tc.width = tw; tc.height = th;
+    const tx = tc.getContext('2d')!;
+    for (let y = 0; y < th; y += 6) for (let x = 0; x < tw; x += 6) {
+      const v = 60 + 120 * (x / tw) + (((x / 6 + y / 6) % 2) ? 30 : -30) + 20 * Math.sin(y / 15);
+      tx.fillStyle = `rgb(${Math.round(v * 1.05)},${Math.round(v)},${Math.round(v * 0.9)})`; tx.fillRect(x, y, 6, 6);
+    }
+    const tsrc = eng.sourceFromImage(tc, tw, th);
+    const base = { ...defaultRecipe('neutral', 'straight'), grain: 0 };
+    const worst = (a: Uint8Array, b: Uint8Array, x0 = 0, x1 = tw) => {
+      let w = 0;
+      for (let y = 0; y < th; y++) for (let x = x0; x < x1; x++) for (let c = 0; c < 3; c++) w = Math.max(w, Math.abs(a[(y * tw + x) * 4 + c] - b[(y * tw + x) * 4 + c]));
+      return w;
+    };
+    const result: Record<string, unknown> = {};
+    for (const key of ['texture', 'clarity'] as const) {
+      const whole: Mask = { ...newMask(newEllipse([0.5, 0.5], [2, 2], 0, 0.001), 0), [key]: 60 };
+      const nowhere: Mask = { ...newMask(newEllipse([-1, -1], [0.01, 0.01], 0, 0.001), 1), [key]: -80 };
+      const left: Mask = { ...newMask(newEllipse([0, 0.5], [0.75, 2], 0, 0.001), 0), [key]: 60 };
+      eng.gpu.gl.getError();
+      const plain = eng.readPixels(tsrc, base, tw, th, 1);
+      const photo = eng.readPixels(tsrc, { ...base, [key]: 60 }, tw, th, 1);
+      const masked = eng.readPixels(tsrc, { ...base, masks: [whole] }, tw, th, 1);
+      const two = eng.readPixels(tsrc, { ...base, masks: [nowhere, whole] }, tw, th, 1);
+      const half = eng.readPixels(tsrc, { ...base, masks: [left] }, tw, th, 1);
+      const stacked = eng.readPixels(tsrc, { ...base, [key]: 60, masks: [whole] }, tw, th, 1);
+      // With the photo's own at -60, a whole-frame mask at +60 runs on the photo's result.
+      const undone = eng.readPixels(tsrc, { ...base, [key]: -60, masks: [whole] }, tw, th, 1);
+      result[key] = {
+        wholeVsPhoto: worst(masked, photo), photoMoves: worst(plain, photo), secondMaskNowhere: worst(two, masked),
+        halfLeftVsPhoto: worst(half, photo, 0, 140), halfRightVsPlain: worst(half, plain, 160, tw),
+        stackedMovesFromPhoto: worst(stacked, photo), minusThenPlusVsPlain: worst(undone, plain),
+        glError: eng.gpu.gl.getError(),
+      };
+    }
+    out.maskDetail = result;
+    eng.release(tsrc);
+  }
+  // A mask's Highlights through the engine: a masked tone equalizer instance with its own map.
+  {
+    const tw = 300, th = 200;
+    const tc = document.createElement('canvas');
+    tc.width = tw; tc.height = th;
+    const tx = tc.getContext('2d')!;
+    const grad = tx.createLinearGradient(0, 0, 0, th);
+    grad.addColorStop(0, 'rgb(250,245,235)'); grad.addColorStop(0.5, 'rgb(150,150,145)'); grad.addColorStop(1, 'rgb(20,22,25)');
+    tx.fillStyle = grad; tx.fillRect(0, 0, tw, th);
+    tx.fillStyle = 'rgb(255,255,255)'; tx.fillRect(40, 20, 60, 40); tx.fillRect(200, 20, 60, 40);
+    const tsrc = eng.sourceFromImage(tc, tw, th);
+    const base = { ...defaultRecipe('neutral', 'straight'), grain: 0 };
+    const whole: Mask = { ...newMask(newEllipse([0.5, 0.5], [2, 2], 0, 0.001), 0), highlights: -80 };
+    const nowhere: Mask = { ...newMask(newEllipse([-1, -1], [0.01, 0.01], 0, 0.001), 1), highlights: 80 };
+    // The left 150 px (the ellipse's semi-axis is 0.75 of the 200 px side), sharp edged.
+    const left: Mask = { ...newMask(newEllipse([0, 0.5], [0.75, 2], 0, 0.001), 0), highlights: -80 };
+    eng.gpu.gl.getError();
+    const plain = eng.readPixels(tsrc, base, tw, th, 1);
+    const photo = eng.readPixels(tsrc, { ...base, highlights: -80 }, tw, th, 1);
+    const masked = eng.readPixels(tsrc, { ...base, masks: [whole] }, tw, th, 1);
+    const two = eng.readPixels(tsrc, { ...base, masks: [nowhere, whole] }, tw, th, 1);
+    const half = eng.readPixels(tsrc, { ...base, masks: [left] }, tw, th, 1);
+    const stacked = eng.readPixels(tsrc, { ...base, highlights: -80, masks: [whole] }, tw, th, 1);
+    const glError = eng.gpu.gl.getError();
+    const worst = (a: Uint8Array, b: Uint8Array, x0 = 0, x1 = tw) => {
+      let w = 0;
+      for (let y = 0; y < th; y++) for (let x = x0; x < x1; x++) for (let c = 0; c < 3; c++) w = Math.max(w, Math.abs(a[(y * tw + x) * 4 + c] - b[(y * tw + x) * 4 + c]));
+      return w;
+    };
+    const at = (px: Uint8Array, x: number, y: number) => px[(y * tw + x) * 4 + 1];
+    out.maskHighlights = {
+      wholeVsPhoto: worst(masked, photo), photoMoves: worst(plain, photo), secondMaskNowhere: worst(two, masked),
+      halfLeftVsPhoto: worst(half, photo, 0, 140), halfRightVsPlain: worst(half, plain, 160, tw),
+      // readPixels returns the top row first: y 12 is in the bright top.
+      brightTop: { plain: at(plain, 150, 12), photo: at(photo, 150, 12), stacked: at(stacked, 150, 12) },
+      glError,
+    };
+    eng.release(tsrc);
+  }
   // The range picker's tap: the scene a mask's exposure instance sees, against the reference.
   {
     const pw = 200, ph = 100;
@@ -1075,6 +1250,24 @@ try {
       return (performance.now() - t0) / 4;
     };
     // A render with nothing to remake, for the cost of reading back alone.
+    // Haze removal on the 24 MP preview: the first render (input, guide, ambient light), a still, and a drag.
+    const timeDehaze = () => {
+      (eng as unknown as { dhAmbient: null }).dhAmbient = null;
+      eng.dropBuffers(PW, PH);
+      let t0 = performance.now();
+      eng.readPixels(psrcPreview, { ...look, grain: 0, dehaze: 30 }, PW, PH, 1);
+      const dehazeFirstMs = performance.now() - t0;
+      const dehazeStillMs = time({ ...look, grain: 0, dehaze: 30 });
+      t0 = performance.now();
+      for (let i = 0; i < 4; i++) eng.readPixels(psrcPreview, { ...look, grain: 0, dehaze: 35 + i * 5 }, PW, PH, 1);
+      const dragDehazeMs = (performance.now() - t0) / 4;
+      // A radial mask's Dehaze while dragging it: its whole instance is redone each time.
+      const maskAt = (v: number): Mask => ({ ...newMask(newEllipse([0.5, 0.5], [0.3, 0.2], 0, 0.1), 0), dehaze: v });
+      eng.readPixels(psrcPreview, { ...look, grain: 0, masks: [maskAt(30)] }, PW, PH, 1);
+      t0 = performance.now();
+      for (let i = 0; i < 4; i++) eng.readPixels(psrcPreview, { ...look, grain: 0, masks: [maskAt(35 + i * 5)] }, PW, PH, 1);
+      return { dehazeFirstMs, dehazeStillMs, dragDehazeMs, dragMaskDehazeMs: (performance.now() - t0) / 4 };
+    };
     const timeStill = () => time({ ...look, grain: 0, color: colorAt(30), texture: 30, clarity: 30, sharpen: 20 });
     // Capture sharpening on float sources of preview and full OM-3 size, 20 iterations, radius 0.67.
     const timeCapture = (cw: number, ch: number, iters = 20) => {
@@ -1097,7 +1290,7 @@ try {
       eng.dropBuffers(cw, ch);
       return ms;
     };
-    out.timing = { captureFull1Ms: timeCapture(5184, 3888, 1), captureFullMs: timeCapture(5184, 3888), capturePreviewMs: timeCapture(2592, 1944), grainOffMs: time({ ...look, grain: 0 }), grainOnMs: time({ ...look, grain: 50 }), bwMs: time({ ...defaultRecipe('trix400'), grain: 50 }), clarityMs: time({ ...look, grain: 0, clarity: 100 }), textureMs: time({ ...look, grain: 0, texture: 100 }), dragExposureMs: timeDrag('exposure'), dragClarityMs: timeDrag('clarity'), dragTextureMs: timeDrag('texture'), dragColorMs: timeColorDrag({}), dragColorWithDetailMs: timeColorDrag({ texture: 30, clarity: 30, sharpen: 20 }), stillWithDetailMs: timeStill() };
+    out.timing = { captureFull1Ms: timeCapture(5184, 3888, 1), captureFullMs: timeCapture(5184, 3888), capturePreviewMs: timeCapture(2592, 1944), grainOffMs: time({ ...look, grain: 0 }), grainOnMs: time({ ...look, grain: 50 }), bwMs: time({ ...defaultRecipe('trix400'), grain: 50 }), clarityMs: time({ ...look, grain: 0, clarity: 100 }), textureMs: time({ ...look, grain: 0, texture: 100 }), dragExposureMs: timeDrag('exposure'), dragClarityMs: timeDrag('clarity'), dragTextureMs: timeDrag('texture'), dragColorMs: timeColorDrag({}), dragColorWithDetailMs: timeColorDrag({ texture: 30, clarity: 30, sharpen: 20 }), stillWithDetailMs: timeStill(), ...timeDehaze() };
     // A crop of the ramp with Portra 400 grain at 100%, for a look.
     const px = eng.readPixels(bsrc, look, PW, PH, 1);
     // Grain strength: standard deviation of the green channel, grain on minus off, in a midtone strip.

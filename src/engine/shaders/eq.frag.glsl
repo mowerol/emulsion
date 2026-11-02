@@ -8,7 +8,8 @@
 // lightness (L*): uIn holds .r the image at this scale, .g the boosted detail
 // so far and .b the starting lightness. Writes the next coarser image, the
 // detail with this scale's boost added, and carries the start along. With
-// uFirst, uIn is the lightness itself in .r.
+// uFirst, uIn is the lightness itself in .r, and a masked instance's mask in .g,
+// which .a then carries through every scale (for the fold, maskfold.frag).
 precision highp float;
 precision highp int;
 in vec2 vUv;
@@ -38,5 +39,6 @@ void main() {
   float coarse = sum / wgt;
   float accum = uFirst > 0.5 ? 0.0 : here.g;
   float start = uFirst > 0.5 ? c : here.b;
-  outColor = vec4(coarse, accum + uBoost * (c - coarse), start, 1.0);
+  float mask = uFirst > 0.5 ? here.g : here.a;
+  outColor = vec4(coarse, accum + uBoost * (c - coarse), start, mask);
 }

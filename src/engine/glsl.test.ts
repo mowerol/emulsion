@@ -29,10 +29,11 @@ describe('shader assembly', () => {
     }
   });
 
-  it('uses a cached dark-channel map for dehaze', () => {
+  it("runs haze removal before exposure, from the guided filter's texture", () => {
     expect(SHADERS.develop).toContain('uniform sampler2D uDehazeTex');
-    expect(SHADERS.develop).toContain('texture(uDehazeTex');
-    expect(SHADERS.develop).not.toMatch(/dehazeDark\([^)]*,/);
-    expect(SHADERS.dehaze).toContain('for (int y = -4; y <= 4; y++)');
+    const main = SHADERS.develop.slice(SHADERS.develop.indexOf('void main()'));
+    expect(main.indexOf('stageDehaze(')).toBeGreaterThan(-1);
+    expect(main.indexOf('stageDehaze(')).toBeLessThan(main.indexOf('stageExposure('));
+    for (const pass of [SHADERS.extract, SHADERS.toneeqmask]) expect(pass).toContain('stageExposure(stageDehazed(uv))');
   });
 });

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
 import type { Vec3 } from '../film/stocks';
-import { CENTERS_PARAMS, bandFactors, bandGains, correction, eigf, luminance, toneEqualize } from './toneequalizer';
+import { CENTERS_PARAMS, bandFactors, bandGains, correction, eigf, luminance, maskedToneEqualize, toneEqualize } from './toneequalizer';
 
 const ev = (k: number) => Math.log2(k);
 const grey = (v: number): Vec3 => [v, v, v];
@@ -60,5 +60,16 @@ describe('tone equalizer', () => {
     const out = toneEqualize(px, luminance(px), luminance(px) ** 2, f);
     expect(out[0] / out[1]).toBeCloseTo(2, 9);
     expect(out[1] / out[2]).toBeCloseTo(2, 9);
+  });
+
+  it('blends a masked instance normally by the mask', () => {
+    const f = bandFactors(bandGains(-80));
+    const px: Vec3 = [0.6, 0.5, 0.4];
+    const mean = luminance(px), meanSq = mean * mean * 1.2;
+    const full = toneEqualize(px, mean, meanSq, f);
+    expect(maskedToneEqualize(px, mean, meanSq, f, 0)).toEqual(px);
+    expect(maskedToneEqualize(px, mean, meanSq, f, 1)).toEqual(full);
+    const half = maskedToneEqualize(px, mean, meanSq, f, 0.25);
+    half.forEach((v, i) => expect(v).toBeCloseTo(0.75 * px[i] + 0.25 * full[i], 12));
   });
 });

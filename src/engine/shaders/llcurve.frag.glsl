@@ -5,8 +5,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Finest level of the remapped images: lightness (.r of uL) through the curve
-// around each brightness level in uGamma, one per channel. With uCarry, .b and
-// .a instead carry the lightness itself, so its Gaussian pyramid comes along.
+// around each brightness level in uGamma, one per channel. With uCarry, .b
+// instead carries the lightness itself, so its Gaussian pyramid comes along, and
+// .a a masked instance's mask (.g of uL), for the fold (maskfold.frag).
 precision highp float;
 in vec2 vUv;
 out vec4 outColor;
@@ -34,7 +35,8 @@ float llCurve(float x, float g) {
 }
 
 void main() {
-  float x = texelFetch(uL, ivec2(gl_FragCoord.xy), 0).r;
+  vec4 in0 = texelFetch(uL, ivec2(gl_FragCoord.xy), 0);
+  float x = in0.r;
   vec4 o = vec4(llCurve(x, uGamma.x), llCurve(x, uGamma.y), llCurve(x, uGamma.z), llCurve(x, uGamma.w));
-  outColor = uCarry > 0.5 ? vec4(o.xy, x, x) : o;
+  outColor = uCarry > 0.5 ? vec4(o.xy, x, in0.g) : o;
 }

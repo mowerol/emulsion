@@ -7,6 +7,9 @@ Local adjustments, as Lightroom's masking presents them, built from darktable's 
 A mask is a darktable group of shapes combined in order (the first copied, each later one added, subtracted, intersected, summed or excluded at its own opacity, optionally inverted), times the mask's Amount (darktable's blend opacity). It carries its own adjustments, which run as darktable would run masked instances:
 
 - **Exposure, Temperature, Tint**: after the photo's exposure stage (`stageMaskExposure`). Temperature moves the photo's white by that many mireds (positive warmer), Tint adds to its tint; the mask's CAT16 goes from the photo's white to the moved one.
+- **Highlights** (2026-11-02): a tone equalizer instance after the photo's own (`stageMaskToneEqualizer`), the photo's slider mapping, its own map from its own input (atlas tile on unit 4).
+- **Dehaze** (2026-11-02): a haze removal instance after the photo's (before exposure, as darktable places it), with its own ambient light and guided filter; its mask is evaluated, and refined, at its own input.
+- **Texture, Clarity** (2026-11-02): contrast equalizer and local laplacian instances after the photo's own, each on its own input, folded into the stage's ΔL map (`maskfold.frag`).
 - **Contrast, Shadows, Vibrance, Saturation**: a colour balance rgb instance after the photo's own (`stageMaskColorBalance`), with the same slider mapping as the photo's.
 - Each is blended normally (`_blend_normal`) at the mask's value.
 
@@ -31,9 +34,11 @@ Linear gradient (darktable gradient: sigmoidal or linear transition, curvature) 
 
 **Next:**
 
-1. **Local Highlights, Clarity, Texture, Dehaze** (planned). darktable would run each as a second instance after the photo's own, blended normally by the (raster) mask.
+1. **Local Highlights: built (2026-11-02).** Each masked instance gets its own brightness map, made from its input (after the photo's instance and earlier masked ones), as darktable's second instance computes its own guided filter. The maps sit side by side in one atlas on unit 4 (`uTeqTiles`, `uMaskLocal.y` the tile), copied in with `blitFramebuffer`. Probe `out.maskHighlights`: a whole-frame mask equals the photo's slider exactly, a half-frame mask equals it on its side and the plain render on the other.
+   **Local Texture and Clarity: built (2026-11-02).** As planned: each masked instance's filter runs on a tap after the instances before it (uTap 7 and 8, which also write the mask's value), and m·ΔL folds into the stage's map, which for Texture is now a ΔL map. Probe `out.maskDetail`: a whole-frame mask equals the photo's slider exactly (0 levels), a half-frame mask equals it on its side; where a mask is 0 the Lab round trip of a zero change can round 1 level differently.
+   **Local Dehaze: built (2026-11-02).** A full haze removal instance per mask on its own input, its mask evaluated and refined at that input (stack layers 3–4), all instances folded into one per-pixel affine image. Probe `out.dehaze.masked`. darktable would run each as a second instance after the photo's own, blended normally by the (raster) mask.
    - Clarity (bilat) and Texture (atrous) change only Lab L, so the blend is L + m·ΔL. Each masked instance's filter runs on a tap after the previous instances, and m·ΔL folds into the existing map: no new texture unit. Texture's map has to become a ΔL map first.
-   - The tone equalizer gain (x·g) and dehaze ((x − A(1 − t))/t) are per-pixel affine, so all masked instances of each fold into one RGBA stack layer (α, β).
+   - Dehaze: the photo's is now darktable's haze removal, before exposure (2026-11-02). A masked instance in darktable would run its own haze removal on its own input (after the photo's): its own ambient light, transition map and guided filter, about 400 MB more per masked instance at preview size. A cheaper option sharing the photo's ambient light would be a deviation to ask Oli about.
    - Each costs one filter run per masked instance when its inputs change, cached like the other maps.
 2. Paths (darktable `path.c`) if Oli wants freeform shapes beyond the brush.
 

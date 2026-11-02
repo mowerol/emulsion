@@ -293,3 +293,13 @@ export function packShapes(masks: Mask[], show = -1): { shapes: number[]; count:
   }
   return { shapes, count, index };
 }
+
+/**
+ * Masked instances of a lightness-only module (Texture, Clarity), after the photo's own: each
+ * instance's change `delta(L)` is taken on its own input, the lightness after the instances
+ * before it, and blended normally by its mask, so it adds m · ΔL. The engine folds the sum into
+ * one map (maskfold.frag).
+ */
+export function maskedLightness(L: number, instances: { mask: number; delta: (L: number) => number }[]): number {
+  return instances.reduce((l, i) => blendNormal([l], [l + i.delta(l)], i.mask)[0], L);
+}

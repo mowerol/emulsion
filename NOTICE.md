@@ -45,6 +45,14 @@ Template:
 - Ported to: `src/engine/toneequalizer.ts` (reference and band solving), `src/engine/shaders/stages/toneequalizer.glsl` and `src/engine/shaders/toneeqmask.frag.glsl`
 - Changes: translated from C to TypeScript and GLSL. Only the euclidean RGB norm and the exposure-independent guided filter without quantization or contrast boost, with one iteration. The filter's local averages are computed on the GPU on a small fixed-size map with Emulsion's blur, and negative variance from rounding is clamped. The Highlights slider drives the upper bands in the shape of darktable's "compress shadows/highlights" presets (3:5:5:3 over -3 to 0 EV), with their exposure boost of -1.57 EV
 
+### Haze removal, from darktable
+- Upstream: https://github.com/darktable-org/darktable, `src/iop/hazeremoval.c`, `src/common/guided_filter.c` and `src/common/box_filters.cc`, commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release 5.6.2)
+- Licence: GPL-3.0-or-later
+- Copyright: Copyright (C) 2017-2025 darktable developers. Copyright (C) 2017-2026 darktable developers (guided filter, box filters)
+- Method: K. He, J. Sun and X. Tang, "Single Image Haze Removal Using Dark Channel Prior", IEEE TPAMI 33(12), 2011, and "Guided Image Filtering", ECCV 2010
+- Ported to: `src/engine/dehaze.ts` (reference), `src/engine/shaders/dehaze.frag.glsl`, `src/engine/shaders/dehazegf.frag.glsl` and `src/engine/shaders/stages/dehaze.glsl`
+- Changes: translated from C to TypeScript and GLSL. The ambient light and maximum depth are always measured on a copy of at most 1280 px across, as darktable's darkroom takes them from its preview pipe; the quick select is an exact order statistic; box means are summed directly over each window
+
 ### Local laplacian filter and local contrast, from darktable
 - Upstream: https://github.com/darktable-org/darktable, `src/common/locallaplacian.c` and the "clarity" preset of `src/iop/bilat.c`, commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release 5.6.2). The method is Paris, Hasinoff and Kautz, "Local Laplacian Filters: Edge-aware Image Processing with a Laplacian Pyramid" (SIGGRAPH 2011), in the fast form of Aubry et al., "Fast Local Laplacian Filters" (ACM TOG 2014)
 - Licence: GPL-3.0-or-later

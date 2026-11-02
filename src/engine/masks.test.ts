@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
-import { blendNormal, blendifFactor, combine, ellipseValue, erf, gradientValue, jzczhz, maskValue, packRanges, pickStats, pickedRange, rangeUnits, packShapes, rangeParameters, rangeValue } from './masks';
+import { blendNormal, blendifFactor, maskedLightness, combine, ellipseValue, erf, gradientValue, jzczhz, maskValue, packRanges, pickStats, pickedRange, rangeUnits, packShapes, rangeParameters, rangeValue } from './masks';
 import { MAX_MASKS, fullRange, newEllipse, newGradient, newMask, normalizeMasks, type Mask } from '../film/masks';
 import { defaultRecipe, normalizeRecipe, withSettingsFrom } from '../film/recipe';
-import { InputMode, developUniforms, maskUniforms } from './params';
+import { InputMode, developUniforms, maskUniforms, needsPasses } from './params';
 
 const W = 3000;
 const H = 2000;
@@ -169,6 +169,26 @@ describe('mask uniforms', () => {
     expect((u.uMaskMeta as number[])[2]).toBe(1);
     expect((u.uMaskCb as number[]).length).toBe(40);
   });
+
+  it("gives each mask's Highlights its own tone equalizer instance, with the photo's mapping and its own map tile", () => {
+    const a = { ...newMask(newGradient(), 0), highlights: -60 };
+    const b = { ...newMask(newGradient(), 1), exposure: 1 };
+    const c = { ...newMask(newGradient(), 2), highlights: 40 };
+    const u = maskUniforms([a, b, c], defaultRecipe(), {});
+    // Tile 0 is the photo's instance; the masked instances follow in mask order.
+    expect(u.uMaskLocal).toEqual([1, 1, 0, 0, 0, 0, 0, 0, 1, 2, 0, 0]);
+    expect(u.uTeqTiles).toBe(3);
+    const photo = developUniforms({ ...defaultRecipe(), highlights: -60 }, ctx);
+    expect((u.uMaskTeq as number[]).slice(0, 8)).toEqual([...(photo.uTeqF0 as number[]), ...(photo.uTeqF1 as number[])]);
+    expect((u.uMaskTeq as number[]).slice(8, 16)).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
+    // A mask's Highlights alone turns the stage on.
+    const d = developUniforms({ ...defaultRecipe(), masks: [a] }, ctx);
+    expect(d.uTeqOn).toBe(0);
+    expect(needsPasses(d).toneEqualizer).toBe(true);
+    expect(needsPasses(developUniforms(defaultRecipe(), ctx)).toneEqualizer).toBe(false);
+    // A shown mask that is off changes nothing.
+    expect(maskUniforms([{ ...a, on: false }], defaultRecipe(), { maskShow: 0 }).uTeqTiles).toBe(1);
+  });
 });
 
 describe('darktable blendif ranges (RGB scene, JzCzhz)', () => {
@@ -282,3 +302,22 @@ describe("darktable's blendif picker (set values)", () => {
   });
 });
 
+describe('masked Texture and Clarity instances', () => {
+  it('add m · ΔL, each on the lightness after the instances before it', () => {
+    const photo = (L: number) => 0.1 * L;
+    const masked = (L: number) => -0.05 * L + 2;
+    // The photo's instance (mask 1), then a masked one at 0.4.
+    const got = maskedLightness(50, [{ mask: 1, delta: photo }, { mask: 0.4, delta: masked }]);
+    const after = 50 + photo(50);
+    expect(got).toBeCloseTo(after + 0.4 * masked(after), 12);
+    expect(maskedLightness(50, [{ mask: 0, delta: masked }])).toBe(50);
+  });
+
+  it('reads Texture and Clarity from sidecars, and they make a mask active', () => {
+    const [m] = normalizeMasks([{ ...newMask(newGradient(), 0), texture: 40, clarity: -250 }]);
+    expect(m.texture).toBe(40);
+    expect(m.clarity).toBe(-100);
+    expect(normalizeMasks([{ ...newMask(newGradient(), 0), texture: undefined }])[0].texture).toBe(0);
+    expect(maskUniforms([{ ...newMask(newGradient(), 0), clarity: 30 }], defaultRecipe(), {}).uMaskCount).toBe(1);
+  });
+});
