@@ -8,7 +8,7 @@ import { flushSaves, onSaveError } from './library/sidecars';
 import { markForKey } from './library/marks';
 import { lastFolder } from './library/folders';
 import {
-  copySettings, createVirtualCopies, markPhotos, openFolder, pasteSettings, redo, selectAll, setCompare, setExportOpen, setView, showToast, step, stepToEnd, undo, useApp,
+  addToTargetCollection, copySettings, createVirtualCopies, markPhotos, openFolder, pasteSettings, redo, selectAll, setCompare, setExportOpen, setView, showToast, step, stepToEnd, undo, useApp,
 } from './library/store';
 import { Images } from './ui/Images';
 import { useWorkspace } from './ui/workspace';
@@ -83,6 +83,7 @@ function useShortcuts() {
       else if (k === 'd') setView('develop');
       else if (e.key === 'Enter' && s.view === 'library') setView('develop');
       else if (onRange) return;
+      else if (k === 'b') { e.preventDefault(); if (!e.repeat) addToTargetCollection(); }
       else if (markForKey(e.key)) markPhotos(markForKey(e.key)!);
       else if (e.key === 'ArrowRight') { e.preventDefault(); step(1); }
       else if (e.key === 'ArrowLeft') { e.preventDefault(); step(-1); }
@@ -120,11 +121,16 @@ function useDesktop() {
         if (path) openFolder(path);
       })
       .catch(() => {});
+    let externalDrag = false;
     const unlisten: Promise<() => void>[] = [
       getCurrentWebview().onDragDropEvent((e) => {
-        if (e.payload.type === 'enter' || e.payload.type === 'over') setDropping(true);
-        else if (e.payload.type === 'leave') setDropping(false);
+        if (e.payload.type === 'enter') {
+          externalDrag = e.payload.paths.length > 0;
+          setDropping(externalDrag);
+        } else if (e.payload.type === 'over') setDropping(externalDrag);
+        else if (e.payload.type === 'leave') { externalDrag = false; setDropping(false); }
         else if (e.payload.type === 'drop') {
+          externalDrag = false;
           setDropping(false);
           if (e.payload.paths.length) openFolder(e.payload.paths[0]);
         }

@@ -17,7 +17,7 @@ import { findPairs, foldPairs } from './pairs';
 import { cleanCopyName, expandCopies, photoId, savedFrames } from './copies';
 import { applyMark, describeMark, hasMark, normalizeMarks, type Label, type MarkKey, type Marks } from './marks';
 import { History, describe, type Change, type Step } from './history';
-import { cacheEdits, cacheFolder, catalogPhotos, recordImport, sourceMatcher, sourceMatches, useCatalog, viewImport, type SourceSelection } from './catalog';
+import { addToCollection, cacheEdits, cacheFolder, catalogPhotos, recordImport, sourceMatcher, sourceMatches, targetCollection, useCatalog, viewImport, type SourceSelection } from './catalog';
 
 export interface Photo {
   capture?: { camera: string | null; date: string | null };
@@ -563,6 +563,19 @@ export function selectAll() {
 }
 
 export const activePhoto = (s: State = get()) => s.photos[s.active] ?? null;
+
+/** File the library selection, or the current Develop frame, without changing the source. */
+export function addToTargetCollection() {
+  const s = get();
+  if (s.lookEdit) return;
+  const collection = targetCollection();
+  if (!collection) return showToast('Open a collection and choose Set as target collection first');
+  const photo = activePhoto(s);
+  const photos = s.view === 'library' ? sourcePhotos(s).filter(p => s.selected.has(photoId(p))) : photo ? [photo] : [];
+  if (!photos.length) return;
+  addToCollection(collection.id, photos.map(photoId));
+  showToast(`Added ${photos.length} ${photos.length === 1 ? 'photo' : 'photos'} to ${collection.name}`);
+}
 
 /** Photos an edit should apply to: the selection when several are selected, otherwise the active photo. */
 export function targets(s: State = get()): Photo[] {

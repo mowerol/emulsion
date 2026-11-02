@@ -31,10 +31,11 @@ interface Catalog {
   imports: ImportSession[];
   collections: Collection[];
   folders: Record<string, Photo[]>;
+  targetCollectionId: string | null;
 }
 const KEY = 'emulsion.libraryCatalog';
 const INDEX_KEY = 'emulsion.libraryIndex';
-const empty = (): Catalog => ({ imports: [], collections: [], folders: {} });
+const empty = (): Catalog => ({ imports: [], collections: [], folders: {}, targetCollectionId: null });
 function read(): Catalog {
   try {
     const value = JSON.parse(localStorage.getItem(KEY) ?? 'null');
@@ -45,7 +46,8 @@ function read(): Catalog {
     }
     if (!index || typeof index !== 'object' || Array.isArray(index)) index = {};
     for (const root of value.roots ?? []) index[root] ??= [];
-    return { imports: value.imports, collections: value.collections, folders: Object.fromEntries(Object.entries(index as Record<string, Photo[]>).map(([root, photos]) => [root,
+    const targetCollectionId = value.collections.some((c: Collection) => c.id === value.targetCollectionId && c.type === 'manual') ? value.targetCollectionId : null;
+    return { imports: value.imports, collections: value.collections, targetCollectionId, folders: Object.fromEntries(Object.entries(index as Record<string, Photo[]>).map(([root, photos]) => [root,
       (Array.isArray(photos) ? photos : []).filter(p => p && typeof p.path === 'string').map(p => ({ ...p, recipe: normalizeRecipe(p.recipe), ...normalizeMarks(p.rating, p.label, p.heart), pair: null }))])) };
   } catch { return empty(); }
 }
@@ -53,12 +55,12 @@ export const useCatalog = create<Catalog>(() => read());
 let saveTimer: ReturnType<typeof setTimeout>;
 function persist(state: Catalog) {
   // Keep source definitions independent of the larger, replaceable metadata cache.
-  try { localStorage.setItem(KEY, JSON.stringify({ imports: state.imports, collections: state.collections, roots: Object.keys(state.folders) })); } catch { /* session only */ }
+  try { localStorage.setItem(KEY, JSON.stringify({ imports: state.imports, collections: state.collections, roots: Object.keys(state.folders), targetCollectionId: state.targetCollectionId })); } catch { /* session only */ }
   try { localStorage.setItem(INDEX_KEY, JSON.stringify(state.folders)); } catch { /* index rebuilds from folders */ }
 }
 useCatalog.subscribe((state, previous) => {
-  if (state.imports !== previous.imports || state.collections !== previous.collections || Object.keys(state.folders).length !== Object.keys(previous.folders).length) {
-    try { localStorage.setItem(KEY, JSON.stringify({ imports: state.imports, collections: state.collections, roots: Object.keys(state.folders) })); } catch { /* session only */ }
+  if (state.imports !== previous.imports || state.collections !== previous.collections || state.targetCollectionId !== previous.targetCollectionId || Object.keys(state.folders).length !== Object.keys(previous.folders).length) {
+    try { localStorage.setItem(KEY, JSON.stringify({ imports: state.imports, collections: state.collections, roots: Object.keys(state.folders), targetCollectionId: state.targetCollectionId })); } catch { /* session only */ }
   }
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
@@ -106,6 +108,14 @@ export function saveCollection(collection: Collection) {
 export function addToCollection(id: string, ids: string[]) {
   const c = useCatalog.getState().collections.find(c => c.id === id);
   if (c?.type === 'manual') saveCollection({ ...c, photoIds: [...new Set([...c.photoIds, ...ids])] });
+}
+export function targetCollection(catalog = useCatalog.getState()) {
+  const collection = catalog.collections.find(c => c.id === catalog.targetCollectionId);
+  return collection?.type === 'manual' ? collection : null;
+}
+export function setTargetCollection(id: string | null) {
+  if (id !== null && !useCatalog.getState().collections.some(c => c.id === id && c.type === 'manual')) return;
+  useCatalog.setState({ targetCollectionId: id });
 }
 export function matchesRules(photo: Photo, rules: SmartRule[]): boolean {
   return rules.every(rule => {

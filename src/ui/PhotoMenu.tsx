@@ -3,7 +3,8 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type Keyboar
 import { createPortal } from 'react-dom';
 import { photoId, versionName } from '../library/copies';
 import { THEMES, setTheme, usePrefs } from './prefs';
-import { STAGE_COLORS, activePhoto, createVirtualCopies, removeVirtualCopies, renameVirtualCopy, setActive, setStageColor, useApp } from '../library/store';
+import { STAGE_COLORS, activePhoto, addToTargetCollection, createVirtualCopies, removeVirtualCopies, renameVirtualCopy, setActive, setStageColor, useApp } from '../library/store';
+import { targetCollection, useCatalog } from '../library/catalog';
 import { MOD } from './common';
 
 /** Photo actions shared by the grid, Images, filmstrip and Develop's workspace menu. */
@@ -11,6 +12,7 @@ export function PhotoMenu({ x, y, onClose, workspace = false, returnFocus }: {
   x: number; y: number; onClose: () => void; workspace?: boolean; returnFocus?: HTMLElement | null;
 }) {
   const theme = usePrefs(p => p.theme);
+  const target = useCatalog(targetCollection);
   const ref = useRef<HTMLDivElement>(null);
   const photo = useApp(activePhoto);
   const photos = useApp(s => s.photos);
@@ -67,6 +69,13 @@ export function PhotoMenu({ x, y, onClose, workspace = false, returnFocus }: {
   return createPortal(<div className="menu photo-menu" role="menu" aria-label={workspace ? 'Photo and workspace' : 'Photo actions'} ref={ref}
     style={{ left: x, top: y }} onKeyDown={onKeyDown} onContextMenu={e => { e.preventDefault(); e.stopPropagation(); }}>
     {photo && <>
+      <button type="button" role="menuitem" className="menu-item" disabled={editing || !target}
+        aria-label={target ? `Add to target collection: ${target.name}` : 'Add to target collection'}
+        title={target ? `Add to target collection: ${target.name}` : 'Open a collection and choose Set as target collection first'}
+        onClick={() => { addToTargetCollection(); onClose(); }}>
+        {target ? `Add to ${target.name}` : 'Add to target collection'}<span className="menu-shortcut">B</span>
+      </button>
+      <div role="separator" className="menu-separator" />
       <button type="button" role="menuitem" className="menu-item" disabled={editing} onClick={() => { createVirtualCopies(); onClose(); }}>
         {count > 1 ? `Create ${count} virtual copies` : 'Create virtual copy'}<span className="menu-shortcut">{MOD}'</span>
       </button>

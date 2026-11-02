@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Download, Filter, GalleryVerticalEnd, Plus } from 'lucide-react';
-import { addToCollection, catalogPhotos, importTime, matchesRules, saveCollection, sourceCount, useCatalog, type Collection, type SmartRule } from '../library/catalog';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import { Download, Filter, GalleryVerticalEnd, Plus, Target } from 'lucide-react';
+import { addToCollection, catalogPhotos, importTime, matchesRules, saveCollection, setTargetCollection, sourceCount, targetCollection, useCatalog, type Collection, type SmartRule } from '../library/catalog';
 import { chooseImport, closeFolder, openFolder, selectSource, showToast, sourcePhotos, useApp } from '../library/store';
 import { photoId } from '../library/copies';
 import { LABELS } from '../library/marks';
@@ -10,37 +11,81 @@ import { foldPairs } from '../library/pairs';
 import { LibraryMenu, LibrarySection } from './LibrarySection';
 import { chooseFolder } from './TopBar';
 
-export const PHOTO_DRAG_TYPE = 'application/x-emulsion-photos';
 export type LibraryDialog = { kind: 'history' | 'collections' | 'manual' | 'smart' | 'rename' | 'add'; collection?: Collection; ids?: string[] };
 type OpenDialog = (dialog: LibraryDialog) => void;
 
-function CollectionRow({ collection, count }: { collection: Collection; count: number }) {
-  const selected = useApp(s => s.source?.type === 'collection' && s.source.id === collection.id);
-  const [over, setOver] = useState(false);
-  const manual = collection.type === 'manual';
-  return <button type="button" className={`source-row${selected ? ' active' : ''}${over ? ' drag-over' : ''}`}
-    aria-current={selected ? 'location' : undefined} title={collection.name} onClick={() => void selectSource({ type: 'collection', id: collection.id })}
-    onDragOver={e => { if (manual && e.dataTransfer.types.includes(PHOTO_DRAG_TYPE)) { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setOver(true); } }}
-    onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOver(false); }}
-    onDrop={e => {
-      setOver(false);
-      if (!manual) return;
-      e.preventDefault();
-      try {
-        const value: unknown = JSON.parse(e.dataTransfer.getData(PHOTO_DRAG_TYPE));
-        const known = new Set(catalogPhotos().map(photoId));
-        if (!Array.isArray(value)) return;
-        const ids = value.filter((id): id is string => typeof id === 'string' && known.has(id));
-        addToCollection(collection.id, ids);
-        if (ids.length) showToast(`Added ${ids.length} ${ids.length === 1 ? 'photo' : 'photos'} to ${collection.name}`);
-      } catch { /* ignore foreign drag data */ }
-    }}>
-    <span className="source-chevron-slot" />{manual ? <GalleryVerticalEnd size={15} /> : <Filter size={15} />}
-    <span className="source-name">{collection.name}</span><span className="source-count">{count.toLocaleString()}</span>
-  </button>;
+function toggleTargetCollection(collection: Collection) {
+  const clear = targetCollection()?.id === collection.id;
+  setTargetCollection(clear ? null : collection.id);
+  showToast(clear ? 'Target collection cleared' : `${collection.name} is the target collection · B to add photos`);
 }
 
-export function LibrarySidebar({ onOpen }: { onOpen: OpenDialog }) {
+function CollectionContextMenu({ x, y, collection, target, onClose }: {
+  x: number; y: number; collection: Collection; target: boolean; onClose: (restoreFocus?: boolean) => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const menu = ref.current;
+    if (!menu) return;
+    const r = menu.getBoundingClientRect();
+    menu.style.left = `${Math.max(4, Math.min(x, innerWidth - r.width - 4))}px`;
+    menu.style.top = `${Math.max(4, Math.min(y, innerHeight - r.height - 4))}px`;
+    menu.querySelector<HTMLButtonElement>('button')?.focus();
+  }, [x, y]);
+  useEffect(() => {
+    const away = (e: Event) => { if (!ref.current?.contains(e.target as Node)) onClose(); };
+    const close = () => onClose();
+    window.addEventListener('pointerdown', away, true);
+    window.addEventListener('wheel', close, true);
+    window.addEventListener('resize', close);
+    window.addEventListener('blur', close);
+    return () => {
+      window.removeEventListener('pointerdown', away, true);
+      window.removeEventListener('wheel', close, true);
+      window.removeEventListener('resize', close);
+      window.removeEventListener('blur', close);
+    };
+  }, [onClose]);
+  return createPortal(<div ref={ref} className="menu" role="menu" aria-label={`${collection.name} collection actions`}
+    style={{ left: x, top: y }} onContextMenu={e => { e.preventDefault(); e.stopPropagation(); }}
+    onKeyDown={e => {
+      e.stopPropagation();
+      if (e.key === 'Escape' || e.key === 'Tab') { e.preventDefault(); onClose(true); }
+    }}>
+    <button type="button" role="menuitemcheckbox" aria-checked={target} className="menu-item" onClick={() => {
+      toggleTargetCollection(collection);
+      onClose(true);
+    }}><span className="menu-check" aria-hidden="true">{target ? '✓' : ''}</span>{target ? 'Clear target collection' : 'Set as target collection'}</button>
+  </div>, document.body);
+}
+
+function CollectionRow({ collection, count, over }: { collection: Collection; count: number; over: boolean }) {
+  const selected = useApp(s => s.source?.type === 'collection' && s.source.id === collection.id);
+  const target = useCatalog(s => s.targetCollectionId === collection.id);
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const ref = useRef<HTMLButtonElement>(null);
+  const closeMenu = useCallback((restoreFocus = false) => { setMenu(null); if (restoreFocus) ref.current?.focus(); }, []);
+  const manual = collection.type === 'manual';
+  return <><button ref={ref} type="button" className={`source-row${selected ? ' active' : ''}${over ? ' drag-over' : ''}`}
+    data-collection-id={manual ? collection.id : undefined}
+    onContextMenu={e => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!manual) return;
+      const r = e.currentTarget.getBoundingClientRect();
+      setMenu({ x: e.clientX || r.left + 20, y: e.clientY || r.top + 20 });
+    }}
+    aria-current={selected ? 'location' : undefined} title={collection.name} onClick={() => void selectSource({ type: 'collection', id: collection.id })}>
+    <span className="source-chevron-slot" />{manual ? <GalleryVerticalEnd size={15} /> : <Filter size={15} />}
+    <span className="source-name">{collection.name}</span>
+    {manual && target && <Target size={13} aria-label="Target collection" className="source-target"><title>Target collection · B to add photos</title></Target>}
+    <span className="source-count">{count.toLocaleString()}</span>
+  </button>
+    {manual && menu && <CollectionContextMenu {...menu} collection={collection} target={target} onClose={closeMenu} />}
+  </>;
+}
+
+export function LibrarySidebar({ onOpen, dragTarget }: { onOpen: OpenDialog; dragTarget?: string | null }) {
   const catalog = useCatalog();
   const source = useApp(s => s.source);
   const selected = useApp(s => s.selected);
@@ -69,7 +114,7 @@ export function LibrarySidebar({ onOpen }: { onOpen: OpenDialog }) {
       <button type="button" onClick={() => onOpen({ kind: 'smart' })}>New smart collection…</button>
       <button type="button" disabled={!selected.size} onClick={() => onOpen({ kind: 'manual', ids: [...selected] })}>New collection from selection</button>
     </LibraryMenu>}>
-      {catalog.collections.map(c => <CollectionRow key={c.id} collection={c} count={counts.get(c.id) ?? 0} />)}
+      {catalog.collections.map(c => <CollectionRow key={c.id} collection={c} count={counts.get(c.id) ?? 0} over={dragTarget === c.id} />)}
       {!catalog.collections.length && <p className="source-section-empty">Collect your favourite frames.</p>}
     </LibrarySection>
   </FolderDirectory>;
@@ -94,6 +139,7 @@ export function SourceHeader({ onOpen }: { onOpen: OpenDialog }) {
   const catalog = useCatalog();
   const session = s.source?.type === 'import' ? catalog.imports.find(i => i.id === s.source!.id) : undefined;
   const collection = s.source?.type === 'collection' ? catalog.collections.find(c => c.id === s.source!.id) : undefined;
+  const isTarget = !!collection && targetCollection(catalog)?.id === collection.id;
   const title = session?.name ?? collection?.name ?? s.folder?.name ?? 'Photos';
   const count = sourcePhotos(s).length;
   const detail = session ? `Imported ${importTime(session.importedAt)} from ${session.sourceDevice} → ${session.destinationPath}`
@@ -112,6 +158,11 @@ export function SourceHeader({ onOpen }: { onOpen: OpenDialog }) {
         <button type="button" className="btn" disabled={s.loading} onClick={() => void openFolder(session.destinationPath)}>Show in folder</button>
         <button type="button" className="btn" disabled={!count} onClick={() => onOpen({ kind: 'add', ids: s.selected.size ? [...s.selected] : sourcePhotos(s).map(photoId) })}>Add to collection…</button>
       </> : collection ? collection.type === 'smart' ? <button type="button" className="btn" onClick={() => onOpen({ kind: 'smart', collection })}>Edit rules…</button> : <>
+        <button type="button" className="btn" aria-pressed={isTarget}
+          title={isTarget ? 'Clear the target collection assignment' : 'B adds selected Library photos or the current Develop photo to the target collection'}
+          onClick={() => toggleTargetCollection(collection)}>
+          <Target size={14} />{isTarget ? 'Clear target collection' : 'Set as target collection'}
+        </button>
         <button type="button" className="btn" disabled={!s.selected.size && !s.collectionAddIds.length} onClick={() => { addToCollection(collection.id, s.collectionAddIds.length ? s.collectionAddIds : [...s.selected]); useApp.setState({ collectionAddIds: [] }); showToast(`Selected photos added to ${collection.name}`); }}>Add selected</button>
         <button type="button" className="btn" onClick={() => onOpen({ kind: 'rename', collection })}>Rename…</button>
       </> : s.folder ? <>

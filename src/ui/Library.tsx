@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { memo, useEffect, useRef, useState, type MouseEvent } from 'react';
-import { Heart, Layers, ListFilter, Settings2, Square, Star } from 'lucide-react';
+import { memo, useEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
+import { Heart, Layers, ListFilter, Pencil, Settings2, Square, Star } from 'lucide-react';
 import { usePhotoContextMenu, type PhotoContextHandler } from './PhotoMenu';
 import { photoId, photoName } from '../library/copies';
 import { setActive, setFilter, setFoldJpegs, setSelectedOnly, setView, sourceIndices, useApp, useShown, type Photo } from '../library/store';
@@ -8,9 +8,10 @@ import { NO_FILTER, isFiltering } from '../library/filter';
 import { LABEL } from '../library/marks';
 import { FolderImportView } from './Folders';
 import { FilterBar } from './FilterBar';
-import { recipeLabel, Thumb, useVisible } from './common';
+import { Thumb, useVisible } from './common';
 import { ExposureInfo } from './ExposureInfo';
-import { LibrarySidebar, LibrarySourceDialog, PHOTO_DRAG_TYPE, SourceHeader, type LibraryDialog } from './LibrarySources';
+import { LibrarySidebar, LibrarySourceDialog, SourceHeader, type LibraryDialog } from './LibrarySources';
+import { useCollectionDrag } from './collectionDrag';
 import { LibraryMenu } from './LibrarySection';
 import { setPrefs, usePrefs } from './prefs';
 
@@ -22,17 +23,15 @@ const readSize = () => {
 };
 const selectMode = (e: MouseEvent) => e.shiftKey ? 'range' : e.metaKey || e.ctrlKey ? 'toggle' : 'single';
 
-const Cell = memo(function Cell({ photo, index, number, active, selected, showExif, contextMenu }: {
+const Cell = memo(function Cell({ photo, index, number, active, selected, showExif, contextMenu, startDrag }: {
   photo: Photo; index: number; number: number; active: boolean; selected: boolean; showExif: boolean; contextMenu: PhotoContextHandler;
+  startDrag: (e: PointerEvent, index: number) => void;
 }) {
   const [ref, visible] = useVisible<HTMLDivElement>();
   return <div ref={ref} role="option" aria-label={photoName(photo)} aria-selected={selected} tabIndex={active ? 0 : -1}
     className={`cell${active ? ' active' : ''}${selected ? ' selected' : ''}`} data-index={index}
-    draggable onDragStart={e => {
-      if (!selected) setActive(index);
-      e.dataTransfer.setData(PHOTO_DRAG_TYPE, JSON.stringify([...useApp.getState().selected]));
-      e.dataTransfer.effectAllowed = 'copy';
-    }} onContextMenu={e => contextMenu(e, index)} onClick={e => setActive(index, selectMode(e))}
+    draggable={false} onPointerDown={e => startDrag(e, index)}
+    onContextMenu={e => contextMenu(e, index)} onClick={e => setActive(index, selectMode(e))}
     onDoubleClick={() => { setActive(index, 'keep'); setView('develop'); }} title={photo.copyId ? `${photo.rel} · ${photo.copyName}` : photo.rel}>
     <div className="cell-img">
       <Thumb photo={photo} visible={visible} />
@@ -40,7 +39,10 @@ const Cell = memo(function Cell({ photo, index, number, active, selected, showEx
       {photo.pair && <span className="cell-stack" title="RAW + JPEG">×2</span>}
       {photo.copyId && <span className="copy-badge">Virtual copy</span>}
     </div>
-    <div className="cell-meta"><span className="cell-name">{photoName(photo)}</span><span className={`cell-stock${photo.recipe ? ' on' : ''}`} title={photo.recipe ? recipeLabel(photo) : 'Auto'}>{photo.recipe ? recipeLabel(photo) : 'Auto'}</span></div>
+    <div className="cell-meta">
+      <span className="cell-name">{photoName(photo)}</span>
+      {photo.recipe && <span className="cell-edits" role="img" aria-label="Edits applied" title="Edits applied"><Pencil size={14} aria-hidden="true" /></span>}
+    </div>
     <div className="cell-details">
       {showExif && <ExposureInfo photo={photo} visible={visible} />}
       <span className="cell-marks">
@@ -53,6 +55,7 @@ const Cell = memo(function Cell({ photo, index, number, active, selected, showEx
 });
 
 export function Library() {
+  const drag = useCollectionDrag();
   const context = usePhotoContextMenu();
   const s = useApp();
   const shown = useShown();
@@ -75,8 +78,11 @@ export function Library() {
   }, [s.folder, s.choosingImport, s.source, !!shown.length]);
   useEffect(() => { gridRef.current?.querySelector<HTMLElement>(`[data-index="${s.active}"]`)?.scrollIntoView({ block: 'nearest' }); }, [s.active]);
   const selectedCount = scope.filter(i => s.selected.has(photoId(s.photos[i]))).length;
-  return <section className="library library-with-directory">
-    <LibrarySidebar onOpen={setDialog} />
+  return <section className="library library-with-directory" onClickCapture={drag.click}>
+    <LibrarySidebar onOpen={setDialog} dragTarget={drag.preview?.target} />
+    {drag.preview && <div className="collection-drag-preview" style={{ left: drag.preview.x + 14, top: drag.preview.y + 14 }}>
+      {drag.preview.count} {drag.preview.count === 1 ? 'photo' : 'photos'}
+    </div>}
     <main className="library-content">
       <SourceHeader onOpen={setDialog} />
       {s.choosingImport ? <div className="library-import-scroll"><FolderImportView key={s.folder?.root} /></div> : <>
@@ -90,7 +96,7 @@ export function Library() {
         </div>
         <div className="library-grid-scroll">
           {shown.length ? <div className="grid" ref={gridRef} role="listbox" aria-label="Photos" aria-multiselectable style={{ ['--cell' as string]: `${size}px` }}>
-            {shown.map(i => <Cell contextMenu={context.open} key={photoId(s.photos[i])} photo={s.photos[i]} index={i} number={frameNumbers.get(i)!} active={i === s.active} selected={s.selected.has(photoId(s.photos[i]))} showExif={showExif} />)}
+            {shown.map(i => <Cell startDrag={drag.start} contextMenu={context.open} key={photoId(s.photos[i])} photo={s.photos[i]} index={i} number={frameNumbers.get(i)!} active={i === s.active} selected={s.selected.has(photoId(s.photos[i]))} showExif={showExif} />)}
           </div> : <div className="library-empty">
             <h2>{s.loading ? 'Reading photos…' : filtering ? 'No photos match these filters' : s.source?.type === 'collection' ? 'This collection is empty' : s.source?.type === 'import' ? 'No photos from this import are available' : s.folder ? 'No imported photos in this folder' : 'Your library starts here'}</h2>
             {filtering ? <button type="button" className="btn" onClick={clear}>Clear filters</button> : <p>{s.source?.type === 'collection' ? 'Add photos from a folder, or adjust the smart collection rules.' : 'Import photos or choose a folder in the sidebar.'}</p>}
