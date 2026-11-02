@@ -287,3 +287,8 @@ pub async fn delete_preset(app: tauri::AppHandle, id: String) -> Result<(), Stri
     let root = looks_root(&app)?.with_file_name("presets");
     blocking(move || crate::presets::delete(&root, &id)).await
 }
+/// Read preset files the person chose, for the interface to check and save as new presets.
+#[tauri::command]
+pub async fn read_preset_files(paths: Vec<String>) -> Result<Vec<serde_json::Value>, String> {
+    blocking(move || crate::presets::read_files(&paths)).await
+}

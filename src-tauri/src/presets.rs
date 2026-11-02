@@ -27,6 +27,20 @@ pub fn delete(root: &Path, id: &str) -> Result<(), String> {
     if !valid_id(id) { return Err("Invalid preset ID".into()); }
     fs::remove_file(root.join(format!("{id}.json"))).map_err(|e| e.to_string())
 }
+/// Presets in files chosen for import: one preset per file, or an array of them. Files over
+/// 4 MB or that are not JSON are reported by name; checking each preset is left to the caller.
+pub fn read_files(paths: &[String]) -> Result<Vec<Value>, String> {
+    let mut out = Vec::new();
+    for path in paths {
+        let p = Path::new(path);
+        let name = p.file_name().and_then(|n| n.to_str()).unwrap_or(path);
+        let size = fs::metadata(p).map_err(|e| format!("{name}: {e}"))?.len();
+        if size > 4 * 1024 * 1024 { return Err(format!("{name} is too large to be a preset")); }
+        let value: Value = serde_json::from_slice(&fs::read(p).map_err(|e| format!("{name}: {e}"))?).map_err(|_| format!("{name} is not a preset file"))?;
+        match value { Value::Array(items) => out.extend(items), v => out.push(v) }
+    }
+    Ok(out)
+}
 #[cfg(test)] mod tests {
     use super::*;
     #[test] fn persistence_and_validation() {
@@ -38,5 +52,17 @@ pub fn delete(root: &Path, id: &str) -> Result<(), String> {
         assert!(delete(dir.path(), "../outside").is_err());
         delete(dir.path(), id).unwrap();
         assert!(list(dir.path()).is_empty());
+    }
+    #[test] fn reads_single_and_array_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let one = dir.path().join("one.json");
+        let many = dir.path().join("many.json");
+        let bad = dir.path().join("bad.json");
+        fs::write(&one, r#"{"name":"A"}"#).unwrap();
+        fs::write(&many, r#"[{"name":"B"},{"name":"C"}]"#).unwrap();
+        fs::write(&bad, "not json").unwrap();
+        let paths = [one, many].map(|p| p.to_string_lossy().into_owned());
+        assert_eq!(read_files(&paths).unwrap().len(), 3);
+        assert!(read_files(&[bad.to_string_lossy().into_owned()]).unwrap_err().contains("bad.json"));
     }
 }

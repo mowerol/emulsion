@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { expect, it } from 'vitest';
-import { applyPreset, DEFAULT_PRESET_GROUPS, PRESET_EXCLUDED, PRESET_GROUPS, normalizePreset, type Preset } from './presets';
+import { applyPreset, DEFAULT_PRESET_GROUPS, PRESET_EXCLUDED, PRESET_GROUPS, normalizePreset, presetScope, type Preset } from './presets';
 import { defaultRecipe, normalizeRecipe } from './recipe';
 import { captureLook, customLookId, legacyLooks, PACK, profileSettingsFor, recipeLookFile, registerCustomLook, unregisterCustomLook } from './looks';
 const id = 'e0000000-0000-4000-8000-000000000000';
@@ -43,4 +43,10 @@ it('hydrates old references from archived definitions and rejects malformed pres
   expect(normalizePreset({ ...preset(['Tone']), groups: ['nope'] })).toBeNull();
   expect(normalizePreset(preset(['Tone']))?.groups).toEqual(['Tone']);
   legacyLooks.delete(stock); delete PACK.custom.looks[stock];
+});
+it('keeps a collection name, trimmed, and leaves presets without one uncollected', () => {
+  expect(normalizePreset({ ...preset(['Tone']), collection: '  Travel ' })?.collection).toBe('Travel');
+  expect(normalizePreset({ ...preset(['Tone']), collection: '   ' })).not.toHaveProperty('collection');
+  expect(normalizePreset({ ...preset(['Tone']), collection: 7 })).not.toHaveProperty('collection');
+  expect(presetScope({ groups: ['Tone', 'Treatment', 'White balance'] })).toBe('Look · WB · Tone');
 });

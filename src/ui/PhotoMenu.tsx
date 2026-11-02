@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { photoId, versionName } from '../library/copies';
+import { THEMES, setTheme, usePrefs } from './prefs';
 import { STAGE_COLORS, activePhoto, createVirtualCopies, removeVirtualCopies, renameVirtualCopy, setActive, setStageColor, useApp } from '../library/store';
 import { MOD } from './common';
 
@@ -9,6 +10,7 @@ import { MOD } from './common';
 export function PhotoMenu({ x, y, onClose, workspace = false, returnFocus }: {
   x: number; y: number; onClose: () => void; workspace?: boolean; returnFocus?: HTMLElement | null;
 }) {
+  const theme = usePrefs(p => p.theme);
   const ref = useRef<HTMLDivElement>(null);
   const photo = useApp(activePhoto);
   const photos = useApp(s => s.photos);
@@ -94,6 +96,10 @@ export function PhotoMenu({ x, y, onClose, workspace = false, returnFocus }: {
       {STAGE_COLORS.map(c => <button key={c.id} type="button" role="menuitemradio" className="menu-item" aria-checked={c.id === stageColor}
         onClick={() => { setStageColor(c.id); onClose(); }}><span className="menu-check" aria-hidden="true">{c.id === stageColor ? '✓' : ''}</span>
         <span className="swatch" style={{ background: c.hex }} aria-hidden="true" />{c.label}</button>)}
+      <div role="separator" className="menu-separator" />
+      <div className="menu-title">Interface</div>
+      {THEMES.map(t => <button key={t.id} type="button" role="menuitemradio" className="menu-item" aria-checked={t.id === theme}
+        onClick={() => { setTheme(t.id); onClose(); }}><span className="menu-check" aria-hidden="true">{t.id === theme ? '✓' : ''}</span>{t.label}</button>)}
     </>}
   </div>, document.body);
 }

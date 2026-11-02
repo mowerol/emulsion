@@ -12,6 +12,7 @@ import {
 } from './library/store';
 import { Images } from './ui/Images';
 import { useWorkspace } from './ui/workspace';
+import { usePrefs } from './ui/prefs';
 import { Develop } from './ui/Develop';
 import { ExportDialog } from './ui/ExportDialog';
 import { Library, gridColumns } from './ui/Library';
@@ -154,6 +155,8 @@ export default function App() {
   const editingLook = useApp(s => !!s.lookEdit);
   const layout = useWorkspace(s => s.layout);
   const workflow = !editingLook && layout === 'workflow' && view === 'develop' && hasFolder;
+  const theme = usePrefs(p => p.theme);
+  useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
 
   return (
     <div className={`app${editingLook ? ' app-look-editor' : ''}`}>

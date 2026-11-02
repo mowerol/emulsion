@@ -255,13 +255,21 @@ export function useThumb(path: string, recipe: Recipe | null, seed: number, visi
 
 // Camera JPEG previews already contain lens corrections. Edited RAW thumbnails and stock
 // tiles must instead use the actual RAW so toggles/strengths agree with Develop and export.
+// Ordinary photos are decoded too rather than drawn from the cached thumbnail, which carries
+// no record of the photo's size: radius-based stages (sharpening, texture, clarity, dehaze,
+// grain) are sized in the photo's pixels and were applied as if it were 512 px wide.
 const rawPreviews = new Map<string, HalfImage>();
 export async function sourceForPreview(eng: Engine, path: string, blob: Blob, white: Xy | null, raw: boolean, recipe: Recipe | null = null) {
-  if (!raw) return sourceFromBlob(eng, blob, white);
-  const cacheKey = `${path}|${noiseEnabled(recipe)}`;
+  const noise = raw && noiseEnabled(recipe);
+  const cacheKey = `${path}|${noise}`;
   let img = rawPreviews.get(cacheKey);
   if (!img) {
-    img = await loadCachedImage(path, THUMB_EDGE, noiseEnabled(recipe));
+    try {
+      img = await loadCachedImage(path, THUMB_EDGE, noise);
+    } catch {
+      // A file the decoder can't read (a JPEG XL DNG) is edited through its embedded preview, as in Develop.
+      return sourceFromBlob(eng, blob, white);
+    }
     rawPreviews.set(cacheKey, img);
     while (rawPreviews.size > 2) rawPreviews.delete(rawPreviews.keys().next().value!);
   }

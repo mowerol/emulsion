@@ -414,6 +414,21 @@ mod tests {
         assert_eq!(colour_matrix("Unknown", &[[0.0; 3]; 3]), (None, None));
     }
 
+    /// A half-size decode reports the photo's full size, the same as a full decode.
+    /// The preview is half size, so this is what 100% zoom is measured in. Run with
+    /// `EMULSION_RAW_SAMPLES="a.ORF:b.RAF" cargo test half_size_reports -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn half_size_reports_the_full_size() {
+        let samples = std::env::var("EMULSION_RAW_SAMPLES").expect("set EMULSION_RAW_SAMPLES");
+        for path in samples.split(':') {
+            let (half, full) = (decode(Path::new(path), true).unwrap(), decode(Path::new(path), false).unwrap());
+            eprintln!("{path}: half {}x{} reports {:?}; full {}x{} reports {:?}", half.image.width(), half.image.height(), half.full_size, full.image.width(), full.image.height(), full.full_size);
+            assert_eq!(full.full_size, (full.image.width(), full.image.height()));
+            assert_eq!(half.full_size, full.full_size, "{path}");
+        }
+    }
+
     /// Median luminance of the camera's preview in scene light (through the
     /// inverse of the neutral tone curve) over the RAW's, per file. The median
     /// of these ratios is the right `BASELINE_GAIN`. Run with

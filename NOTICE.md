@@ -139,9 +139,13 @@ Implemented from the papers, not from code.
 
 ## Bundled assets
 
-### Archivo typeface
-- Copyright 2020 The Archivo Project Authors (https://github.com/Omnibus-Type/Archivo)
-- Licence: SIL Open Font License 1.1, bundled through `@fontsource-variable/archivo`
+### Geist typeface
+- Copyright 2024 The Geist Project Authors (https://github.com/vercel/geist-font)
+- Licence: SIL Open Font License 1.1, bundled through `@fontsource-variable/geist`
+
+### Lucide icons
+- Source: https://lucide.dev, through `lucide-react` 1.66.0
+- Licence: ISC, Copyright (c) 2026 Lucide Icons and Contributors
 
 ### t3mujinpack look pack
 - Source: https://github.com/t3mujin/t3mujinpack, `haldcluts/`, commit 0b421f3e25209ed78253d1724a29cc6255c5e7fe; eight of its Hald CLUTs, unmodified

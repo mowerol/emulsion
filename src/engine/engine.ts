@@ -18,7 +18,7 @@ import { prepareProfile, profilePending } from './profilestore';
 import type { Recipe } from '../film/recipe';
 import { lensCenter, lensColourUniforms, lensSpline, lensUniforms, type LensMetadata } from './lenscorrection';
 import { geometryMatrix } from './perspective';
-import { FULL, type Rect } from '../film/crop';
+import { FULL, orientedSize, type Orientation, type Rect } from '../film/crop';
 import { Gpu, GpuError, Lru, type Program, type Target } from './gpu';
 import { InputMode, LUT_UNIT, colorBalanceUniforms, developUniforms, llParams, needsPasses, type Uniforms } from './params';
 import { maskActive } from '../film/masks';
@@ -1135,7 +1135,7 @@ export class Engine {
       /** Show the original left of this screen x (0 to 1). */
       split?: number;
       /** Frame to show instead of the recipe's crop: a rectangle of the photo straightened by `angle`. */
-      frame?: Rect & { angle: number };
+      frame?: Rect & { angle: number; orient?: Orientation };
       /** Display colour for parts of the frame off the photo. */
       outside?: [number, number, number];
       /** Show Sharpening's contrast mask instead of the photo. */
@@ -1219,8 +1219,11 @@ export class Engine {
     // Effects that belong to the film (grain, vignette) see the whole uncropped
     // frame at the size it is shown, so cropping enlarges them as it would a negative.
     const look = recipe && !opts.compare ? lookLut(recipe) : null;
+    // Their size is the source's, so a quarter turn swaps the shown frame's sides back.
+    const fullW = opts.width / view.w / frame.w, fullH = opts.height / view.h / frame.h;
+    const turned = !!('orient' in frame && frame.orient && frame.orient.turns % 2);
     const u = developUniforms(recipe, {
-      width: opts.width / view.w / frame.w, height: opts.height / view.h / frame.h, seed: opts.seed, inputMode: src.mode, store: this.store, compare: opts.compare, white: src.white, look, maskShow: opts.maskShow,
+      width: turned ? fullH : fullW, height: turned ? fullW : fullH, seed: opts.seed, inputMode: src.mode, store: this.store, compare: opts.compare, white: src.white, look, maskShow: opts.maskShow,
     });
     Object.assign(u,this.profiles.uniforms(profile));
     const geo = geometryMatrix({ ...FULL, ...frame }, src.fullW, src.fullH, recipe?.transform);
@@ -1511,8 +1514,9 @@ export class Engine {
     const g = this.gpu;
     const gl = g.gl;
     const crop = recipe.crop ?? FULL;
-    const pw = box.w * crop.w * src.w;
-    const ph = box.h * crop.h * src.h;
+    const [ow, oh] = orientedSize(crop, src.w, src.h);
+    const pw = box.w * crop.w * ow;
+    const ph = box.h * crop.h * oh;
     const scale = Math.min(1, max / Math.max(pw, ph));
     const w = Math.max(1, Math.round(pw * scale));
     const h = Math.max(1, Math.round(ph * scale));

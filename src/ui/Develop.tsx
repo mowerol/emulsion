@@ -4,7 +4,9 @@ import { photoId } from '../library/copies';
 import { PhotoInfo } from './PhotoInfo';
 import { PhotoTools } from './PhotoTools';
 import { useWorkspace } from './workspace';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { activeTool, chooseTool, toolHint, useTools } from './tools';
+import { cycleCropOverlay } from './prefs';
 import { useProfileVersion } from '../engine/profilestore';
 import { useLutVersion } from '../engine/lutstore';
 import { logToTerminal } from '../backend/api';
@@ -17,7 +19,7 @@ import { defaultRecipe } from '../film/recipe';
 import { D65_XY, clampWhiteBalance, neutralizingWhite, temperatureTint } from '../engine/whitebalance';
 import { STAGE_COLORS, activePhoto, editActive, finishCrop, setCropDraft, setPhotoWhite, setPhotoLens, setPhotoCamera, showToast, startCrop, useApp } from '../library/store';
 import { StageMenu } from './StageMenu';
-import { FULL, bounds, framePixels, rotateFrame } from '../film/crop';
+import { FULL, bounds, framePixels, orientedSize, rotateFrame } from '../film/crop';
 import { CropOverlay } from './CropOverlay';
 import { ensureCapture, loadCachedImage, sourceFromBlob, thumbs } from '../library/thumbs';
 import { Filmstrip } from './Filmstrip';
@@ -33,6 +35,8 @@ const HISTOGRAM_EDGE = 384;
 const HISTOGRAM_DELAY_MS = 120;
 /** A pointer that moves less than this many CSS pixels is a click, not a drag. */
 const CLICK_SLOP = 4;
+/** Clear space round the photo while cropping, in CSS pixels, on top of the stage's padding. */
+const CROP_MARGIN = 24;
 
 const sourceKey = (path: string, res: string, noise = false) => `${path}:${res}:${noise}`;
 
@@ -63,6 +67,10 @@ export function Develop() {
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [zoom, setZoom] = useState<Zoom>(FIT);
   const [loadingFull, setLoadingFull] = useState(false);
+  /** The photo whose decode failed, leaving its embedded preview as the thing being edited. */
+  const [decodeFailed, setDecodeFailed] = useState<string | null>(null);
+  /** The source key of the full-resolution decode in flight, if one is. */
+  const fullLoadRef = useRef<string | null>(null);
   const [panning, setPanning] = useState(false);
   /** Before/after: off, the whole original, or split at `splitAt` of the canvas width. */
   const [before, setBefore] = useState<'off' | 'full' | 'split'>('off');
@@ -94,6 +102,8 @@ export function Develop() {
   const maskTool = useMaskUi((s) => !!s.tool);
   const maskIndex = photo?.recipe?.masks.findIndex((m) => m.id === maskSelected) ?? -1;
   const maskShow = masksOpen && maskOverlay && maskIndex >= 0 ? maskIndex : null;
+  const tools = useTools();
+  const tool = workflow ? activeTool(tools, cropping, picking, masksOpen) : 'select';
   useEffect(() => { if (!masksOpen) setMaskUi({ tool: null, pick: null }); }, [masksOpen]);
 
   // Start the GPU engine for this canvas.
@@ -152,7 +162,10 @@ export function Develop() {
     if (!engine || !path) return;
     let cancelled = false;
     if (loadedRef.current?.path !== path) setZoom(FIT);
+    // A full-resolution decode still running for the previous photo is no longer wanted.
+    fullLoadRef.current = null;
     setLoadingFull(false);
+    setDecodeFailed(null);
     const swap = (source: Source, res: Res) => {
       if (cancelled) engine.release(source);
       else swapSource(path, source, res);
@@ -192,6 +205,7 @@ export function Develop() {
         // to it, so say so, and leave the message up long enough to read.
         const why = String(err);
         logToTerminal('warn', why);
+        setDecodeFailed(path);
         if (previewShown) showToast(`${why} You're editing the preview saved in the file, at lower quality.`, undefined, 9000);
         else showToast(`Could not open this photo. ${why}`);
       }
@@ -218,11 +232,25 @@ export function Develop() {
   const loaded = loadedRef.current;
   const showing = !!loaded && loaded.path === path;
   const src = showing ? loaded!.source : null;
-  const recipe = photo?.recipe ?? null;
+  // The camera's thumbnail shown while the photo decodes is not the photo's size, so zoom and
+  // crop, which measure in the photo's pixels, wait for the decode (unless it failed and the
+  // thumbnail is what is being edited).
+  const sizeKnown = !!src && (loaded!.res !== 'thumb' || decodeFailed === path);
+  const saved = photo?.recipe ?? null;
+  // A preset under the pointer is shown on the photo without being applied.
+  const preview = workflow && !cropping && !editingLook ? tools.preview : null;
+  const recipe = useMemo(() => (preview ? preview.apply(saved) : saved), [preview, saved]);
   // What the canvas shows: the crop, or while cropping the whole straightened photo.
-  const frame = cropEdit ? { ...bounds(cropEdit.draft.angle, cropEdit.W, cropEdit.H), angle: cropEdit.draft.angle } : (recipe?.crop ?? FULL);
+  const turned = cropEdit ? orientedSize(cropEdit.draft, cropEdit.W, cropEdit.H) : null;
+  const frame = cropEdit
+    ? { ...bounds(cropEdit.draft.angle, turned![0], turned![1]), angle: cropEdit.draft.angle, orient: cropEdit.draft.orient }
+    : (recipe?.crop ?? FULL);
+  // The shown frame's full-resolution size, which zoom and pan measure in.
+  const [frameW, frameH] = src ? orientedSize(frame, src.fullW, src.fullH).map((v, i) => v * (i ? frame.h : frame.w)) : [1, 1];
+  // While cropping the photo fits with a margin: the handles stay reachable, and dragging outside the photo turns it.
+  const margin = cropping ? CROP_MARGIN : 0;
   const current: Layout | null =
-    src && box.w > 2 && box.h > 2 ? layout(cropping ? FIT : zoom, box.w, box.h, dpr(), src.fullW * frame.w, src.fullH * frame.h) : null;
+    src && box.w > 2 + 2 * margin && box.h > 2 + 2 * margin ? layout(cropping ? FIT : zoom, box.w - 2 * margin, box.h - 2 * margin, dpr(), frameW, frameH) : null;
 
   // Capture sharpening needs the RAW's sensor data, read once per loaded source.
   const sharpening = recipe?.captureSharpening ?? 0;
@@ -240,8 +268,8 @@ export function Develop() {
 
   // Tell the store the photo's size, so cropping can start from the panel.
   useEffect(() => {
-    if (path && src) useApp.setState({ developSize: { path, W: src.fullW, H: src.fullH } });
-  }, [path, src?.fullW, src?.fullH]);
+    if (path && src && sizeKnown) useApp.setState({ developSize: { path, W: src.fullW, H: src.fullH } });
+  }, [path, src?.fullW, src?.fullH, sizeKnown]);
 
   // A new crop changes what the zoom refers to, so start from the whole frame.
   const cropKey = JSON.stringify(recipe?.crop ?? null);
@@ -259,29 +287,37 @@ export function Develop() {
     }
   });
 
-  // Zoomed past what the preview holds: load the full resolution once.
+  // Zoomed past what the preview holds: load the full resolution once. The decode is not tied to
+  // this effect's lifetime: zooming again while it runs must not cancel it, or the view stays on
+  // the upscaled preview. It is dropped only when the photo (or its noise reduction) changes,
+  // which clears `fullLoadRef`, or when the engine goes away.
   useEffect(() => {
     const engine = engineRef.current;
-    if (!engine || !path || !src || !current || loadingFull || loaded?.res === 'full') return;
+    if (!engine || !path || !src || !current || loaded?.res === 'full') return;
     if (current.scale <= (src.w / src.fullW) * 1.05) return;
-    setLoadingFull(true);
-    let cancelled = false;
-    const cached = cachedSource(sourceKey(path, 'full', wantsNoise));
+    const key = sourceKey(path, 'full', wantsNoise);
+    if (fullLoadRef.current === key) return;
+    const cached = cachedSource(key);
     if (cached) {
       swapSource(path, cached, 'full');
-      setLoadingFull(false);
       return;
     }
+    fullLoadRef.current = key;
+    setLoadingFull(true);
+    const stillWanted = () => fullLoadRef.current === key && engineRef.current === engine;
     loadCachedImage(path, engine.maxTextureSize, wantsNoise)
       .then((img) => {
-        if (cancelled || loadedRef.current?.path !== path) return;
+        if (!stillWanted() || loadedRef.current?.path !== path) return;
         swapSource(path, engine.sourceFromHalf(img), 'full');
       })
-      .catch((err) => showToast(`Could not load the full resolution. ${String(err)}`))
-      .finally(() => !cancelled && setLoadingFull(false));
-    return () => {
-      cancelled = true;
-    };
+      .catch((err) => {
+        if (stillWanted()) showToast(`Could not load the full resolution. ${String(err)}`);
+      })
+      .finally(() => {
+        if (fullLoadRef.current !== key) return;
+        fullLoadRef.current = null;
+        if (engineRef.current === engine) setLoadingFull(false);
+      });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current?.scale, path, wantsNoise, loadedVersion]);
 
@@ -346,17 +382,17 @@ export function Develop() {
 
   const zoomTo = useCallback(
     (scale: number | null, fx = lastCursor.current[0], fy = lastCursor.current[1]) => {
-      if (!current || !src) return;
+      if (!current || !src || !sizeKnown) return;
       if (scale === null) setZoom(FIT);
-      else setZoom(zoomAt(current, scale, fx, fy, box.w, box.h, dpr(), src.fullW, src.fullH));
+      else setZoom(zoomAt(current, scale, fx, fy, box.w, box.h, dpr(), frameW, frameH));
     },
-    [current, src, box.w, box.h],
+    [current, src, sizeKnown, box.w, box.h, frameW, frameH],
   );
 
   /** One zoom step in or out about the centre, as Cmd/Ctrl with = and - do. */
   const zoomStep = (direction: 1 | -1) => {
-    if (!current || !src) return;
-    zoomTo(step(current.scale, layout(FIT, box.w, box.h, dpr(), src.fullW, src.fullH).scale, direction), 0.5, 0.5);
+    if (!current || !src || !sizeKnown) return;
+    zoomTo(step(current.scale, layout(FIT, box.w, box.h, dpr(), frameW, frameH).scale, direction), 0.5, 0.5);
   };
 
   const fraction = (e: { clientX: number; clientY: number }): [number, number] => {
@@ -376,12 +412,12 @@ export function Develop() {
         const [fx, fy] = fraction(e);
         zoomTo(current.scale * Math.exp(-e.deltaY * 0.01), fx, fy);
       } else if (zoom.scale !== null) {
-        setZoom(pan(zoom, current, -e.deltaX, -e.deltaY, dpr(), src.fullW, src.fullH));
+        setZoom(pan(zoom, current, -e.deltaX, -e.deltaY, dpr(), frameW, frameH));
       }
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, [current, src, zoom, zoomTo, cropping]);
+  }, [current, src, zoom, zoomTo, cropping, frameW, frameH]);
 
   // Keys: Z toggles fit and 100%, Cmd/Ctrl with = - 0 zoom, J shows clipping.
   useEffect(() => {
@@ -394,8 +430,18 @@ export function Develop() {
       }
       if (!current) return;
       const mod = e.metaKey || e.ctrlKey;
-      // R crops; while cropping, Enter keeps it, Escape throws it away and X turns the frame.
-      if (!mod && !e.altKey && e.key.toLowerCase() === 'r') {
+      const plain = !mod && !e.altKey;
+      const k = e.key.toLowerCase();
+      if (workflow && !editingLook) {
+        // The toolbar's tools: V select, C (or R) crop, M mask, W pick neutral. C and R don't leave crop mode.
+        const id = plain ? ({ v: 'select', c: 'crop', r: 'crop', m: 'mask', w: 'pick' } as const)[k as 'v'] : undefined;
+        if (id && !(cropping && (id === 'select' || id === 'crop'))) {
+          e.preventDefault();
+          chooseTool(id);
+          return;
+        }
+      } else if (plain && k === 'r') {
+        // Classic: R crops; while cropping, Enter keeps it, Escape throws it away and X turns the frame.
         if (cropping) finishCrop(true);
         else startCrop();
         return;
@@ -404,12 +450,19 @@ export function Develop() {
         if (e.key === 'Enter') {
           e.preventDefault();
           finishCrop(true);
-        } else if (e.key === 'Escape') finishCrop(false);
-        else if (!mod && !e.altKey && e.key.toLowerCase() === 'x') setCropDraft((c) => rotateFrame(c, cropEdit!.W, cropEdit!.H));
+        } else if (e.key === 'Escape') {
+          // Esc first puts down the level line, then cancels the crop.
+          if (workflow && tools.straighten) useTools.setState({ straighten: false });
+          else finishCrop(false);
+        } else if (plain && k === 'x') setCropDraft((c) => rotateFrame(c, ...orientedSize(c, cropEdit!.W, cropEdit!.H)));
+        else if (plain && k === 'o' && workflow) cycleCropOverlay();
         return;
       }
-      const fit = layout(FIT, box.w, box.h, dpr(), src!.fullW, src!.fullH).scale;
-      if (mod && (e.key === '=' || e.key === '+')) {
+      const fit = layout(FIT, box.w, box.h, dpr(), frameW, frameH).scale;
+      if (workflow && plain && !e.shiftKey && e.key === '-' || workflow && plain && (e.key === '=' || e.key === '+')) {
+        e.preventDefault();
+        zoomTo(step(current.scale, fit, e.key === '-' ? -1 : 1), 0.5, 0.5);
+      } else if (mod && (e.key === '=' || e.key === '+')) {
         e.preventDefault();
         zoomTo(step(current.scale, fit, 1), 0.5, 0.5);
       } else if (mod && e.key === '-') {
@@ -428,7 +481,20 @@ export function Develop() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [current, src, box.w, box.h, zoom.scale, zoomTo, picking, cropping, cropEdit?.W, cropEdit?.H]);
+  }, [current, src, box.w, box.h, zoom.scale, zoomTo, picking, cropping, cropEdit?.W, cropEdit?.H, workflow, editingLook, tools.straighten, frameW, frameH]);
+
+  // Hold Space to pan, whatever tool is held.
+  useEffect(() => {
+    if (!workflow) return;
+    const typing = (t: EventTarget | null) => { const el = t as HTMLElement | null; return !!el && (el.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT', 'BUTTON'].includes(el.tagName)); };
+    const down = (e: KeyboardEvent) => { if (e.key === ' ' && !typing(e.target)) { e.preventDefault(); if (!e.repeat) useTools.setState({ spacePan: true }); } };
+    const up = (e: KeyboardEvent) => { if (e.key === ' ') useTools.setState({ spacePan: false }); };
+    const blur = () => useTools.setState({ spacePan: false });
+    window.addEventListener('keydown', down);
+    window.addEventListener('keyup', up);
+    window.addEventListener('blur', blur);
+    return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up); window.removeEventListener('blur', blur); };
+  }, [workflow]);
 
   useEffect(() => () => {
     useApp.setState({ picking: false });
@@ -487,7 +553,7 @@ export function Develop() {
     setPanning(true);
     p.x = e.clientX;
     p.y = e.clientY;
-    setZoom(pan(zoom, current, dx, dy, dpr(), src.fullW, src.fullH));
+    setZoom(pan(zoom, current, dx, dy, dpr(), frameW, frameH));
   };
 
   const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -497,17 +563,17 @@ export function Develop() {
     if (!p || p.moved) return;
     const [fx, fy] = fraction(e);
     if (picking) pickNeutral(fx, fy);
-    else zoomTo(zoom.scale === null ? 1 : null, fx, fy);
+    else if (tool !== 'pan') zoomTo(zoom.scale === null ? 1 : null, fx, fy);
   };
 
-  const cursor = cropping ? 'default' : picking ? 'crosshair' : panning ? 'grabbing' : zoom.scale === null ? 'zoom-in' : 'grab';
+  const cursor = cropping ? 'default' : picking ? 'crosshair' : panning ? 'grabbing' : tool === 'pan' ? 'grab' : zoom.scale === null ? 'zoom-in' : 'zoom-out';
 
   return (
     <section className={`develop${workflow ? ' develop-workflow' : ''}`}>
-      {workflow && !editingLook && <div className="photo-tools-host"><PhotoTools ready={!!current} scale={zoom.scale} zoomLabel={current ? label(zoom, current) : 'Fit'}
+      {workflow && !editingLook && <div className="photo-tools-host"><PhotoTools ready={!!current && sizeKnown} scale={zoom.scale} zoomLabel={current ? label(zoom, current) : 'Fit'}
         onZoom={scale => scale === null ? setZoom(FIT) : zoomTo(scale, 0.5, 0.5)} onStep={zoomStep} before={before} onBefore={setBefore} /></div>}
       <div
-        className={`stage${stage.light ? ' light' : ''}`}
+        className={`stage${stage.light ? ' light' : ''}${cropping ? ' cropping' : ''}`}
         style={{ background: stage.hex }}
         onContextMenu={(e) => {
           e.preventDefault();
@@ -535,14 +601,17 @@ export function Develop() {
             <MaskOverlay transform={recipe?.transform} frame={frame} W={src!.fullW} H={src!.fullH} view={current.view} cssW={current.cssW} cssH={current.cssH} onPick={pickRange} />
           )}
           {cropEdit && showing && (
-            <CropOverlay draft={cropEdit.draft} frame={frame} W={cropEdit.W} H={cropEdit.H} onChange={(c) => setCropDraft(() => c)} />
+            <CropOverlay draft={cropEdit.draft} frame={frame} W={cropEdit.W} H={cropEdit.H} onChange={(c) => setCropDraft(() => c)}
+              straighten={workflow && tools.straighten} onLevelled={() => useTools.setState({ straighten: false })} onCommit={() => finishCrop(true)} />
           )}
+          {preview && showing && <span className="preview-label">Previewing · {preview.name}</span>}
           </div>
           {error && <p className="stage-error">{error}</p>}
         </div>
-        {compare && <span className="badge">{held ? 'Original' : 'Before'}</span>}
-        {clipping && <span className="badge clip-badge">Clipping shown (J)</span>}
-        {cropping && <span className="badge">Cropping: Enter to keep, Esc to cancel, X turns the frame</span>}
+        {/* In Workflow nothing sits on the photo: these read from the bottom bar instead. */}
+        {!workflow && compare && <span className="badge">{held ? 'Original' : 'Before'}</span>}
+        {!workflow && clipping && <span className="badge clip-badge">Clipping shown (J)</span>}
+        {!workflow && cropping && <span className="badge">Cropping: Enter to keep, Esc to cancel, X turns the frame</span>}
         {photo && !showing && !error && <span className="stage-status">Opening {photo.name}</span>}
         {photo && showing && loaded!.res === 'thumb' && <span className="stage-status">Loading preview</span>}
         {photo && showing && loadingFull && <span className="stage-status">Loading full resolution</span>}
@@ -567,7 +636,7 @@ export function Develop() {
           </div>
         )}
       </div>
-      {workflow && <PhotoInfo toolbar />}
+      {workflow && <PhotoInfo toolbar hint={compare ? (held ? 'Showing the original while \\ is held' : 'Showing the original') : clipping ? 'Clipping shown · J to hide' : toolHint(tool, zoom.scale !== null)} />}
       {!workflow && !editingLook && <Filmstrip />}
     </section>
   );

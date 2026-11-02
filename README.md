@@ -104,6 +104,8 @@ node tools/browser-tests/treatment-filters.mjs workspace  # retired Classic pref
 3. 16-bit TIFF export and colour-managed input and output (Display P3).
 4. Move the pipeline to WebGPU (WGSL), so it can later be shared with a native Rust core.
 5. Persistent develop-preview cache: store bounded 2560px decoded previews on disk, keyed by source identity and decode settings, with invalidation and cleanup.
+6. Backups: daily snapshots of the app's own data (looks, presets, camera profiles, settings), export and import of settings, and a short history of each sidecar so a reset or a bad batch edit can be restored. See [docs/research/backups.md](docs/research/backups.md).
+7. Healing, cloning and removal: a port of darktable's retouch module (clone, heal, fill, blur, wavelet scales), then local AI removal with LaMa through ONNX Runtime. See [docs/research/healing-and-removal.md](docs/research/healing-and-removal.md).
 
 ## License
 

@@ -114,8 +114,8 @@ interface State {
  */
 export const STAGE_COLORS = [
   { id: 'black', label: 'Black', hex: '#000000', light: false },
-  { id: 'dark', label: 'Dark grey', hex: '#2a2926', light: false },
-  { id: 'grey', label: 'Mid grey (18%)', hex: '#767676', light: true },
+  { id: 'dark', label: 'Dark grey', hex: '#161616', light: false },
+  { id: 'grey', label: 'Mid grey (18%)', hex: '#777777', light: true },
   { id: 'white', label: 'White', hex: '#ffffff', light: true },
 ] as const;
 export type StageColorId = (typeof STAGE_COLORS)[number]['id'];
@@ -125,9 +125,9 @@ const STAGE_COLOR_KEY = 'emulsion.stageColor';
 function savedStageColor(): StageColorId {
   try {
     const v = localStorage.getItem(STAGE_COLOR_KEY);
-    return STAGE_COLORS.find((c) => c.id === v)?.id ?? 'dark';
+    return STAGE_COLORS.find((c) => c.id === v)?.id ?? 'grey';
   } catch {
-    return 'dark';
+    return 'grey';
   }
 }
 

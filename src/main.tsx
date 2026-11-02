@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import React from 'react';
 import ReactDOM from 'react-dom/client';
-import '@fontsource-variable/archivo/wdth.css';
+import '@fontsource-variable/geist/wght.css';
 import './styles.css';
 import { refreshPresets } from './library/presets';
 import App from './App';

@@ -7,6 +7,7 @@ import { photoId } from '../library/copies';
 // The lab order: what this frame is developed with.
 
 import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { Blend, ClipboardPaste, Copy, Ellipsis, Eraser, Redo2, RotateCcw, SlidersHorizontal, Sparkle, SquareDashedMousePointer, SwatchBook, Undo2, type LucideIcon } from 'lucide-react';
 import { CameraProfileControls } from './CameraProfile';
 import { profileLabel, useProfileVersion } from '../engine/profilestore';
 import { TransformControls, transformSummary } from './TransformControls';
@@ -26,6 +27,7 @@ import { Histogram } from './Histogram';
 import { CurveEditor } from './CurveEditor';
 import { CONTROL_GROUPS, setWorkspace, useWorkspace } from './workspace';
 import { CropControls, cropSummary } from './CropControls';
+import { commitTyped } from './typed';
 import { Section } from './Section';
 import { ISOS } from '../engine/grain';
 import { WhiteBalanceControls } from './WhiteBalanceControls';
@@ -37,21 +39,53 @@ const toLog = (d: SliderDef, v: number) => Math.round((LOG_STEPS * Math.log(v / 
 /** A position on a logarithmic slider as a value, rounded to whole ISO. */
 const fromLog = (d: SliderDef, p: number) => Math.round(d.min * Math.pow(d.max / d.min, p / LOG_STEPS));
 
-function SliderRow({ def, recipe, onChange }: { def: SliderDef; recipe: Recipe | null; onChange: (key: SliderDef['key'], v: number) => void }) {
+/** The value beside a slider: plain text until hovered or focused; typing a number and pressing Enter sets it. */
+export function ValueInput({ id, value, display, label, onCommit, disabled }: { id: string; value: number; display: string; label: string; onCommit: (text: string) => void; disabled?: boolean }) {
+  const [draft, setDraft] = useState<string | null>(null);
+  return <input className="slider-value" aria-label={`${label} value`} id={`${id}-value`} type="text" inputMode="decimal" spellCheck={false} disabled={disabled}
+    value={draft ?? display}
+    onFocus={(e) => { setDraft(String(Number(value.toFixed(2)))); requestAnimationFrame(() => e.target.select()); }}
+    onChange={(e) => setDraft(e.target.value)}
+    onBlur={() => { if (draft !== null) onCommit(draft); setDraft(null); }}
+    onKeyDown={(e) => {
+      if (e.key === 'Enter') { e.currentTarget.blur(); }
+      else if (e.key === 'Escape') { setDraft(null); requestAnimationFrame(() => (e.target as HTMLInputElement).blur()); e.preventDefault(); e.stopPropagation(); }
+    }} />;
+}
+
+let dragCount = 0;
+/** One undo step per drag: a key made when the pointer goes down, kept until it comes up. */
+export function useDragGrouping(name: string) {
+  const drag = useRef<string | null>(null);
+  return {
+    start: () => { drag.current = `${name}:drag${++dragCount}`; },
+    grouping: (): { key: string; continuous: boolean } | undefined => (drag.current ? { key: drag.current, continuous: true } : undefined),
+    end: () => { drag.current = null; },
+  };
+}
+
+type Grouping = { key: string; continuous: boolean } | undefined;
+let typedCount = 0;
+
+function SliderRow({ def, recipe, onChange }: { def: SliderDef; recipe: Recipe | null; onChange: (key: SliderDef['key'], v: number, grouping?: Grouping) => void }) {
   const value = recipe ? recipe[def.key] : sliderDefault(def, DEFAULT_STOCK);
   const fmt = def.format ?? String;
+  const fallback = sliderDefault(def, recipe?.stock ?? DEFAULT_STOCK);
+  const changed = Math.abs(value - fallback) > 1e-9;
   const tick = def.stockKey && recipe ? (def.log ? toLog(def, sliderDefault(def, recipe.stock)) / LOG_STEPS : (sliderDefault(def, recipe.stock) - def.min) / (def.max - def.min)) : null;
   const id = `slider-${def.key}`;
-  const reset = () => recipe && onChange(def.key, sliderDefault(def, recipe.stock));
+  const drag = useDragGrouping(`slider:${def.key}`);
+  const reset = () => recipe && onChange(def.key, fallback, { key: `reset:${def.key}:${++typedCount}`, continuous: false });
   // Masking shows the mask in black and white while ⌥ is held on it, as in Lightroom.
   const showsMask = def.key === 'sharpenMasking';
   const mask = (on: boolean) => showsMask && useApp.setState({ sharpenMask: on });
   return (
-    <div className="slider">
-      <label htmlFor={id} onDoubleClick={reset} title={showsMask ? 'Hold ⌥ while dragging to see where sharpening reaches (white). Double-click to reset' : def.hint ? `${def.hint} Double-click to reset.` : 'Double-click the name or the handle to reset'}>
+    <div className={`slider${changed ? ' changed' : ''}`}>
+      <label htmlFor={id} onDoubleClick={reset} title={showsMask ? 'Hold ⌥ while dragging to see where sharpening reaches (white). Double-click to reset' : def.hint ? `${def.hint} Double-click to reset.` : `${def.label}. Double-click to reset`}>
         {def.label}
       </label>
-      <output htmlFor={id}>{fmt(value)}</output>
+      <ValueInput id={id} value={value} label={def.label} display={fmt(value).replace(/ EV$/, '')} disabled={!recipe}
+        onCommit={(text) => { const v = commitTyped(def, text); if (v !== null && v !== value) onChange(def.key, def.log ? Math.round(v) : v, { key: `typed:${def.key}:${++typedCount}`, continuous: false }); }} />
       <div className="track">
         <input
           id={id}
@@ -61,11 +95,12 @@ function SliderRow({ def, recipe, onChange }: { def: SliderDef; recipe: Recipe |
           step={def.log ? 1 : def.step}
           value={def.log ? toLog(def, value) : value}
           disabled={!recipe}
-          onChange={(e) => onChange(def.key, def.log ? fromLog(def, Number(e.target.value)) : Number(e.target.value))}
+          aria-valuetext={fmt(value)}
+          onChange={(e) => onChange(def.key, def.log ? fromLog(def, Number(e.target.value)) : Number(e.target.value), drag.grouping())}
           onDoubleClick={reset}
-          onPointerDown={(e) => mask(e.altKey)}
-          onPointerUp={() => mask(false)}
-          onPointerCancel={() => mask(false)}
+          onPointerDown={(e) => { drag.start(); mask(e.altKey); }}
+          onPointerUp={() => { drag.end(); mask(false); }}
+          onPointerCancel={() => { drag.end(); mask(false); }}
           onBlur={() => mask(false)}
         />
         {tick !== null && <span className="tick" style={{ ['--t' as string]: tick }} />}
@@ -162,8 +197,28 @@ function GrainSpeed({ recipe }: { recipe: Recipe | null }) {
   );
 }
 
+/** Reset photo in the action bar: an icon that asks for a second click. */
+function ResetPhotoButton({ multi, count }: { multi: boolean; count: number }) {
+  const [armed, setArmed] = useState(false);
+  useEffect(() => {
+    if (!armed) return;
+    const t = setTimeout(() => setArmed(false), 4000);
+    return () => clearTimeout(t);
+  }, [armed]);
+  const label = multi ? `Reset ${count} photos` : 'Reset photo';
+  return <button type="button" className={`icon-btn action${armed ? ' armed' : ''}`} disabled={!targets().some((p) => p.recipe)} aria-label={armed ? `${label}: click again to confirm` : label}
+    data-tip={armed ? 'Click again to reset to the original' : `${label} to the original`}
+    onClick={() => {
+      if (!armed) { setArmed(true); return; }
+      setArmed(false);
+      const t = targets();
+      editRecipes(t.map(photoId), () => null, t.length === 1 ? 'Reset photo' : `Reset ${t.length} photos`);
+      showToast(t.length === 1 ? 'Back to the original' : `${t.length} frames back to the original`);
+    }}><Eraser size={16} aria-hidden="true" /></button>;
+}
+
 /** A button that asks for a second click before doing something broad. */
-function ConfirmButton({ label, confirm, onConfirm, disabled }: { label: string; confirm: string; onConfirm: () => void; disabled?: boolean }) {
+function ConfirmButton({ label, confirm, onConfirm, disabled, menu = false }: { label: string; confirm: string; onConfirm: () => void; disabled?: boolean; menu?: boolean }) {
   const [armed, setArmed] = useState(false);
   useEffect(() => {
     if (!armed) return;
@@ -173,7 +228,8 @@ function ConfirmButton({ label, confirm, onConfirm, disabled }: { label: string;
   return (
     <button
       type="button"
-      className={`btn${armed ? ' danger' : ''}`}
+      className={menu ? `menu-item${armed ? ' danger' : ''}` : `btn${armed ? ' danger' : ''}`}
+      role={menu ? 'menuitem' : undefined}
       disabled={disabled}
       onClick={() => {
         if (armed) {
@@ -185,6 +241,43 @@ function ConfirmButton({ label, confirm, onConfirm, disabled }: { label: string;
       {armed ? confirm : label}
     </button>
   );
+}
+
+/** The tab icons, in CONTROL_GROUPS order. */
+const TAB_ICONS: Record<string, LucideIcon> = { develop: SlidersHorizontal, colour: Blend, refine: Sparkle, masks: SquareDashedMousePointer, presets: SwatchBook };
+
+/** Settings that are not edits of their own (they travel with the look). */
+const NOT_EDITS = new Set(['v', 'pack', 'stock', 'lookSnapshot', 'lookBlend', 'scannerFromLook']);
+/** How many of the photo's settings differ from an untouched photo. */
+export function editCount(recipe: Recipe | null): number {
+  if (!recipe) return 0;
+  const base = defaultRecipe() as unknown as Record<string, unknown>;
+  const r = recipe as unknown as Record<string, unknown>;
+  return Object.keys(r).filter((k) => !NOT_EDITS.has(k) && JSON.stringify(r[k] ?? null) !== JSON.stringify(base[k] ?? null)).length;
+}
+
+/** How many sliders in `keys` are away from their defaults, for a folded section's summary. */
+const changedSummary = (recipe: Recipe | null, keys: readonly string[]) => {
+  const n = recipe ? keys.filter((k) => { const d = SLIDER[k as SliderDef['key']]; return Math.abs(recipe[d.key] - sliderDefault(d, recipe.stock)) > 1e-9; }).length : 0;
+  return n ? `${n} changed` : undefined;
+};
+
+/** The ⋯ menu at the end of the action bar. */
+function OverflowMenu({ children }: { children: (close: () => void) => ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const outside = (e: PointerEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); } };
+    document.addEventListener('pointerdown', outside);
+    window.addEventListener('keydown', esc, true);
+    return () => { document.removeEventListener('pointerdown', outside); window.removeEventListener('keydown', esc, true); };
+  }, [open]);
+  return <div className="overflow" ref={ref}>
+    <button type="button" className="icon-btn action" aria-label="More actions" aria-haspopup="menu" aria-expanded={open} data-tip="More" onClick={() => setOpen(!open)}><Ellipsis size={16} aria-hidden="true" /></button>
+    {open && <div className="overflow-menu" role="menu">{children(() => setOpen(false))}</div>}
+  </div>;
 }
 
 export function Panel() {
@@ -209,7 +302,7 @@ export function Panel() {
     if (editing) editActive(change, 'Look scanner finish');
     else editRecipes(targets().map(photoId), change, choice === 'look' ? 'Use look scanner finish' : 'Scanner finish');
   };
-  const setSlider = (key: SliderDef['key'], v: number) => editActive((r) => ({ ...(r ?? defaultRecipe()), [key]: v }));
+  const setSlider = (key: SliderDef['key'], v: number, grouping?: Grouping) => editActive((r) => ({ ...(r ?? defaultRecipe()), [key]: v }), undefined, grouping);
 
   /** A section's Reset, offered only when the section differs from its defaults. */
   const resetFor = (section: SectionId, title: string) =>
@@ -225,11 +318,11 @@ export function Panel() {
       <CameraProfileControls raw={photo.raw} camera={photo.camera??null} value={base.profile} onChange={profile=>editActive(r=>({...(r??defaultRecipe()),profile}), 'Camera profile')} />
     </Section>,
     stock: !editing && <Section defaultOpen id="stock" title="Look" summary={base.lookEnabled ? base.lookSnapshot?.name ?? lookName(base.pack, base.stock) : 'None'}><TreatmentControls key={photoId(photo)} photo={photo} /></Section>,
-    presets: <Section defaultOpen id="presets" title="Presets"><PresetControls /></Section>,
+    presets: grouped ? <PresetControls /> : <Section defaultOpen id="presets" title="Presets"><PresetControls /></Section>,
     scanner: editing && scanner,
     whitebalance: grouped && <Section id="whitebalance" title="White Balance" onReset={resetFor('whitebalance', 'White balance')}><WhiteBalanceControls recipe={base} white={photo.white} /></Section>,
-    exposure: grouped && <Section id="exposure" title="Exposure" onReset={resetFor('exposure', 'Exposure')}>{rows(['exposure', 'contrast', 'toneCharacter', 'saturation', 'vibrance'])}</Section>,
-    hdr: grouped && <Section id="hdr" title="High Dynamic Range" onReset={resetFor('hdr', 'High Dynamic Range')}>{rows(['highlights', 'shadows', 'whites', 'blacks'])}</Section>,
+    exposure: grouped && <Section id="exposure" title="Exposure" summary={changedSummary(recipe, ['exposure', 'contrast', 'toneCharacter', 'saturation', 'vibrance'])} onReset={resetFor('exposure', 'Exposure')}>{rows(['exposure', 'contrast', 'toneCharacter', 'saturation', 'vibrance'])}</Section>,
+    hdr: grouped && <Section id="hdr" title="High Dynamic Range" summary={changedSummary(recipe, ['highlights', 'shadows', 'whites', 'blacks'])} onReset={resetFor('hdr', 'High Dynamic Range')}>{rows(['highlights', 'shadows', 'whites', 'blacks'])}</Section>,
     adjust: !grouped && <Section id="adjust" title="Adjustments" onReset={resetFor('adjust', 'Adjustments')}>
       <WhiteBalanceControls recipe={base} white={photo.white} />{rows(sliderGroup('adjust'))}
     </Section>,
@@ -260,12 +353,12 @@ export function Panel() {
 
   return (
     <aside className={`panel${grouped ? ' panel-workflow' : ''}`} aria-label={grouped ? 'Controls' : 'Lab order'}>
-      {view === 'develop' && <Histogram />}
+      {view === 'develop' && <Histogram compact={grouped} />}
       {!grouped && <PhotoInfo />}
 
       {grouped && !editing && <>
         <nav className="control-stages" aria-label="Control stages">
-          {CONTROL_GROUPS.map(g => <button type="button" key={g.id} aria-pressed={workspace.group === g.id} onClick={() => setWorkspace({ group: g.id })}>{g.name}</button>)}
+          {CONTROL_GROUPS.map(g => { const Icon = TAB_ICONS[g.id]; return <button type="button" key={g.id} aria-label={g.name} data-tip={g.name} aria-pressed={workspace.group === g.id} onClick={() => setWorkspace({ group: g.id })}><Icon size={18} strokeWidth={1.75} aria-hidden="true" /></button>; })}
         </nav>
       </>}
 
@@ -274,7 +367,28 @@ export function Panel() {
         {view !== 'develop' && <p className="hint panel-note">Open Develop to fine-tune exposure, colour, halation and grain.</p>}
       </div>
 
-      {!editing && <div className="panel-actions">
+      {!editing && grouped && <div className="action-bar" role="toolbar" aria-label="Photo actions">
+        <button type="button" className="icon-btn action" onClick={undo} disabled={!history.undo} aria-label="Undo" data-tip={history.undo ? `Undo ${history.undo} (${MOD}Z)` : 'Nothing to undo'}><Undo2 size={16} aria-hidden="true" /></button>
+        <button type="button" className="icon-btn action" onClick={redo} disabled={!history.redo} aria-label="Redo" data-tip={history.redo ? `Redo ${history.redo} (⇧${MOD}Z)` : 'Nothing to redo'}><Redo2 size={16} aria-hidden="true" /></button>
+        <span className="action-sep" aria-hidden="true" />
+        <button type="button" className="icon-btn action" onClick={copySettings} disabled={!recipe} aria-label="Copy settings" data-tip={`Copy settings (⇧${MOD}C)`}><Copy size={16} aria-hidden="true" /></button>
+        <button type="button" className="icon-btn action" onClick={pasteSettings} disabled={!clipboard} aria-label={multi ? `Paste to ${selectedCount}` : 'Paste settings'} data-tip={`${multi ? `Paste to ${selectedCount} photos` : 'Paste settings'} (⇧${MOD}V)`}><ClipboardPaste size={16} aria-hidden="true" /></button>
+        <span className="action-sep" aria-hidden="true" />
+        <button type="button" className="icon-btn action" disabled={!recipe} onClick={() => editActive((r) => (r ? resetAdjustments(r) : r), 'Reset sliders')} aria-label="Reset sliders" data-tip="Reset sliders (keeps look, crop and masks)"><RotateCcw size={16} aria-hidden="true" /></button>
+        <ResetPhotoButton multi={multi} count={selectedCount} />
+        <span className="action-sep" aria-hidden="true" />
+        <OverflowMenu>{(close) => <>
+          <ConfirmButton menu label={`Apply to all ${total} photos`} confirm={`Overwrite all ${total}? Click again`} disabled={!recipe || total < 2}
+            onConfirm={() => {
+              close();
+              const r = recipe!;
+              editRecipes(useApp.getState().photos.map(photoId), (t) => withSettingsFrom(r, t), `Apply to all ${total} photos`);
+              showToast(`Applied to all ${total} frames`);
+            }} />
+        </>}</OverflowMenu>
+        <span className="action-count">{editCount(recipe)} {editCount(recipe) === 1 ? 'edit' : 'edits'}</span>
+      </div>}
+      {!editing && !grouped && <div className="panel-actions">
         <button type="button" className="btn" onClick={undo} disabled={!history.undo} title={history.undo ? `Undo ${history.undo} (${MOD}Z)` : 'Nothing to undo'}>
           Undo
         </button>

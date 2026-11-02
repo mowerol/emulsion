@@ -6,8 +6,20 @@
 // in units of the source's width and height, so that with no rotation it is the
 // ordinary crop in image coordinates (0 to 1, y = 0 at the top). A rectangle of
 // w × h covers w·W × h·H pixels of a W × H source.
+//
+// Before straightening the photo can be turned by quarter turns and flipped
+// (`orient`). Everything below then works on the oriented photo: W and H are its
+// width and height once turned (`orientedSize`). Only `cropAffine`, `sourcePoint`
+// and `framePixels` take the source's own size, and map back through the orientation.
 
-export type AspectId = 'free' | 'original' | '1:1' | '4:5' | '3:2' | '16:9';
+export type AspectId = 'free' | 'original' | '1:1' | '4:5' | '3:2' | '16:9' | '6x6' | '6x4.5' | '6x7' | '5:4' | 'xpan' | 'custom';
+
+/** Quarter turns clockwise, then flips across the turned photo's middle. */
+export interface Orientation {
+  turns: 0 | 1 | 2 | 3;
+  flipH: boolean;
+  flipV: boolean;
+}
 
 export interface Crop {
   x: number;
@@ -18,6 +30,10 @@ export interface Crop {
   angle: number;
   /** The ratio the frame is held to while it is edited. */
   aspect: AspectId;
+  /** With the Custom aspect: width over height, at least 1 (it follows the frame's orientation). */
+  ratio?: number;
+  /** Turned and flipped before straightening; absent means as shot. */
+  orient?: Orientation;
 }
 
 export type Rect = Pick<Crop, 'x' | 'y' | 'w' | 'h'>;
@@ -26,14 +42,71 @@ export const MAX_ANGLE = 45;
 /** The smallest crop, as a share of the source's width or height. */
 export const MIN_SIZE = 0.02;
 
-export const ASPECTS: { id: AspectId; label: string; ratio: number | null }[] = [
-  { id: 'original', label: 'Original', ratio: null },
-  { id: 'free', label: 'Free', ratio: null },
-  { id: '1:1', label: '1:1', ratio: 1 },
-  { id: '4:5', label: '4:5', ratio: 5 / 4 },
-  { id: '3:2', label: '3:2', ratio: 3 / 2 },
-  { id: '16:9', label: '16:9', ratio: 16 / 9 },
+export const ASPECTS: { id: AspectId; label: string; ratio: number | null; group: 'common' | 'film' | 'custom' }[] = [
+  { id: 'original', label: 'Original', ratio: null, group: 'common' },
+  { id: 'free', label: 'Free', ratio: null, group: 'common' },
+  { id: '1:1', label: '1:1', ratio: 1, group: 'common' },
+  { id: '4:5', label: '4:5', ratio: 5 / 4, group: 'common' },
+  { id: '3:2', label: '3:2', ratio: 3 / 2, group: 'common' },
+  { id: '16:9', label: '16:9', ratio: 16 / 9, group: 'common' },
+  { id: '6x6', label: '6×6 (1:1)', ratio: 1, group: 'film' },
+  { id: '6x4.5', label: '6×4.5 (4:3)', ratio: 4 / 3, group: 'film' },
+  { id: '6x7', label: '6×7 (7:6)', ratio: 7 / 6, group: 'film' },
+  { id: '5:4', label: '5:4', ratio: 5 / 4, group: 'film' },
+  { id: 'xpan', label: 'XPan (65:24)', ratio: 65 / 24, group: 'film' },
+  { id: 'custom', label: 'Custom', ratio: null, group: 'custom' },
 ];
+
+/** The custom ratio's bounds (width over height, landscape). */
+export const MAX_RATIO = 10;
+
+export const AS_SHOT: Orientation = { turns: 0, flipH: false, flipV: false };
+const oriented = (o: Orientation | undefined) => !!o && (o.turns !== 0 || o.flipH || o.flipV);
+
+/** The photo's width and height once turned. */
+export function orientedSize(c: { orient?: Orientation } | null | undefined, W: number, H: number): [number, number] {
+  return c?.orient && c.orient.turns % 2 ? [H, W] : [W, H];
+}
+
+/**
+ * The affine map from the oriented photo (0 to 1) to the source (0 to 1):
+ * source = (a·s + b·t + e, c·s + d·t + f).
+ */
+function orientAffine(o: Orientation): [number, number, number, number, number, number] {
+  // Undo the flips, then turn back anticlockwise once per quarter turn: (s, t) → (t, 1 − s).
+  let m: [number, number, number, number, number, number] = [o.flipH ? -1 : 1, 0, 0, o.flipV ? -1 : 1, o.flipH ? 1 : 0, o.flipV ? 1 : 0];
+  for (let i = 0; i < o.turns; i++) {
+    const [a, b, c, d, e, f] = m;
+    m = [c, d, -a, -b, f, 1 - e];
+  }
+  return m;
+}
+
+/**
+ * Turn the photo a quarter turn (1 clockwise, -1 anticlockwise), carrying the
+ * crop with it. Turning a flipped photo swaps which way it reads as flipped.
+ */
+export function turn(c: Crop, dir: 1 | -1): Crop {
+  const o = c.orient ?? AS_SHOT;
+  const turns = (((o.turns + dir) % 4) + 4) % 4 as Orientation['turns'];
+  // A point (u, v) of the turned photo moves to (1 − v, u) clockwise, (v, 1 − u) anticlockwise.
+  const r = dir === 1 ? { x: 1 - c.y - c.h, y: c.x, w: c.h, h: c.w } : { x: c.y, y: 1 - c.x - c.w, w: c.h, h: c.w };
+  const next: Orientation = { turns, flipH: o.flipV, flipV: o.flipH };
+  return withOrient({ ...c, ...r }, next);
+}
+
+/** Mirror the photo left to right ('h') or top to bottom ('v'), carrying the crop and straightening with it. */
+export function flip(c: Crop, axis: 'h' | 'v'): Crop {
+  const o = c.orient ?? AS_SHOT;
+  const r = axis === 'h' ? { x: 1 - c.x - c.w } : { y: 1 - c.y - c.h };
+  const next = axis === 'h' ? { ...o, flipH: !o.flipH } : { ...o, flipV: !o.flipV };
+  return withOrient({ ...c, ...r, angle: c.angle === 0 ? 0 : -c.angle }, next);
+}
+
+function withOrient(c: Crop, o: Orientation): Crop {
+  const { orient: _, ...rest } = c;
+  return oriented(o) ? { ...rest, orient: o } : rest;
+}
 
 export const FULL: Crop = { x: 0, y: 0, w: 1, h: 1, angle: 0, aspect: 'original' };
 
@@ -47,9 +120,10 @@ export const pixelRatio = (r: Rect, W: number, H: number) => (r.w * W) / (r.h * 
  * The ratio an aspect holds a rectangle to (width over height, in pixels), in
  * the rectangle's current orientation; null when it is free.
  */
-export function aspectRatio(aspect: AspectId, r: Rect, W: number, H: number): number | null {
-  if (aspect === 'free') return null;
-  const base = aspect === 'original' ? Math.max(W, H) / Math.min(W, H) : ASPECTS.find((a) => a.id === aspect)!.ratio!;
+export function aspectRatio(aspect: AspectId, r: Rect, W: number, H: number, custom?: number): number | null {
+  if (aspect === 'free' || (aspect === 'custom' && !custom)) return null;
+  const base =
+    aspect === 'original' ? Math.max(W, H) / Math.min(W, H) : aspect === 'custom' ? Math.max(custom!, 1 / custom!) : ASPECTS.find((a) => a.id === aspect)!.ratio!;
   return pixelRatio(r, W, H) >= 1 ? base : 1 / base;
 }
 
@@ -58,6 +132,13 @@ export function aspectRatio(aspect: AspectId, r: Rect, W: number, H: number): nu
  * coordinates: source = (a·u + b·v + e, c·u + d·v + f).
  */
 export function cropAffine(c: Crop, W: number, H: number): [number, number, number, number, number, number] {
+  if (oriented(c.orient)) {
+    const [ow, oh] = orientedSize(c, W, H);
+    const { orient: _, ...plain } = c;
+    const [a, b, cc, d, e, f] = cropAffine(plain, ow, oh);
+    const [p, q, r, s, t, u] = orientAffine(c.orient!);
+    return [p * a + q * cc, p * b + q * d, r * a + s * cc, r * b + s * d, p * e + q * f + t, r * e + s * f + u];
+  }
   const cos = Math.cos(rad(c.angle));
   const sin = Math.sin(rad(c.angle));
   // Straightened space, in pixels from the centre: q = ((x + u·w - 0.5)·W, (y + v·h - 0.5)·H).
@@ -179,11 +260,17 @@ export function setAngle(c: Crop, angle: number, W: number, H: number): Crop {
 }
 
 /** Hold the crop to an aspect. */
-export function setAspect(c: Crop, aspect: AspectId, W: number, H: number): Crop {
-  const ratio = aspectRatio(aspect, c, W, H);
-  if (ratio === null) return { ...c, aspect };
-  return { ...c, ...reshape(c, ratio, c.angle, W, H), aspect };
+export function setAspect(c: Crop, aspect: AspectId, W: number, H: number, custom?: number): Crop {
+  const { ratio: _, ...rest } = c;
+  const keep = aspect === 'custom' ? custom ?? c.ratio ?? pixelRatio(c, W, H) : undefined;
+  const base: Crop = keep === undefined ? { ...rest, aspect } : { ...rest, aspect, ratio: clamp(Math.max(keep, 1 / keep), 1, MAX_RATIO) };
+  const ratio = aspectRatio(aspect, c, W, H, base.ratio);
+  if (ratio === null) return base;
+  return { ...base, ...reshape(c, ratio, c.angle, W, H) };
 }
+
+/** The ratio a crop is held to, or null when free. */
+export const heldRatio = (c: Crop, W: number, H: number) => aspectRatio(c.aspect, c, W, H, c.ratio);
 
 /** Swap between landscape and portrait, keeping the aspect. */
 export function rotateFrame(c: Crop, W: number, H: number): Crop {
@@ -205,8 +292,8 @@ export type Handle = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
  * drag began. The opposite edge or corner stays put; with an aspect, a side
  * handle resizes about the middle of the frame.
  */
-export function resize(start: Crop, handle: Handle, dx: number, dy: number, W: number, H: number): Crop {
-  const ratio = aspectRatio(start.aspect, start, W, H);
+export function resize(start: Crop, handle: Handle, dx: number, dy: number, W: number, H: number, locked = true): Crop {
+  const ratio = locked ? heldRatio(start, W, H) : null;
   let x0 = start.x;
   let y0 = start.y;
   let x1 = start.x + start.w;
@@ -243,12 +330,13 @@ export function resize(start: Crop, handle: Handle, dx: number, dy: number, W: n
 }
 
 /** Whether a crop changes anything. */
-export const isFull = (c: Crop | null) => !c || (c.angle === 0 && near(c, FULL, 1e-6));
+export const isFull = (c: Crop | null) => !c || (c.angle === 0 && !oriented(c.orient) && near(c, FULL, 1e-6));
 
 /** Pixel size of the cropped frame for a W × H source. */
 export function framePixels(c: Crop | null, W: number, H: number): [number, number] {
   if (!c) return [W, H];
-  return [Math.max(1, Math.round(c.w * W)), Math.max(1, Math.round(c.h * H))];
+  const [ow, oh] = orientedSize(c, W, H);
+  return [Math.max(1, Math.round(c.w * ow)), Math.max(1, Math.round(c.h * oh))];
 }
 
 const ASPECT_IDS = ASPECTS.map((a) => a.id);
@@ -266,6 +354,30 @@ export function normalizeCrop(input: unknown): Crop | null {
   const a = clamp(angle, -MAX_ANGLE, MAX_ANGLE);
   const cw = clamp(w, MIN_SIZE, 2);
   const ch = clamp(h, MIN_SIZE, 2);
-  const c: Crop = { x: clamp(x, -1, 2 - cw), y: clamp(y, -1, 2 - ch), w: cw, h: ch, angle: a, aspect };
+  let c: Crop = { x: clamp(x, -1, 2 - cw), y: clamp(y, -1, 2 - ch), w: cw, h: ch, angle: a, aspect };
+  const ratio = num(o.ratio);
+  if (aspect === 'custom') {
+    if (ratio !== null && ratio > 0) c.ratio = clamp(Math.max(ratio, 1 / ratio), 1, MAX_RATIO);
+    else c.aspect = 'free';
+  }
+  const or = o.orient as Record<string, unknown> | null | undefined;
+  if (or && typeof or === 'object') {
+    const t = num(or.turns);
+    c = withOrient(c, { turns: (t === null ? 0 : ((Math.round(t) % 4) + 4) % 4) as Orientation['turns'], flipH: or.flipH === true, flipV: or.flipV === true });
+  }
   return isFull(c) ? null : c;
+}
+
+const NAMED: [number, number][] = [[1, 1], [5, 4], [4, 3], [7, 6], [3, 2], [16, 10], [16, 9], [2, 1], [65, 24], [3, 1]];
+
+/** A width-over-height ratio named landscape first: a familiar one within 1%, else the simplest n:d, else to two decimals. */
+export function ratioLabel(r: number): string {
+  const x = Math.max(r, 1 / r);
+  const named = NAMED.find(([n, d]) => Math.abs(n / d - x) / x < 0.01);
+  if (named) return `${named[0]}:${named[1]}`;
+  for (let d = 1; d <= 12; d++) {
+    const n = Math.round(x * d);
+    if (Math.abs(n / d - x) / x < 0.001) return `${n}:${d}`;
+  }
+  return `${x.toFixed(2)}:1`;
 }

@@ -1,12 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import type { Recipe } from '../film/recipe';
 import { activePhoto, finishCrop, setCropDraft, startCrop, useApp } from '../library/store';
-import { ASPECTS, FULL, MAX_ANGLE, pixelRatio, rotateFrame, setAngle, setAspect, type AspectId, type Crop } from '../film/crop';
-import { Segmented } from './common';
+import { ASPECTS, FULL, MAX_ANGLE, flip, orientedSize, pixelRatio, ratioLabel, rotateFrame, setAngle, setAspect, turn, type AspectId, type Crop } from '../film/crop';
 
 export const cropSummary = (c: Crop | null) => {
   if (!c) return 'Whole frame';
-  const aspect = c.aspect === 'free' ? 'Free' : ASPECTS.find((a) => a.id === c.aspect)!.label;
+  const aspect = c.aspect === 'custom' && c.ratio ? ratioLabel(c.ratio) : ASPECTS.find((a) => a.id === c.aspect)!.label;
   return c.angle ? `${aspect}, ${c.angle > 0 ? '+' : '−'}${Math.abs(c.angle).toFixed(1)}°` : aspect;
 };
 
@@ -21,20 +20,34 @@ export function CropControls({ recipe }: { recipe: Recipe | null }) {
       </button>
     );
   }
-  const { draft, W, H } = edit;
+  const { draft } = edit;
+  // Everything but turning and flipping works on the photo as turned.
+  const [W, H] = orientedSize(draft, edit.W, edit.H);
   const change = (f: (c: Crop) => Crop) => setCropDraft(f);
   const portrait = pixelRatio(draft, W, H) < 1;
   return (
     <>
-      <Segmented<AspectId>
-        label="Aspect ratio"
-        options={ASPECTS.map((a) => ({ value: a.id, label: a.label }))}
-        value={draft.aspect}
-        onChange={(aspect) => change((c) => setAspect(c, aspect, W, H))}
-      />
+      <label className="crop-aspect">
+        <span>Aspect ratio</span>
+        <select value={draft.aspect} onChange={(e) => change((c) => setAspect(c, e.target.value as AspectId, W, H))}>
+          <optgroup label="Common">
+            {ASPECTS.filter((a) => a.group === 'common').map((a) => <option key={a.id} value={a.id}>{a.id === 'original' ? `Original (${ratioLabel(W / H)})` : a.label}</option>)}
+          </optgroup>
+          <optgroup label="Film formats">
+            {ASPECTS.filter((a) => a.group === 'film').map((a) => <option key={a.id} value={a.id}>{a.label}</option>)}
+          </optgroup>
+          {draft.aspect === 'custom' && draft.ratio && <option value="custom">{`Custom (${ratioLabel(draft.ratio)})`}</option>}
+        </select>
+      </label>
       <button type="button" className="btn" onClick={() => change((c) => rotateFrame(c, W, H))} title="X">
         {portrait ? 'Make landscape' : 'Make portrait'}
       </button>
+      <div className="crop-actions">
+        <button type="button" className="btn" onClick={() => change((c) => turn(c, -1))}>Rotate left</button>
+        <button type="button" className="btn" onClick={() => change((c) => turn(c, 1))}>Rotate right</button>
+        <button type="button" className="btn" aria-pressed={!!draft.orient?.flipH} onClick={() => change((c) => flip(c, 'h'))}>Flip ↔</button>
+        <button type="button" className="btn" aria-pressed={!!draft.orient?.flipV} onClick={() => change((c) => flip(c, 'v'))}>Flip ↕</button>
+      </div>
       <div className="slider">
         <label htmlFor="slider-straighten" onDoubleClick={() => change((c) => setAngle(c, 0, W, H))} title="Double-click the name or the handle to reset">
           Straighten
@@ -55,7 +68,7 @@ export function CropControls({ recipe }: { recipe: Recipe | null }) {
       </div>
       <p className="hint">Drag the corners to resize, inside to move and outside to straighten.</p>
       <div className="crop-actions">
-        <button type="button" className="btn" onClick={() => change(() => ({ ...FULL, aspect: draft.aspect === 'free' ? 'original' : draft.aspect }))}>
+        <button type="button" className="btn" onClick={() => change(() => FULL)}>
           Reset
         </button>
         <button type="button" className="btn" onClick={() => finishCrop(false)} title="Esc">

@@ -4,10 +4,11 @@
 import { create } from 'zustand';
 
 export const CONTROL_GROUPS = [
-  { id: 'develop', name: 'Develop', sections: ['profile', 'stock', 'presets', 'whitebalance', 'exposure', 'hdr', 'curve'] },
+  { id: 'develop', name: 'Develop', sections: ['profile', 'stock', 'whitebalance', 'exposure', 'hdr', 'curve'] },
   { id: 'colour', name: 'Colour Grading', sections: ['color', 'grading'] },
   { id: 'refine', name: 'Refine', sections: ['detail', 'optics', 'grain', 'lens', 'transform'] },
   { id: 'masks', name: 'Masks', sections: ['masks'] },
+  { id: 'presets', name: 'Presets', sections: ['presets'] },
 ] as const;
 export type ControlGroupId = typeof CONTROL_GROUPS[number]['id'];
 export type ControlSectionId = typeof CONTROL_GROUPS[number]['sections'][number];

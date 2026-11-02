@@ -2,20 +2,20 @@
 import { photoName } from '../library/copies';
 import { activePhoto, useApp } from '../library/store';
 import { MarkControls } from './common';
-import { ExposureInfo } from './ExposureInfo';
 
 /** File information and selection marks, shared by the Workflow footer and Classic panel. */
-export function PhotoInfo({ toolbar = false }: { toolbar?: boolean }) {
+export function PhotoInfo({ toolbar = false, hint }: { toolbar?: boolean; hint?: string }) {
   const photo = useApp(activePhoto), active = useApp(s => s.active), total = useApp(s => s.photos.length);
   const selected = useApp(s => s.selected.size);
   if (!photo) return null;
   const frame = `Frame ${active + 1} of ${total}, ${photoName(photo)}${photo.pair ? ' (with its JPEG)' : ''}`;
   return <div className={toolbar ? 'photo-info-bar' : 'order'} aria-label="Photo information">
     {toolbar
-      ? <span className="order-frame" title={frame}><span className="photo-info-frame">Frame {active + 1} of {total}</span> <span className="photo-info-name">{photoName(photo)}</span></span>
+      ? <span className="order-frame" title={frame}><span className="photo-info-frame">Frame {active + 1} of {total}</span> <span className="photo-info-name">{photoName(photo)}</span>
+        {hint && <span className="photo-info-hint">{hint}</span>}</span>
       : <span className="order-frame" title={frame}>{frame}</span>}
-    {toolbar && <ExposureInfo photo={photo} />}
+    {toolbar && selected > 1 && <span className="photo-info-hint">Marks apply to {selected} selected</span>}
     <MarkControls photo={photo} />
-    {selected > 1 && <span className="order-note">Stars, tags and hearts apply to the {selected} selected frames.</span>}
+    {!toolbar && selected > 1 && <span className="order-note">Stars, tags and hearts apply to the {selected} selected frames.</span>}
   </div>;
 }

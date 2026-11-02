@@ -168,7 +168,7 @@ export function logToTerminal(level: 'error' | 'warn' | 'info', message: string)
 }
 
 /** Fit perspective from a neutral, oriented and lens-corrected RGBA preview. */
-export function autoPerspective(pixels: Uint8Array, width: number, height: number, axis: 'vertical' | 'horizontal' | 'both', current: import('../engine/perspective').Perspective) {
+export function autoPerspective(pixels: Uint8Array, width: number, height: number, axis: 'vertical' | 'horizontal' | 'both' | 'rotation', current: import('../engine/perspective').Perspective) {
   return invoke<Pick<import('../engine/perspective').Perspective, 'rotation' | 'vertical' | 'horizontal' | 'focalLength'>>('auto_perspective', pixels, {
     headers: { 'x-emulsion-width': String(width), 'x-emulsion-height': String(height), 'x-emulsion-axis': axis, 'x-emulsion-perspective': JSON.stringify(current) },
   });

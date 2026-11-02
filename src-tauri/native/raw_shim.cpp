@@ -109,6 +109,12 @@ int emu_raw_decode(const char *path, int half, EmuRawInfo *info, void **out, con
     delete raw;
     return rc;
   }
+  // The photo's size, read before processing: with half_size, dcraw_process shrinks
+  // imgdata.sizes to the half-size image, and the preview then claimed the photo was
+  // half as big as it is (so 100% zoom showed 50%).
+  const libraw_image_sizes_t &opened = raw->imgdata.sizes;
+  const int open_w = (opened.flip & 4) ? opened.height : opened.width;
+  const int open_h = (opened.flip & 4) ? opened.width : opened.height;
   if ((rc = raw->unpack()) != LIBRAW_SUCCESS) {
     set_error(err, errlen, "unpack", rc);
     delete raw;
@@ -135,6 +141,9 @@ int emu_raw_decode(const char *path, int half, EmuRawInfo *info, void **out, con
   info->width = img->width;
   info->height = img->height;
   fill_colour_info(raw, info);
+  // A full decode is the photo's size; a half-size one takes it from before processing.
+  info->full_width = half ? open_w : img->width;
+  info->full_height = half ? open_h : img->height;
 
   *out = img;
   *pixels = reinterpret_cast<const unsigned short *>(img->data);

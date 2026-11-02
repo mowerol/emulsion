@@ -7,18 +7,22 @@ import { useEffect, useRef } from 'react';
 import { BINS, heights, type Histogram as Data } from '../engine/histogram';
 import { activePhoto, useApp } from '../library/store';
 import { ExposureInfo } from './ExposureInfo';
+import { setPrefs, usePrefs } from './prefs';
 
 const HEIGHT = 88;
+/** In Workflow the histogram is compact, and a click folds it to a strip. */
+const COMPACT = 72;
+const FOLDED = 20;
 /** Clipping under this fraction of the frame is not flagged. */
 const CLIP_NOTICE = 0.001;
 
 const percent = (v: number) => (v < 0.001 ? '0%' : v < 0.01 ? `${(v * 100).toFixed(1)}%` : `${Math.round(v * 100)}%`);
 
 /** Draw `data` into `canvas` at its CSS width; colours come from the --hist-* CSS variables. */
-export function drawHistogram(canvas: HTMLCanvasElement, data: Data) {
+export function drawHistogram(canvas: HTMLCanvasElement, data: Data, height = HEIGHT) {
   const dpr = Math.min(window.devicePixelRatio || 1, 2);
   const w = Math.max(1, Math.round(canvas.clientWidth * dpr));
-  const h = Math.round(HEIGHT * dpr);
+  const h = Math.round(height * dpr);
   if (canvas.width !== w) canvas.width = w;
   if (canvas.height !== h) canvas.height = h;
   const ctx = canvas.getContext('2d');
@@ -50,7 +54,9 @@ export function drawHistogram(canvas: HTMLCanvasElement, data: Data) {
   for (const t of [0.25, 0.5, 0.75]) ctx.fillRect(Math.round(t * w), 0, Math.max(1, Math.round(dpr)), h);
 }
 
-export function Histogram() {
+export function Histogram({ compact = false }: { compact?: boolean }) {
+  const small = usePrefs((p) => p.histogramSmall) && compact;
+  const height = compact ? (small ? FOLDED : COMPACT) : HEIGHT;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const photo = useApp(activePhoto);
   const hist = useApp((s) => s.histogram);
@@ -61,11 +67,11 @@ export function Histogram() {
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !data) return;
-    drawHistogram(canvas, data);
-    const ro = new ResizeObserver(() => drawHistogram(canvas, data));
+    drawHistogram(canvas, data, height);
+    const ro = new ResizeObserver(() => drawHistogram(canvas, data, height));
     ro.observe(canvas);
     return () => ro.disconnect();
-  }, [data]);
+  }, [data, height]);
 
   const low = data ? data.shadowClip : 0;
   const high = data ? data.highlightClip : 0;
@@ -74,8 +80,12 @@ export function Histogram() {
     : 'Histogram, waiting for the frame';
 
   return (
-    <div className="histogram">
-      <canvas ref={canvasRef} role="img" aria-label={label} style={{ height: HEIGHT }} />
+    <div className={`histogram${compact ? ' compact' : ''}${small ? ' small' : ''}`}>
+      {compact
+        ? <button type="button" className="histogram-fold" aria-pressed={small} data-tip={small ? 'Show the histogram' : 'Fold the histogram'} onClick={() => setPrefs({ histogramSmall: !small })}>
+            <canvas ref={canvasRef} role="img" aria-label={label} style={{ height }} />
+          </button>
+        : <canvas ref={canvasRef} role="img" aria-label={label} style={{ height }} />}
       <div className="histogram-clip">
         <button
           type="button"
@@ -84,7 +94,7 @@ export function Histogram() {
           title={`Clipped to black: ${percent(low)}. Click to show clipping on the photo (J).`}
           onClick={toggleClipping}
         >
-          ◢ {low >= CLIP_NOTICE ? percent(low) : ''}
+          {compact ? '◤' : '◢'} {low >= CLIP_NOTICE ? percent(low) : ''}
         </button>
         <button
           type="button"
@@ -93,7 +103,7 @@ export function Histogram() {
           title={`Clipped to white: ${percent(high)}. Click to show clipping on the photo (J).`}
           onClick={toggleClipping}
         >
-          {high >= CLIP_NOTICE ? percent(high) : ''} ◣
+          {high >= CLIP_NOTICE ? percent(high) : ''} {compact ? '◥' : '◣'}
         </button>
       </div>
       <ExposureInfo photo={photo} />

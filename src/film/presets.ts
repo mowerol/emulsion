@@ -17,14 +17,17 @@ export const PRESET_GROUPS = {
 export type PresetGroup = keyof typeof PRESET_GROUPS;
 export const PRESET_EXCLUDED = ['v', 'profile', 'crop', 'lens', 'transform', 'masks'] as const;
 export const DEFAULT_PRESET_GROUPS = (Object.keys(PRESET_GROUPS) as PresetGroup[]).filter(g => g !== 'Exposure' && g !== 'White balance');
-export interface Preset { version: 1; id: string; name: string; groups: PresetGroup[]; recipe: Recipe }
+/** `collection` files a preset under a heading of the person's own; absent, it is under My presets. */
+export interface Preset { version: 1; id: string; name: string; groups: PresetGroup[]; recipe: Recipe; collection?: string }
 export function normalizePreset(value: unknown): Preset | null {
   if (!value || typeof value !== 'object') return null;
   const p = value as Preset;
   const recipe = normalizeRecipe(p.recipe);
   if (p.version !== 1 || typeof p.id !== 'string' || !/^[a-f0-9-]{36}$/.test(p.id) || typeof p.name !== 'string' || !p.name.trim() || !recipe || !Array.isArray(p.groups)) return null;
   const groups = [...new Set(p.groups.filter(g => Object.prototype.hasOwnProperty.call(PRESET_GROUPS, g)))];
-  return groups.length ? { version: 1, id: p.id, name: p.name.trim(), groups, recipe } : null;
+  if (!groups.length) return null;
+  const collection = typeof p.collection === 'string' && p.collection.trim() ? p.collection.trim().slice(0, 100) : undefined;
+  return { version: 1, id: p.id, name: p.name.trim(), groups, recipe, ...(collection ? { collection } : {}) };
 }
 export function applyPreset(p: Preset, target: Recipe | null): Recipe {
   const result = { ...(target ?? defaultRecipe()) };
@@ -33,3 +36,13 @@ export function applyPreset(p: Preset, target: Recipe | null): Recipe {
   }
   return result;
 }
+
+/** Short names for what a preset touches, as its row summarises it. */
+export const GROUP_SHORT: Record<PresetGroup, string> = {
+  Treatment: 'Look', Exposure: 'Exposure', 'White balance': 'WB', Tone: 'Tone', Curve: 'Curve', Colour: 'Colour',
+  'Colour Grading': 'Grading', Detail: 'Detail', Effects: 'Effects', Grain: 'Grain', 'Film options': 'Scanner',
+};
+/** The names the interface uses for the groups (ids stay as saved). */
+export const GROUP_LABEL = (g: PresetGroup) => (g === 'Treatment' ? 'Look' : g === 'Film options' ? 'Scanner finish' : g);
+export const presetScope = (p: Pick<Preset, 'groups'>) =>
+  (Object.keys(PRESET_GROUPS) as PresetGroup[]).filter(g => p.groups.includes(g)).map(g => GROUP_SHORT[g]).join(' · ');

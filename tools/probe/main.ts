@@ -8,6 +8,7 @@ import { ProfileGpu } from '../../src/engine/profilegpu';
 import { parsePayload } from '../../src/backend/api';
 import lensFixtures from '../../src/engine/fixtures/lens-metadata.json';
 import { LENS_DEFAULTS, lensCenter, lensColourUniforms, lensCorrectPixels, lensSpline, lensUniforms, type LensMetadata } from '../../src/engine/lenscorrection';
+import { setPrefs } from '../../src/ui/prefs';
 import { setWorkspace } from '../../src/ui/workspace';
 import App from '../../src/App';
 import { Engine, colorEqParams, type Source } from '../../src/engine/engine';
@@ -16,7 +17,7 @@ import { defaultRecipe as recipeDefaults, type Recipe } from '../../src/film/rec
 import { assemble } from '../../src/engine/glsl';
 import { SHADERS, SHADER_FILES } from '../../src/engine/shaders';
 import { cbCommit, cbUniform, colorBalanceParams, colorBalance, colorBalanceRgb, sliderParams, CB_DEFAULTS, type CbParams, type ColorBalance } from '../../src/engine/colorbalance';
-import { FULL, bounds, framePixels, setAngle, setAspect, sourcePoint, type Crop } from '../../src/film/crop';
+import { FULL, bounds, framePixels, setAngle, setAspect, sourcePoint, flip, turn, type Crop } from '../../src/film/crop';
 import { CropOverlay } from '../../src/ui/CropOverlay';
 import { developUniforms, InputMode, llParams } from '../../src/engine/params';
 import type { Vec3 } from '../../src/film/stocks';
@@ -1204,7 +1205,18 @@ try {
       const got = px.slice((y * fw + x) * 4, (y * fw + x) * 4 + 2);
       worst = Math.max(worst, Math.abs(got[0] - sx * 255), Math.abs(got[1] - sy * 255));
     }
-    out.crop = { frame: [fw, fh], squarePixels: Math.abs(fw - fh) <= 1, worstLevels: worst };
+    // Turned a quarter clockwise and mirrored: the same check, and the frame stands upright.
+    const oc = flip(turn(setAngle(setAspect(FULL, '4:5', gw, gh), -7, gw, gh), 1), 'h');
+    const [ow, oh] = framePixels(oc, gw, gh);
+    const opx = eng.readPixels(gsrc, { ...defaultRecipe(), crop: oc }, ow, oh, 1, true);
+    let oworst = 0;
+    for (const [u, v] of [[0.1, 0.1], [0.5, 0.5], [0.9, 0.2], [0.3, 0.85], [0.95, 0.95]]) {
+      const x = Math.floor(u * ow), y = Math.floor(v * oh);
+      const [sx, sy] = sourcePoint(oc, gw, gh, (x + 0.5) / ow, (y + 0.5) / oh);
+      const got = opx.slice((y * ow + x) * 4, (y * ow + x) * 4 + 2);
+      oworst = Math.max(oworst, Math.abs(got[0] - sx * 255), Math.abs(got[1] - sy * 255));
+    }
+    out.crop = { frame: [fw, fh], squarePixels: Math.abs(fw - fh) <= 1, worstLevels: worst, oriented: { frame: [ow, oh], upright: oh > ow, worstLevels: oworst } };
     eng.release(gsrc);
   }
   out.clarity = probeClarity(eng);
@@ -1333,9 +1345,13 @@ try {
     const draft = setAngle(setAspect(FULL, '4:5', cw * 10, ch * 10), 6, cw * 10, ch * 10);
     const frame = bounds(6, cw * 10, ch * 10);
     const cropHost = document.createElement('div');
-    cropHost.style.cssText = `position:fixed;left:560px;top:20px;z-index:9999;width:${Math.round(cw * frame.w)}px;height:${Math.round(ch * frame.h)}px;background:linear-gradient(135deg,#6b5a45,#c8b48f 60%,#3d4b5c)`;
+    cropHost.style.cssText = `position:fixed;left:560px;top:20px;z-index:${new URLSearchParams(location.search).has("workflow") ? 1 : 9999};width:${Math.round(cw * frame.w)}px;height:${Math.round(ch * frame.h)}px;background:linear-gradient(135deg,#6b5a45,#c8b48f 60%,#3d4b5c)`;
     document.body.prepend(cropHost);
     createRoot(cropHost).render(createElement(CropOverlay, { draft, frame, W: cw * 10, H: ch * 10, onChange: () => {} }));
+    // The guides show while the frame is handled; show them for the screenshot.
+    const guide = document.createElement('style');
+    guide.textContent = '.crop-guide { opacity: 1 !important; }';
+    document.head.append(guide);
   }
   // The real editor, for a screenshot.
   const host = document.createElement('div');
@@ -1416,11 +1432,21 @@ try {
       }));
       useApp.setState({ photos: many, folder: { root: '/probe/Portugal', name: 'Portugal', unreadable: 0 }, view: 'develop', active: 1, selected: new Set([many[1].path]),
         filter: { edit: 'edited', minRating: 0, heart: false, labels: [] } });
-      setWorkspace({ layout: 'workflow', imageColumns: 2 });
+      const params = new URLSearchParams(location.search);
+      setWorkspace({ layout: 'workflow', imageColumns: 2, group: (params.get('tab') as 'develop' | null) ?? 'develop' });
+      // &theme=dark for the dark interface; &folded to fold the Images filters (chips show instead).
+      setPrefs({ theme: params.get('theme') === 'dark' ? 'dark' : 'mid', filtersOpen: !params.has('folded'), histogramSmall: false });
       const appHost = document.createElement('div');
       appHost.style.cssText = 'position:fixed;inset:0;z-index:400;background:#1c1b19';
       document.body.append(appHost);
       createRoot(appHost).render(createElement(App));
+      // &crop: crop mode's toolbar and options row (the frame itself needs a decoded photo; see the standalone one).
+      if (params.has('crop')) {
+        const turned = params.get('crop') === 'turned';
+        const draft: Crop = turned ? flip(turn(setAngle(setAspect(FULL, 'xpan', 6000, 4000), 1.8, 6000, 4000), 1), 'h') : setAngle(setAspect(FULL, '3:2', 6000, 4000), 1.8, 6000, 4000);
+        useApp.setState({ cropEdit: { path: many[1].path, draft, W: 6000, H: 4000 } });
+        if (params.has('ratiomenu')) setTimeout(() => (appHost.querySelector('.crop-ratio-button') as HTMLElement | null)?.click(), 500);
+      }
       if (new URLSearchParams(location.search).has('viewmenu')) setTimeout(() => (appHost.querySelector('.image-view-toggle') as HTMLElement | null)?.click(), 500);
     }
     // The workspace's right-click menu, open over a mid-grey stage.

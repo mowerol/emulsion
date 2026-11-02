@@ -1,5 +1,9 @@
 # Handoff
 
+## Commit all remaining workspace changes (2026-11-02)
+
+Oli explicitly authorized committing all remaining changes and continuing the push to main: Develop restyle and toolbars, crop/orientation/level controls, presets and collections, RAW size and full-resolution zoom fixes, preview sizing, research notes, and generated Vite configuration files. Full check passed (384 frontend tests, 56 Rust passed / 6 optional ignored); noise-reduction and zoom browser regressions passed. The zoom regression uses a deterministic canvas thumbnail to avoid createImageBitmap completing after headless Chrome exhausts virtual time.
+
 ## AI Noise Reduction in the UI (2026-11-02)
 
 - Commit validation: noise-reduction-only staged snapshot passed typecheck, production build, 369 frontend tests, 54 Rust tests (5 optional ignored), and the Chrome UI/GPU regression. Other UI/crop/zoom work remains separate.
@@ -12,6 +16,38 @@ Oli asked to add the controls after reviewing the native experiment. **Built:** 
 - Checks: `npm run check` passes (384 frontend, 56 Rust passed / 5 optional ignored). `treatment-filters.mjs noise-reduction` covers UI enable/amount, drag undo/redo, RAW gating, paired payload, GPU/reference blend at 0/25/50/100, Before/Split, capture/lens cache refresh, Develop source switching and no loading on Amount edits. The real-RAW ignored test passed: inference, signed paired payload and identical disk-cache reuse after worker shutdown; no model load on cache hit. Completed in 14.5s in optimized dev including file I/O/resizing.
 - App remains running under `npm run tauri dev`. Oli should press Cmd+R, select a RAW, open Refine → Detail, enable AI Noise Reduction and judge the Amount at 100% zoom. Native inference was checked headlessly and controls through browser regression; interaction in the native window still needs Oli's eye. Oli authorized committing and pushing this work.
 
+## Zoom: RAW previews claimed half the photo's size (2026-11-02)
+
+Oli: 100% was markedly smaller than Lightroom's on the same ORF, and sometimes jumped while still saying 100%. The cause: `raw_shim.cpp` read the photo's size after LibRaw's half-size processing had shrunk it. Every RAW preview reported half the real size, so 100% on the preview was 50%, and no full decode started at 100%.
+- **Fix:** the size is now read right after `open_file`.
+- **Checks:** ignored test `EMULSION_RAW_SAMPLES=... cargo test half_size_reports -- --ignored` passes on Oli's ORF (5220×3912) and a RAF (6246×4170). `npm run check` passes.
+- **Side effect:** radius-scaled stages (sharpening, texture/clarity, dehaze windows, capture) now use the right preview ratio, so RAW previews may look slightly different (closer to export).
+- **Not tried in the real app:** compare 100% against Lightroom again; zoom on a RAW and watch "Loading full resolution" finish.
+- An earlier reply wrongly told Oli the difference was sharpening. Lightroom also uses physical pixels; sizes now match.
+- **Audit of other things sized from a preview (Oli asked):**
+  - The half-size bug also hit capture sharpening's radius (2× too big on RAW previews), grain size, the lens centre, and exports with a long edge of 2560 or less. All fixed by the shim change.
+  - Develop's camera-thumbnail stage (512 px, shown while the preview decodes) set the photo size, so zoom and crop measured in it. Zoom and crop now wait for the decode (`sizeKnown`), unless the decode failed (JPEG XL DNG) and the thumbnail is what's being edited. Covered by `zoom-full-res`, which fails without the fix.
+  - Edited thumbnails and look-browser tiles of JPEG/TIFF used the 512 px thumbnail as the full size, so radius stages were about 10× too strong. `sourceForPreview` now decodes ordinary photos like RAWs, falling back to the thumbnail if the decode fails. **Not checked visually:** compare an edited JPEG's thumbnail with Develop.
+  - **Not fixed, needs Oli's call:** export's long edge limits the whole photo before the crop (`export.ts:37`), so a cropped "2048 px" export comes out smaller than 2048.
+
+## Zoom: full resolution dropped when zooming during its decode (2026-11-02)
+
+Oli reported that 100% "doesn't seem to be at 100%". Verified the finding in `docs/research/zoom-100-percent.md`: any zoom change while the full-resolution decode ran cancelled it for good. The view stayed on the 2560 px preview, upscaled, with "Loading full resolution" stuck.
+- **Fix:** `Develop.tsx` keeps the decode in flight in `fullLoadRef`, keyed by path and noise reduction. Zooming doesn't cancel it. Changing the photo, its noise reduction or the engine drops it.
+- **Checks:** new browser regression `node tools/browser-tests/treatment-filters.mjs zoom-full-res` fails on the old code and passes now. The `noise-reduction` browser regression passes. `npm run check` passes (384 TS tests, build, Rust).
+- **Not tried in the real app:** open a large RAW, press Z, then Z twice more before the badge goes, and check the badge clears and 100% is crisp.
+
+## AI noise reduction native experiment (2026-11-02)
+
+Oli approved starting the native quality/performance experiment. Built an opt-in `denoise-probe` feature and CLI (`src-tauri/src/denoise.rs`, `src/bin/denoise_probe.rs`), pinned RawNIND linear model download and native ONNX Runtime setup, and actual-engine GPU comparison reports under `tools/denoise/`. Run instructions: `tools/denoise/README.md`; sources and measured findings: `docs/research/ai-noise-reduction.md`. Normal app rendering, recipes and sidecars are unchanged. No commit/push requested.
+
+- Ported darktable's mirror padding, 32px overlap ramps, tile gain matching and strength blend at commit `0c67b465033205c46735c5a194f2b23d55e68363`, with upstream attribution in NOTICE. Full-frame accumulation uses the same weights as upstream's strip storage. Full LibRaw decode supplies as-shot WB/linear Rec.2020; Emulsion baseline gain is removed/restored around inference. The pinned 512px model requests no extra WB/exposure normalization. Both Bayer and X-Trans use the linear model; native Bayer joint demosaic remains later work.
+- Downloads and reports are under ignored `src-tauri/target/denoise/`. The released `release-5.6.0` package's actual config was checked and both archive/model hashes pinned. Optional runtime is ONNX Runtime 1.23.2 + `ort` rc.11 (Rust 1.88+ for this opt-in tool). rc.10 held the environment globally and crashed at macOS process exit; rc.11 fixes this. Explicit CPU/CoreML choices keep comparisons honest; the probe does not silently fall back during measurement.
+- M2/16GB measured: 896px crops take 1.27–1.44s CPU vs 0.17–0.18s warm CoreML. Full OM-3 5220×3912 ISO4000: 4.87s warm CoreML plus 1.01s decode, peak native RSS 1.22GB. Fuji X-Trans full decode alone takes ~11s, so a full-resolution result cache will matter. Six final native runs exited successfully. CPU/CoreML agree closely after half-float quantization.
+- Reviewed comparisons: substantial chroma-noise cleanup and retained stone texture on the ISO4000 ORF; full strength softens fine foliage on ISO1600 RAF. ISO12800 RAF smooth-background crop also denoises, but does not establish face/hair/text quality. Local review artifacts: `src-tauri/target/denoise/results/{om3-full-coreml,om3-coreml,fuji-coreml,fuji-iso12800-coreml}/comparison.html` and `.png`. No exhaustive quality or darktable end-to-end comparison yet.
+- Checks: `npm run check` passes (379 frontend tests, normal Rust 51 passed / 4 optional ignored); `cargo test --features denoise-probe` passes (54 Rust tests / 4 ignored, including 3 meaningful denoise reconstruction/error tests). GPU report generation passes on the real native buffers. An actual-model 50% blend matches the average of source/full-strength artifacts within half-float rounding (max 0.000366); report at `results/om3-half-coreml/`. Existing output directories are rejected before inference. No new shader stage was introduced.
+- Next integration work after judging quality: bounded persistent full-resolution result cache shared by preview/zoom/thumbnails/export, background job cancellation/progress and explicit CPU fallback, amount/model identity in sidecars, controls, and broader RAW/RGB tests. The optional probe is not yet an app feature.
+- Oli asked to open the app: started `npm run tauri dev` and confirmed `target/debug/emulsion` running; opened the full OM-3 and Fuji comparison HTML pages in the default browser. Explained that denoise controls are not in the app yet.
 
 **Tried by Oli in the real app (2026-11-01):** the Workflow layout restyle, custom looks (edit mode, detach, migration of his looks), the LUT Colour blend on real photos, GPU-paced rendering, Colour, grain and RAW+JPEG folding. The "Not tried in the real app" notes below predate this. Oli is building masks (phases 1–3 below).
 
@@ -96,6 +132,61 @@ Oli: "continue with masks". Of part 3 (local Highlights, Clarity, Texture, Dehaz
   - Other mask, refinement, picker and tone equalizer probes are unchanged.
 - **Not tried in the real app:** the slider on real photos, with and without the photo's own Highlights, and on a refined or brushed mask; export.
 - **Next:** local Texture, Clarity and Dehaze are built (see the top).
+
+## Crop mode (spec §10, 2026-11-01)
+
+Oli resent the redesign spec with a new §10 (crop mode) and a mock screenshot. His answers: **build rotate 90°/flip**, **keep frame-over-photo dragging** (inside moves the frame, rotating shrinks it to stay on the photo; not Lightroom's fixed frame), **Auto uses upstream ashift's rotation-only fit**. Earlier decisions stand: no Heal tool, no temporary Looks.
+
+- **Orientation** (`film/crop.ts`): optional `crop.orient` `{turns, flipH, flipV}`: quarter turns clockwise, then flips, before straightening. Every crop helper works on the photo *as turned* (`orientedSize`); only `cropAffine`/`sourcePoint`/`framePixels` take the source size and map back. `turn`/`flip` carry the crop rectangle (flip negates the angle; turning swaps the flips). Old sidecars read as unturned. The engine swaps the uncropped size back for lens vignetting and grain (they work in source uv). Masks, export, thumbnails and the eyedropper go through `geometryMatrix`, so they follow. GPU probe: a turned and mirrored crop matches the reference (worst 0.6 of a level, frame upright).
+- **Ratios:** film formats 6×6, 6×4.5, 6×7, 5:4, XPan, and Custom (`crop.ratio`, landscape ≥ 1, at most 10). "Original (3:2)" names the photo's ratio (`ratioLabel`). Lock = aspect isn't Free: unlocking sets Free, locking Free makes Custom at the current ratio. Shift while resizing flips the lock for that drag.
+- **Auto:** native axis 3 → `ASHIFT_FIT_ROTATION_BOTH_LINES` (upstream mode, no maths changed); `fitPhotoLevel` returns what the perspective rotation still lacks, as a straighten angle (perspective +r = straighten −r; negated on a mirrored photo). Rust test `levels_rotation_only`.
+- **UI** (Workflow): Straighten left the tool pill; R and C both enter crop and don't leave it. Cancel / Done (filled light) in the pill; "Crop" replaces Off/Before/Split. `CropBar.tsx` is a docked 40px row (the canvas grid's first row is now `auto`): ratio menu, lock, orientation (X), rotate left/right, flips, straighten slider + value, Auto, level line, overlay (O cycles Thirds/Golden/Diagonal/Grid/None, persisted in `emulsion.interface`), reset. Frame: 55% dim, L corners and edge bars inside the edge, guides only while hovered/dragged, a 12×12 grid while turning. The photo fits with 24px extra margin, and dragging anywhere on the canvas outside the frame turns it (rotate cursor). Double-click inside commits; Esc puts the level line down before cancelling. Classic's Crop section gained the ratio select and rotate/flip buttons.
+- Zoom and pan now measure in the shown frame's size (they used the uncropped source size, which was off for cropped photos).
+
+**Not tried in the real app:** every drag (resize with/without Shift, move, turn in the margin), the level line, Auto on real photos (and its sign on a mirrored one), rotate/flip then export and thumbnails, masks drawn on a turned photo, the ratio menu and Custom, X and O keys, double-click to commit. The bottom-bar hint truncates near 1500px wide with the marks shown.
+
+## Develop view redesign (2026-11-01)
+
+Oli supplied a spec ("Develop view redesign: implementation prompt") and a PDF mock (`~/Documents/Photo editing app toolbar layout.pdf`). His answers on the points where it clashed with the app:
+- **Keys:** keep the Lightroom marks (0–5, H, 6–9) and J for clipping. Tools: V Select, Space-hold Pan, C Crop (R too, since §10), M Mask, W Pick neutral. Zoom: + / − (unmodified, Workflow only), ⌘0, Z.
+- **Heal:** left out until a healing module is ported (darktable retouch).
+- **Temporary Looks / "Use LUT directly…":** skipped. Model B stands.
+- **Presets:** favourites (local), an optional `collection` on saved presets, no built-in presets.
+
+What changed (Workflow layout; Classic keeps its own placement):
+- **Theme:** neutral tokens from the spec in `styles.css` (`:root[data-theme=mid|dark]`), mapped onto the old names (`--bg`, `--stage`, `--raise`, `--fg`...). Mid grey is the default. The switch is in the canvas right-click menu → Interface. Switching it also sets the canvas colour (`STAGE_COLORS` dark is now #161616, grey #777, and the default is grey). The accent is #e8913a. Active tabs, segments and tools use `--sel`/`--text`. Font: Geist (Archivo removed). Icons: `lucide-react`. Both are credited in NOTICE. Tooltips use CSS `[data-tip]`.
+- **Shell:** 56px header and 300 | 1fr | 300 columns. Canvas rows are 48px / 1fr / 44px. Min width 1200.
+- **Canvas top bar** (`PhotoTools.tsx`): Off/Before/Split, a centred tool pill, and a zoom value button with a menu (Fit/50/100/200/400). Tool state is in `ui/tools.ts`. Mask = the Masks tab; choosing another tool returns to the previous tab. Crop settings dock as a second bar row (absolute, under the bar).
+- **Straighten:** a line drawn in `CropOverlay` sets the angle (`draft.angle − tilt`, folded to ±45°), then the tool returns to Crop.
+- **Bottom bar:** frame, file, and a hint from the tool, compare or clipping state, with marks on the right. Workflow no longer puts badges over the photo. The only overlay is the "Previewing · {preset}" label.
+- **Images pane:** filter collapse persists (`ui/prefs.ts`, `emulsion.interface`). While folded, active filters show as chips. Colour-label filtering is still multi-select (the spec said single-select; kept the existing behaviour).
+- **Right panel:**
+  - Histogram is 72px; a click folds it to 20px (persisted). EXIF sits under it.
+  - Five icon tabs; Presets is now a tab (`CONTROL_GROUPS`).
+  - Section headers have a chevron, a summary when folded ("N changed"), a ↺ reset icon, and ⌥-click solo (a window event scoped to the tab body).
+  - Slider rows are a label | slider | value grid. The value is an inline input (`ui/typed.ts`, clamp and step). The label brightens when changed.
+  - Undo takes one step per drag (a key set on pointerdown) and one per typed commit.
+  - Pinned icon action bar: Undo, Redo | Copy, Paste | Reset sliders, Reset photo (second click confirms) | ⋯ Apply to all, then "N edits" (settings that differ from an untouched photo).
+- **Scanner row:** shows the inherited value as "Frontier · look". An override shows in accent with ↺ "Reset to look (…)". Picking the Look's own value clears the override. Changing the Look already cleared it (`withLook`).
+- **Look editor:** a tinted "Editing look · name" banner and the spec's note.
+- **Presets tab** (`PresetControls.tsx`):
+  - Search, then a + menu: Create preset…, Import presets… (new Rust `read_preset_files`, imported with fresh ids), New collection.
+  - Feedback "Applied X · Undo" after a click; the hint with the photo count before any.
+  - Groups: Favourites, collections, My presets. Rows show the scope, a star and a ⋯ menu (update, rename/move, delete).
+  - Hover previews through `useTools.preview`, which Develop applies to the shown recipe.
+  - The Create/Update sheet lists the existing groups with current values and an All/None toggle.
+
+Checks: `npm run check` passes (356 TS tests, including new `typed.test.ts` and a presets collection test; 50 Rust tests, including `reads_single_and_array_files`). Probe screenshots: `?workflow`, `&theme=dark`, `&folded`, `&tab=presets`.
+
+**Not tried in the real app (needs mouse/keyboard):**
+- every tool button and key (V, C, R, M, W, Space-pan), and the straighten line direction on a real photo
+- zoom menu and + / −
+- typing values, double-click resets, ⌥-click solo, histogram fold
+- action bar tooltips and the ⋯ menu
+- preset hover preview and apply/Undo, import, collections
+- the docked crop row
+
+Restart the desktop core to register `read_preset_files`.
 
 ## Cached dehaze (2026-11-01)
 
@@ -204,7 +295,7 @@ Oli asked for, in order: a range picker, mask refinement, then local Highlights/
   - Amount on the list row
   - mask presets
 
-## Masks, phase 2: ranges and brush (2026-11-01, uncommitted)
+## Masks, phase 2: ranges and brush (2026-11-01)
 
 Oli: "commit and keep going" (phase 1 + LUT blend + layout committed as `53720ce`; another agent's dehaze landed as `fb0da6a`). Detail in [docs/plans/masks.md](docs/plans/masks.md).
 
@@ -222,7 +313,7 @@ Oli: "commit and keep going" (phase 1 + LUT blend + layout committed as `53720ce
 - **Not tried in the real app:** painting with mouse, trackpad or pen (no pressure yet); ⌥ erase; [ ]; range bar dragging; brush speed on long strokes (the whole mask is redrawn on each move).
 - **Next:** a picker for ranges, mask refinement (feather/blur), local Highlights/Clarity/Texture/Dehaze, then AI (now needs a texture-unit plan; see the masks plan).
 
-## Masks, phase 1 (2026-11-01, uncommitted)
+## Masks, phase 1 (2026-11-01)
 
 Oli: "start implementing" masks, darktable as upstream. Full plan, phases and the AI research in [docs/plans/masks.md](docs/plans/masks.md).
 
@@ -252,7 +343,7 @@ Oli: "start implementing" masks, darktable as upstream. Full plan, phases and th
   - speed with 8 masks
 - **AI:** darktable 5.6 has SAM 2.1 object masks. It's worth doing, after the brush (needs the raster mask path). The plan is ONNX Runtime in Rust with models downloaded on request.
 
-## Workflow layout restyled to Oli's mockup (2026-11-01, uncommitted)
+## Workflow layout restyled to Oli's mockup (2026-11-01)
 
 Oli sent a mockup of the Develop workspace. The changes:
 - **Images pane:** it now runs the full height. Its heading reads "⌄ Images · count · Clear · View". The chevron folds the filters away. Under the heading sit the filters: All/Edited/Unedited, then stars │ heart and the colour tags. Thumbnails are larger, with chip-style frame numbers. The pane is 264 px (220 px at ≤1100 px wide).
@@ -263,11 +354,11 @@ Oli sent a mockup of the Develop workspace. The changes:
 
 Checks: `npm run check` passes, and screenshots at 1440 and 1100 px. **Not tried in the real app:** clicks, the View menu, the − and + buttons, Crop from the new toolbar, and folding the filters.
 
-## LUT blend: Normal / Colour (2026-11-01, uncommitted)
+## LUT blend: Normal / Colour (2026-11-01)
 
 Oli asked for darktable's "color" blend mode on the LUT, so a film's colour comes without its tone curve and the tone equalizer (Highlights) shapes the highlights. Film stock → **Blend: Normal / Colour** under Amount. Ported from darktable `blendif_rgb_hsl.c` `_blend_color` with its HSL conversions at `20891f6c` (`src/engine/blend.ts`, `lut.glsl`, NOTICE): hue along the short way round and saturation from the LUT at Amount, lightness from the print, on linear Rec.2020 clipped to 0..1 as darktable's RGB (display) blending does. Recipe field `lookBlend` (normal default); a custom look keeps it in its LUT (`blend: 'color'`), set in edit mode, and the control is hidden for custom looks. Probe `lutColour`: worst 4.4e-6 against the reference. **Not tried on real photos**: whether Colour looks right with t3mujinpack/Spektrafilm, and how it interacts with Highlights.
 
-## Custom looks: one collection, editable, detachable (2026-11-01, uncommitted)
+## Custom looks: one collection, editable, detachable (2026-11-01)
 
 Imported LUTs and saved profiles are now one thing, **custom looks** (Oli's call), in a **Custom looks** collection with permanent ids; system packs stay read-only. Film stock section: **Import LUT…**, **New look from this photo…**, **Duplicate** (system or custom), and for a custom look **Edit look**, **Detach** and **Delete look**. Edit mode puts the look on the photo's sliders as an in-memory draft (`lookEdit` in the store; edits don't save or enter undo), with a banner (name, how many photos in the folder use it, Done/Cancel); the Collection/Look controls and "Use a LUT file…" set its LUT. Detach (Figma-style) moves a look's settings onto the photo's own sliders. Rust `user_looks.rs` rewritten: `<id>.json` per look, shared `luts/<hash>.<ext>`, migration of the first layout (tested). Full detail and the two parked ideas (recipes attached to looks; colour-only LUT blending) in docs/plans/profiles-and-presets.md. Checks: 254 TS tests, 40 Rust tests, build, probe `savedProfile` 1/255. **Not tried in the real app:** any of the buttons, edit mode, detach, migration of the looks Oli made on 2026-10-31.
 
@@ -419,7 +510,7 @@ Oli clarified that he wanted the official Fuji LUTs repurposed for our pipeline.
 
 No commit/push authorised. Earlier G’MIC/PictureFX work below remains uncommitted. User’s latest question is whether we can repurpose Fuji’s official files; answer is yes, and the local test pack now demonstrates it.
 
-## LUT catalogue expanded (2026-10-31, uncommitted)
+## LUT catalogue expanded (2026-10-31)
 
 Oli asked to add YahiaAngelo/G’MIC, Pat David, PictureFX/FreshLUTs and Spectrail, then said to leave Spectrail out. Added two packs using the existing darktable lut3d renderer:
 
@@ -577,5 +668,7 @@ Camera colour is covered for every LibRaw camera through its matrices; RawTherap
 6. **Masks**: phase 1 built (see the top and docs/plans/masks.md). Next: brush, range masks, refinement, more local adjustments, then AI. Original note: local adjustments, as Lightroom's masking. Likely parts: drawn shapes (brush, linear and radial gradients), masks by colour or brightness range, combined (add, subtract, intersect), each carrying its own adjustments (exposure, contrast, white balance, saturation...). Upstream to port per the rule: darktable's drawn and parametric masks (`src/develop/masks/`, `src/develop/blend.c`); research what darktable and RawTherapee/ART offer before designing, and whether any open-source subject or sky detection is good enough to port. Big job: needs mask storage in the recipe, an overlay editor in the Develop view, and per-mask passes in the engine.
 7. Oli's roadmap ideas: right-click the tone curve for preset curves (a subtle S curve first) and saving his own curves; export with borders; several photos on one canvas separated by borders (social media posts); more film stocks; Fuji film simulations and recipes (darktable's color equalizer presets, e.g. bleach bypass, may help here).
 7a. **Dehaze** (Oli, 2026-11-01: "we're missing dehaze"). Both upstreams implement He et al.'s dark channel prior with a guided filter: darktable `src/iop/hazeremoval.c` (strength, distance) and RawTherapee `rtengine/ipdehaze.cc` (strength, depth, saturation, luminance-only, depth-map view; kept in ART). Compare both sources and pick per the porting rule; Oli to confirm the choice and where the slider goes (Develop, probably beside Clarity/Texture in Refine).
+7b. **Backups** (Oli, 2026-11-02, researched: [docs/research/backups.md](docs/research/backups.md)). Sidecars already travel with the user's photo backup. The gaps are: no sidecar history (resets and overwrites are permanent once the app closes); looks, presets and DCPs live only in app data; and the per-camera default profile, which `profile: 'auto'` renders through, is in WebView `localStorage`. Proposed order: move the profile defaults to a file, daily darktable-style snapshots of the app data folder, settings export/import, then sidecar history. Waiting on Oli: where sidecar history should live, how many snapshots to keep, and whether sidecars should record the resolved profile.
+7c. **Heal, clone and AI removal** (Oli, 2026-11-02, researched: [docs/research/healing-and-removal.md](docs/research/healing-and-removal.md)). Classical: port darktable `retouch.c` + `heal.c` (Georgiev's Poisson healing, red/black SOR; RawTherapee's spot removal is weaker). It would be a pre-pass before exposure that writes a retouched source, as dehaze does, reusing the mask shapes. Order: Clone/Heal with circle and brush; then ellipse/path, Fill/Blur; wavelet scales last. AI: no upstream editor to port (darktable-ai has no inpainting model; RapidRAW's LaMa is AGPL). Implement LaMa (Apache-2.0, 512px ONNX, ~208 MB) from its paper and code, on the denoise experiment's `ort` setup. Crop, fill, cached patch, and the sidecar stores the stroke and the patch hash. MI-GAN (MIT) as a lighter option. Waiting on Oli: a fixed SOR iteration count on the GPU (deviation), where patches live, any detail restoration for soft fills, and retouch-first vs a Lightroom-style Remove brush first.
 8. UX ideas offered and not yet picked: hover a stock to preview it on the main image; slider edits applying to every selected frame; a `?` shortcut sheet.
 9. Later: an EXIF info overlay.

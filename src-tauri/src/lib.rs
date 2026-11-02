@@ -111,6 +111,7 @@ pub fn run() {
             commands::list_presets,
             commands::save_preset,
             commands::delete_preset,
+            commands::read_preset_files,
             commands::read_look_lut,
             commands::read_lut_file,
             commands::store_look_lut,

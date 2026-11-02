@@ -63,7 +63,8 @@ extern "C" int emulsion_perspective(const unsigned char *pixels, int w, int h, i
   for(size_t i=0;i<buffer.size();i++) buffer[i]=pixels[i]/255.f;
   g.buf=buffer.data();
   dt_iop_module_t module{&g, 0};
-  const auto dir=axis==0?ASHIFT_FIT_VERTICALLY:axis==1?ASHIFT_FIT_HORIZONTALLY:ASHIFT_FIT_BOTH_SHEAR;
+  // 3 is upstream's rotation-only fit on both line sets, for levelling a photo.
+  const auto dir=axis==0?ASHIFT_FIT_VERTICALLY:axis==1?ASHIFT_FIT_HORIZONTALLY:axis==2?ASHIFT_FIT_BOTH_SHEAR:ASHIFT_FIT_ROTATION_BOTH_LINES;
   srand(1);
   const bool ok=do_get_structure(&module, &p, ASHIFT_ENHANCE_EDGES) && do_fit(&module, &p, dir);
   free(g.lines); free(g.points); free(g.points_idx);

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { useState } from 'react';
+import { Pencil } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { PACK, PACKS, customLookOf, lookName, lookSettings, lutBase, withLook, type PackId } from '../film/looks';
 import { defaultRecipe, withStock, type Recipe } from '../film/recipe';
@@ -80,7 +81,8 @@ export function LookEditorHeader() {
       showToast('Look saved');
     } catch (e) { fail(e); } finally { setSaving(false); }
   };
-  return <div className="look-editor-header"><h2>Look editor</h2><p className="hint">Authoring preview · 100% · photo adjustments excluded</p>
+  return <div className="look-editor-header"><div className="look-editor-banner" role="status"><Pencil size={14} aria-hidden="true" /><span>Editing look · <strong>{editing.name || 'Untitled'}</strong></span></div>
+    <p className="hint">Changes here are part of the look. The photo’s own sliders stay where they are. (Preview at 100%, without the photo’s adjustments.)</p>
     <label>Name <input value={editing.name} maxLength={200} onChange={e => renameLookEdit(e.target.value)} /></label>
     <div className="actions"><button className="btn" disabled={saving || !editing.name.trim()} onClick={() => void save(false)}>Save</button><button className="btn" disabled={saving || !editing.name.trim()} onClick={() => void save(true)}>Save and apply</button><button className="btn" disabled={saving} onClick={() => setDiscard(true)}>Cancel</button></div>
     {discard && <div><p>Discard this look draft?</p><button className="btn" onClick={() => endLookEdit()}>Discard</button><button className="btn" onClick={() => setDiscard(false)}>Keep editing</button></div>}

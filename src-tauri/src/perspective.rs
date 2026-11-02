@@ -18,7 +18,7 @@ unsafe extern "C" {
 }
 
 pub fn fit(pixels: &[u8], width: u32, height: u32, axis: &str, current: Perspective) -> Result<Perspective, String> {
-    let axis = match axis { "vertical" => 0, "horizontal" => 1, "both" => 2, _ => return Err("Invalid perspective direction".into()) };
+    let axis = match axis { "vertical" => 0, "horizontal" => 1, "both" => 2, "rotation" => 3, _ => return Err("Invalid perspective direction".into()) };
     if width < 16 || height < 16 || width > 1000 || height > 1000 || pixels.len() != width as usize * height as usize * 4 {
         return Err("Perspective analysis requires RGBA pixels between 16 and 1000 pixels per side".into());
     }
@@ -70,6 +70,28 @@ mod tests {
         assert!((out.vertical-values[1]).abs()<0.7, "{out:?}");
         let repeat=fit(&pixels, w as u32, h as u32, "vertical", initial).unwrap();
         assert_eq!(out.rotation, repeat.rotation);
+    }
+
+    #[test]
+    fn levels_rotation_only() {
+        let (w, h) = (600, 400);
+        let values = [4.0, 0.0, 0.0, 28.0];
+        let mut m = [0f32; 9];
+        unsafe { emulsion_perspective_matrix(w, h, values.as_ptr(), m.as_mut_ptr()); }
+        let mut pixels = vec![255; w as usize * h as usize * 4];
+        for y in 0..h { for x in 0..w {
+            let den=m[6]*x as f32+m[7]*y as f32+m[8];
+            let u=(m[0]*x as f32+m[1]*y as f32+m[2])/den;
+            let v=(m[3]*x as f32+m[4]*y as f32+m[5])/den;
+            if (u-(u/60.0).round()*60.0).abs()<2.0 || (v-(v/60.0).round()*60.0).abs()<2.0 {
+                let i=((y*w+x)*4) as usize;
+                pixels[i..i+3].fill(10);
+            }
+        }}
+        let initial=Perspective { rotation: 0.0, vertical: 0.0, horizontal: 0.0, focal_length: 28.0 };
+        let out=fit(&pixels, w as u32, h as u32, "rotation", initial).unwrap();
+        assert!((out.rotation-values[0]).abs()<0.3, "{out:?}");
+        assert_eq!((out.vertical, out.horizontal), (0.0, 0.0));
     }
 
     #[test]

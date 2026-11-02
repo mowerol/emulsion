@@ -1,8 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // A panel section that folds away. Which sections are folded is remembered on
-// this computer; a folded section still shows a one-line summary.
+// this computer; a folded section still shows a one-line summary. ⌥-click a
+// heading to open that section alone (the others in its tab fold).
 
-import { useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { ChevronRight, RotateCcw } from 'lucide-react';
+
+const SOLO = 'emulsion-section-solo';
 
 const KEY = 'emulsion.folded';
 const OPEN_KEY = 'emulsion.unfolded';
@@ -42,29 +46,48 @@ export function Section({
   hidden?: boolean;
   defaultOpen?: boolean;
 }) {
-  const [open, setOpen] = useState(() => !readFolded().has(id) && (defaultOpen || readFolded(OPEN_KEY).has(id)));
-  const toggle = () => {
+  const [open, setOpenState] = useState(() => !readFolded().has(id) && (defaultOpen || readFolded(OPEN_KEY).has(id)));
+  const ref = useRef<HTMLElement>(null);
+  const setOpen = (next: boolean) => {
     const s = readFolded();
-    if (open) s.add(id);
-    else s.delete(id);
+    if (next) s.delete(id);
+    else s.add(id);
     writeFolded(s);
     const opened = readFolded(OPEN_KEY);
-    if (open) opened.delete(id); else opened.add(id);
+    if (next) opened.add(id); else opened.delete(id);
     writeFolded(opened, OPEN_KEY);
+    setOpenState(next);
+  };
+  // Another section in the same tab was opened alone: fold this one.
+  useEffect(() => {
+    const solo = (e: Event) => {
+      const { id: other, scope } = (e as CustomEvent<{ id: string; scope: Element | null }>).detail;
+      if (other !== id && scope?.contains(ref.current) && !ref.current?.closest('[hidden]')) setOpen(false);
+    };
+    window.addEventListener(SOLO, solo);
+    return () => window.removeEventListener(SOLO, solo);
+  });
+  const toggle = (e: React.MouseEvent) => {
+    if (e.altKey) {
+      setOpen(true);
+      const scope = ref.current?.closest('.grouped-controls-body, .classic-controls-body') ?? null;
+      window.dispatchEvent(new CustomEvent(SOLO, { detail: { id, scope } }));
+      return;
+    }
     setOpen(!open);
   };
   const body = `section-${id}`;
   return (
-    <section hidden={hidden} className={`group${open ? '' : ' folded'}`}>
+    <section ref={ref} hidden={hidden} className={`group${open ? '' : ' folded'}`}>
       <h2>
-        <button type="button" className="section-head" aria-expanded={open} aria-controls={body} onClick={toggle}>
-          <span className="chevron" aria-hidden="true" />
+        <button type="button" className="section-head" aria-expanded={open} aria-controls={body} onClick={toggle} title="⌥-click to open this section alone">
+          <ChevronRight className="chevron" size={14} strokeWidth={2} aria-hidden="true" />
           <span className="section-title">{title}</span>
           {!open && summary && <span className="section-summary">{summary}</span>}
         </button>
         {onReset && (
-          <button type="button" className="link section-reset" onClick={onReset} title={`Reset ${title} to its defaults`}>
-            Reset
+          <button type="button" className="icon-btn section-reset" onClick={onReset} aria-label={`Reset ${title}`} data-tip={`Reset ${title}`}>
+            <RotateCcw size={14} aria-hidden="true" />
           </button>
         )}
       </h2>
