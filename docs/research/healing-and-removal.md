@@ -52,6 +52,10 @@ The native groundwork exists already from the denoise experiment: `ort` rc.11 wi
 - **Storage:** the result isn't cheap to recompute (about a second, plus a 200 MB model), so cache the filled patch as a 16-bit file keyed by the source, the mask and the model hash. The sidecar stores the stroke, the model id and the patch's hash, and recomputes the patch if it's missing. That keeps sidecars small and render-stable. It does mean the patch cache needs backing up (see [backups.md](backups.md)), or recomputing on another Mac.
 - **UI:** the Remove mode in the Heal tool, with an "AI" option as Lightroom has. The model downloads on first use with a visible size. It is opt-in and runs offline, like darktable's AI features.
 
+## Status (2026-11-02)
+
+Step 1 started. Oli chose darktable retouch first, Heal on the CPU as darktable does it (no fixed iteration count), and retouch before Dehaze. Clone and Heal with circle spots are in; see HANDOFF.md for what is left.
+
 ## Proposal (roadmap)
 
 1. **Retouch, port of darktable:** Clone and Heal with circle and brush shapes, as a pre-pass before exposure. Then ellipse and path, Fill and Blur, and finally the wavelet scales.

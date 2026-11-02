@@ -6,6 +6,8 @@ import { PhotoTools } from './PhotoTools';
 import { useWorkspace } from './workspace';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { activeTool, chooseTool, toolHint, useTools } from './tools';
+import { RetouchOverlay } from './RetouchOverlay';
+import { removeSpot, scrollSpotSize, useRetouchUi } from './retouchui';
 import { cycleCropOverlay } from './prefs';
 import { useProfileVersion } from '../engine/profilestore';
 import { useLutVersion } from '../engine/lutstore';
@@ -67,6 +69,8 @@ export function Develop() {
   const sourceCacheRef = useRef(new Map<string, Source>());
   const [error, setError] = useState<string | null>(null);
   const [loadedVersion, setLoadedVersion] = useState(0);
+  /** Bumped when the retouch worker finishes, to redraw with its result. */
+  const [retouchVersion, setRetouchVersion] = useState(0);
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [zoom, setZoom] = useState<Zoom>(FIT);
   const [loadingFull, setLoadingFull] = useState(false);
@@ -106,13 +110,16 @@ export function Develop() {
   const maskIndex = photo?.recipe?.masks.findIndex((m) => m.id === maskSelected) ?? -1;
   const maskShow = masksOpen && maskOverlay && maskIndex >= 0 ? maskIndex : null;
   const tools = useTools();
-  const tool = workflow ? activeTool(tools, cropping, picking, masksOpen) : 'select';
+  const healing = useRetouchUi((s) => s.on) && workflow;
+  const tool = workflow ? activeTool(tools, cropping, picking, masksOpen, healing) : 'select';
   useEffect(() => { if (!masksOpen) setMaskUi({ tool: null, pick: null }); }, [masksOpen]);
 
   // Start the GPU engine for this canvas.
   useLayoutEffect(() => {
     try {
       engineRef.current = new Engine(canvasRef.current!);
+      // Retouch off this thread, so dragging a heal spot stays smooth; redraw when it is done.
+      engineRef.current.useRetouchWorker(new Worker(new URL('../engine/retouch.worker.ts', import.meta.url), { type: 'module' }), () => setRetouchVersion((v) => v + 1));
     } catch (err) {
       setError(`Emulsion could not start the GPU pipeline. ${String(err)}`);
     }
@@ -201,7 +208,7 @@ export function Develop() {
         if (img.white) setPhotoWhite(path, img.white);
         setPhotoLens(path, img.lens ?? null);
         setPhotoCamera(path, img.camera ?? null);
-        swap(engine.sourceFromHalf(img), 'preview');
+        swap({ ...engine.sourceFromHalf(img), origin: path }, 'preview');
       } catch (err) {
         if (cancelled) return;
         // When only the decode failed, the preview stays on screen and edits apply
@@ -312,7 +319,7 @@ export function Develop() {
     loadCachedImage(path, engine.maxTextureSize, wantsNoise)
       .then((img) => {
         if (!stillWanted() || loadedRef.current?.path !== path) return;
-        swapSource(path, engine.sourceFromHalf(img), 'full');
+        swapSource(path, { ...engine.sourceFromHalf(img), origin: path }, 'full');
       })
       .catch((err) => {
         if (stillWanted()) showToast(`Could not load the full resolution. ${String(err)}`);
@@ -352,7 +359,7 @@ export function Develop() {
     id = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recipe, seed, compare, loadedVersion, viewKey, path, clipping, split, JSON.stringify(frame), stage, sharpenMask, lutVersion, profileVersion, maskShow]);
+  }, [recipe, seed, compare, loadedVersion, viewKey, path, clipping, split, JSON.stringify(frame), stage, sharpenMask, lutVersion, profileVersion, maskShow, retouchVersion]);
 
   // Count the histogram from a small render of the whole frame, once changes settle.
   useEffect(() => {
@@ -415,13 +422,17 @@ export function Develop() {
       if (e.ctrlKey || e.metaKey) {
         const [fx, fy] = fraction(e);
         zoomTo(current.scale * Math.exp(-e.deltaY * 0.01), fx, fy);
+      } else if (healing && !compare) {
+        // The Heal tool: scrolling sizes the spot (Shift: its feather), as in darktable.
+        const d = e.deltaY || e.deltaX;
+        if (d) scrollSpotSize(d < 0, e.shiftKey, photo?.recipe?.retouch ?? []);
       } else if (zoom.scale !== null) {
         setZoom(pan(zoom, current, -e.deltaX, -e.deltaY, dpr(), frameW, frameH));
       }
     };
     el.addEventListener('wheel', onWheel, { passive: false });
     return () => el.removeEventListener('wheel', onWheel);
-  }, [current, src, zoom, zoomTo, cropping, frameW, frameH]);
+  }, [current, src, zoom, zoomTo, cropping, frameW, frameH, healing, compare, photo]);
 
   // Keys: Z toggles fit and 100%, Cmd/Ctrl with = - 0 zoom, J shows clipping.
   useEffect(() => {
@@ -437,8 +448,8 @@ export function Develop() {
       const plain = !mod && !e.altKey;
       const k = e.key.toLowerCase();
       if (workflow && !editingLook) {
-        // The toolbar's tools: V select, C (or R) crop, M mask, W pick neutral. C and R don't leave crop mode.
-        const id = plain ? ({ v: 'select', c: 'crop', r: 'crop', m: 'mask', w: 'pick' } as const)[k as 'v'] : undefined;
+        // The toolbar's tools: V select, C (or R) crop, M mask, Q heal, W pick neutral. C and R don't leave crop mode.
+        const id = plain ? ({ v: 'select', c: 'crop', r: 'crop', m: 'mask', q: 'heal', w: 'pick' } as const)[k as 'v'] : undefined;
         if (id && !(cropping && (id === 'select' || id === 'crop'))) {
           e.preventDefault();
           chooseTool(id);
@@ -449,6 +460,19 @@ export function Develop() {
         if (cropping) finishCrop(true);
         else startCrop();
         return;
+      }
+      if (healing && !cropping) {
+        const selected = useRetouchUi.getState().selected;
+        if ((e.key === 'Backspace' || e.key === 'Delete') && selected) {
+          e.preventDefault();
+          removeSpot(selected);
+          return;
+        }
+        if (e.key === 'Escape') {
+          e.preventDefault();
+          chooseTool('heal');
+          return;
+        }
       }
       if (cropping) {
         if (e.key === 'Enter') {
@@ -603,6 +627,9 @@ export function Develop() {
           {split !== undefined && showing && <SplitDivider at={splitAt} onMove={setSplitAt} />}
           {masksOpen && !cropping && !compare && showing && current && (maskIndex >= 0 || maskTool) && (
             <MaskOverlay transform={recipe?.transform} frame={frame} W={src!.fullW} H={src!.fullH} view={current.view} cssW={current.cssW} cssH={current.cssH} onPick={pickRange} />
+          )}
+          {healing && !cropping && !compare && showing && current && src && (
+            <RetouchOverlay spots={recipe?.retouch ?? []} transform={recipe?.transform} frame={frame} W={src.fullW} H={src.fullH} view={current.view} cssW={current.cssW} cssH={current.cssH} />
           )}
           {cropEdit && showing && (
             <CropOverlay draft={cropEdit.draft} frame={frame} W={cropEdit.W} H={cropEdit.H} onChange={(c) => setCropDraft(() => c)}

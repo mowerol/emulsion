@@ -1,5 +1,6 @@
 import noiseShader from './shaders/noise.frag.glsl?raw';
 import { noiseEnabled } from '../film/noisereduction';
+import { RetouchCache, reducedRegion, retouchReduced, type Roi } from './retouch';
 import { BrushGpu, brushShapes, brushSize } from './brushgpu';
 import { MASK_UNIT, MaskStack, refinedLayer } from './maskstack';
 import { MaskRefineGpu, refineSize, type RefineJob } from './maskrefinegpu';
@@ -89,6 +90,8 @@ export interface Source {
   fullH: number;
   /** A RAW's capture sharpening data, once attached (see attachCapture). */
   capture?: Capture;
+  /** Which photo this is (its path), so the view can stand in one of its sources for another. */
+  origin?: string;
 }
 
 /** What capture sharpening reads from a RAW's sensor data (src-tauri/src/capture.rs). */
@@ -237,6 +240,13 @@ export class Engine {
   private noiseMade: { input: WebGLTexture; amount: number; out: Target } | null = null;
   private lensP: Program;
   private lensMade: { input: WebGLTexture; key: string; out: Target } | null = null;
+  /** The retouched source: made from `input` at 1/k for `spots`; `src` is the source it stands for. */
+  private retouchMade: { input: WebGLTexture; spots: string; k: number; out: Target; src: Source } | null = null;
+  /** Each spot's last result, so moving one spot does not heal the others again. */
+  private retouchCache = new RetouchCache();
+  private retouchAsync: { worker: Worker; onDone: () => void; job: { id: number; src: Source; spots: string; k: number; region: Roi; released: boolean } | null } | null = null;
+  private retouchJobs = 0;
+  private retouchFbo: WebGLFramebuffer | null = null;
   private dehazeGfP: Program;
   /** Haze removal's targets for the latest source size (see dehazeMap), and what they were made from. */
   private dh: DehazeTargets | null = null;
@@ -332,6 +342,8 @@ export class Engine {
     if (this.dh?.input === src.tex || this.dhMasked.some((d) => d.input === src.tex)) this.freeDehaze();
     if (this.dhAmbient?.input === src.tex) this.dhAmbient = null;
     if (this.lensMade?.input === src.tex) { this.gpu.free(this.lensMade.out); this.lensMade = null; }
+    if (this.retouchMade?.input === src.tex) { this.gpu.free(this.retouchMade.out); this.retouchMade = null; }
+    if (this.retouchAsync?.job?.src.tex === src.tex) this.retouchAsync.job.released = true;
     if (src.capture) this.gpu.gl.deleteTexture(src.capture.clip);
   }
 
@@ -618,6 +630,7 @@ export class Engine {
   dropBuffers(w: number, h: number) {
     if (this.dh?.w === w && this.dh.h === h) this.freeDehaze();
     if (this.lensMade?.out.w === w && this.lensMade.out.h === h) { this.gpu.free(this.lensMade.out); this.lensMade = null; }
+    if (this.retouchMade?.out.w === w && this.retouchMade.out.h === h) { this.gpu.free(this.retouchMade.out); this.retouchMade = null; }
     if (this.csOut && this.csOut.w === w && this.csOut.h === h) {
       this.gpu.free(this.csOut);
       this.csOut = null;
@@ -1118,6 +1131,108 @@ export class Engine {
   }
 
   /**
+   * Run retouch for this engine's interactive view in a worker: while a spot is dragged, the view
+   * shows the last finished result and `onDone` asks for a redraw when the next one arrives.
+   * Without it (export, thumbnails, the probe) retouch runs in place, so no stale frame is drawn.
+   */
+  useRetouchWorker(worker: Worker, onDone: () => void) {
+    this.retouchAsync = { worker, onDone, job: null };
+    worker.onmessage = (e: MessageEvent<{ id: number; px: Float32Array }>) => {
+      const a = this.retouchAsync;
+      const job = a?.job;
+      if (!a || !job || job.id !== e.data.id) return;
+      a.job = null;
+      if (!job.released) this.retouchStore(job.src, job.spots, job.k, job.region, e.data.px);
+      onDone();
+    };
+  }
+
+  /** The source's pixels in `region`, read back as floats. */
+  private retouchRead(src: Source, region: Roi): Float32Array {
+    const g = this.gpu;
+    const gl = g.gl;
+    const px = new Float32Array(region.w * region.h * 4);
+    this.retouchFbo ??= gl.createFramebuffer()!;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.retouchFbo);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, src.tex, 0);
+    // Floats can be read straight from a float texture; an 8-bit one goes through a float copy.
+    if (gl.checkFramebufferStatus(gl.FRAMEBUFFER) === gl.FRAMEBUFFER_COMPLETE
+      && gl.getFramebufferAttachmentParameter(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.FRAMEBUFFER_ATTACHMENT_COMPONENT_TYPE) === gl.FLOAT) {
+      gl.readPixels(region.x, region.y, region.w, region.h, gl.RGBA, gl.FLOAT, px);
+      gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, null, 0);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      return px;
+    }
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, null, 0);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    // A source that can't be read directly: through a copy.
+    const t = g.target(src.w, src.h, true);
+    g.bind(0, src.tex); g.bind(1, src.tex);
+    this.noiseP.set({ uOriginal: 0, uDenoised: 1, uAmount: 0, uSplit: -1 });
+    g.draw(this.noiseP, t, src.w, src.h);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo);
+    gl.readPixels(region.x, region.y, region.w, region.h, gl.RGBA, gl.FLOAT, px);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    g.free(t);
+    return px;
+  }
+
+  /** A copy of the source with `px` (the retouched region) written in, kept as the retouched source. */
+  private retouchStore(src: Source, spots: string, k: number, region: Roi, px: Float32Array): Target {
+    const g = this.gpu;
+    const gl = g.gl;
+    if (this.retouchMade) g.free(this.retouchMade.out);
+    const out = g.target(src.w, src.h, true);
+    // A plain copy (the blend at amount 0), then the retouched rectangle put in.
+    g.bind(0, src.tex); g.bind(1, src.tex);
+    this.noiseP.set({ uOriginal: 0, uDenoised: 1, uAmount: 0, uSplit: -1 });
+    g.draw(this.noiseP, out, src.w, src.h);
+    g.scratch();
+    gl.bindTexture(gl.TEXTURE_2D, out.tex);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, region.x, region.y, region.w, region.h, gl.RGBA, gl.FLOAT, px);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    g.params(true);
+    this.retouchMade = { input: src.tex, spots, k, out, src };
+    this.eqMade = null; this.llMade = null; this.usmMade = null; this.ceMade = null;
+    return out;
+  }
+
+  /**
+   * darktable's retouch (engine/retouch.ts): a copy of the source with the spots applied on the
+   * CPU over the rectangle they touch, as darktable heals on the CPU even on its OpenCL path. It
+   * replaces the source for everything after it. Kept until the spots or the source change; each
+   * spot's result is kept too, so moving one spot heals only the spots whose input changed.
+   */
+  private retouched(src: Source, recipe: Recipe | null, k = 1): Source {
+    const spots = recipe?.retouch ?? [];
+    if (!spots.length || !this.gpu.hdr) return src;
+    const scale = src.w / src.fullW;
+    const region = reducedRegion(spots, src.fullW, src.fullH, scale, src.w, src.h, k);
+    if (!region) return src;
+    const key = JSON.stringify(spots);
+    const made = this.retouchMade?.input === src.tex ? this.retouchMade : null;
+    // A result made at a finer scale serves a coarser view (the histogram reuses the view's).
+    if (made?.spots === key && made.k <= k) return { ...src, tex: made.out.tex };
+    const a = this.retouchAsync;
+    // The interactive view hands the work to the worker and meanwhile shows what it has: this
+    // source's last result, or the same photo's other source (the preview while the full size is
+    // retouched after zooming in). Only a photo with nothing to show yet is retouched in place.
+    const stand = made ?? (this.retouchMade && src.origin && this.retouchMade.src.origin === src.origin ? this.retouchMade : null);
+    if (a && stand) {
+      if (!a.job) {
+        const id = ++this.retouchJobs;
+        a.job = { id, src, spots: key, k, region, released: false };
+        const px = this.retouchRead(src, region);
+        a.worker.postMessage({ id, px, region, W: src.fullW, H: src.fullH, scale, spots, k }, [px.buffer]);
+      }
+      return { ...stand.src, tex: stand.out.tex };
+    }
+    const px = this.retouchRead(src, region);
+    retouchReduced(px, region, src.fullW, src.fullH, scale, spots, k, this.retouchCache);
+    return { ...src, tex: this.retouchStore(src, key, k, region, px).tex };
+  }
+
+  /**
    * Develop `src` with `recipe` (null = original) into `target`, or onto the
    * canvas when `target` is 'screen'.
    */
@@ -1216,6 +1331,13 @@ export class Engine {
     }
     const view = opts.view ?? FULL_VIEW;
     const frame = opts.frame ?? recipe?.crop ?? FULL;
+    // Retouch replaces the source, after the profile's early pass and before haze removal. A view
+    // showing the photo at half its working size or less retouches at that scale (1/k), as
+    // darktable's darkroom runs at the zoom's scale; an export or a 1:1 view at full size.
+    if (!opts.compare) {
+      const shown = Math.max(opts.width / view.w / frame.w, opts.height / view.h / frame.h) / Math.max(src.w, src.h);
+      src = this.retouched(src, recipe, shown < 0.5 ? Math.min(8, Math.floor(1 / shown)) : 1);
+    }
     // Effects that belong to the film (grain, vignette) see the whole uncropped
     // frame at the size it is shown, so cropping enlarges them as it would a negative.
     const look = recipe && !opts.compare ? lookLut(recipe) : null;
@@ -1568,6 +1690,12 @@ export class Engine {
     this.refiner.release();
     if (this.lensMade) this.gpu.free(this.lensMade.out);
     this.lensMade = null;
+    if (this.retouchMade) this.gpu.free(this.retouchMade.out);
+    this.retouchMade = null;
+    this.retouchCache.clear();
+    if (this.retouchAsync) { this.retouchAsync.worker.terminate(); this.retouchAsync = null; }
+    if (this.retouchFbo) this.gpu.gl.deleteFramebuffer(this.retouchFbo);
+    this.retouchFbo = null;
     this.freeDehaze();
     this.dhAmbient = null;
     if (this.curveTex) this.gpu.gl.deleteTexture(this.curveTex);

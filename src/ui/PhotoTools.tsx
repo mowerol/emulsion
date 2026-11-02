@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, Crop, Hand, Minus, MousePointer2, Pipette, Plus, Slash, SquareDashedMousePointer, type LucideIcon } from 'lucide-react';
+import { Bandage, ChevronDown, Crop, Hand, Minus, MousePointer2, Pipette, Plus, Slash, SquareDashedMousePointer, type LucideIcon } from 'lucide-react';
 import { finishCrop, useApp } from '../library/store';
 import { CropBar } from './CropBar';
 import { activePhoto } from '../library/store';
 import { MOD } from './common';
 import { TOOLS, activeTool, chooseTool, useTools, type ToolId } from './tools';
 import { useWorkspace } from './workspace';
+import { useRetouchUi } from './retouchui';
+import { RetouchBar } from './RetouchBar';
 
 type Before = 'off' | 'full' | 'split';
 const BEFORE: { value: Before; label: string; title: string }[] = [
@@ -16,10 +18,10 @@ const BEFORE: { value: Before; label: string; title: string }[] = [
 ];
 
 const ICONS: Record<ToolId, LucideIcon> = {
-  select: MousePointer2, pan: Hand, crop: Crop, straighten: Slash, mask: SquareDashedMousePointer, pick: Pipette,
+  select: MousePointer2, pan: Hand, crop: Crop, straighten: Slash, mask: SquareDashedMousePointer, heal: Bandage, pick: Pipette,
 };
 /** Tools in the pill, a 1px separator between groups. */
-const TOOL_GROUPS: ToolId[][] = [['select', 'pan'], ['crop'], ['mask', 'pick']];
+const TOOL_GROUPS: ToolId[][] = [['select', 'pan'], ['crop'], ['mask', 'heal', 'pick']];
 const ZOOMS: { scale: number | null; label: string; key?: string }[] = [
   { scale: null, label: 'Fit', key: `${MOD}0` }, { scale: 0.5, label: '50%' }, { scale: 1, label: '100%', key: 'Z' }, { scale: 2, label: '200%' }, { scale: 4, label: '400%' },
 ];
@@ -35,7 +37,8 @@ export function PhotoTools({ scale, zoomLabel, onZoom, onStep, before, onBefore,
   const canCrop = useApp(s => !!s.developSize && s.developSize.path === activePhoto(s)?.path);
   const masksOpen = useWorkspace(s => s.group === 'masks');
   const tools = useTools();
-  const tool = activeTool(tools, cropping, picking, masksOpen);
+  const healing = useRetouchUi(s => s.on);
+  const tool = activeTool(tools, cropping, picking, masksOpen, healing);
   const [zoomMenu, setZoomMenu] = useState(false);
   const zoomRef = useRef<HTMLDivElement>(null);
   const zoomOff = !ready || cropping;
@@ -49,7 +52,7 @@ export function PhotoTools({ scale, zoomLabel, onZoom, onStep, before, onBefore,
     return () => { document.removeEventListener('pointerdown', outside); window.removeEventListener('keydown', esc, true); };
   }, [zoomMenu]);
 
-  const disabled = (id: ToolId) => id === 'crop' ? !canCrop : id === 'pick' ? !photo : false;
+  const disabled = (id: ToolId) => id === 'crop' || id === 'heal' ? !canCrop : id === 'pick' ? !photo : false;
 
   return <>
   <div className="photo-tools" role="toolbar" aria-label="Photo tools">
@@ -89,5 +92,6 @@ export function PhotoTools({ scale, zoomLabel, onZoom, onStep, before, onBefore,
   </div>
   {/* Crop's options dock as a second row under the bar, never over the photo. */}
   {cropping && <CropBar />}
+  {healing && !cropping && <RetouchBar />}
   </>;
 }

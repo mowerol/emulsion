@@ -57,6 +57,8 @@ import { drawnValue, maskValue, blendNormal, rangeValue, pickStats, pickedRange 
 import { MaskStack } from '../../src/engine/maskstack';
 import { refineMask, type MaskRefine } from '../../src/engine/maskrefine';
 import { newBrush, newEllipse, newGradient, newMask, type Mask } from '../../src/film/masks';
+import { newCircleSpot, type RetouchSpot } from '../../src/film/retouch';
+import { RetouchCache, retouch as retouchRef, retouchReduced, retouchRegion, type Roi } from '../../src/engine/retouch';
 import { SQRT_EPS as DEHAZE_SQRT_EPS, ambientLight as dehazeAmbient, guidedFilter as dehazeGuided, recover as dehazeRecover, transitionMap as dehazeTransition, windows as dehazeWindows } from '../../src/engine/dehaze';
 const DEHAZE_EPS = DEHAZE_SQRT_EPS;
 import { BrushGpu } from '../../src/engine/brushgpu';
@@ -263,6 +265,60 @@ void main() {
 }
 
 
+
+/**
+ * Retouch through the engine against engine/retouch.ts: the retouched source read back, against
+ * the reference run on the same copy (the same spots at opacity 0 give the copy with the same
+ * region), and a developed blemish before and after healing.
+ */
+function probeRetouch(eng: Engine) {
+  const w = 240, h = 160;
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  const x = c.getContext('2d')!;
+  for (let yy = 0; yy < h; yy += 2) for (let xx = 0; xx < w; xx += 2) {
+    const v = Math.round(60 + 120 * (xx / w) + 25 * Math.sin(xx / 5) * Math.cos(yy / 7));
+    x.fillStyle = `rgb(${v},${Math.round(v * 0.85)},${Math.round(v * 0.7)})`; x.fillRect(xx, yy, 2, 2);
+  }
+  x.fillStyle = 'rgb(20,15,10)'; x.beginPath(); x.arc(120, 80, 6, 0, 2 * Math.PI); x.fill();
+  const src = eng.sourceFromImage(c, w, h);
+  const gl = eng.gpu.gl;
+  gl.getError();
+  const spots: RetouchSpot[] = [
+    newCircleSpot([0.5, 0.5], 'heal', 0.06, 0.03, [0.62, 0.42]),
+    newCircleSpot([0.2, 0.3], 'clone', 0.05, 0.02, [0.3, 0.7]),
+  ];
+  const base = { ...recipeDefaults('neutral', 'straight'), grain: 0, sharpen: 0, captureSharpening: 0 };
+  const any = eng as unknown as { retouched(s: Source, r: Recipe): Source; retouchMade: { out: { fbo: WebGLFramebuffer } } };
+  const readSource = (r: Recipe) => {
+    any.retouched(src, r);
+    const px = new Float32Array(w * h * 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, any.retouchMade.out.fbo);
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.FLOAT, px);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return px;
+  };
+  const copy = readSource({ ...base, retouch: spots.map((s) => ({ ...s, opacity: 0 })) });
+  const gpu = readSource({ ...base, retouch: spots });
+  const region = retouchRegion(spots, w, h, 1, w, h)!;
+  const ref = copy.slice();
+  const sub = new Float32Array(4 * region.w * region.h);
+  for (let y = 0; y < region.h; y++) sub.set(copy.subarray(4 * ((region.y + y) * w + region.x), 4 * ((region.y + y) * w + region.x + region.w)), 4 * y * region.w);
+  retouchRef(sub, region, w, h, 1, spots);
+  for (let y = 0; y < region.h; y++) ref.set(sub.subarray(4 * y * region.w, 4 * (y + 1) * region.w), 4 * ((region.y + y) * w + region.x));
+  // The texture holds half floats: compare relative to the value.
+  let worst = 0, changed = 0;
+  for (let i = 0; i < ref.length; i++) {
+    if (i % 4 === 3) continue;
+    worst = Math.max(worst, Math.abs(gpu[i] - ref[i]) / Math.max(1e-3, Math.abs(ref[i])));
+    if (Math.abs(ref[i] - copy[i]) > 1e-4) changed++;
+  }
+  const at = (px: Uint8Array, xx: number, yy: number) => Array.from(px.slice((yy * w + xx) * 4, (yy * w + xx) * 4 + 3));
+  const plain = eng.readPixels(src, base, w, h, 1);
+  const healed = eng.readPixels(src, { ...base, retouch: spots }, w, h, 1);
+  const before = eng.readPixels(src, { ...base, retouch: spots }, w, h, 1, true);
+  return { region, changedValues: changed, worstRelative: worst, blemish: at(plain, 120, 80), healed: at(healed, 120, 80), beside: at(plain, 132, 80), compareKeepsBlemish: at(before, 120, 80), untouched: [at(plain, 230, 150), at(healed, 230, 150)], glError: gl.getError() };
+}
 
 function probeColorBalance(eng: Engine) {
   const uniforms = developUniforms(defaultRecipe(), stageCtx);
@@ -620,7 +676,83 @@ view.width = W; view.height = H;
 document.body.append(view);
 const out: Record<string, unknown> = {};
 try {
-  if (new URLSearchParams(location.search).has('lensprobe')) {
+  if (new URLSearchParams(location.search).has('healtiming')) {
+    // The Heal tool's cost per pointer move, as in the app: a 2560 px preview of a 24 MP photo,
+    // Neutral at its defaults, one render per move with the spot somewhere new.
+    const eng = new Engine(view);
+    const PW = 2560, PH = 1707;
+    const big = document.createElement('canvas');
+    big.width = PW; big.height = PH;
+    const bg = big.getContext('2d')!;
+    for (let y = 0; y < PH; y += 8) for (let x = 0; x < PW; x += 8) { const v = 80 + ((x * 7 + y * 13) % 97); bg.fillStyle = `rgb(${v},${v},${v})`; bg.fillRect(x, y, 8, 8); }
+    const src = { ...eng.sourceFromImage(big, PW, PH), fullW: 6000, fullH: 4000 };
+    const base: Recipe = { ...recipeDefaults('neutral', 'straight') };
+    const OW = 1600, OH = 1067;
+    const time = (make: (i: number) => Recipe, n = 6) => {
+      eng.readPixels(src, make(0), OW, OH, 1);
+      const t0 = performance.now();
+      for (let i = 1; i <= n; i++) eng.readPixels(src, make(i), OW, OH, 1);
+      return +((performance.now() - t0) / n).toFixed(1);
+    };
+    let fresh = 0;
+    const spotsAt = (i: number, count: number, tool: 'heal' | 'clone' = 'heal') => Array.from({ length: count }, (_, k) => ({ ...newCircleSpot([0.1 + 0.08 * k, 0.5], tool, 0.02, 0.02, [0.1 + 0.08 * k + 0.02, 0.45]), id: `s${k}` })).map((s, k) => k === 0 ? { ...s, shape: { ...s.shape, center: [0.3 + (i ? i + fresh++ : 0) * 0.0005, 0.3] as [number, number] } } : s);
+    const any = eng as unknown as { retouched(s: Source, r: Recipe): Source };
+    const retouchOnly = (count: number) => { const t0 = performance.now(); for (let i = 1; i <= 6; i++) any.retouched(src, { ...base, retouch: spotsAt(i, count) }); return +((performance.now() - t0) / 6).toFixed(1); };
+    out.healTiming = {
+      dragExposureMs: time((i) => ({ ...base, exposure: i * 0.05 })),
+      stillWithSpotMs: time(() => ({ ...base, retouch: spotsAt(0, 1) })),
+      dragHeal1Ms: time((i) => ({ ...base, retouch: spotsAt(i, 1) })),
+      dragClone1Ms: time((i) => ({ ...base, retouch: spotsAt(i, 1, 'clone') })),
+      dragHeal10Ms: time((i) => ({ ...base, retouch: spotsAt(i, 10) })),
+      dragExposureWith10Ms: time((i) => ({ ...base, exposure: i * 0.05, retouch: spotsAt(0, 10) })),
+      ...(() => {
+        // The view's path: a stand-in worker that answers each job a moment later, running the
+        // same reference. Main-thread cost per move, then how long the photo takes to catch up.
+        const veng = new Engine(view);
+        const cache = new RetouchCache();
+        let queued: { id: number; px: Float32Array; region: Roi; W: number; H: number; scale: number; spots: RetouchSpot[]; k: number } | null = null;
+        const fake = { postMessage: (m: typeof queued) => { queued = m; }, onmessage: null as null | ((e: MessageEvent) => void), terminate() {} };
+        let redraws = 0;
+        veng.useRetouchWorker(fake as unknown as Worker, () => { redraws++; });
+        const answer = () => { const m = queued!; queued = null; retouchReduced(m.px, m.region, m.W, m.H, m.scale, m.spots, m.k, cache); fake.onmessage!({ data: { id: m.id, px: m.px } } as MessageEvent); };
+        const r0 = { ...base, retouch: spotsAt(0, 10) };
+        veng.readPixels(src, r0, OW, OH, 1);
+        let main = 0, worker = 0;
+        for (let i = 1; i <= 6; i++) {
+          const r = { ...base, retouch: spotsAt(i, 10) };
+          const t0 = performance.now();
+          veng.readPixels(src, r, OW, OH, 1);
+          main += performance.now() - t0;
+          const t1 = performance.now();
+          if (queued) answer();
+          worker += performance.now() - t1;
+          veng.readPixels(src, r, OW, OH, 1);
+        }
+        // Stand-ins: another photo's result is never shown; the same photo's preview stands in
+        // for its full size until the worker answers, and then the full size is shown.
+        const anyV = veng as unknown as { retouched(s: Source, r: Recipe, k?: number): Source };
+        const r1 = { ...base, retouch: spotsAt(0, 2) };
+        const prevA = { ...src, origin: 'A' };
+        anyV.retouched(prevA, r1); if (queued) answer();
+        const shownA = anyV.retouched(prevA, r1).tex;
+        const fullTex = eng.sourceFromImage(big, PW, PH).tex;
+        const fullA = { ...src, tex: fullTex, origin: 'A' };
+        const other = { ...src, tex: eng.sourceFromImage(big, PW, PH).tex, origin: 'B' };
+        const before = queued;
+        const standIn = anyV.retouched(fullA, r1);
+        const postedForFull = !before && !!queued;
+        if (queued) answer();
+        const afterAnswer = anyV.retouched(fullA, r1);
+        const otherPhoto = anyV.retouched(other, r1);
+        const stand = { standInIsPreview: standIn.tex === shownA, postedForFull, fullShownAfter: afterAnswer.tex !== shownA && afterAnswer.w === fullA.w, otherPhotoNotStoodIn: otherPhoto.tex !== afterAnswer.tex && otherPhoto.tex !== shownA };
+        veng.dispose();
+        return { stand, viewDragHeal10MainMs: +(main / 6).toFixed(1), viewDragHeal10WorkerMs: +(worker / 6).toFixed(1), viewRedraws: redraws };
+      })(),
+      retouchOnly1Ms: retouchOnly(1),
+      retouchOnly10Ms: retouchOnly(10),
+      glError: eng.gpu.gl.getError(),
+    };
+  } else if (new URLSearchParams(location.search).has('lensprobe')) {
     const engine = new Engine(view), g=engine.gpu, gl=g.gl;
     const width=37,height=23,pixels=new Float32Array(width*height*4);
     for(let y=0;y<height;y++)for(let x=0;x<width;x++)pixels.set([0.1+x/width,0.2+y/height,0.05+((x*7+y*3)%17)/20,1],(y*width+x)*4);
@@ -1226,6 +1358,7 @@ try {
   out.texture = probeTexture(eng);
   out.capture = probeCapture(eng);
   out.grain = probeGrain(eng);
+  out.retouch = probeRetouch(eng);
   // Speed: a 2560-wide frame with grain on and off.
   {
     const PW = 2560, PH = 1707;

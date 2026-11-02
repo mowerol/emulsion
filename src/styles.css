@@ -873,6 +873,14 @@ body { font-variant-numeric: tabular-nums; min-width: 1200px; }
 .crop-bar .tool-text { flex: none; height: 28px; }
 .crop-bar .tool-text:disabled { color: var(--dim); cursor: default; background: none; }
 .crop-sep { flex: none; width: 1px; height: 18px; margin: 0 6px; background: var(--line); }
+/* Heal options: the same docked row as crop's. */
+.retouch-bar .tool-seg { flex: none; }
+.retouch-bar .tool-seg button[aria-pressed=true] { background: var(--sel); color: var(--text); }
+.retouch-field { flex: 0 1 auto; display: flex; align-items: center; gap: 6px; margin: 0 6px; font-size: 12px; color: var(--text2); }
+.retouch-field input { width: 110px; min-width: 60px; accent-color: var(--text2); }
+.retouch-field output { width: 40px; text-align: right; font-variant-numeric: tabular-nums; }
+.retouch-count { margin-left: auto; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.retouch-hit { fill: transparent; stroke: transparent; stroke-width: 10; pointer-events: all; cursor: move; }
 .crop-ratio { position: relative; flex: none; }
 .crop-ratio-button { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 84px; height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: var(--ctl); color: var(--text); font: inherit; font-size: 12px; font-variant-numeric: tabular-nums; cursor: pointer; }
 .crop-ratio-button:hover, .crop-ratio-button[aria-expanded=true] { background: var(--hover); }

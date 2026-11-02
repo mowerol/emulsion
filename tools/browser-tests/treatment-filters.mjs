@@ -16,7 +16,9 @@ try {
   const port = server.httpServer.address().port;
   const output = await new Promise((resolve, reject) => {
     const child = spawn(browser, ['--headless=new', '--no-first-run', '--no-default-browser-check',
-      `--user-data-dir=${profile}`, '--dump-dom', '--virtual-time-budget=10000',
+      `--user-data-dir=${profile}`, '--dump-dom', `--virtual-time-budget=${process.env.VIRTUAL_TIME ?? 10000}`,
+      // GPU=1 runs on the real GPU (Metal), for timings; the default is whatever headless picks.
+      ...(process.env.GPU ? ['--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist'] : []),
       `http://127.0.0.1:${port}/tools/browser-tests/${page}.html`]);
     let stdout = '', stderr = '';
     const timeout = setTimeout(() => { child.kill(); reject(new Error('Browser test timed out')); }, 45000);

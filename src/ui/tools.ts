@@ -7,8 +7,9 @@ import type { Recipe } from '../film/recipe';
 import { finishCrop, startCrop, useApp } from '../library/store';
 import { setWorkspace, useWorkspace, type ControlGroupId } from './workspace';
 import { setMaskUi } from './maskui';
+import { commitDraft, setRetouchUi, useRetouchUi } from './retouchui';
 
-export type ToolId = 'select' | 'pan' | 'crop' | 'straighten' | 'mask' | 'pick';
+export type ToolId = 'select' | 'pan' | 'crop' | 'straighten' | 'mask' | 'heal' | 'pick';
 
 interface ToolState {
   /** The pointer mode outside crop: Select (click zooms, drag pans when zoomed) or Pan. */
@@ -26,9 +27,10 @@ interface ToolState {
 export const useTools = create<ToolState>(() => ({ pointer: 'select', straighten: false, spacePan: false, beforeMask: 'develop', preview: null }));
 
 /** The tool the toolbar shows as active. */
-export function activeTool(t: ToolState, cropping: boolean, picking: boolean, masksOpen: boolean): ToolId {
+export function activeTool(t: ToolState, cropping: boolean, picking: boolean, masksOpen: boolean, healing = false): ToolId {
   if (cropping) return t.straighten ? 'straighten' : 'crop';
   if (picking) return 'pick';
+  if (healing) return 'heal';
   if (masksOpen) return 'mask';
   return t.spacePan ? 'pan' : t.pointer;
 }
@@ -38,6 +40,7 @@ export const TOOLS: { id: ToolId; name: string; key: string }[] = [
   { id: 'pan', name: 'Pan', key: 'Space' },
   { id: 'crop', name: 'Crop', key: 'C' },
   { id: 'mask', name: 'Mask', key: 'M' },
+  { id: 'heal', name: 'Heal', key: 'Q' },
   { id: 'pick', name: 'Pick neutral', key: 'W' },
 ];
 
@@ -46,6 +49,7 @@ function putDown(keepCrop: boolean) {
   const s = useApp.getState();
   if (s.cropEdit && !keepCrop) finishCrop(true);
   if (s.picking) useApp.setState({ picking: false });
+  if (useRetouchUi.getState().on) { commitDraft(); setRetouchUi({ on: false, selected: null }); }
   if (useWorkspace.getState().layout === 'workflow' && useWorkspace.getState().group === 'masks') {
     setMaskUi({ tool: null, pick: null });
     setWorkspace({ group: useTools.getState().beforeMask });
@@ -83,6 +87,11 @@ export function chooseTool(id: ToolId) {
       setWorkspace({ group: 'masks' });
       return;
     }
+    case 'heal':
+      if (useRetouchUi.getState().on) { putDown(false); return; }
+      putDown(false);
+      setRetouchUi({ on: true });
+      return;
     case 'pick':
       if (s.picking) { useApp.setState({ picking: false }); return; }
       putDown(false);
@@ -97,6 +106,7 @@ export function toolHint(tool: ToolId, zoomed: boolean): string {
     case 'crop': return 'Drag edges to crop · Drag outside to rotate · X orientation · O overlay · ↵ done';
     case 'straighten': return 'Draw along something level or upright · Esc stops levelling';
     case 'mask': return 'Add a mask in the panel, then drag on the photo · O shows the overlay';
+    case 'heal': return 'Click a spot to heal it · Drag the dashed circle to choose the source · Scroll to size, ⇧ scroll to feather · ⌫ removes';
     case 'pick': return 'Click something neutral to set white balance · Esc to cancel';
     case 'pan': return zoomed ? 'Drag to move around the photo' : 'Zoom in to pan';
     default: return zoomed ? 'Click to fit · Drag or hold Space to pan' : 'Click to zoom to 100%';

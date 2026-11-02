@@ -58,6 +58,7 @@ Each stage is one GLSL file in `src/engine/shaders/stages/`, included into `deve
 | Stage | File | Domain | What it does | Planned replacement |
 | --- | --- | --- | --- | --- |
 | Capture sharpening | `cs.frag.glsl` (own passes) | scene | Capture (RAWs only): RawTherapee's capture sharpening deconvolves the source's luminance before anything else; the result replaces the source for every later pass. **Ported from RawTherapee** | |
+| Retouch | `engine/retouch.ts` (CPU) | scene | Clone and heal spots: darktable's retouch module and heal.c, run on the CPU over the rectangle the spots touch (`Engine.retouched`: a copy of the source, the rectangle read back, retouched, written back), after lens correction and the profile's early pass and before haze removal (darktable runs it after haze removal; agreed deviation). The result replaces the source for every later pass, kept until the spots or the source change. Spots are in source coordinates (`recipe.retouch`, `film/retouch.ts`). **Ported from darktable retouch** | |
 | Input | `input.glsl` | scene | Bring any source into scene-linear Rec.2020 | |
 | Sharpen | `optics.glsl` | scene | Scanner sharpness, a log-domain unsharp mask | |
 | Dehaze | `dehaze.glsl` | scene | darktable's haze removal: (x − A0) / t + A0 with the transmission t from its guided filter (`dehazegf.frag.glsl`) and the ambient light A0 measured per photo; see Haze removal below. **Ported from darktable haze removal** | |

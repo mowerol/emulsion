@@ -28,6 +28,8 @@ describe('canvas tools', () => {
     expect(activeTool(t, true, false, false)).toBe('crop');
     expect(activeTool(t, false, true, true)).toBe('pick');
     expect(activeTool(t, false, false, true)).toBe('mask');
+    expect(activeTool(t, false, false, true, true)).toBe('heal');
+    expect(activeTool(t, false, true, false, true)).toBe('pick');
     expect(activeTool({ ...t, spacePan: true }, false, false, false)).toBe('pan');
     expect(activeTool({ ...t, pointer: 'pan' }, false, false, false)).toBe('pan');
     expect(activeTool(t, false, false, false)).toBe('select');
