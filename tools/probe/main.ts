@@ -57,7 +57,7 @@ import { drawnValue, maskValue, blendNormal, rangeValue, pickStats, pickedRange 
 import { MaskStack } from '../../src/engine/maskstack';
 import { refineMask, type MaskRefine } from '../../src/engine/maskrefine';
 import { newBrush, newEllipse, newGradient, newMask, type Mask } from '../../src/film/masks';
-import { newCircleSpot, type RetouchSpot } from '../../src/film/retouch';
+import { newCircleSpot, newSpot, type RetouchSpot } from '../../src/film/retouch';
 import { RetouchCache, retouch as retouchRef, retouchReduced, retouchRegion, type Roi } from '../../src/engine/retouch';
 import { SQRT_EPS as DEHAZE_SQRT_EPS, ambientLight as dehazeAmbient, guidedFilter as dehazeGuided, recover as dehazeRecover, transitionMap as dehazeTransition, windows as dehazeWindows } from '../../src/engine/dehaze';
 const DEHAZE_EPS = DEHAZE_SQRT_EPS;
@@ -287,6 +287,11 @@ function probeRetouch(eng: Engine) {
   const spots: RetouchSpot[] = [
     newCircleSpot([0.5, 0.5], 'heal', 0.06, 0.03, [0.62, 0.42]),
     newCircleSpot([0.2, 0.3], 'clone', 0.05, 0.02, [0.3, 0.7]),
+    // darktable retouch's other shapes and algorithms.
+    newSpot({ kind: 'ellipse', center: [0.8, 0.3], radius: [0.08, 0.04], rotation: 30, border: 0.03, proportional: false }, { tool: 'heal' }, [0.85, 0.7]),
+    newSpot({ kind: 'brush', nodes: [[0.1, 0.8], [0.2, 0.85], [0.3, 0.8]].map(([x, y]) => ({ x, y, border: 0.04, hardness: 0.66, density: 1 })) }, { tool: 'blur', blurRadius: 6 }),
+    newSpot({ kind: 'circle', center: [0.45, 0.85], radius: 0.05, border: 0.02 }, { tool: 'blur', blurType: 'bilateral', blurRadius: 8 }),
+    newSpot({ kind: 'circle', center: [0.65, 0.85], radius: 0.04, border: 0.02 }, { tool: 'fill', fillMode: 'color', fillColor: [0.3, 0.1, 0.05], fillBrightness: 0.1 }),
   ];
   const base = { ...recipeDefaults('neutral', 'straight'), grain: 0, sharpen: 0, captureSharpening: 0 };
   const any = eng as unknown as { retouched(s: Source, r: Recipe): Source; retouchMade: { out: { fbo: WebGLFramebuffer } } };
@@ -313,11 +318,28 @@ function probeRetouch(eng: Engine) {
     worst = Math.max(worst, Math.abs(gpu[i] - ref[i]) / Math.max(1e-3, Math.abs(ref[i])));
     if (Math.abs(ref[i] - copy[i]) > 1e-4) changed++;
   }
+  // Spots on wavelet scales: the engine passes the photo's scales through to the reference.
+  const scaled: RetouchSpot[] = [{ ...newCircleSpot([0.5, 0.5], 'heal', 0.06, 0.03, [0.62, 0.42]), scale: 3 }, { ...newSpot({ kind: 'circle', center: [0.25, 0.7], radius: 0.05, border: 0.02 }, { tool: 'fill' }), scale: 1 }];
+  const setup = { scales: 3, mergeFrom: 0, show: 0 };
+  const wCopy = readSource({ ...base, retouch: scaled.map((s) => ({ ...s, opacity: 0 })), retouchScales: { scales: 3, mergeFrom: 0 } });
+  const wGpu = readSource({ ...base, retouch: scaled, retouchScales: { scales: 3, mergeFrom: 0 } });
+  const wRegion = retouchRegion(scaled, w, h, 1, w, h, setup)!;
+  const wRef = wCopy.slice();
+  const wSub = new Float32Array(4 * wRegion.w * wRegion.h);
+  for (let y = 0; y < wRegion.h; y++) wSub.set(wCopy.subarray(4 * ((wRegion.y + y) * w + wRegion.x), 4 * ((wRegion.y + y) * w + wRegion.x + wRegion.w)), 4 * y * wRegion.w);
+  retouchRef(wSub, wRegion, w, h, 1, scaled, undefined, undefined, undefined, setup);
+  for (let y = 0; y < wRegion.h; y++) wRef.set(wSub.subarray(4 * y * wRegion.w, 4 * (y + 1) * wRegion.w), 4 * ((wRegion.y + y) * w + wRegion.x));
+  let wWorst = 0, wChanged = 0;
+  for (let i = 0; i < wRef.length; i++) {
+    if (i % 4 === 3) continue;
+    wWorst = Math.max(wWorst, Math.abs(wGpu[i] - wRef[i]) / Math.max(1e-3, Math.abs(wRef[i])));
+    if (Math.abs(wRef[i] - wCopy[i]) > 1e-3) wChanged++;
+  }
   const at = (px: Uint8Array, xx: number, yy: number) => Array.from(px.slice((yy * w + xx) * 4, (yy * w + xx) * 4 + 3));
   const plain = eng.readPixels(src, base, w, h, 1);
   const healed = eng.readPixels(src, { ...base, retouch: spots }, w, h, 1);
   const before = eng.readPixels(src, { ...base, retouch: spots }, w, h, 1, true);
-  return { region, changedValues: changed, worstRelative: worst, blemish: at(plain, 120, 80), healed: at(healed, 120, 80), beside: at(plain, 132, 80), compareKeepsBlemish: at(before, 120, 80), untouched: [at(plain, 230, 150), at(healed, 230, 150)], glError: gl.getError() };
+  return { region, changedValues: changed, worstRelative: worst, blemish: at(plain, 120, 80), healed: at(healed, 120, 80), beside: at(plain, 132, 80), compareKeepsBlemish: at(before, 120, 80), untouched: [at(plain, 230, 150), at(healed, 230, 150)], wavelets: { region: wRegion, changedValues: wChanged, worstRelative: wWorst }, glError: gl.getError() };
 }
 
 function probeColorBalance(eng: Engine) {
@@ -714,7 +736,7 @@ try {
         const fake = { postMessage: (m: typeof queued) => { queued = m; }, onmessage: null as null | ((e: MessageEvent) => void), terminate() {} };
         let redraws = 0;
         veng.useRetouchWorker(fake as unknown as Worker, () => { redraws++; });
-        const answer = () => { const m = queued!; queued = null; retouchReduced(m.px, m.region, m.W, m.H, m.scale, m.spots, m.k, cache); fake.onmessage!({ data: { id: m.id, px: m.px } } as MessageEvent); };
+        const answer = () => { const m = queued!; queued = null; retouchReduced(m.px, m.region, m.W, m.H, m.scale, m.spots, m.k, cache, m.setup); fake.onmessage!({ data: { id: m.id, px: m.px } } as MessageEvent); };
         const r0 = { ...base, retouch: spotsAt(0, 10) };
         veng.readPixels(src, r0, OW, OH, 1);
         let main = 0, worker = 0;

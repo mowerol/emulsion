@@ -15,7 +15,7 @@ export const PRESET_GROUPS = {
   'Film options': ['scanner', 'scannerFromLook'],
 } as const satisfies Record<string, readonly (keyof Recipe)[]>;
 export type PresetGroup = keyof typeof PRESET_GROUPS;
-export const PRESET_EXCLUDED = ['v', 'profile', 'crop', 'lens', 'transform', 'masks', 'retouch'] as const;
+export const PRESET_EXCLUDED = ['v', 'profile', 'crop', 'lens', 'transform', 'masks', 'retouch', 'retouchScales'] as const;
 export const DEFAULT_PRESET_GROUPS = (Object.keys(PRESET_GROUPS) as PresetGroup[]).filter(g => g !== 'Exposure' && g !== 'White balance');
 /** `collection` files a preset under a heading of the person's own; absent, it is under My presets. */
 export interface Preset { version: 1; id: string; name: string; groups: PresetGroup[]; recipe: Recipe; collection?: string }

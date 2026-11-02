@@ -7,7 +7,7 @@ import { useWorkspace } from './workspace';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { activeTool, chooseTool, toolHint, useTools } from './tools';
 import { RetouchOverlay } from './RetouchOverlay';
-import { removeSpot, scrollSpotSize, useRetouchUi } from './retouchui';
+import { removeSpot, scrollSpot, useRetouchUi } from './retouchui';
 import { cycleCropOverlay } from './prefs';
 import { useProfileVersion } from '../engine/profilestore';
 import { useLutVersion } from '../engine/lutstore';
@@ -111,6 +111,8 @@ export function Develop() {
   const maskShow = masksOpen && maskOverlay && maskIndex >= 0 ? maskIndex : null;
   const tools = useTools();
   const healing = useRetouchUi((s) => s.on) && workflow;
+  /** The wavelet scale shown in place of the photo while healing (darktable's display wavelet scale). */
+  const showScale = useRetouchUi((s) => (s.showScale ? s.settings.scale : 0));
   const tool = workflow ? activeTool(tools, cropping, picking, masksOpen, healing) : 'select';
   useEffect(() => { if (!masksOpen) setMaskUi({ tool: null, pick: null }); }, [masksOpen]);
 
@@ -351,6 +353,7 @@ export function Develop() {
         return;
       }
       try {
+        engine.retouchShow = healing ? showScale : 0;
         engine.render(l.source, recipe, { target: 'screen', width: canvas.width, height: canvas.height, seed, compare, view: current.view, clipping, split, frame, outside: rgb(stage.hex), sharpenMask, maskShow: compare ? null : maskShow });
       } catch (err) {
         setError(`Rendering failed. ${String(err)}`);
@@ -359,7 +362,7 @@ export function Develop() {
     id = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(id);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recipe, seed, compare, loadedVersion, viewKey, path, clipping, split, JSON.stringify(frame), stage, sharpenMask, lutVersion, profileVersion, maskShow, retouchVersion]);
+  }, [recipe, seed, compare, loadedVersion, viewKey, path, clipping, split, JSON.stringify(frame), stage, sharpenMask, lutVersion, profileVersion, maskShow, retouchVersion, healing, showScale]);
 
   // Count the histogram from a small render of the whole frame, once changes settle.
   useEffect(() => {
@@ -423,9 +426,10 @@ export function Develop() {
         const [fx, fy] = fraction(e);
         zoomTo(current.scale * Math.exp(-e.deltaY * 0.01), fx, fy);
       } else if (healing && !compare) {
-        // The Heal tool: scrolling sizes the spot (Shift: its feather), as in darktable.
+        // The Heal tool: scrolling sizes the spot (⇧: its feather or hardness; ⌥: turns an
+        // ellipse), as in darktable, where Ctrl+⇧ turns (Ctrl and ⌘ zoom here).
         const d = e.deltaY || e.deltaX;
-        if (d) scrollSpotSize(d < 0, e.shiftKey, photo?.recipe?.retouch ?? []);
+        if (d) scrollSpot(d < 0, e.altKey ? 'rotation' : e.shiftKey ? 'feather' : 'size', photo?.recipe?.retouch ?? []);
       } else if (zoom.scale !== null) {
         setZoom(pan(zoom, current, -e.deltaX, -e.deltaY, dpr(), frameW, frameH));
       }

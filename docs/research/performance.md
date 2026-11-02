@@ -2,6 +2,8 @@
 
 Research brief written 2026-11-02, after Oli reported that moving the HSL sliders can make the app feel sluggish.
 
+**Implementation update (2026-11-02):** H1's exact scene-cache split is implemented and checked on the GPU. See [the new measurements](#scene-cache-implementation-and-measurements-2026-11-02). The original readback timings below remain historical; real-photo input-to-display latency and full-resolution interaction are still unmeasured.
+
 **Read this with suspicion.** It is static code reading plus one headless probe run, not a profile of the running app. No per-stage GPU timings were taken, nothing was measured on Oli's display or with his photos, and the working tree contained uncommitted retouch work while it was written. Treat the hypotheses as leads to verify, not as findings. The checklist at the end lists what to confirm before changing code.
 
 ## The report
@@ -142,7 +144,7 @@ This is likely a smaller cost than H1/H2 (the map is quarter resolution and shri
 
 ### H5. Per-event CPU work (low to medium confidence)
 
-Each move rebuilds `colorEqLuts` (three periodic RBF tables over 512 hues) and four `gaussian1d` kernels. It also re-renders the whole panel, runs `describe`/history diffing and schedules a sidecar write. None of this is obviously expensive, but at 60 input events/s it adds up. Instrument before optimising; if it matters, memoise the LUTs and kernels on the colour parameters and the source ratio.
+An HSL change rebuilds `colorEqLuts` (three periodic RBF tables over 512 hues) and four `gaussian1d` kernels. The LUTs are already memoised by colour parameters (`ceLuts`), so unchanged renders reuse them. Each move also re-renders the whole panel, runs `describe`/history diffing and schedules a sidecar write. None of this is obviously expensive, but at 60 input events/s it adds up. Instrument before optimising the CPU work further.
 
 The sidecar write is debounced by 400 ms, so it should not be on the drag path.
 
@@ -202,8 +204,8 @@ Do not start with a fix. First reproduce and instrument:
 ## Verification checklist for the next model
 
 - [ ] Reproduce the HSL lag on a named photo and record actual input-to-photo latency, not probe readback.
-- [ ] Confirm in `ce.frag.glsl` that modes 0 and 2 do not read the hue/sat/bright LUTs or any slider-dependent uniform. Confirm mode 2's only shift is `uCeShift.x` (`SAT_SHIFT`, constant).
-- [ ] Confirm `t3` is not overwritten by modes 4/6, and that `ceTargets` invalidation is handled.
+- [x] Confirm in `ce.frag.glsl` that modes 0 and 2 do not read the hue/sat/bright LUTs or any slider-dependent uniform. Confirm mode 2's only shift is `uCeShift.x` (`SAT_SHIFT`, constant).
+- [x] Confirm `t3` is not overwritten by modes 4/6, and that `ceTargets` invalidation is handled.
 - [ ] Confirm the `llKey`/`usmKey` cascade and whether Sharpening actually runs at the relevant preview ratio (kernel length, `uUsmOn`).
 - [ ] Confirm whether default Sharpening (20) makes JPEG previews slower than RAW previews.
 - [ ] Confirm the tone equalizer map is still uncached and measure its cost with Highlights/Shadows on.
@@ -213,3 +215,31 @@ Do not start with a fix. First reproduce and instrument:
 ## Caveat
 
 Written by an AI (DeepSeek V4.1 Flash) from static reading of a dirty working tree and one headless probe run. No real UI profiling, no per-pass GPU timings, no verification on Oli's hardware. The hypotheses are plausible but unproven. Check every claim before acting on it, and measure before changing the pipeline.
+
+## Scene-cache implementation and measurements (2026-11-02)
+
+Implemented in `Engine.colorEqMap`: the analysis tap and modes 0/2 now run only when the scene changes. Their result stays in the existing `t3`; HSL changes run modes 3/4/6. No extra image targets or changes to darktable's maths. The scene key includes the upstream Texture key and the source/full-resolution width ratio, with source texture identity checked separately. Target reallocation, lens/retouch invalidation and standalone colour probes invalidate the scene analysis. The final colour map's key includes the scale too.
+
+The new GPU regression failed before the change with `hue drag: expected 3 CE passes, got 6`. After the change, **22 checks pass**, comparing both the RGBA32F scene-linear colour map and the final RGBA8 frame with forced recomputation: all pixels exactly equal. Cases include hue/saturation/brightness, several colours at once, exposure/white balance/Texture/Highlights, masked upstream edits, downstream detail, source/size/scale changes, disabling/re-enabling Colour, and a standalone probe overwriting the working targets. First renders still use six passes; HSL changes use three; unchanged colour maps use zero.
+
+Run the regression and the timing harness separately:
+
+```sh
+node tools/browser-tests/realtime.mjs color-performance 120
+node tools/browser-tests/realtime.mjs color-performance 120 timing
+```
+
+Timing setup: headless Chrome on this Mac's Metal GPU, real wall-clock time, fixed synthetic 2560 × 1707 scene-linear half-float input, Neutral/Straight, grain off, 1200 × 800 screen draw. Eight changed frames per case after three warmups; read one RGBA8 pixel from the screen immediately after each draw to wait for GPU completion, then yield to rAF. This measures CPU submission plus GPU completion, **not** real pointer-to-photo or compositor presentation latency. No full-frame readback is included in these timings. The RAW case uses full width 6000; the JPEG case uses 4000 to exercise default Sharpening's wider kernel. These simulate preview scale ratios, not actual RAW/JPEG decoding. Default detail is Sharpening 20; added detail is Texture 30 and Clarity 30. Capture is not attached to the synthetic source.
+
+Ranges below are the three per-control medians (red hue, saturation and brightness), before/after the cache split:
+
+| Preview scale | Detail | Before (ms) | After (ms) |
+| --- | --- | ---: | ---: |
+| RAW (2560 / 6000) | Default | 42.1–43.5 | 28.9–29.7 |
+| RAW (2560 / 6000) | + Texture / Clarity | 111.7–113.8 | 97.3–99.6 |
+| JPEG (2560 / 4000) | Default | 104.8–105.2 | 91.5–91.8 |
+| JPEG (2560 / 4000) | + Texture / Clarity | 183.4–186.8 | 169.1–172.0 |
+
+The saving is approximately 13–15 ms per frame. The default RAW case meets the proposed 33 ms render budget in this harness; JPEG and added detail remain slower. Do not claim the actual UI meets that latency target from these measurements. The tone equalizer cache and resolution-aware rendering remain future work. Correction to the original brief: the photo's Shadows slider currently runs in colour balance after Colour (`colorBalanceParams` in `params.ts`), so it is a downstream edit; Highlights drives the photo's tone equalizer.
+
+Validation: `npm run check` passed (459 frontend tests, typecheck, build, 57 Rust tests passed / 6 ignored). The full GPU probe's `colorEq` worst absolute error is 1.413e-6; every `mapCache` case has zero pixel difference. Native-window drags on real RAWs/JPEGs, real saturated edges at 100%, and full-resolution interaction timings still need checking. Existing unrelated retouch work was present during these checks and was left in place.

@@ -873,14 +873,34 @@ body { font-variant-numeric: tabular-nums; min-width: 1200px; }
 .crop-bar .tool-text:disabled { color: var(--dim); cursor: default; background: none; }
 .crop-sep { flex: none; width: 1px; height: 18px; margin: 0 6px; background: var(--line); }
 /* Heal options: the same docked row as crop's. */
-.retouch-bar .tool-seg { flex: none; }
+.retouch-bar { overflow: visible; height: auto; min-height: 40px; flex-wrap: wrap; row-gap: 4px; padding-top: 5px; padding-bottom: 5px; }
+.retouch-bar .tool-seg { flex: none; margin-right: 4px; }
 .retouch-bar .tool-seg button[aria-pressed=true] { background: var(--sel); color: var(--text); }
 .retouch-field { flex: 0 1 auto; display: flex; align-items: center; gap: 6px; margin: 0 6px; font-size: 12px; color: var(--text2); }
-.retouch-field input { width: 110px; min-width: 60px; accent-color: var(--text2); }
+.retouch-field input { width: 96px; min-width: 60px; accent-color: var(--text2); }
 .retouch-field output { width: 40px; text-align: right; font-variant-numeric: tabular-nums; }
 .retouch-count { margin-left: auto; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .retouch-hit { fill: transparent; stroke: transparent; stroke-width: 10; pointer-events: all; cursor: move; }
 .retouch-cursor { pointer-events: none; }
+.retouch-hit.line { fill: none; stroke-linecap: round; stroke-linejoin: round; pointer-events: stroke; }
+.retouch-band { fill: none; stroke: #fff; opacity: .16; stroke-linecap: round; stroke-linejoin: round; }
+.dashed-shape .mask-line { stroke-dasharray: 5 5; }
+.retouch-link { opacity: .5; }
+.retouch-cross { fill: none; stroke: #ddd; stroke-width: 1.5; filter: drop-shadow(0 0 1.5px #000c); pointer-events: none; }
+.retouch-bar .tool-seg.icons button { display: grid; place-items: center; padding: 0 6px; }
+.retouch-scales { position: relative; flex: none; }
+.retouch-scales > .tool-text { display: inline-flex; align-items: center; gap: 6px; }
+.retouch-scales-pop { position: absolute; top: calc(100% + 8px); left: 0; z-index: 40; width: 300px; padding: 12px; display: flex; flex-direction: column; gap: 10px; white-space: normal; background: var(--pop); border: 1px solid var(--border); border-radius: 10px; box-shadow: var(--shadow); }
+.retouch-scales-pop p { margin: 0; font-size: 12px; line-height: 1.4; color: var(--text2); }
+.retouch-scales-pop .retouch-field { margin: 0; }
+.retouch-scales-pop .retouch-field input { flex: 1; width: auto; }
+.retouch-scales-pop select { flex: 1; }
+.retouch-scale-list { display: flex; flex-wrap: wrap; gap: 3px; }
+.retouch-scale-list button { position: relative; min-width: 28px; height: 26px; padding: 0 7px; border: 0; border-radius: 5px; background: var(--ctl); color: var(--text2); font: inherit; font-size: 12px; cursor: pointer; }
+.retouch-scale-list button[aria-pressed=true] { background: var(--sel); color: var(--text); }
+.retouch-scale-dot { position: absolute; top: 3px; right: 3px; width: 4px; height: 4px; border-radius: 50%; background: var(--accent, #e8a33d); }
+.retouch-check { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--text2); }
+.retouch-swatch { width: 26px; height: 22px; padding: 0; border: 1px solid var(--line, #555); border-radius: 4px; background: none; cursor: pointer; flex: none; }
 .crop-ratio { position: relative; flex: none; }
 .crop-ratio-button { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 84px; height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: var(--ctl); color: var(--text); font: inherit; font-size: 12px; font-variant-numeric: tabular-nums; cursor: pointer; }
 .crop-ratio-button:hover, .crop-ratio-button[aria-expanded=true] { background: var(--hover); }

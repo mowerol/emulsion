@@ -54,7 +54,7 @@ The native groundwork exists already from the denoise experiment: `ort` rc.11 wi
 
 ## Status (2026-11-02)
 
-Step 1 started. Oli chose darktable retouch first, Heal on the CPU as darktable does it (no fixed iteration count), and retouch before Dehaze. Clone and Heal with circle spots are in; see HANDOFF.md for what is left.
+Step 1 is nearly done. Oli chose darktable retouch first, Heal on the CPU as darktable does it (no fixed iteration count), and retouch before Dehaze. Heal, Clone, Fill and Blur (Gaussian and bilateral) are in, with circle, ellipse and brush spots, darktable's source placement, and wavelet scales with merging and a shown scale. Path shapes are not built; see HANDOFF.md.
 
 ## Proposal (roadmap)
 

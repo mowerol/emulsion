@@ -15,7 +15,7 @@ import { normalizeCurve, type ToneCurve } from './curve';
 import { clampWhiteBalance, type WhiteBalance } from '../engine/whitebalance';
 import { normalizeCrop, type Crop } from './crop';
 import { normalizeMasks, type Mask } from './masks';
-import { normalizeRetouch, type RetouchSpot } from './retouch';
+import { normalizeRetouch, normalizeRetouchScales, type RetouchScales, type RetouchSpot } from './retouch';
 import { ISO_MAX, ISO_MIN } from '../engine/grain';
 import { DEFAULT_PACK, PACK, isPackId, resolveUserLook, type PackId } from './looks';
 
@@ -93,6 +93,8 @@ export interface Recipe {
   masks: Mask[];
   /** Clone and heal spots (film/retouch.ts, darktable's retouch), applied in order; empty when there are none. */
   retouch: RetouchSpot[];
+  /** darktable retouch's wavelet decomposition for the spots: the detail scales and where they merge. */
+  retouchScales: RetouchScales;
 }
 
 /**
@@ -138,7 +140,7 @@ function normalizeColor(input: unknown): ColorAdjust | null {
   return tidyColor({ hue: list(o.hue, -HUE_MAX, HUE_MAX), sat: list(o.sat, -100, 100), bright: list(o.bright, -100, 100) });
 }
 
-export type SliderKey = Exclude<keyof Recipe, 'noiseReduction' | 'v' | 'profile' | 'lookEnabled' | 'stock' | 'pack' | 'lookBlend' | 'push' | 'scanner' | 'scannerFromLook' | 'curve' | 'wb' | 'crop' | 'color' | 'grading' | 'lens' | 'transform' | 'masks' | 'retouch' | 'lookSnapshot'>;
+export type SliderKey = Exclude<keyof Recipe, 'noiseReduction' | 'v' | 'profile' | 'lookEnabled' | 'stock' | 'pack' | 'lookBlend' | 'push' | 'scanner' | 'scannerFromLook' | 'curve' | 'wb' | 'crop' | 'color' | 'grading' | 'lens' | 'transform' | 'masks' | 'retouch' | 'retouchScales' | 'lookSnapshot'>;
 
 export interface SliderDef {
   key: SliderKey;
@@ -252,6 +254,7 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
     transform: null,
     masks: [],
     retouch: [],
+    retouchScales: { scales: 0, mergeFrom: 0 },
   };
 }
 
@@ -265,14 +268,14 @@ export function withStock(recipe: Recipe | null, stock: StockId): Recipe {
 
 /** Reset the sliders, keeping stock, development, scanner, crop, masks and retouching. */
 export function resetAdjustments(recipe: Recipe): Recipe {
-  return { ...defaultRecipe(recipe.stock, recipe.scanner), profile: recipe.profile, lookEnabled: recipe.lookEnabled, pack: recipe.pack, lookAmount: recipe.lookAmount, lookBlend: recipe.lookBlend, push: recipe.push, scannerFromLook: recipe.scannerFromLook, lookSnapshot: recipe.lookSnapshot, crop: recipe.crop, transform: recipe.transform, masks: recipe.masks, retouch: recipe.retouch };
+  return { ...defaultRecipe(recipe.stock, recipe.scanner), profile: recipe.profile, lookEnabled: recipe.lookEnabled, pack: recipe.pack, lookAmount: recipe.lookAmount, lookBlend: recipe.lookBlend, push: recipe.push, scannerFromLook: recipe.scannerFromLook, lookSnapshot: recipe.lookSnapshot, crop: recipe.crop, transform: recipe.transform, masks: recipe.masks, retouch: recipe.retouch, retouchScales: recipe.retouchScales };
 }
 
 /**
  * Another frame's settings applied to this one. The crop, masks and retouching stay this frame's own:
  * they belong to the composition, and frames differ in shape and content.
  */
-export const withSettingsFrom = (from: Recipe, target: Recipe | null): Recipe => ({ ...from, profile: target?.profile ?? 'auto', crop: target?.crop ?? null, transform: target?.transform ?? null, masks: target?.masks ?? [], retouch: target?.retouch ?? [] });
+export const withSettingsFrom = (from: Recipe, target: Recipe | null): Recipe => ({ ...from, profile: target?.profile ?? 'auto', crop: target?.crop ?? null, transform: target?.transform ?? null, masks: target?.masks ?? [], retouch: target?.retouch ?? [], retouchScales: target?.retouchScales ?? { scales: 0, mergeFrom: 0 } });
 
 /** Panel sections that can be reset on their own. */
 export type SectionId = 'masks' | 'development' | 'scanner' | 'crop' | 'transform' | 'adjust' | 'curve' | 'color' | 'grading' | 'lens' | 'whitebalance' | 'colour-basics' | 'tone' | 'exposure' | 'hdr' | 'refine-optics' | 'detail' | 'optics' | 'grain';
@@ -339,7 +342,7 @@ export function normalizeRecipe(input: unknown): Recipe | null {
   const base = defaultRecipe(stock, scanner);
   const push = typeof o.push === 'number' && [-1, 0, 1, 2].includes(o.push) ? (o.push as Push) : 0;
   const lookEnabled = supplied && (typeof o.lookEnabled === 'boolean' ? o.lookEnabled : true);
-  const out: Recipe = { ...base, noiseReduction: normalizeNoiseReduction(o.noiseReduction), profile: normalizeProfile(o.profile), lookEnabled, pack, push, lookBlend: o.lookBlend === 'color' ? 'color' : 'normal', curve: normalizeCurve(o.curve), wb: normalizeWhiteBalance(o.wb), crop: normalizeCrop(o.crop), color: normalizeColor(o.color), grading: normalizeGrading(o.grading), lens: normalizeLens(o.lens), transform: normalizePerspective(o.transform), masks: normalizeMasks(o.masks), retouch: normalizeRetouch(o.retouch) };
+  const out: Recipe = { ...base, noiseReduction: normalizeNoiseReduction(o.noiseReduction), profile: normalizeProfile(o.profile), lookEnabled, pack, push, lookBlend: o.lookBlend === 'color' ? 'color' : 'normal', curve: normalizeCurve(o.curve), wb: normalizeWhiteBalance(o.wb), crop: normalizeCrop(o.crop), color: normalizeColor(o.color), grading: normalizeGrading(o.grading), lens: normalizeLens(o.lens), transform: normalizePerspective(o.transform), masks: normalizeMasks(o.masks), retouch: normalizeRetouch(o.retouch), retouchScales: normalizeRetouchScales(o.retouchScales) };
   // Capture sharpening was saved as `sharpening` before the unsharp mask came. Edits saved before
   // either existed had them off, and keep them off rather than taking today's defaults.
   const read = (key: string) =>

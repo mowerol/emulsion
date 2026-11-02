@@ -90,7 +90,8 @@ export function chooseTool(id: ToolId) {
     case 'heal':
       if (useRetouchUi.getState().on) { putDown(false); return; }
       putDown(false);
-      setRetouchUi({ on: true });
+      // darktable's dt_masks_init_form_gui: each pick-up starts with the shapes' own source offset.
+      setRetouchUi({ on: true, source: { kind: 'default' } });
       return;
     case 'pick':
       if (s.picking) { useApp.setState({ picking: false }); return; }
@@ -106,7 +107,7 @@ export function toolHint(tool: ToolId, zoomed: boolean): string {
     case 'crop': return 'Drag edges to crop · Drag outside to rotate · X orientation · O overlay · ↵ done';
     case 'straighten': return 'Draw along something level or upright · Esc stops levelling';
     case 'mask': return 'Add a mask in the panel, then drag on the photo · O shows the overlay';
-    case 'heal': return 'Click a spot to heal it · Drag the dashed circle to choose the source · Scroll to size, ⇧ scroll to feather · ⌫ removes';
+    case 'heal': return 'Click to add a spot, or paint with the brush · Drag the dashed shape to choose the source · ⇧ click sets the next source, ⌘⇧ click fixes it · Scroll to size, ⇧ feather, ⌥ turn · ⌫ removes';
     case 'pick': return 'Click something neutral to set white balance · Esc to cancel';
     case 'pan': return zoomed ? 'Drag to move around the photo' : 'Zoom in to pan';
     default: return zoomed ? 'Click to fit · Drag or hold Space to pan' : 'Click to zoom to 100%';

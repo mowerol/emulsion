@@ -1,6 +1,6 @@
 import noiseShader from './shaders/noise.frag.glsl?raw';
 import { noiseEnabled } from '../film/noisereduction';
-import { RetouchCache, reducedRegion, retouchReduced, type Roi } from './retouch';
+import { RetouchCache, reducedRegion, retouchReduced, type RetouchSetup, type Roi } from './retouch';
 import { BrushGpu, brushShapes, brushSize } from './brushgpu';
 import { MASK_UNIT, MaskStack, refinedLayer } from './maskstack';
 import { MaskRefineGpu, refineSize, type RefineJob } from './maskrefinegpu';
@@ -232,6 +232,8 @@ export class Engine {
   private ceP: Program;
   /** The colour equalizer's five 32-bit targets for the latest source size, and what its map was made from. */
   private ce: { w: number; h: number; t: Target[]; pair: Target } | null = null;
+  /** Mode 2's scene-only analysis stays in ce.t[3] across colour slider changes. */
+  private ceScene: { tex: WebGLTexture; key: string } | null = null;
   private ceMade: { tex: WebGLTexture; key: string; out: Target } | null = null;
   private ceLuts: { key: string; luts: ColorEqLuts } | null = null;
   private outs: Lru<Target>;
@@ -823,6 +825,7 @@ export class Engine {
       const t = Array.from({ length: 5 }, () => this.gpu.target(w, h, true, true));
       // Steps 0 and 4 write targets 1 and 2 together.
       this.ce = { w, h, t, pair: this.gpu.pair(t[1], t[2]) };
+      this.ceScene = null;
       this.ceMade = null;
     }
     return this.ce.t;
@@ -832,9 +835,12 @@ export class Engine {
    * darktable's color equalizer over the whole photo: returns the target
    * holding the finished scene colour of every source pixel. `drawInput`
    * renders ceAnalyse() of the scene into a target. `roi` is the source's
-   * width over the full-resolution width.
+   * width over the full-resolution width. With `scene`, reuse mode 2's input
+   * analysis until its source, upstream stages or scale change. Modes 3/4/6
+   * never overwrite t3: this saves three draws without changing the port's maths
+   * or allocating any additional textures. Without a key (the probe), rebuild it.
    */
-  private colorEqMap(w: number, h: number, roi: number, color: ColorAdjust, u: Uniforms, drawInput: (t: Target) => void): Target {
+  private colorEqMap(w: number, h: number, roi: number, color: ColorAdjust, u: Uniforms, drawInput: (t: Target) => void, scene?: { tex: WebGLTexture; key: string }): Target {
     const g = this.gpu;
     const [t0, t1, t2, t3, t4] = this.ceTargets(w, h);
     const key = JSON.stringify(color);
@@ -856,7 +862,6 @@ export class Engine {
       uCeHue: Array.from(luts.hue), uCeSat: Array.from(luts.sat), uCeBright: Array.from(luts.bright),
       uCeShift: [SAT_SHIFT, brightShift, 4 * Math.sqrt(luts.maxBrightness) * roi * roi, WHITE],
     };
-    drawInput(t0);
     const step = (mode: number, to: Target, ...from: Target[]) => {
       // Every input unit is rebound: a target still bound from an earlier step would make a feedback loop.
       for (let i = 0; i < 4; i++) g.bind(i, from[i]?.tex ?? g.blackTexture);
@@ -864,8 +869,12 @@ export class Engine {
       g.draw(this.ceP, to, to.w, to.h);
     };
     const both = this.ce!.pair;
-    step(0, both, t0);
-    step(2, t3, t0, t1, t2);
+    if (!scene || this.ceScene?.tex !== scene.tex || this.ceScene.key !== scene.key) {
+      drawInput(t0);
+      step(0, both, t0);
+      step(2, t3, t0, t1, t2);
+      this.ceScene = scene ?? null;
+    }
     step(3, t4, t3);
     step(4, both, t3, t4);
     step(6, t0, t3, t4, t1, t2);
@@ -1126,7 +1135,7 @@ export class Engine {
     this.gpu.params(true);
     this.lensMade = { input: src.tex, key, out };
     // The target's content changed; downstream maps must not reuse its old pixels.
-    this.eqMade = null; this.llMade = null; this.usmMade = null; this.ceMade = null;
+    this.eqMade = null; this.llMade = null; this.usmMade = null; this.ceMade = null; this.ceScene = null;
     return { ...src, tex: out.tex };
   }
 
@@ -1135,6 +1144,12 @@ export class Engine {
    * shows the last finished result and `onDone` asks for a redraw when the next one arrives.
    * Without it (export, thumbnails, the probe) retouch runs in place, so no stale frame is drawn.
    */
+  /**
+   * The wavelet scale shown in place of the photo while retouching (darktable's "display wavelet
+   * scale"), 0 for the photo. Only the interactive view sets it.
+   */
+  retouchShow = 0;
+
   useRetouchWorker(worker: Worker, onDone: () => void) {
     this.retouchAsync = { worker, onDone, job: null };
     worker.onmessage = (e: MessageEvent<{ id: number; px: Float32Array }>) => {
@@ -1193,7 +1208,7 @@ export class Engine {
     gl.generateMipmap(gl.TEXTURE_2D);
     g.params(true);
     this.retouchMade = { input: src.tex, spots, k, out, src };
-    this.eqMade = null; this.llMade = null; this.usmMade = null; this.ceMade = null;
+    this.eqMade = null; this.llMade = null; this.usmMade = null; this.ceMade = null; this.ceScene = null;
     return out;
   }
 
@@ -1205,11 +1220,13 @@ export class Engine {
    */
   private retouched(src: Source, recipe: Recipe | null, k = 1): Source {
     const spots = recipe?.retouch ?? [];
-    if (!spots.length || !this.gpu.hdr) return src;
+    const scales = recipe?.retouchScales ?? { scales: 0, mergeFrom: 0 };
+    const setup: RetouchSetup = { ...scales, show: scales.scales > 0 ? this.retouchShow : 0 };
+    if ((!spots.length && !setup.show) || !this.gpu.hdr) return src;
     const scale = src.w / src.fullW;
-    const region = reducedRegion(spots, src.fullW, src.fullH, scale, src.w, src.h, k);
+    const region = reducedRegion(spots, src.fullW, src.fullH, scale, src.w, src.h, k, setup);
     if (!region) return src;
-    const key = JSON.stringify(spots);
+    const key = JSON.stringify([spots, setup]);
     const made = this.retouchMade?.input === src.tex ? this.retouchMade : null;
     // A result made at a finer scale serves a coarser view (the histogram reuses the view's).
     if (made?.spots === key && made.k <= k) return { ...src, tex: made.out.tex };
@@ -1223,12 +1240,12 @@ export class Engine {
         const id = ++this.retouchJobs;
         a.job = { id, src, spots: key, k, region, released: false };
         const px = this.retouchRead(src, region);
-        a.worker.postMessage({ id, px, region, W: src.fullW, H: src.fullH, scale, spots, k }, [px.buffer]);
+        a.worker.postMessage({ id, px, region, W: src.fullW, H: src.fullH, scale, spots, k, setup }, [px.buffer]);
       }
       return { ...stand.src, tex: stand.out.tex };
     }
     const px = this.retouchRead(src, region);
-    retouchReduced(px, region, src.fullW, src.fullH, scale, spots, k, this.retouchCache);
+    retouchReduced(px, region, src.fullW, src.fullH, scale, spots, k, this.retouchCache, setup);
     return { ...src, tex: this.retouchStore(src, key, k, region, px).tex };
   }
 
@@ -1512,7 +1529,9 @@ export class Engine {
     // Each map depends on the photo and everything before it, not on the view or crop.
     // Each map is kept until something upstream of it changes (BEFORE_TEXTURE and on).
     const textureKey = `${src.w}x${src.h}|${pick(u, BEFORE_TEXTURE)}|${pick(u, TEXTURE_STAGE)}|${JSON.stringify(maskTexture)}`;
-    const ceKey = `${textureKey}|${pick(u, COLOR_STAGE)}|${JSON.stringify(recipe?.color ?? null)}`;
+    // The prefilter's Gaussian kernels depend on the source/full-resolution ratio.
+    const ceSceneKey = `${textureKey}|${src.w / src.fullW}`;
+    const ceKey = `${ceSceneKey}|${pick(u, COLOR_STAGE)}|${JSON.stringify(recipe?.color ?? null)}`;
     // The vignette reads the frame's aspect.
     const aspect = ((u.uOut as number[])[0] / (u.uOut as number[])[1]).toFixed(6);
     const llKey = `${ceKey}|${pick(u, BEFORE_CLARITY)}|${aspect}|${pick(u, CLARITY_STAGE)}|${JSON.stringify(maskClarity)}`;
@@ -1543,7 +1562,7 @@ export class Engine {
       const out = this.colorEqMap(src.w, src.h, src.w / src.fullW, recipe!.color!, u, (t) => {
         bindDevelop(g.blackTexture);
         tap(t, 4, { uTextureOn: eqOn ? 1 : 0, uClarityOn: 0, uCeOn: 0 });
-      });
+      }, { tex: src.tex, key: ceSceneKey });
       this.ceMade = { tex: src.tex, key: ceKey, out };
       ceTex = out.tex;
     }

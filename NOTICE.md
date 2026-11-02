@@ -54,14 +54,13 @@ Template:
 - Ported to: `src/engine/toneequalizer.ts` (reference and band solving), `src/engine/shaders/stages/toneequalizer.glsl` and `src/engine/shaders/toneeqmask.frag.glsl`
 - Changes: translated from C to TypeScript and GLSL. Only the euclidean RGB norm and the exposure-independent guided filter without quantization or contrast boost, with one iteration. The filter's local averages are computed on the GPU on a small fixed-size map with Emulsion's blur, and negative variance from rounding is clamped. The Highlights slider drives the upper bands in the shape of darktable's "compress shadows/highlights" presets (3:5:5:3 over -3 to 0 EV), with their exposure boost of -1.57 EV
 
-### Retouch (clone and heal), from darktable
-- Upstream: https://github.com/darktable-org/darktable, `src/iop/retouch.c`, `src/common/heal.c` and `src/develop/masks/circle.c`, commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release 5.6.2)
+### Retouch (clone, heal, fill and blur, with wavelet scales), from darktable
+- Upstream: https://github.com/darktable-org/darktable, `src/iop/retouch.c`, `src/common/heal.c`, `src/common/dwt.c`, `src/common/bilateral.c`, `src/common/gaussian.c`, `src/develop/masks/circle.c` and `src/develop/masks/ellipse.c`, commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release 5.6.2)
 - Licence: GPL-3.0-or-later
-- Copyright: Copyright (C) 2017-2026 darktable developers (retouch). Copyright (C) 2017-2024 darktable developers (heal). Copyright (C) 2013-2025 darktable developers (circle masks)
-- Method: heal.c is based on GIMP's healing tool by Jean-Yves Couleaud, after T. Georgiev, "Photoshop Healing Brush: a Tool for Seamless Cloning"
-- Ported to: `src/engine/heal.ts`, `src/engine/retouch.ts` (run on the CPU by `Engine.retouched`), `src/film/retouch.ts`; checked against darktable's own heal.c by `tools/heal-reference`
-- Changes: translated from C to TypeScript, clone and heal with circle and brush spots, no wavelet scales yet. Runs on the CPU over the rectangle the spots touch, as darktable's heal does even on its OpenCL path. Placed before haze removal rather than after it (agreed deviation; a cloned patch is dehazed for where it lands). A brush's mask area is its strokes' bounding box
-
+- Copyright: Copyright (C) 2017-2026 darktable developers (retouch, wavelet decomposition). Copyright (C) 2017-2024 darktable developers (heal). Copyright (C) 2016-2026 darktable developers (bilateral grid). Copyright (C) 2012-2026 darktable developers (gaussian). Copyright (C) 2013-2025 darktable developers (circle and ellipse masks)
+- Method: heal.c is based on GIMP's healing tool by Jean-Yves Couleaud, after T. Georgiev, "Photoshop Healing Brush: a Tool for Seamless Cloning". dwt.c is based on GIMP's Wavelet Decompose plugin by Marco Rossini
+- Ported to: `src/engine/heal.ts`, `src/engine/retouch.ts` (run on the CPU by `Engine.retouched`), `src/engine/dwt.ts`, `src/engine/bilateral.ts`, `src/film/retouch.ts`; checked against darktable's own heal.c by `tools/heal-reference`, and against its own bilateral.c, dwt.c (CPU path) and ellipse mask by `tools/retouch-reference`
+- Changes: translated from C to TypeScript. Clone, heal, fill and blur (Gaussian and bilateral) with circle, ellipse and brush spots, wavelet scales with merging and a shown scale; no path shapes yet. Runs on the CPU over the rectangle the spots touch (plus the wavelets' reach), as darktable's heal does even on its OpenCL path. Placed before haze removal rather than after it (agreed deviation; a cloned patch is dehazed for where it lands). A brush's mask area is its strokes' bounding box. Fill leaves alpha alone; a shown scale always uses auto levels; the wavelet step follows the OpenCL path at reduced previews (all three listed in `src/engine/retouch.ts` for Oli to confirm)
 ### Haze removal, from darktable
 - Upstream: https://github.com/darktable-org/darktable, `src/iop/hazeremoval.c`, `src/common/guided_filter.c` and `src/common/box_filters.cc`, commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release 5.6.2)
 - Licence: GPL-3.0-or-later

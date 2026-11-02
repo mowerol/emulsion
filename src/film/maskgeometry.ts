@@ -6,6 +6,9 @@
 import { cropAffine, type Crop } from './crop';
 import type { EllipseShape, GradientShape } from './masks';
 
+/** What the ellipse helpers read: a mask's ellipse or a retouch spot's. */
+export type EllipseLike = Pick<EllipseShape, 'center' | 'radius' | 'rotation' | 'border' | 'proportional'>;
+
 export type Pt = [number, number];
 
 const rad = (deg: number) => (deg * Math.PI) / 180;
@@ -85,13 +88,13 @@ export const compressionForEdge = (d: number) => Math.min(1, Math.max(0.001, Mat
 export const edgeForCompression = (c: number) => c * DRAG_SPAN;
 
 /** The ellipse's axes in source pixels: a along (cos, sin) of the rotation, b at right angles. */
-function axes(e: EllipseShape): [Pt, Pt] {
+function axes(e: EllipseLike): [Pt, Pt] {
   const a = rad(e.rotation);
   return [[Math.cos(a), Math.sin(a)], [-Math.sin(a), Math.cos(a)]];
 }
 
 /** The ellipse's outline, grown by `grow` (its feather, when true), as source points. */
-export function ellipseOutline(e: EllipseShape, W: number, H: number, grow = false, n = 64): Pt[] {
+export function ellipseOutline(e: EllipseLike, W: number, H: number, grow = false, n = 64): Pt[] {
   const m = Math.min(W, H);
   const [ra, rb] = grow
     ? (e.proportional ? [e.radius[0] * (1 + e.border), e.radius[1] * (1 + e.border)] : [e.radius[0] + e.border, e.radius[1] + e.border])
@@ -106,7 +109,7 @@ export function ellipseOutline(e: EllipseShape, W: number, H: number, grow = fal
 }
 
 /** Handles: the end of axis a, of axis b, and of the feather along a. */
-export function ellipseHandles(e: EllipseShape, W: number, H: number): { a: Pt; b: Pt; feather: Pt } {
+export function ellipseHandles(e: EllipseLike, W: number, H: number): { a: Pt; b: Pt; feather: Pt } {
   const m = Math.min(W, H);
   const [ua, ub] = axes(e);
   const at = (u: Pt, r: number): Pt => [e.center[0] + (u[0] * r * m) / W, e.center[1] + (u[1] * r * m) / H];
@@ -115,7 +118,7 @@ export function ellipseHandles(e: EllipseShape, W: number, H: number): { a: Pt; 
 }
 
 /** A source point relative to the centre, in units of the shorter side, along both axes. */
-export function ellipseLocal(e: EllipseShape, W: number, H: number, p: Pt): { a: number; b: number; angle: number; length: number } {
+export function ellipseLocal(e: EllipseLike, W: number, H: number, p: Pt): { a: number; b: number; angle: number; length: number } {
   const m = Math.min(W, H);
   const x = (p[0] - e.center[0]) * W;
   const y = (p[1] - e.center[1]) * H;
@@ -130,7 +133,7 @@ export function ellipseFromDrag(p0: Pt, p1: Pt, W: number, H: number): Pick<Elli
 }
 
 /** The feather that puts the feather's edge along axis a at `length` (shorter sides from the centre). */
-export function featherFor(e: EllipseShape, length: number): number {
+export function featherFor(e: EllipseLike, length: number): number {
   const b = e.proportional ? length / e.radius[0] - 1 : length - e.radius[0];
   return Math.min(1, Math.max(0.001, b));
 }
