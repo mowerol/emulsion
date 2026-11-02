@@ -165,7 +165,12 @@ pub fn payload(w: u32, h: u32, mode: InputMode, white: Option<[f32; 2]>, full: (
 pub fn load_for_engine(path: &Path, max_edge: Option<u32>) -> Result<Vec<u8>, String> {
     if classify(path) == Kind::Raw {
         let half = max_edge.is_some_and(|m| m <= RAW_HALF_MAX_EDGE);
-        let raw = raw::decode(path, half)?;
+        let mut raw = raw::decode(path, half)?;
+        // A small sensor's half-size image can fall short of the edge asked for: decode in full.
+        let (w, h) = (raw.image.width(), raw.image.height());
+        if half && max_edge.is_some_and(|m| w.max(h) < m && w.max(h) < raw.full_size.0.max(raw.full_size.1)) {
+            raw = raw::decode(path, false)?;
+        }
         return raw_for_engine(path, raw, max_edge);
     }
     let original = open_oriented(path)?;

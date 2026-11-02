@@ -426,6 +426,10 @@ mod tests {
             eprintln!("{path}: half {}x{} reports {:?}; full {}x{} reports {:?}", half.image.width(), half.image.height(), half.full_size, full.image.width(), full.image.height(), full.full_size);
             assert_eq!(full.full_size, (full.image.width(), full.image.height()));
             assert_eq!(half.full_size, full.full_size, "{path}");
+            // Asking for an edge gets that edge, even where the half-size image is smaller.
+            let bytes = crate::decode::load_for_engine(Path::new(path), Some(2560)).unwrap();
+            let (w, h) = (u32::from_le_bytes(bytes[0..4].try_into().unwrap()), u32::from_le_bytes(bytes[4..8].try_into().unwrap()));
+            assert_eq!(w.max(h), 2560.min(full.full_size.0.max(full.full_size.1)), "{path}");
         }
     }
 

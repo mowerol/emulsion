@@ -28,7 +28,7 @@ Oli: 100% was markedly smaller than Lightroom's on the same ORF, and sometimes j
   - The half-size bug also hit capture sharpening's radius (2× too big on RAW previews), grain size, the lens centre, and exports with a long edge of 2560 or less. All fixed by the shim change.
   - Develop's camera-thumbnail stage (512 px, shown while the preview decodes) set the photo size, so zoom and crop measured in it. Zoom and crop now wait for the decode (`sizeKnown`), unless the decode failed (JPEG XL DNG) and the thumbnail is what's being edited. Covered by `zoom-full-res`, which fails without the fix.
   - Edited thumbnails and look-browser tiles of JPEG/TIFF used the 512 px thumbnail as the full size, so radius stages were about 10× too strong. `sourceForPreview` now decodes ordinary photos like RAWs, falling back to the thumbnail if the decode fails. **Not checked visually:** compare an edited JPEG's thumbnail with Develop.
-  - **Not fixed, needs Oli's call:** export's long edge limits the whole photo before the crop (`export.ts:37`), so a cropped "2048 px" export comes out smaller than 2048.
+  - **Export size (Oli: "this sounds like a bug", fixed):** the long edge now applies to the cropped frame. `decodeFor` in `export.ts` decodes enough for the crop, then sizes the frame from the photo's full size, never upscaling. Tested in `export-size.test.ts`. RAW decodes at 2560 px or less now fall back to a full decode when the half-size image is smaller than asked (sensors under ~20 MP). That fallback isn't exercised by a real file yet: both samples are large enough.
 
 ## Zoom: full resolution dropped when zooming during its decode (2026-11-02)
 
