@@ -92,6 +92,18 @@ and tone settings, and optionally a LUT: a system look by reference, or a LUT fi
 - ~~**Colour-only LUT blending.**~~ Built 2026-11-01: Film stock → Blend: Normal / Colour, ported
   from darktable's `_blend_color` (RGB display blending, on the pipe's linear RGB). Stored on the
   photo (`lookBlend`) for a LUT chosen directly, and inside a custom look's LUT (`blend: 'color'`).
+- **Apply a look for colour only** (Oli, 2026-11-02): an application-time choice, stored on the
+  photo, that keeps a look's colour and removes all of the contrast and tone it adds. For a
+  LUT-only look this extends the existing Colour blend from the LUT to the whole look. For a custom
+  look it must also skip the look's colour balance `contrast` and `shadows`, its tone curve, the
+  tone parameters of Colour Grading and the scanner's `contrast`, while keeping the LUT's hue and
+  saturation, the colour balance's vibrance and saturation, the colour parameters of grading and
+  the scanner's saturation and gain. Amount then scales only what remains. The recipe needs a new
+  optional field (e.g. `lookColourOnly`), read as off for old sidecars, and thumbnails, export,
+  presets and copy/paste must use it. Open: a per-application toggle versus a property saved on the
+  look; where the control lives (beside Amount, or at apply time); how a colour-only look is shown
+  in the look browser; and whether B&W looks offer it at all, since their monochrome LUT has no hue
+  or saturation to keep and their channel mix lives in tone.
 
 ## Open: Oli to decide
 
