@@ -53,42 +53,49 @@ uniform float uTap;
 uniform float uTapMask;
 // 1 shows Sharpening's contrast mask as grey instead of the photo.
 uniform float uUsmShowMask;
+// The part of the whole source the source texture holds (offset xy, size zw, in whole-source
+// coordinates): (0, 0, 1, 1) for a whole source, a region at full size otherwise (docs/plans/
+// roi.md). Position on the photo (masks, the tone equalizer map, vignette, halation, glow, grain)
+// is in the whole source; the source and the maps made from it are read in the region.
+uniform vec4 uRoi;
 
 void main() {
   vec3 f = vec3(uView.xy + vUv * uView.zw, 1.0);
   float denominator = dot(uGeoW, f);
   if (abs(denominator) < 1e-8) { outColor = vec4(uOutside, 1.0); return; }
   vec2 uv = vec2(dot(uGeoU, f), dot(uGeoV, f)) / denominator;
-  vec2 edge = 0.5 / vec2(textureSize(uSrc, 0));
+  vec2 whole = vec2(textureSize(uSrc, 0)) / uRoi.zw;
+  vec2 edge = 0.5 / whole;
   if (any(lessThan(uv, -edge)) || any(greaterThan(uv, 1.0 + edge))) {
     outColor = vec4(uOutside, 1.0);
     return;
   }
   uv = clamp(uv, 0.0, 1.0);
+  vec2 ruv = (uv - uRoi.xy) / uRoi.zw;
   if (uUsmShowMask > 0.5) {
-    outColor = vec4(vec3(usmMask(uv)), 1.0);
+    outColor = vec4(vec3(usmMask(ruv)), 1.0);
     return;
   }
-  vec3 x = stageInput(texture(uSrc, uv));
+  vec3 x = stageInput(texture(uSrc, ruv));
   if (uCompare > 0.5 || vUv.x < uSplit) {
     vec3 original = stageDcpLate(x);
     vec3 originalPrint = uDcpHasCurve > 0.5 ? srgbOetf(max(original, vec3(0.0))) : stageToneNeutral(original);
     outColor = vec4(stageOutput(originalPrint), 1.0);
     return;
   }
-  computeMasks(uv, vec2(textureSize(uSrc, 0)));
+  computeMasks(uv, whole);
   if (uTap > 8.5) {
     // A masked haze removal instance's input (the instances before it bound as uDehazeTex) and
     // its mask there: 9, the input and the unrefined mask, for refining it; 10, the mask.
-    vec3 xin = stageDehaze(x, uv);
+    vec3 xin = stageDehaze(x, ruv);
     int i = int(uTapMask + 0.5);
     if (uTap < 9.5) outColor = vec4(xin, maskAt(i, xin));
     else outColor = vec4(uMaskLocal[i].z > 0.5 ? maskRefinedDehaze(i, uv) : maskAt(i, xin), 0.0, 0.0, 1.0);
     return;
   }
   // Scene light
-  x = stageSharpen(x, uv);
-  x = stageDehaze(x, uv);
+  x = stageSharpen(x, ruv);
+  x = stageDehaze(x, ruv);
   x = stageExposure(x);
   x = stageMaskExposure(x);
   if (uTap > 5.5 && uTap < 6.5) {
@@ -105,7 +112,7 @@ void main() {
     outColor = vec4(labL(x), 0.0, 0.0, 1.0);
     return;
   }
-  x = stageTexture(x, uv);
+  x = stageTexture(x, ruv);
   if (uTap > 6.5 && uTap < 7.5) {
     outColor = vec4(labL(x), gMaskFinal[int(uTapMask + 0.5)], 0.0, 1.0);
     return;
@@ -114,7 +121,7 @@ void main() {
     outColor = ceAnalyse(x);
     return;
   }
-  x = stageColorEqual(x, uv);
+  x = stageColorEqual(x, ruv);
   x = stageProfileColorBalance(x);
   x = stageColorBalance(x);
   x = stageMaskColorBalance(x);
@@ -132,7 +139,7 @@ void main() {
     outColor = vec4(clarityLightness(e), 0.0, 0.0, 1.0);
     return;
   }
-  e = stageClarity(e, uv);
+  e = stageClarity(e, ruv);
   if (uTap > 7.5 && uTap < 8.5) {
     outColor = vec4(clarityLightness(e), gMaskFinal[int(uTapMask + 0.5)], 0.0, 1.0);
     return;
@@ -141,7 +148,7 @@ void main() {
     outColor = vec4(clarityLightness(e), 0.0, 0.0, 1.0);
     return;
   }
-  e = stageUnsharpMask(e, uv);
+  e = stageUnsharpMask(e, ruv);
   e = stageGrain(e, uv);
   // Display
   vec3 d = stageOutput(e);

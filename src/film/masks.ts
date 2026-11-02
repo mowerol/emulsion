@@ -10,6 +10,7 @@
 // Their parameters are darktable's own: see engine/masks.ts for the maths.
 
 import { NO_REFINE, type MaskRefine } from '../engine/maskrefine';
+import { normalizeRaster, type ObjectRaster } from './objectmask';
 
 /** darktable's mask states DT_MASKS_STATE_UNION ... EXCLUSION, as Lightroom names them. */
 export type MaskMode = 'add' | 'intersect' | 'subtract' | 'sum' | 'exclude';
@@ -80,13 +81,37 @@ export interface BrushShape extends ShapeBase {
   strokes: BrushNode[][];
 }
 
-export type MaskShape = GradientShape | EllipseShape | BrushShape;
+/**
+ * A prompt of darktable's AI object (dt_masks_point_object_t): where it was clicked, in source
+ * coordinates, and its SAM label (1 takes the thing in, 0 leaves it out).
+ */
+export interface ObjectPrompt {
+  x: number;
+  y: number;
+  label: 0 | 1;
+}
+
+/**
+ * darktable's AI object (DT_MASKS_OBJECT), stored as pixels (its default since 5.6): the
+ * prompts that made it, and the selection SAM 2.1 drew from them (see objectmask.ts).
+ */
+export interface ObjectShape extends ShapeBase {
+  kind: 'object';
+  prompts: ObjectPrompt[];
+  raster: ObjectRaster;
+}
+
+export type MaskShape = GradientShape | EllipseShape | BrushShape | ObjectShape;
 
 /** darktable's brush defaults (darktableconfig.xml.in): border 0.05, hardness 0.66, density 1. */
 export const BRUSH_DEFAULTS = { border: 0.05, hardness: 0.66, density: 1 };
 
 /** How many brush shapes a photo holds over all its masks (one RGBA mask texture). */
 export const MAX_BRUSHES = 4;
+/** How many AI objects a photo holds over all its masks (two layers of the mask stack). */
+export const MAX_OBJECTS = 8;
+/** Prompts on one object; darktable sets no limit, this keeps a sidecar sane. */
+export const MAX_OBJECT_PROMPTS = 64;
 /** Nodes in one shape's strokes, all together; enough for a long session of brushing. */
 export const MAX_BRUSH_NODES = 20000;
 
@@ -204,6 +229,9 @@ export const maskActive = (m: Mask) => m.on && m.opacity > 0 && m.shapes.length 
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
+/** How many AI objects a list of masks holds. */
+export const objectCount = (masks: Mask[]) => masks.reduce((n, m) => n + m.shapes.filter((s) => s.kind === 'object').length, 0);
+
 /** How many brush shapes a list of masks holds. */
 export const brushCount = (masks: Mask[]) => masks.reduce((n, m) => n + m.shapes.filter((s) => s.kind === 'brush').length, 0);
 const num = (v: unknown, fallback: number, lo: number, hi: number) => (typeof v === 'number' && Number.isFinite(v) ? clamp(v, lo, hi) : fallback);
@@ -229,6 +257,17 @@ function normalizeShape(input: unknown): MaskShape | null {
       return { x: num(q.x, 0, -2, 3), y: num(q.y, 0, -2, 3), border: num(q.border, BRUSH_DEFAULTS.border, 0.0005, 1), hardness: num(q.hardness, BRUSH_DEFAULTS.hardness, 0, 1), density: num(q.density, BRUSH_DEFAULTS.density, 0, 1) };
     }).filter((n): n is BrushNode => !!n)).filter((st) => st.length > 0 && (nodes += st.length) <= MAX_BRUSH_NODES);
     return { ...newBrush(), ...base, strokes };
+  }
+  if (o.kind === 'object') {
+    const raster = normalizeRaster(o.raster);
+    if (!raster) return null;
+    const prompts = (Array.isArray(o.prompts) ? o.prompts : []).flatMap((p): ObjectPrompt[] => {
+      if (!p || typeof p !== 'object') return [];
+      const q = p as Record<string, unknown>;
+      if (typeof q.x !== 'number' || typeof q.y !== 'number' || !Number.isFinite(q.x) || !Number.isFinite(q.y)) return [];
+      return [{ x: num(q.x, 0, 0, 1), y: num(q.y, 0, 0, 1), label: q.label === 0 ? 0 : 1 }];
+    }).slice(0, MAX_OBJECT_PROMPTS);
+    return { ...base, kind: 'object', prompts, raster };
   }
   if (o.kind === 'ellipse') {
     const d = newEllipse();

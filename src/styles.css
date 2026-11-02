@@ -570,6 +570,10 @@ input[type='range']:disabled { opacity: 0.35; cursor: default; }
 .mask-controls { display:flex; flex-direction:column; gap:12px; }
 .mask-tools { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
 .mask-tools-label { width:62px; font-size:11px; color:var(--muted); }
+/* Add and Subtract: four short buttons fit beside the label. */
+.mask-tools:has(.mask-tools-label) { gap:4px; flex-wrap:nowrap; }
+.mask-tools:has(.mask-tools-label) .mask-tools-label { width:52px; flex-shrink:0; }
+.mask-tools:has(.mask-tools-label) .mask-tool { padding:5px 6px; gap:4px; }
 .mask-tool { display:flex; align-items:center; gap:6px; font-size:11px; padding:5px 9px; }
 .mask-tool[aria-pressed=true] { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
 .mask-tool-icon, .mask-shape-icon { width:14px; height:10px; border-radius:2px; flex-shrink:0; }
@@ -629,6 +633,15 @@ input[type='range']:disabled { opacity: 0.35; cursor: default; }
 .mask-brush-cursor circle.inner { stroke-dasharray:3 3; stroke-width:1; opacity:.7; }
 .mask-brush-settings { padding:8px 10px; border:1px solid var(--line); border-radius:5px; }
 .mask-tool.brush .mask-tool-icon, .mask-shape-icon.brush { width:10px; height:10px; border-radius:50%; background:radial-gradient(currentColor 45%, transparent 75%); }
+.mask-capture.object { cursor:crosshair; }
+.mask-prompt { pointer-events:none; filter:drop-shadow(0 0 2px #000c); }
+.mask-prompt circle { stroke:#fff; stroke-width:1.5; }
+.mask-prompt.in circle { fill:#2e9d5a; }
+.mask-prompt.out circle { fill:#c8463c; }
+.mask-prompt path { stroke:#fff; stroke-width:1.6; stroke-linecap:round; }
+.mask-object-status { display:flex; flex-direction:column; gap:6px; align-items:flex-start; padding:8px 10px; border:1px solid var(--line); border-radius:5px; }
+.mask-object-status progress { width:100%; }
+.mask-tool.object .mask-tool-icon, .mask-shape-icon.object { width:10px; height:10px; border-radius:3px 6px 4px 7px; border:1.5px solid currentColor; background:none; }
 
 
 /* Photo context menus are portalled above scrolling grids and panels. */
@@ -1212,3 +1225,5 @@ select { accent-color: var(--accent); }
 .library-setting input { accent-color: var(--text); }
 .import-session-name { display: flex; align-items: center; gap: 10px; padding: 12px 0 0; color: var(--muted); font-size: 12px; }
 .import-session-name input { background: var(--ctl); border: 1px solid var(--border); border-radius: 5px; padding: 5px 8px; width: 220px; }
+/* Room for the filmstrip's frames that aren't mounted. */
+.strip-space { flex: none; }

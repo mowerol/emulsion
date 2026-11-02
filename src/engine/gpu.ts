@@ -254,6 +254,12 @@ export class Gpu {
     return tex;
   }
 
+  /**
+   * While set, draws into targets of exactly `tw` × `th` touch only this rectangle of them (a
+   * region render's per-edit maps, made only where the view needs them; docs/plans/roi.md).
+   */
+  clip: { x: number; y: number; w: number; h: number; tw: number; th: number } | null = null;
+
   /** Draw a full-frame quad with `program` into `target` (null = the canvas). */
   draw(program: Program, target: Target | null, w: number, h: number, flipY = false) {
     const gl = this.gl;
@@ -261,7 +267,14 @@ export class Gpu {
     gl.bindFramebuffer(gl.FRAMEBUFFER, target ? target.fbo : null);
     gl.viewport(0, 0, w, h);
     gl.bindVertexArray(this.vao);
+    const c = this.clip;
+    const clipped = !!c && !!target && w === c.tw && h === c.th;
+    if (clipped) {
+      gl.enable(gl.SCISSOR_TEST);
+      gl.scissor(c!.x, c!.y, c!.w, c!.h);
+    }
     gl.drawArrays(gl.TRIANGLES, 0, 6);
+    if (clipped) gl.disable(gl.SCISSOR_TEST);
   }
 
   /** Draw `count` instances of the quad (the vertex shader places each by gl_InstanceID). */

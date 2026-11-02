@@ -5,6 +5,10 @@
 // clamp to the edge at every level instead of padding the input by replication; Lab is relative
 // to D65, as Emulsion's working space is D65 Rec.2020; the Clarity slider is mapped onto the
 // module's parameters (below).
+// Region views use the same file's boundary-mode coarse output sampling, with four local fine
+// levels and an explicit filter halo instead of LL_FILL's preview padding. Each instance keeps
+// its own reconstructed preview levels. This can differ from full-size mode 0; the pinned bilat.c
+// passes a null boundary and does not itself enable mode 2. Exports retain the full pyramid.
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Reference implementation of the clarity stage: darktable's local laplacian
@@ -117,8 +121,8 @@ export function expandAt(coarse: Plane, i: number, j: number): number {
 }
 
 /** The local laplacian filter on a lightness plane (0 to 1). */
-export function localLaplacian(input: Plane, p: ClarityParams): Plane {
-  const last = numLevels(input.w, input.h) - 1;
+export function localLaplacian(input: Plane, p: ClarityParams, boundary?: { last: number; coarse: Plane }): Plane {
+  const last = boundary ? Math.min(boundary.last, numLevels(input.w, input.h) - 1) : numLevels(input.w, input.h) - 1;
   if (last < 1) return input;
   const gauss: Plane[] = [input];
   for (let l = 1; l <= last; l++) gauss.push(reduce(gauss[l - 1]));
@@ -129,7 +133,8 @@ export function localLaplacian(input: Plane, p: ClarityParams): Plane {
     for (let l = 1; l <= last; l++) levels.push(reduce(levels[l - 1]));
     return levels;
   });
-  let out = gauss[last];
+  let out = boundary?.coarse ?? gauss[last];
+  if (out.w !== gauss[last].w || out.h !== gauss[last].h) throw Error('Clarity boundary has the wrong dimensions');
   for (let l = last - 1; l >= 0; l--) {
     const next = plane(gauss[l].w, gauss[l].h);
     for (let j = 0; j < next.h; j++)
@@ -141,6 +146,24 @@ export function localLaplacian(input: Plane, p: ClarityParams): Plane {
         next.data[j * next.w + i] = expandAt(out, i, j) + l0 * (1 - a) + l1 * a;
       }
     out = next;
+  }
+  return out;
+}
+
+/** Integer-index bilinear/trilinear coarse sampling used by darktable's full-pipe boundary.
+ * `levels` are reconstructed preview output planes, never Gaussian input or delta planes.
+ * Origin/step are in preview level-0 pixels; no normalized-texture half-texel shift is applied. */
+export function clarityBoundary(levels: Plane[], width: number, height: number, origin: [number, number], step: number): Plane {
+  const level = Math.max(0, Math.min(levels.length - 1, Math.log2(step)));
+  const lo = Math.floor(level), hi = Math.min(levels.length - 1, lo + 1), t = level - lo;
+  const sample = (p: Plane, x: number, y: number) => {
+    const i = Math.floor(x), j = Math.floor(y), u = x - i, v = y - j;
+    return at(p, i, j) * (1 - u) * (1 - v) + at(p, i + 1, j) * u * (1 - v) + at(p, i, j + 1) * (1 - u) * v + at(p, i + 1, j + 1) * u * v;
+  };
+  const out = plane(width, height);
+  for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) {
+    const X = origin[0] + x * step, Y = origin[1] + y * step;
+    out.data[y * width + x] = sample(levels[lo], X / 2 ** lo, Y / 2 ** lo) * (1 - t) + sample(levels[hi], X / 2 ** hi, Y / 2 ** hi) * t;
   }
   return out;
 }

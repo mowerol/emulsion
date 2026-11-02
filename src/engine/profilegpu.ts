@@ -11,11 +11,15 @@ export const DCP_CAL_UNIT = 12,
   DCP_LOOK_UNIT = 13,
   DCP_CURVE_UNIT = 14,
   DCP_GAMMA_UNIT = 15;
+/** Where a caller keeps the early pass's result (one per engine lane). */
+export interface ProfileEarly {
+  early: { input: WebGLTexture; key: string; out: Target } | null;
+}
+
 export class ProfileGpu {
   private state: DcpState | null = null;
   private gamma: WebGLTexture | null = null;
   private textures: WebGLTexture[] = [];
-  private early: { input: WebGLTexture; key: string; out: Target } | null = null;
   constructor(private gpu: Gpu) {}
   private table(t: DcpTable | null): WebGLTexture {
     const g = this.gpu,
@@ -135,9 +139,9 @@ export class ProfileGpu {
       this.gpu.bind(DCP_GAMMA_UNIT, this.gamma!);
     }
   }
-  source(input: WebGLTexture, key: string, w: number, h: number, draw: (target: Target) => void): Target {
-    if (this.early?.input === input && this.early.key === key) return this.early.out;
-    if (this.early) this.gpu.free(this.early.out);
+  source(cache: ProfileEarly, input: WebGLTexture, key: string, w: number, h: number, draw: (target: Target) => void): Target {
+    if (cache.early?.input === input && cache.early.key === key) return cache.early.out;
+    if (cache.early) this.gpu.free(cache.early.out);
     const out = this.gpu.target(w, h, true);
     draw(out);
     this.gpu.scratch();
@@ -145,12 +149,11 @@ export class ProfileGpu {
     gl.bindTexture(gl.TEXTURE_2D, out.tex);
     gl.generateMipmap(gl.TEXTURE_2D);
     this.gpu.params(true);
-    this.early = { input, key, out };
+    cache.early = { input, key, out };
     return out;
   }
   dispose() {
     if (this.gamma) this.gpu.gl.deleteTexture(this.gamma);
     for (const tex of this.textures) this.gpu.gl.deleteTexture(tex);
-    if (this.early) this.gpu.free(this.early.out);
   }
 }

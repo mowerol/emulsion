@@ -16,6 +16,8 @@ import colorbalance from './shaders/stages/colorbalance.glsl?raw';
 import masks from './shaders/stages/masks.glsl?raw';
 import brushVert from './shaders/brush.vert.glsl?raw';
 import brushFrag from './shaders/brush.frag.glsl?raw';
+import objectFrag from './shaders/object.frag.glsl?raw';
+import regionFrag from './shaders/region.frag.glsl?raw';
 import toneequalizer from './shaders/stages/toneequalizer.glsl?raw';
 import toneeqmask from './shaders/toneeqmask.frag.glsl?raw';
 import sample from './shaders/sample.frag.glsl?raw';
@@ -45,6 +47,7 @@ import cs from './shaders/cs.frag.glsl?raw';
 import llcurve from './shaders/llcurve.frag.glsl?raw';
 import llreduce from './shaders/llreduce.frag.glsl?raw';
 import llcollapse from './shaders/llcollapse.frag.glsl?raw';
+import llboundary from './shaders/llboundary.frag.glsl?raw';
 
 export const SHADER_FILES: Record<string, string> = {
   'stages/dcp.glsl': dcp,
@@ -88,6 +91,7 @@ export const SHADERS = {
   llcurve,
   llreduce,
   llcollapse,
+  llboundary,
   eq,
   cs,
   usm,
@@ -95,4 +99,6 @@ export const SHADERS = {
   maskrefine: assemble(maskrefine, SHADER_FILES),
   brushVert,
   brushFrag,
+  objectFrag,
+  regionFrag,
 };

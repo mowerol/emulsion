@@ -56,7 +56,8 @@ import { blendColor } from '../../src/engine/blend';
 import { drawnValue, maskValue, blendNormal, rangeValue, pickStats, pickedRange } from '../../src/engine/masks';
 import { MaskStack } from '../../src/engine/maskstack';
 import { refineMask, type MaskRefine } from '../../src/engine/maskrefine';
-import { newBrush, newEllipse, newGradient, newMask, type Mask } from '../../src/film/masks';
+import { newBrush, newEllipse, newGradient, newMask, type Mask, type ObjectShape } from '../../src/film/masks';
+import { encodeRaster } from '../../src/film/objectmask';
 import { newCircleSpot, newSpot, type RetouchSpot } from '../../src/film/retouch';
 import { RetouchCache, retouch as retouchRef, retouchReduced, retouchRegion, type Roi } from '../../src/engine/retouch';
 import { SQRT_EPS as DEHAZE_SQRT_EPS, ambientLight as dehazeAmbient, guidedFilter as dehazeGuided, recover as dehazeRecover, transitionMap as dehazeTransition, windows as dehazeWindows } from '../../src/engine/dehaze';
@@ -294,11 +295,11 @@ function probeRetouch(eng: Engine) {
     newSpot({ kind: 'circle', center: [0.65, 0.85], radius: 0.04, border: 0.02 }, { tool: 'fill', fillMode: 'color', fillColor: [0.3, 0.1, 0.05], fillBrightness: 0.1 }),
   ];
   const base = { ...recipeDefaults('neutral', 'straight'), grain: 0, sharpen: 0, captureSharpening: 0 };
-  const any = eng as unknown as { retouched(s: Source, r: Recipe): Source; retouchMade: { out: { fbo: WebGLFramebuffer } } };
+  const any = eng as unknown as { retouched(s: Source, r: Recipe): Source; L: { retouchMade: { out: { fbo: WebGLFramebuffer } } } };
   const readSource = (r: Recipe) => {
     any.retouched(src, r);
     const px = new Float32Array(w * h * 4);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, any.retouchMade.out.fbo);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, any.L.retouchMade.out.fbo);
     gl.readPixels(0, 0, w, h, gl.RGBA, gl.FLOAT, px);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     return px;
@@ -855,13 +856,17 @@ try {
     const st = (pts: [number, number][]) => pts.map(([x, y]) => ({ x, y, border: 0.05, hardness: 0.66, density: 1 }));
     const brushMask: Mask = { ...newMask({ ...newBrush(), strokes: [st([[0.1, 0.8], [0.3, 0.7], [0.5, 0.85], [0.75, 0.75]])] }, 2), name: 'Grass', exposure: 0.8, saturation: 40 };
     brushMask.shapes.push({ ...newBrush('subtract'), strokes: [st([[0.28, 0.72], [0.32, 0.7]])] });
-    const recipe = { ...defaultRecipe('neutral', 'straight'), masks: [skyMask, faceMask, brushMask] };
+    // An AI object as SAM would have drawn it: the round face, from one click with one left out.
+    const facePx = new Uint8Array(MW * MH);
+    for (let y = 0; y < MH; y++) for (let x = 0; x < MW; x++) facePx[y * MW + x] = Math.round(255 * Math.min(1, Math.max(0, 50.5 - Math.hypot(x + 0.5 - 380, y + 0.5 - 250))));
+    const objectMask: Mask = { ...newMask({ id: 'obj', kind: 'object', mode: 'add', invert: false, opacity: 1, prompts: [{ x: 0.63, y: 0.6, label: 1 }, { x: 0.66, y: 0.7, label: 0 }], raster: encodeRaster(facePx, MW, MH) }, 3), name: 'Face object', exposure: 0.7 };
+    const recipe = { ...defaultRecipe('neutral', 'straight'), masks: [skyMask, faceMask, brushMask, objectMask] };
     const msrc = eng.sourceFromImage(scene, MW, MH);
     eng.render(msrc, recipe, { target: 'screen', width: MW, height: MH, seed: 1, maskShow: show });
     useApp.setState({ photos: [{ path: '/probe/m.jpg', rel: 'm.jpg', name: 'm.jpg', size: 1, modified: 0, recipe, seed: 1, white: null, rating: 0, label: null, heart: false, raw: false, pair: null }], active: 0, view: 'develop' });
     setWorkspace({ layout: 'workflow', group: 'masks' });
     const pickParam = new URLSearchParams(location.search).get('pick');
-    setMaskUi({ selected: recipe.masks[show].id, shape: null, tool: new URLSearchParams(location.search).get('tool') === 'brush' ? { kind: 'brush', mode: 'add' } : null,
+    setMaskUi({ selected: recipe.masks[show].id, shape: null, tool: new URLSearchParams(location.search).get('tool') === 'brush' ? { kind: 'brush', mode: 'add' } : new URLSearchParams(location.search).get('tool') === 'object' ? { kind: 'object', mode: 'add' } : null,
       pick: pickParam === 'luminance' || pickParam === 'chroma' || pickParam === 'hue' ? pickParam : null });
     const ov = document.createElement('div');
     ov.style.cssText = 'position:fixed;left:20px;top:20px;width:600px;height:400px';
@@ -930,6 +935,29 @@ try {
     const masked = eng.readPixels(gsrc, { ...base, masks: [brushed] }, gw, gh, 1);
     const at = (px: Uint8Array, x: number, y: number) => px[(y * gw + x) * 4 + 1];
     out.engineBrush = { plainCentre: at(plain, 150, 100), maskedCentre: at(masked, 150, 100), plainFar: at(plain, 150, 10), maskedFar: at(masked, 150, 10), glError: eng.gpu.gl.getError() };
+    // AI objects (pixel masks) through the engine: the left half selected at +1 EV must match the
+    // brush's full value there and leave the right half alone, wherever the objects sit in the stack
+    // (alone from layer 0; after the brush layer; after refined layers).
+    {
+      const ow = 160, oh = 100;
+      const px = new Uint8Array(ow * oh);
+      for (let y = 0; y < oh; y++) for (let x = 0; x < ow; x++) px[y * ow + x] = x < ow / 2 - 4 ? 255 : x < ow / 2 + 4 ? Math.round(255 * (ow / 2 + 4 - x) / 8) : 0;
+      const obj: ObjectShape = { id: 'obj', kind: 'object', mode: 'add', invert: false, opacity: 1, prompts: [{ x: 0.25, y: 0.5, label: 1 }], raster: encodeRaster(px, ow, oh) };
+      const objMask: Mask = { ...newMask(obj, 0), exposure: 1 };
+      const cases: Record<string, Recipe> = {
+        alone: { ...base, masks: [objMask] },
+        withBrush: { ...base, masks: [brushed, { ...objMask, id: 'm2' }] },
+        refined: { ...base, masks: [{ ...brushed, refine: { ...brushed.refine, blur: 2 } }, { ...objMask, id: 'm2' }] },
+        subtracted: { ...base, masks: [{ ...brushed, shapes: [...brushed.shapes, { ...obj, mode: 'subtract' }] }] },
+      };
+      const result: Record<string, unknown> = {};
+      for (const [name, r] of Object.entries(cases)) {
+        const img = eng.readPixels(gsrc, r, gw, gh, 1);
+        // Row 100 across: the objects' left half (x 40), the edge (150) and the right (260).
+        result[name] = { left: at(img, 40, 100), edge: at(img, 150, 100), right: at(img, 260, 100), top: at(img, 40, 5) };
+      }
+      out.engineObject = { plain: at(plain, 40, 100), brushFull: at(masked, 150, 100), ...result, glError: eng.gpu.gl.getError() };
+    }
   }
   // Haze removal on the GPU against dehaze.ts: the ambient light, the guided filter's
   // transmission per pixel, and the stage's recovery.
@@ -947,7 +975,7 @@ try {
     const hsrc = eng.sourceFromImage(hc, hw, hh);
     const gl = eng.gpu.gl;
     gl.getError();
-    const anyEng = eng as unknown as { dh: { I: { fbo: WebGLFramebuffer }; s1: { fbo: WebGLFramebuffer } }; dhAmbient: { A0: number[]; distanceMax: number } };
+    const anyEng = (eng as unknown as { L: { dh: { I: { fbo: WebGLFramebuffer }; s1: { fbo: WebGLFramebuffer } }; dhAmbient: { A0: number[]; distanceMax: number } } }).L;
     const read = (fbo: WebGLFramebuffer) => {
       gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
       const px = new Float32Array(hw * hh * 4);
@@ -1159,7 +1187,7 @@ try {
     const mk = (refine: MaskRefine): Mask => ({ ...newMask(newEllipse([0.5, 0.5], [0.3, 0.3], 0, 0.02), 0), exposure: 1, opacity: 80, refine });
     const gl = eng.gpu.gl;
     gl.getError();
-    const anyEng = eng as unknown as { refiner: { target(i: number): { fbo: WebGLFramebuffer; w: number; h: number } | null }; stack: { layers: { fbo: WebGLFramebuffer; w: number; h: number }[] } };
+    const anyEng = (eng as unknown as { L: { refiner: { target(i: number): { fbo: WebGLFramebuffer; w: number; h: number } | null }; stack: { layers: { fbo: WebGLFramebuffer; w: number; h: number }[] } } }).L;
     const read = (fbo: WebGLFramebuffer, w: number, h: number) => {
       gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
       const px = new Float32Array(w * h * 4);
@@ -1419,7 +1447,7 @@ try {
     // A render with nothing to remake, for the cost of reading back alone.
     // Haze removal on the 24 MP preview: the first render (input, guide, ambient light), a still, and a drag.
     const timeDehaze = () => {
-      (eng as unknown as { dhAmbient: null }).dhAmbient = null;
+      (eng as unknown as { L: { dhAmbient: null } }).L.dhAmbient = null;
       eng.dropBuffers(PW, PH);
       let t0 = performance.now();
       eng.readPixels(psrcPreview, { ...look, grain: 0, dehaze: 30 }, PW, PH, 1);
@@ -1982,4 +2010,81 @@ if (photoArg) {
     out.errorCode=eng.gpu.gl.getError();gpu.dispose();eng.dispose();
   }catch(e){out.error=String(e)+(e instanceof Error?e.stack:'');}
   const pre=document.createElement('pre');pre.id='profiles';pre.textContent=JSON.stringify(out);document.body.append(pre);
+})();
+
+// Region rendering (docs/plans/roi.md): ?region. A full-size source developed only where a
+// zoomed view shows it must give the pixels a whole full-size render gives there. `exact` takes
+// the whole-photo products from the full source itself, isolating the region mechanism (must be
+// equal up to rounding); `preview` takes them from a half-size source, as the app does (the tone
+// equalizer map, halation, glow and dehaze's ambient light then come from the preview, as
+// darktable's come from its preview pipe).
+(async()=>{
+  if(!new URLSearchParams(location.search).has('region'))return;
+  const out:Record<string,unknown>={};
+  try{
+    const eng=new Engine(document.createElement('canvas'));
+    const gl=eng.gpu.gl;
+    const W=1920,H=1280;
+    const hash=(x:number,y:number)=>{let h=Math.imul(x*374761393+y*668265263,1274126177);h^=h>>>13;return ((Math.imul(h,1103515245)>>>0)%1000)/1000;};
+    const scene=(x:number,y:number):[number,number,number]=>{
+      const base=0.04+0.35*(x/W)+0.2*(y/H)+(((x>>5)^(y>>5))&1)*0.12+0.03*hash(x,y);
+      const disc=Math.hypot(x-1400,y-400)<120?3:0;
+      return [base*1.1+disc,base+disc*0.9,base*0.8+disc*0.7];
+    };
+    const upload=(w:number,h:number,f:(x:number,y:number)=>[number,number,number])=>{
+      const data=new Float32Array(w*h*4);
+      for(let y=0;y<h;y++)for(let x=0;x<w;x++){const c=f(x,y);data.set([c[0],c[1],c[2],1],4*(y*w+x));}
+      const tex=gl.createTexture()!;eng.gpu.scratch();gl.bindTexture(gl.TEXTURE_2D,tex);
+      gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA16F,w,h,0,gl.RGBA,gl.FLOAT,data);gl.generateMipmap(gl.TEXTURE_2D);eng.gpu.params(true);
+      return tex;
+    };
+    const k=65535/1.8,toCam=[k,0,0,0,k,0,0,0,k];
+    const make=(w:number,h:number,f:(x:number,y:number)=>[number,number,number]):Source=>{
+      const s:Source={tex:upload(w,h,f),w,h,mode:InputMode.SceneLinear,white:null,fullW:W,fullH:H,lens:(lensFixtures as LensMetadata[])[0],origin:'probe'};
+      const mask=new Uint8Array(w*h).fill(1);
+      for(let y=0;y<h;y++)for(let x=0;x<w;x++)if(Math.hypot(x/w*W-1400,y/h*H-400)<100)mask[y*w+x]=0;
+      eng.attachCapture(s,0.67,toCam,mask);
+      return s;
+    };
+    const full=make(W,H,scene);
+    const preview=make(W/2,H/2,(x,y)=>{const a=scene(2*x,2*y),b=scene(2*x+1,2*y),c=scene(2*x,2*y+1),d=scene(2*x+1,2*y+1);return [0,1,2].map(i=>(a[i]+b[i]+c[i]+d[i])/4) as [number,number,number];});
+    const base=defaultRecipe('neutral','straight');
+    const gradient={...newMask(newGradient([0.6,0.5],30),0),exposure:1};
+    const brush=newBrush();
+    const brushMask={...newMask({...brush,strokes:[[{x:0.45,y:0.45,border:0.03,hardness:0.6,density:1},{x:0.62,y:0.58,border:0.03,hardness:0.6,density:1}]]},1),saturation:-60};
+    const colour={hue:[20,0,0,-30,0,0,0,0],sat:[0,30,0,0,0,-20,0,0],bright:[0,0,15,0,0,0,0,0]};
+    const recipes:Record<string,Recipe>={
+      defaults:base,
+      busy:{...base,dehaze:30,sharpen:40,highlights:-40,halation:30,color:colour as Recipe['color'],masks:[gradient,brushMask]},
+      cropped:{...base,dehaze:-20,crop:{...FULL,x:0.1,y:0.05,w:0.8,h:0.85,angle:4}},
+    };
+    const views:Record<string,{x:number;y:number;w:number;h:number}>={centre:{x:0.375,y:0.375,w:0.25,h:0.25},corner:{x:0.75,y:0.75,w:0.25,h:0.25},origin:{x:0,y:0,w:0.25,h:0.25},highlight:{x:0.62,y:0.18,w:0.25,h:0.25}};
+    const compare=(a:Uint8Array,b:Uint8Array)=>{let worst=0,off=0;for(let i=0;i<a.length;i++){const d=Math.abs(a[i]-b[i]);if(d>worst)worst=d;if(d>1)off++;}return {worst,over1:off};};
+    for(const [rn,r] of Object.entries(recipes))for(const [vn,v] of Object.entries(views)){
+      const crop=r.crop??FULL;
+      const w=Math.round(v.w*crop.w*W),h=Math.round(v.h*crop.h*H);
+      const whole=eng.readPixels(full,r,w,h,1,false,v);
+      const exact=eng.readPixels(full,r,w,h,1,false,v,undefined,full);
+      const viaPreview=eng.readPixels(full,r,w,h,1,false,v,undefined,preview);
+      out[`${rn}_${vn}`]={size:[w,h],exact:compare(whole,exact),preview:compare(whole,viaPreview),region:(eng as unknown as {regionMade:{rect:unknown}|null}).regionMade?.rect??null};
+    }
+    // The region is reused while the view stays inside it, and a second render is identical.
+    const v=views.centre,r=recipes.busy,w=480,h=320;
+    const a=eng.readPixels(full,r,w,h,1,false,v,undefined,preview);
+    const made=(eng as unknown as {regionMade:{source:unknown}|null}).regionMade?.source;
+    const b=eng.readPixels(full,r,w,h,1,false,{...v,x:v.x+0.01},undefined,preview);
+    const c=eng.readPixels(full,r,w,h,1,false,v,undefined,preview);
+    // A pan past the maps' clip but inside the region: the maps are remade there and must still match.
+    for(const dx of [0.012,0.03,0.045]){
+      const pv={...v,x:v.x+dx};
+      const viaRegion=eng.readPixels(full,r,w,h,1,false,pv,undefined,full);
+      const sameRect=(eng as unknown as {regionMade:{source:unknown}|null}).regionMade?.source===made;
+      const whole=eng.readPixels(full,r,w,h,1,false,pv);
+      out[`pan${dx}`]={sameRegion:sameRect,...compare(whole,viaRegion)};
+    }
+    out.reuse={sameRegion:(eng as unknown as {regionMade:{source:unknown}|null}).regionMade?.source===made,repeatEqual:compare(a,c).worst===0,panned:compare(a,b).worst>0};
+    out.glError=gl.getError();
+    eng.release(full);eng.release(preview);eng.dispose();
+  }catch(e){out.error=String(e)+(e instanceof Error?e.stack:'');}
+  const pre=document.createElement('pre');pre.id='region';pre.textContent=JSON.stringify(out);document.body.append(pre);
 })();

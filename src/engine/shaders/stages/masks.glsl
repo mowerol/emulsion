@@ -44,6 +44,9 @@ uniform mat3 uMaskToXyz;
 // and 2 refined masks, one channel per packed mask; layers 3 and 4 likewise, refined at the masks'
 // haze removal instances.
 uniform highp sampler2DArray uMaskStack;
+// The stack layer the AI objects start at: object k is in layer uMaskObjectLayer + k / 4, channel
+// k % 4 (ObjectGpu).
+uniform float uMaskObjectLayer;
 // The packed mask (slot) whose input and unrefined value the refinement tap writes, or -1.
 uniform float uMaskTap;
 
@@ -53,6 +56,12 @@ float maskChannel(vec4 t, int c) {
 
 float maskBrush(float channel, vec2 uv) {
   return maskChannel(texture(uMaskStack, vec3(uv, 0.0)), int(channel + 0.5));
+}
+
+// An AI object's pixels (darktable's pixel mask), resampled into the stack.
+float maskObject(float k, vec2 uv) {
+  int i = int(k + 0.5);
+  return maskChannel(texture(uMaskStack, vec3(uv, uMaskObjectLayer + float(i / 4))), i - (i / 4) * 4);
 }
 
 float maskRefined(int i, vec2 uv) {
@@ -174,7 +183,7 @@ void computeMasks(vec2 uv, vec2 dim) {
   for (int i = 0; i < MAX_SHAPES; i++) {
     if (i >= count) break;
     vec4 h = uMaskShapes[i * 3], p = uMaskShapes[i * 3 + 1], q = uMaskShapes[i * 3 + 2];
-    float raw = h.x < 1.5 ? maskGradient(p, q, px, dim) : h.x < 2.5 ? maskEllipse(p, q, px, dim) : maskBrush(p.x, uv);
+    float raw = h.x < 1.5 ? maskGradient(p, q, px, dim) : h.x < 2.5 ? maskEllipse(p, q, px, dim) : h.x < 3.5 ? maskBrush(p.x, uv) : maskObject(p.x, uv);
     float invert = h.x < 1.5 ? q.z : q.w;
     float value = h.z * (invert > 0.5 ? 1.0 - raw : raw);
     int m = int(h.w + 0.5);

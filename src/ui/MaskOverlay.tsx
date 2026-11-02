@@ -3,7 +3,8 @@
 // armed tool. Gradients: drag the middle line to move, the round handle to turn, the dashed line
 // to widen the transition. Radials: drag the centre to move, the axis handles to size (the long
 // one also turns), the outer handle to feather. Brush: paint with the pointer (⌥ erases). Range
-// picker: click, or drag a box, over what the selected mask's range should take in.
+// picker: click, or drag a box, over what the selected mask's range should take in. Object:
+// click a thing to select it, ⇧-click to leave a part out, ⌘⇧-click to clear (darktable's keys).
 
 import { useRef, useState } from 'react';
 import { geometryMatrix, project, type Perspective } from '../engine/perspective';
@@ -15,7 +16,8 @@ import type { View } from '../engine/engine';
 import { imagePoint } from './zoom';
 import { placeShape, setMaskUi, startStroke, updateShape, updateStroke, useMaskUi, useSelectedMask } from './maskui';
 import { simplify, strokeEpsilon } from '../engine/brush';
-import type { BrushNode } from '../film/masks';
+import type { BrushNode, ObjectShape } from '../film/masks';
+import { editingObject, objectClick } from './objectselect';
 
 type Handle = 'g-move' | 'g-turn' | 'g-edge' | 'e-move' | 'e-a' | 'e-b' | 'e-feather';
 
@@ -53,6 +55,7 @@ export function MaskOverlay({ transform, frame, W, H, view, cssW, cssH, onPick }
   const brush = useMaskUi((st) => st.brush);
   const [hover, setHover] = useState<Pt | null>(null);
   const stroke = useRef<{ at: { mask: string; shape: string; stroke: number }; nodes: BrushNode[]; last: Pt } | null>(null);
+  const press = useRef<{ at: Pt; id: number } | null>(null);
   if (!mask && !tool) return null;
 
   const crop: Crop = { ...FULL, ...frame };
@@ -115,6 +118,21 @@ export function MaskOverlay({ transform, frame, W, H, view, cssW, cssH, onPick }
     stroke.current = { at, nodes: [node(p)], last: toScreen(p) };
   };
 
+  // darktable places the prompt where the button went down, whether or not the pointer moved.
+  const beginObject = (e: React.PointerEvent) => {
+    if (e.button !== 0 || !tool) return;
+    e.stopPropagation();
+    e.preventDefault();
+    ref.current!.setPointerCapture(e.pointerId);
+    press.current = { at: toSource(e), id: e.pointerId };
+  };
+  const endObject = (e: React.PointerEvent) => {
+    const p = press.current;
+    press.current = null;
+    if (!p || !tool) return;
+    objectClick(p.at[0], p.at[1], tool, e.shiftKey, e.shiftKey && (e.metaKey || e.ctrlKey));
+  };
+
   const begin = (e: React.PointerEvent, handle: Drag['handle'], shape: MaskShape | null) => {
     if (e.button !== 0) return;
     e.stopPropagation();
@@ -124,7 +142,7 @@ export function MaskOverlay({ transform, frame, W, H, view, cssW, cssH, onPick }
     if (shape) setMaskUi({ shape: shape.id });
   };
 
-  const created = (p0: Pt, p1: Pt, clicked: boolean): MaskShape =>
+  const created = (p0: Pt, p1: Pt, clicked: boolean): GradientShape | EllipseShape =>
     tool!.kind === 'gradient'
       ? (clicked ? newGradient(p0) : { ...newGradient(), ...gradientFromDrag(p0, p1, W, H) })
       : (clicked ? newEllipse(p0, [0.15, 0.1]) : { ...newEllipse(), ...ellipseFromDrag(p0, p1, W, H) });
@@ -177,6 +195,7 @@ export function MaskOverlay({ transform, frame, W, H, view, cssW, cssH, onPick }
 
   const end = (e: React.PointerEvent) => {
     if (pickBox.current) return endPick(e);
+    if (press.current) return endObject(e);
     const st = stroke.current;
     if (st) {
       stroke.current = null;
@@ -218,6 +237,7 @@ export function MaskOverlay({ transform, frame, W, H, view, cssW, cssH, onPick }
       );
     }
     if (s.kind === 'brush') return null;
+    if (s.kind === 'object') return drawPrompts(s, isActive || (tool?.kind === 'object' && editingObject() === s.id));
     const h = ellipseHandles(s, W, H);
     const c = toScreen(s.center);
     const [a, b, f] = [toScreen(h.a), toScreen(h.b), toScreen(h.feather)];
@@ -236,6 +256,24 @@ export function MaskOverlay({ transform, frame, W, H, view, cssW, cssH, onPick }
     );
   };
 
+  /** An object's prompts: + where it was taken in, − where a part was left out. */
+  function drawPrompts(o: ObjectShape, show: boolean) {
+    if (!show) return null;
+    return (
+      <g key={o.id} className="mask-prompts">
+        {o.prompts.map((p, i) => {
+          const [x, y] = toScreen([p.x, p.y]);
+          return (
+            <g key={i} className={`mask-prompt ${p.label ? 'in' : 'out'}`} transform={`translate(${x.toFixed(1)} ${y.toFixed(1)})`}>
+              <circle r={7} />
+              <path d={p.label ? 'M-3.5 0H3.5M0 -3.5V3.5' : 'M-3.5 0H3.5'} />
+            </g>
+          );
+        })}
+      </g>
+    );
+  }
+
   /** A point along a gradient's line, `d` diagonals from its middle. */
   function alongTangent(g: GradientShape, d: number): Pt {
     const v = (-g.rotation * Math.PI) / 180;
@@ -246,8 +284,9 @@ export function MaskOverlay({ transform, frame, W, H, view, cssW, cssH, onPick }
 
   return (
     <svg ref={ref} className={`mask-overlay${tool || pick ? ' drawing' : ''}`} width={cssW} height={cssH} onPointerMove={move} onPointerUp={end}
-      onPointerCancel={() => { drag.current = null; setDraft(null); pickBox.current = null; setPickDraft(null); }}>
-      {tool && <rect className="mask-capture" width={cssW} height={cssH} onPointerDown={(e) => (tool.kind === 'brush' ? beginStroke(e) : begin(e, 'create', null))} onPointerLeave={() => setHover(null)} />}
+      onPointerCancel={() => { drag.current = null; setDraft(null); pickBox.current = null; setPickDraft(null); press.current = null; }}>
+      {tool && <rect className={`mask-capture${tool.kind === 'object' ? ' object' : ''}`} width={cssW} height={cssH}
+        onPointerDown={(e) => (tool.kind === 'brush' ? beginStroke(e) : tool.kind === 'object' ? beginObject(e) : begin(e, 'create', null))} onPointerLeave={() => setHover(null)} />}
       {pick && !tool && <rect className="mask-capture" width={cssW} height={cssH} onPointerDown={beginPick} />}
       {pickDraft && (
         <rect className="mask-pick-box" x={Math.min(pickDraft[0][0], pickDraft[1][0])} y={Math.min(pickDraft[0][1], pickDraft[1][1])}

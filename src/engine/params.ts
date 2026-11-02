@@ -106,6 +106,8 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uToDisplay: DISPLAY,
     uSigN: NEUTRAL_CURVE,
     uOut: [ctx.width, ctx.height],
+    // The whole source; a region render sets its own (docs/plans/roi.md).
+    uRoi: [0, 0, 1, 1],
     uStore: ctx.store,
     uSeed: ctx.seed,
     uHalThreshold: HALATION_THRESHOLD,
@@ -186,7 +188,7 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
   };
 }
 
-const NO_MASKS: Uniforms = { uTeqTiles: 1, uMaskCount: 0, uMaskShapeCount: 0, uMaskShow: -1, uMaskStack: MASK_UNIT, uMaskTap: -1 };
+const NO_MASKS: Uniforms = { uTeqTiles: 1, uMaskCount: 0, uMaskShapeCount: 0, uMaskShow: -1, uMaskStack: MASK_UNIT, uMaskTap: -1, uMaskObjectLayer: 0 };
 
 /**
  * The masks' shapes and their adjustments. Temperature moves the photo's white by that many

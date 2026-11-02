@@ -17,12 +17,16 @@ uniform sampler2D uMask;
 uniform float uPrevOn;
 uniform float uWeighted;
 uniform int uKind;
+uniform sampler2D uCoarse;
+uniform float uCoarseOn;
+uniform vec4 uCoarseRoi;
 
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
   float prev = uPrevOn > 0.5 ? texelFetch(uPrev, p, 0).r : 0.0;
   vec4 n = texelFetch(uNew, p, 0);
   float delta = uKind == 0 ? n.r + n.g - n.b : n.r;
+  if (uCoarseOn > 0.5) delta += texture(uCoarse, uCoarseRoi.xy + vUv * uCoarseRoi.zw).r;
   float m = uWeighted < 0.5 ? 1.0 : uKind == 0 ? n.a : texelFetch(uMask, p, 0).a;
   outColor = vec4(prev + m * delta, 0.0, 0.0, 1.0);
 }

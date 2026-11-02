@@ -8,7 +8,7 @@ import { defaultRecipe, type Recipe } from '../film/recipe';
 import { BRUSH_DEFAULTS, MAX_BRUSHES, MAX_MASKS, MAX_SHAPES, brushCount, newBrush, newId, newMask, shapeCount, type BrushNode, type BrushShape, type Mask, type MaskMode, type MaskShape, type RangeChannel } from '../film/masks';
 
 export interface MaskTool {
-  kind: 'gradient' | 'ellipse' | 'brush';
+  kind: 'gradient' | 'ellipse' | 'brush' | 'object';
   /** A new mask, or a shape joining the selected one. */
   mode: 'new' | MaskMode;
 }

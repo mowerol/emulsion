@@ -2,6 +2,7 @@
 //! Emulsion desktop core: folders, decoding, thumbnails, sidecars and export.
 //! Image processing itself runs on the GPU in the webview (see src/engine).
 
+mod ai_masks;
 mod camera_profiles;
 mod capture;
 mod commands;
@@ -15,6 +16,7 @@ mod lens;
 mod raw;
 mod presets;
 mod perspective;
+mod segment;
 mod sidecar;
 mod thumbs;
 mod user_looks;
@@ -124,8 +126,13 @@ pub fn run() {
             commands::write_export,
             commands::startup_options,
             commands::log_message,
+            ai_masks::ai_mask_status,
+            ai_masks::ai_mask_install,
+            ai_masks::segment_encode,
+            ai_masks::segment_decode,
+            ai_masks::segment_refine,
         ])
         .build(tauri::generate_context!())
         .expect("error while building Emulsion")
-        .run(|_, event| { if matches!(event, tauri::RunEvent::Exit) { noise_cache::shutdown(); } });
+        .run(|_, event| { if matches!(event, tauri::RunEvent::Exit) { noise_cache::shutdown(); ai_masks::shutdown(); } });
 }

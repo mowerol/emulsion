@@ -176,3 +176,25 @@ export function autoPerspective(pixels: Uint8Array, width: number, height: numbe
     headers: { 'x-emulsion-width': String(width), 'x-emulsion-height': String(height), 'x-emulsion-axis': axis, 'x-emulsion-perspective': JSON.stringify(current) },
   });
 }
+
+/** AI object masks (src-tauri/src/ai_masks.rs): whether the model is installed, and fetching it. */
+export interface AiMaskStatus { supported: boolean; installed: boolean; download: number }
+export const aiMaskStatus = () => invoke<AiMaskStatus>('ai_mask_status');
+export const aiMaskInstall = () => invoke<void>('ai_mask_install');
+
+/** Encode a photo for object selection: RGBA8, top row first, of the whole uncropped source. */
+export function segmentEncode(key: string, rgba: Uint8Array, width: number, height: number) {
+  return invoke<void>('segment_encode', rgba, {
+    headers: { 'x-emulsion-key': encodeURIComponent(key), 'x-emulsion-width': String(width), 'x-emulsion-height': String(height) },
+  });
+}
+
+/** A SAM prompt in the encoded render's pixels. */
+export interface SegmentPoint { x: number; y: number; label: number }
+
+/** The selection for the prompts, 8-bit at the encoded size, before edge refinement. */
+export const segmentDecode = async (key: string, points: SegmentPoint[], fresh: boolean) =>
+  new Uint8Array(await invoke<ArrayBuffer>('segment_decode', { key, points, fresh }));
+
+/** The last selection with darktable's DenseCRF edge refinement. */
+export const segmentRefine = async (key: string) => new Uint8Array(await invoke<ArrayBuffer>('segment_refine', { key }));

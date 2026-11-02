@@ -4,7 +4,8 @@
 // the values that have no handle.
 
 import { useEffect } from 'react';
-import { BRUSH_DEFAULTS, MASK_MODES, MASK_SLIDERS, REFINE_SLIDERS, type EllipseShape, type GradientShape, type Mask, type MaskMode, type MaskShape, type MaskSliderDef } from '../film/masks';
+import { BRUSH_DEFAULTS, MASK_MODES, MASK_SLIDERS, REFINE_SLIDERS, type EllipseShape, type GradientShape, type Mask, type MaskMode, type MaskShape, type MaskSliderDef, type ObjectShape } from '../film/masks';
+import { installObjectModel, newObjectSession, prepareObjectSelect, useObjectSelect } from './objectselect';
 import { formatEv, formatSigned } from '../film/recipe';
 import { MaskRanges } from './MaskRange';
 import { deleteMask, deleteShape, duplicateMask, setMaskUi, updateMask, updateShape, useMasks, useMaskUi, useSelectedMask, type MaskTool } from './maskui';
@@ -13,9 +14,10 @@ const TOOLS: { kind: MaskTool['kind']; label: string; short: string; hint: strin
   { kind: 'gradient', label: 'Linear gradient', short: 'Linear', hint: 'Drag on the photo from where the effect is full to where it ends' },
   { kind: 'ellipse', label: 'Radial gradient', short: 'Radial', hint: 'Drag on the photo from the centre outwards' },
   { kind: 'brush', label: 'Brush', short: 'Brush', hint: 'Paint on the photo; hold ⌥ to erase. [ and ] change the size' },
+  { kind: 'object', label: 'Select object', short: 'Object', hint: 'Click a thing in the photo to select it. Click again to take in more, ⇧-click to leave a part out, ⌘⇧-click to start over' },
 ];
 
-const shapeName = (s: MaskShape) => (s.kind === 'gradient' ? 'Linear gradient' : s.kind === 'ellipse' ? 'Radial gradient' : 'Brush');
+const shapeName = (s: MaskShape) => (s.kind === 'gradient' ? 'Linear gradient' : s.kind === 'ellipse' ? 'Radial gradient' : s.kind === 'object' ? 'Object' : 'Brush');
 
 function Slider({ id, label, value, min, max, step, format, onChange, onReset }: {
   id: string; label: string; value: number; min: number; max: number; step: number;
@@ -43,7 +45,10 @@ function ToolButtons({ mode, label }: { mode: MaskTool['mode']; label?: string }
         const on = tool?.kind === t.kind && tool.mode === mode;
         return (
           <button key={t.kind} type="button" className={`btn mask-tool ${t.kind}`} aria-pressed={on} title={t.hint} aria-label={label ? `${label} ${t.label.toLowerCase()}` : undefined}
-            onClick={() => setMaskUi({ tool: on ? null : { kind: t.kind, mode }, pick: null })}>
+            onClick={() => {
+              setMaskUi({ tool: on ? null : { kind: t.kind, mode }, pick: null });
+              if (t.kind === 'object' && !on) { newObjectSession(); void prepareObjectSelect(); }
+            }}>
             <span className="mask-tool-icon" aria-hidden="true" />{label ? t.short : t.label}
           </button>
         );
@@ -75,6 +80,7 @@ function ShapeRow({ mask, shape, index }: { mask: Mask; shape: MaskShape; index:
           <Slider id={`shape-opacity-${shape.id}`} label="Opacity" value={Math.round(shape.opacity * 100)} min={0} max={100} step={1} format={(v) => `${v}%`}
             onChange={(v) => edit((s) => ({ ...s, opacity: v / 100 }), 'Shape opacity', true)} onReset={() => edit((s) => ({ ...s, opacity: 1 }), 'Shape opacity')} />
           {shape.kind === 'gradient' ? <GradientFields shape={shape} edit={edit} /> : shape.kind === 'ellipse' ? <EllipseFields shape={shape} edit={edit} />
+            : shape.kind === 'object' ? <ObjectFields mask={mask} shape={shape} />
             : <p className="hint">{shape.strokes.length} {shape.strokes.length === 1 ? 'stroke' : 'strokes'}</p>}
         </div>
       )}
@@ -110,6 +116,48 @@ function EllipseFields({ shape, edit }: { shape: EllipseShape; edit: Edit }) {
       <input type="checkbox" checked={shape.proportional} onChange={(ev) => edit(e({ proportional: ev.target.checked, border: ev.target.checked ? shape.border / Math.max(0.01, shape.radius[0]) : shape.border * shape.radius[0] }), 'Radial feather')} /> Proportional feather
     </label>
   </>;
+}
+
+/** An AI object: its clicks, and picking the tool up again to change it. */
+function ObjectFields({ mask, shape }: { mask: Mask; shape: ObjectShape }) {
+  const tool = useMaskUi((s) => s.tool);
+  const kept = shape.prompts.filter((p) => p.label === 1).length;
+  const left = shape.prompts.length - kept;
+  return <>
+    <p className="hint">{kept} {kept === 1 ? 'click' : 'clicks'} in{left ? `, ${left} out` : ''} · {shape.raster.w} × {shape.raster.h}</p>
+    <button type="button" className="btn" aria-pressed={tool?.kind === 'object'} onClick={() => {
+      setMaskUi({ selected: mask.id, shape: shape.id, tool: { kind: 'object', mode: 'add' }, pick: null });
+      newObjectSession(shape.id);
+      void prepareObjectSelect();
+    }}>Change selection</button>
+  </>;
+}
+
+/** The object tool's state: the model to fetch, the photo being read, or what to do. */
+function ObjectStatus() {
+  const { phase, download, progress, error } = useObjectSelect();
+  const mb = (n: number) => `${Math.round(n / 1e6)} MB`;
+  if (phase === 'missing') return (
+    <div className="mask-object-status">
+      <p className="hint">Object selection uses darktable's SAM 2.1 model (Meta, Apache-2.0), run on this Mac. It is a one-off {mb(download)} download.</p>
+      <button type="button" className="btn" onClick={() => void installObjectModel()}>Download model</button>
+    </div>
+  );
+  if (phase === 'downloading') return (
+    <div className="mask-object-status" role="status">
+      <p className="hint">Downloading the model… {progress && progress.total ? `${Math.round((100 * progress.done) / progress.total)}%` : ''}</p>
+      <progress max={progress?.total || 1} value={progress?.done ?? 0} />
+    </div>
+  );
+  if (phase === 'checking' || phase === 'encoding') return <p className="hint mask-object-status" role="status">Reading the photo…</p>;
+  if (phase === 'working') return <p className="hint mask-object-status" role="status">Selecting…</p>;
+  if (phase === 'unsupported' || phase === 'error') return (
+    <div className="mask-object-status">
+      <p className="hint">{error}</p>
+      {phase === 'error' && <button type="button" className="btn" onClick={() => void prepareObjectSelect()}>Try again</button>}
+    </div>
+  );
+  return null;
 }
 
 /** darktable's brush settings: border (size), hardness and density. */
@@ -202,6 +250,7 @@ export function MaskControls() {
       <ToolButtons mode="new" />
       {tool && <p className="hint mask-hint">{TOOLS.find((t) => t.kind === tool.kind)!.hint}. Esc puts the tool down.</p>}
       {tool?.kind === 'brush' && <BrushSettings />}
+      {tool?.kind === 'object' && <ObjectStatus />}
       {masks.length > 0 && (
         <ul className="mask-list" aria-label="Masks">
           {masks.map((m) => (

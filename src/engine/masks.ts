@@ -15,7 +15,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { BrushShape, EllipseShape, GradientShape, Mask, MaskMode, MaskRange, MaskShape, RangeChannel } from '../film/masks';
-import { MAX_BRUSHES, MAX_MASKS, MAX_SHAPES, RANGE_CHANNELS, maskActive } from '../film/masks';
+import { MAX_BRUSHES, MAX_MASKS, MAX_OBJECTS, MAX_SHAPES, RANGE_CHANNELS, maskActive } from '../film/masks';
+import { rasterValue } from '../film/objectmask';
 import { brushValue } from './brush';
 import { REC2020_TO_XYZ } from './colorbalance';
 import type { Vec3 } from '../film/stocks';
@@ -76,7 +77,8 @@ export function ellipseValue(e: EllipseShape, u: number, v: number, W: number, H
 }
 
 export const shapeValue = (s: MaskShape, u: number, v: number, W: number, H: number) =>
-  s.kind === 'gradient' ? gradientValue(s, u, v, W, H) : s.kind === 'ellipse' ? ellipseValue(s, u, v, W, H) : brushValue(s as BrushShape, u, v, W, H);
+  s.kind === 'gradient' ? gradientValue(s, u, v, W, H) : s.kind === 'ellipse' ? ellipseValue(s, u, v, W, H)
+    : s.kind === 'object' ? rasterValue(s.raster, u, v) : brushValue(s as BrushShape, u, v, W, H);
 
 /** darktable's _combine_masks_*: `dest` so far, with the next shape's value already at its opacity. */
 export function combine(mode: MaskMode | 'copy', dest: number, mask: number): number {
@@ -267,7 +269,8 @@ const MODE_CODE: Record<MaskMode | 'copy', number> = { copy: 0, add: 1, intersec
  * [kind (1 gradient, 2 ellipse), combine code, opacity, mask index],
  * gradient: [anchor x, anchor y, rotation (rad), compression], [curvature, linear, invert, 0];
  * ellipse: [centre x, centre y, radius a, radius b], [rotation (rad), border, proportional, invert];
- * brush (3): [its channel in the brush masks, 0, 0, 0], [0, 0, 0, invert].
+ * brush (3): [its channel in the brush masks, 0, 0, 0], [0, 0, 0, invert];
+ * object (4): [its place among the objects (layer and channel in the stack), 0, 0, 0], [0, 0, 0, invert].
  * Only masks that change something, and the one shown, are packed; `index` maps a packed mask to
  * its place in the list.
  */
@@ -276,6 +279,7 @@ export function packShapes(masks: Mask[], show = -1): { shapes: number[]; count:
   const index: number[] = [];
   let count = 0;
   let brushes = 0;
+  let objects = 0;
   for (let mi = 0; mi < masks.length; mi++) {
     const m = masks[mi];
     if (!m.shapes.length || !(maskActive(m) || mi === show) || index.length >= MAX_MASKS) continue;
@@ -287,7 +291,8 @@ export function packShapes(masks: Mask[], show = -1): { shapes: number[]; count:
       const mode = MODE_CODE[i === 0 ? 'copy' : s.mode];
       if (s.kind === 'gradient') shapes.push(1, mode, s.opacity, slot, s.anchor[0], s.anchor[1], rad(s.rotation), s.compression, s.curvature, s.linear ? 1 : 0, s.invert ? 1 : 0, 0);
       else if (s.kind === 'ellipse') shapes.push(2, mode, s.opacity, slot, s.center[0], s.center[1], s.radius[0], s.radius[1], rad(s.rotation), s.border, s.proportional ? 1 : 0, s.invert ? 1 : 0);
-      // Brushes past the textures' room count as empty.
+      // Brushes and objects past the textures' room count as empty.
+      else if (s.kind === 'object') shapes.push(4, mode, objects < MAX_OBJECTS ? s.opacity : 0, slot, objects++, 0, 0, 0, 0, 0, 0, s.invert ? 1 : 0);
       else shapes.push(3, mode, brushes < MAX_BRUSHES ? s.opacity : 0, slot, brushes++, 0, 0, 0, 0, 0, 0, s.invert ? 1 : 0);
     });
   }

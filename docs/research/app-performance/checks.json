@@ -1,0 +1,18 @@
+{
+  "frontendSnapshotTests": 477,
+  "frontendSnapshotTestFiles": 62,
+  "nativeAuditTests": 1,
+  "browserCombinations": [
+    "state.chrome",
+    "state.webkit",
+    "library.chrome",
+    "library.webkit",
+    "memory.chrome",
+    "memory.webkit"
+  ],
+  "auditTypecheck": "passed",
+  "nodeSyntax": "passed",
+  "pythonCompile": "passed",
+  "swiftCompileAndRun": "passed",
+  "liveTreeFullCheck": "not run: concurrent ROI changes"
+}

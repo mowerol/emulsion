@@ -28,6 +28,7 @@ import { Filmstrip } from './Filmstrip';
 import { FIT, imagePoint, label, layout, pan, step, zoomAt, type Layout, type Zoom } from './zoom';
 import { MaskOverlay } from './MaskOverlay';
 import { setMaskUi, updateMask, useMaskUi } from './maskui';
+import { ENCODE_EDGE, setObjectRenderer } from './objectselect';
 
 /** What an unedited photo is developed with. */
 const UNEDITED = defaultRecipe();
@@ -38,6 +39,11 @@ const PREVIEW_EDGE = 2560;
 const HISTOGRAM_EDGE = 384;
 /** Wait this long after the last change before counting, so dragging stays smooth. */
 const HISTOGRAM_DELAY_MS = 120;
+/**
+ * How long the view must stay still before a zoom or pan builds the full-resolution region it
+ * now needs; until then the preview stands in, so the gesture keeps up.
+ */
+const VIEW_SETTLE_MS = 180;
 /** A pointer that moves less than this many CSS pixels is a click, not a drag. */
 const CLICK_SLOP = 4;
 /** Clear space round the photo while cropping, in CSS pixels, on top of the stage's padding. */
@@ -159,6 +165,14 @@ export function Develop() {
     loadedRef.current = { path: p, source, res };
     setLoadedVersion((v) => v + 1);
   }, []);
+  /**
+   * With the full size loaded, the same photo's preview source: the screen develops only the region
+   * on screen from the full size and takes the whole photo's products from this (docs/plans/
+   * roi.md), and whole-photo work (histogram, pickers, the object encoder) runs on it, as
+   * darktable's runs on its preview pipe.
+   */
+  const wholeOf = (l: Loaded): Source | null =>
+    l.res === 'full' ? (sourceCacheRef.current.get(sourceKey(l.path, 'preview', !!l.source.denoised)) ?? null) : null;
   const cachedSource = (key: string) => {
     const source = sourceCacheRef.current.get(key);
     if (source) {
@@ -337,11 +351,17 @@ export function Develop() {
   // Render whenever anything that affects the frame changes.
   const seed = photo?.seed ?? 0;
   const viewKey = current ? `${current.pxW}x${current.pxH}:${current.view.x},${current.view.y},${current.view.w},${current.view.h}` : '';
+  const shownViewRef = useRef('');
   useEffect(() => {
+    // A new view is a zoom or pan in progress: draw what is already made (the preview, when the
+    // region would have to be rebuilt) and develop the full resolution once the view settles.
+    const moving = shownViewRef.current !== '' && shownViewRef.current !== viewKey;
+    shownViewRef.current = viewKey;
+    let settle = 0;
     // Wait for the GPU to finish the previous frame, then draw the latest state: while dragging,
     // frames are skipped rather than queued, so the photo keeps up with the slider.
     let id = 0;
-    const tick = () => {
+    const tick = (moving: boolean) => {
       const engine = engineRef.current;
       const l = loadedRef.current;
       const canvas = canvasRef.current;
@@ -349,18 +369,22 @@ export function Develop() {
       // Compare also needs the base camera profile, but never the creative LUT.
       if (engine.waiting(recipe, l.source.camera, compare)) return;
       if (!engine.idle()) {
-        id = requestAnimationFrame(tick);
+        id = requestAnimationFrame(() => tick(moving));
         return;
       }
       try {
         engine.retouchShow = healing ? showScale : 0;
-        engine.render(l.source, recipe, { target: 'screen', width: canvas.width, height: canvas.height, seed, compare, view: current.view, clipping, split, frame, outside: rgb(stage.hex), sharpenMask, maskShow: compare ? null : maskShow });
+        engine.render(l.source, recipe, { target: 'screen', width: canvas.width, height: canvas.height, seed, compare, view: current.view, clipping, split, frame, outside: rgb(stage.hex), sharpenMask, maskShow: compare ? null : maskShow, whole: wholeOf(l) ?? undefined, moving });
+        if (moving && engine.stoodIn) settle = window.setTimeout(() => { id = requestAnimationFrame(() => tick(false)); }, VIEW_SETTLE_MS);
       } catch (err) {
         setError(`Rendering failed. ${String(err)}`);
       }
     };
-    id = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(id);
+    id = requestAnimationFrame(() => tick(moving));
+    return () => {
+      cancelAnimationFrame(id);
+      clearTimeout(settle);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recipe, seed, compare, loadedVersion, viewKey, path, clipping, split, JSON.stringify(frame), stage, sharpenMask, lutVersion, profileVersion, maskShow, retouchVersion, healing, showScale]);
 
@@ -371,7 +395,8 @@ export function Develop() {
       const engine = engineRef.current;
       const l = loadedRef.current;
       if (!engine || !l || l.path !== path) return;
-      const [w, h] = framePixels(recipe?.crop ?? null, l.source.w, l.source.h);
+      const hs = wholeOf(l) ?? l.source;
+      const [w, h] = framePixels(recipe?.crop ?? null, hs.w, hs.h);
       const k = HISTOGRAM_EDGE / Math.max(w, h);
       const hw = Math.max(1, Math.round(w * Math.min(1, k)));
       const hh = Math.max(1, Math.round(h * Math.min(1, k)));
@@ -380,7 +405,7 @@ export function Develop() {
         // assets still loading. A superseded request must not publish old bins.
         await engine.prepare(compare && recipe ? { ...recipe, lookEnabled: false } : recipe, l.source.camera);
         if (cancelled) return;
-        const data = histogram(engine.readPixels(l.source, recipe, hw, hh, seed, compare));
+        const data = histogram(engine.readPixels(hs, recipe, hw, hh, seed, compare));
         useApp.setState({ histogram: { path: frameId!, data } });
       } catch {
         /* the histogram is a convenience; a failed count leaves the last one */
@@ -533,6 +558,23 @@ export function Develop() {
     setMaskUi({ pick: null });
   }, [frameId]);
 
+  // The render the object tool encodes: the whole uncropped source, as developed but without
+  // masks, at most 1536 px (darktable renders through its export pipe for this).
+  useEffect(() => {
+    setObjectRenderer(() => {
+      const engine = engineRef.current;
+      const l = loadedRef.current;
+      const p = activePhoto();
+      if (!engine || !l || !p || l.path !== p.path) return null;
+      const src = wholeOf(l) ?? l.source;
+      const k = Math.min(1, ENCODE_EDGE / Math.max(src.w, src.h));
+      const w = Math.max(1, Math.round(src.w * k)), h = Math.max(1, Math.round(src.h * k));
+      const r = p.recipe ? { ...p.recipe, masks: [], crop: null, transform: null } : null;
+      return { key: `${p.path}|${src.fullW}x${src.fullH}|${JSON.stringify(p.recipe?.lens ?? null)}`, w, h, pixels: () => engine.readPixels(src, r, w, h, 0) };
+    });
+    return () => setObjectRenderer(null);
+  }, []);
+
   /** Set the selected mask's picked range channel round what is in `box` (darktable's set-values picker). */
   const pickRange = (box: View) => {
     const engine = engineRef.current;
@@ -542,7 +584,7 @@ export function Develop() {
     const index = recipe?.masks.findIndex((m) => m.id === maskSelected) ?? -1;
     setMaskUi({ pick: null });
     if (!engine || !l || l.path !== path || !channel || !recipe || index < 0) return;
-    const stats = pickStats(engine.sampleMaskInput(l.source, recipe, index, box));
+    const stats = pickStats(engine.sampleMaskInput(wholeOf(l) ?? l.source, recipe, index, box));
     if (!stats) return;
     const range = pickedRange(stats, channel);
     const name = RANGE_CHANNELS.find((c) => c.id === channel)!.label.toLowerCase();
@@ -556,7 +598,7 @@ export function Develop() {
     if (!engine || !l || l.path !== path || !current) return;
     const [fu, fv] = imagePoint(current.view, fx, fy);
     const [u, v] = geometrySourcePoint({ ...FULL, ...frame }, l.source.fullW, l.source.fullH, fu, fv, photo?.recipe?.transform);
-    const sample = engine.sampleScene(l.source, u, v, photo?.recipe ?? null);
+    const sample = engine.sampleScene(wholeOf(l) ?? l.source, u, v, photo?.recipe ?? null);
     const w = neutralizingWhite(sample, l.source.white ?? D65_XY);
     useApp.setState({ picking: false });
     if (!w) {

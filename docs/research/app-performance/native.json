@@ -1,0 +1,94 @@
+{
+  "profile": "cargo test, default test profile; emulsion dev package opt-level 2, dependencies default unoptimized",
+  "note": "Real filesystem/decode calls, no Tauri IPC or GPU; scan fixtures zero-byte JPEG placeholders without sidecars; two sequential decode requests per size, no frontend cache; native vendor/build files reused locally",
+  "harnessSha256": "781170e20f749ca6f7bc6b1590e72a58e785e1bbaed024d48b127115cfcd540c",
+  "result": {
+    "decode-0-2560": {
+      "bytes": 34959392,
+      "dimensions": [
+        2560,
+        1707
+      ],
+      "milliseconds": [
+        11632.197333,
+        11767.565958000001
+      ],
+      "name": "1OKK6437.JPG"
+    },
+    "decode-0-512": {
+      "bytes": 1396768,
+      "dimensions": [
+        512,
+        341
+      ],
+      "milliseconds": [
+        8399.698916,
+        8558.42
+      ],
+      "name": "1OKK6437.JPG"
+    },
+    "decode-1-2560": {
+      "bytes": 35001616,
+      "dimensions": [
+        2560,
+        1709
+      ],
+      "milliseconds": [
+        4914.873250000001,
+        5785.867375000001
+      ],
+      "name": "1OKK6434.RAF"
+    },
+    "decode-1-512": {
+      "bytes": 1402128,
+      "dimensions": [
+        512,
+        342
+      ],
+      "milliseconds": [
+        2283.258583,
+        2260.407042
+      ],
+      "name": "1OKK6434.RAF"
+    },
+    "decode-2-2560": {
+      "bytes": 39301868,
+      "dimensions": [
+        2560,
+        1919
+      ],
+      "milliseconds": [
+        5233.988084,
+        4132.553167
+      ],
+      "name": "P9250490.ORF"
+    },
+    "decode-2-512": {
+      "bytes": 1573612,
+      "dimensions": [
+        512,
+        384
+      ],
+      "milliseconds": [
+        1653.673333,
+        1701.7155000000002
+      ],
+      "name": "P9250490.ORF"
+    },
+    "scan-1000": [
+      19.937625,
+      15.923916,
+      15.579374999999999
+    ],
+    "scan-10000": [
+      205.716042,
+      185.642042,
+      233.283
+    ],
+    "scan-50000": [
+      1125.494916,
+      1131.4955,
+      1069.55575
+    ]
+  }
+}

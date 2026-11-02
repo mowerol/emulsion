@@ -43,5 +43,12 @@ fn main() {
         .compile("emulsion_perspective");
     println!("cargo:rerun-if-changed=native/perspective.cpp");
     println!("cargo:rerun-if-changed=vendor/rawtherapee-perspective");
+    // darktable's DenseCRF, which refines AI object masks along the photo's edges.
+    cc::Build::new().cpp(true).std("c++14")
+        .include("vendor/darktable-densecrf")
+        .file("native/densecrf_shim.cpp").opt_level(3).warnings(false)
+        .compile("emulsion_densecrf");
+    println!("cargo:rerun-if-changed=native/densecrf_shim.cpp");
+    println!("cargo:rerun-if-changed=vendor/darktable-densecrf");
     tauri_build::build()
 }

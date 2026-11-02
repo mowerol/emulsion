@@ -66,10 +66,11 @@ export async function exportPhotos(
       const src = engine.sourceFromHalf(img);
       // An unedited photo exports as Neutral at its defaults, default sharpening included.
       const recipe = p.recipe ?? defaultRecipe();
-      if (recipe.captureSharpening > 0) await ensureCapture(engine, src, p.path);
-      await engine.prepare(recipe, src.camera);
       let px: Uint8Array;
+      // Everything after the upload is guarded, so a failed capture or profile still frees the source and its targets.
       try {
+        if (recipe.captureSharpening > 0) await ensureCapture(engine, src, p.path);
+        await engine.prepare(recipe, src.camera);
         px = engine.readPixels(src, recipe, w, h, p.seed);
       } finally {
         engine.release(src);

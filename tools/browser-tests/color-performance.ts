@@ -43,12 +43,12 @@ function monitor(engine: Engine) {
 }
 
 function cold(engine: Engine) {
-  const internals = engine as any;
+  const internals = (engine as any).whole;
   for (const key of ['ceScene', 'ceMade', 'eqMade', 'llMade', 'usmMade']) internals[key] = null;
 }
 
 function scenePixels(engine: Engine): Float32Array {
-  const target: Target = (engine as any).ceMade.out;
+  const target: Target = (engine as any).whole.ceMade.out;
   const gl = engine.gpu.gl;
   const px = new Float32Array(target.w * target.h * 4);
   gl.bindFramebuffer(gl.FRAMEBUFFER, target.fbo);

@@ -8,6 +8,8 @@
 // (_ellipse_points_to_transform, _bounding_box, _ellipse_get_area, _ellipse_get_mask, _fill_mask)
 // at commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release 5.6.2). Translated from C to
 // TypeScript. The wavelet decomposition is engine/dwt.ts, the bilateral grid engine/bilateral.ts.
+// retouchInputs follows rt_compute_roi_in's source dependency closure conservatively: grow the
+// input bounding rectangle until every included form's complete destination and source fit.
 //
 // Emulsion runs this on the CPU over the part of the photo the spots touch (Engine.retouched),
 // like darktable's heal on its OpenCL path, and the result replaces the source for every later
@@ -553,4 +555,30 @@ export function retouchRegion(spots: RetouchSpot[], W: number, H: number, scale:
   const x = Math.max(0, x0), y = Math.max(0, y0);
   const rw = Math.min(w, x1) - x, rh = Math.min(h, y1) - y;
   return rw > 0 && rh > 0 ? { x, y, w: rw, h: rh } : null;
+}
+
+/** retouch.c's rt_compute_roi_in dependency rule: include each intersecting form's complete
+ * destination (Heal solves over the whole mask) and source; close dependencies as the input
+ * grows. Coordinates remain global working-image pixels, and forms keep their original order. */
+export function retouchInputs(spots: RetouchSpot[], output: Roi, W: number, H: number, scale: number, w: number, h: number, setup: RetouchSetup = NO_SCALES): { region: Roi; spots: RetouchSpot[] } {
+  let region = { ...output };
+  const selected = new Set<number>();
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (let i = spots.length - 1; i >= 0; i--) {
+      const spot = spots[i];
+      if (selected.has(i) || spot.opacity <= 0 || (spot.scale > 0 && (setup.scales === 0 || spot.scale > setup.scales + 1))) continue;
+      const area = spotArea(spot.shape, W, H);
+      const pad = spot.scale > 0 ? dwtReach(Math.min(spot.scale, setup.scales), scale) + 1 : 1;
+      const dest = { x: int(area.x * scale) - pad, y: int(area.y * scale) - pad, w: int(f(area.w * scale) + .5) + 4 + 2 * pad, h: int(f(area.h * scale) + .5) + 4 + 2 * pad };
+      if (!(dest.x < region.x + region.w && region.x < dest.x + dest.w && dest.y < region.y + region.h && region.y < dest.y + dest.h)) continue;
+      const input = retouchRegion([spot], W, H, scale, w, h, setup);
+      if (!input) continue;
+      selected.add(i); changed = true;
+      const x = Math.min(region.x, input.x), y = Math.min(region.y, input.y);
+      region = { x, y, w: Math.max(region.x + region.w, input.x + input.w) - x, h: Math.max(region.y + region.h, input.y + input.h) - y };
+    }
+  }
+  return { region, spots: spots.filter((_, i) => selected.has(i)) };
 }

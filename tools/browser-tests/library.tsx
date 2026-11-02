@@ -88,19 +88,26 @@ try {
   assert(useApp.getState().selected.size === 3, 'Shift-range selection broken');
   click('Selected photos only'); await pause(); assert(cells().length === 3, 'Selected-only filter broken');
   click('Selected photos only'); await pause();
-  const data = new DataTransfer(); cells()[1].dispatchEvent(new DragEvent('dragstart', { bubbles: true, dataTransfer: data }));
+  // Photo drags are pointer gestures (useCollectionDrag), not HTML drag and drop.
+  const from = cells()[1].getBoundingClientRect();
   const collection = [...document.querySelectorAll<HTMLButtonElement>('.source-row')].find(b => b.title === 'Portfolio')!;
-  collection.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: data })); await pause();
-  assert(collection.classList.contains('drag-over'), 'Collection drop target did not highlight');
-  collection.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: data })); await pause();
+  const to = collection.getBoundingClientRect();
+  const pointer = (type: string, x: number, y: number, target: EventTarget) => target.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 1, pointerType: 'mouse', button: 0, buttons: 1, clientX: x, clientY: y }));
+  pointer('pointerdown', from.x + 20, from.y + 20, cells()[1]);
+  pointer('pointermove', from.x + 40, from.y + 40, window);
+  pointer('pointermove', to.x + 10, to.y + to.height / 2, window); await pause();
+  assert(document.querySelector('[title="Portfolio"]')?.classList.contains('drag-over'), 'Collection drop target did not highlight');
+  pointer('pointerup', to.x + 10, to.y + to.height / 2, window); await pause();
+  // A real click starts with a pointer press, which ends the drag's click suppression.
+  pointer('pointerdown', 0, 0, document.body); pointer('pointerup', 0, 0, window);
   assert(useCatalog.getState().collections.find(c => c.id === 'portfolio')?.type === 'manual' && (useCatalog.getState().collections[0] as any).photoIds.length === 3, 'Dropped selection not added');
-  document.querySelector<HTMLButtonElement>('[title="5 stars"]')!.click(); await pause();
+  document.querySelector<HTMLButtonElement>('.source-row[title="5 stars"]')!.click(); await pause();
   assert(document.querySelector('.source-title h1')?.textContent === '5 stars', 'Smart source header missing');
   click('Edit rules…'); await pause();
   const ruleValue = document.querySelector<HTMLSelectElement>('select[aria-label="Minimum rating"]')!;
   ruleValue.value = '0'; ruleValue.dispatchEvent(new Event('change', { bubbles: true })); await pause();
   click('Save'); await pause(); assert(cells().length === 6, 'Edited rules did not update membership live');
-  document.querySelector<HTMLButtonElement>('[title="Portfolio"]')!.click(); await pause();
+  document.querySelector<HTMLButtonElement>('.source-row[title="Portfolio"]')!.click(); await pause();
   assert(cells().length === 3 && document.querySelector('.source-detail')?.textContent === 'Collection · photos stay in their folders', 'Manual source shows wrong photos/header');
   click('Rename…'); await pause(); input('Collection name', 'Print queue'); await pause(); click('Save'); await pause();
   assert(document.querySelector('.source-title h1')?.textContent === 'Print queue', 'Rename did not update header');

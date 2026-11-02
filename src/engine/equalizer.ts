@@ -6,6 +6,9 @@
 // (Catmull-Rom curves) at commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release 5.6.2).
 // Translated from C to TypeScript (and GLSL, in shaders/eq.frag.glsl). Changes: lightness only,
 // as the preset leaves colour alone; Lab relative to D65; the Texture slider is darktable's mix.
+// Region preview deviation, approved by Oli (2026-11-02, docs/plans/roi.md): bands with spacing
+// <=32 full-resolution pixels run locally; broader-band changes are sampled from the preview.
+// Scale counts and boost curves still use whole-photo dimensions. Exports use every full-size band.
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Reference implementation of the texture stage: darktable's contrast equalizer.
@@ -19,6 +22,10 @@
 /** darktable's BANDS and MAX_NUM_SCALES. */
 export const BANDS = 6;
 export const MAX_SCALES = 8;
+/** Approved region preview split: evaluate fine bands locally, coarse changes in the preview. */
+export const REGION_FINE_MULT = 32;
+export const regionFineScales = (sc: Scale[]) => sc.filter(s => s.mult <= REGION_FINE_MULT);
+export const isRegionCoarse = (s: Scale, previewScale: number) => (4 * s.mult + 1) / previewScale > 4 * REGION_FINE_MULT + 1;
 
 /** A curve over the sizes, coarse (x = 0) to fine (x = 1). */
 export interface BandCurve {

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { memo, useEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
+import { memo, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
 import { Heart, Layers, ListFilter, Pencil, Settings2, Square, Star } from 'lucide-react';
 import { usePhotoContextMenu, type PhotoContextHandler } from './PhotoMenu';
 import { photoId, photoName } from '../library/copies';
@@ -14,6 +14,7 @@ import { LibrarySidebar, LibrarySourceDialog, SourceHeader, type LibraryDialog }
 import { useCollectionDrag } from './collectionDrag';
 import { LibraryMenu } from './LibrarySection';
 import { setPrefs, usePrefs } from './prefs';
+import { rowWindow, scrollNearest, useViewport } from './virtual';
 
 /** Columns in the grid, for up/down arrow navigation. */
 export let gridColumns = 1;
@@ -21,14 +22,16 @@ const SIZE_KEY = 'emulsion.cellSize';
 const readSize = () => {
   try { const v = Number(localStorage.getItem(SIZE_KEY)); return v >= 140 ? Math.min(320, v) : 220; } catch { return 220; }
 };
+/** The grid's top and bottom padding (as in styles.css), which the mounted rows' spacers add to. */
+const GRID_PAD = 16;
 const selectMode = (e: MouseEvent) => e.shiftKey ? 'range' : e.metaKey || e.ctrlKey ? 'toggle' : 'single';
 
-const Cell = memo(function Cell({ photo, index, number, active, selected, showExif, contextMenu, startDrag }: {
-  photo: Photo; index: number; number: number; active: boolean; selected: boolean; showExif: boolean; contextMenu: PhotoContextHandler;
+const Cell = memo(function Cell({ photo, index, number, position, total, active, selected, showExif, contextMenu, startDrag }: {
+  photo: Photo; index: number; number: number; position: number; total: number; active: boolean; selected: boolean; showExif: boolean; contextMenu: PhotoContextHandler;
   startDrag: (e: PointerEvent, index: number) => void;
 }) {
   const [ref, visible] = useVisible<HTMLDivElement>();
-  return <div ref={ref} role="option" aria-label={photoName(photo)} aria-selected={selected} tabIndex={active ? 0 : -1}
+  return <div ref={ref} role="option" aria-label={photoName(photo)} aria-selected={selected} aria-posinset={position} aria-setsize={total} tabIndex={active ? 0 : -1}
     className={`cell${active ? ' active' : ''}${selected ? ' selected' : ''}`} data-index={index}
     draggable={false} onPointerDown={e => startDrag(e, index)}
     onContextMenu={e => contextMenu(e, index)} onClick={e => setActive(index, selectMode(e))}
@@ -66,17 +69,40 @@ export function Library() {
   const [dialog, setDialog] = useState<LibraryDialog | null>(null);
   const showExif = usePrefs(p => p.libraryExif);
   const gridRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const filtering = isFiltering(s.filter) || s.selectedOnly;
   const clear = () => { setFilter(NO_FILTER); setSelectedOnly(false); };
   useEffect(() => { try { localStorage.setItem(SIZE_KEY, String(size)); } catch { /* session only */ } }, [size]);
-  useEffect(() => {
+  // Only the rows near the view are mounted: 10,000 photos otherwise make ~140,000 elements.
+  const vp = useViewport(scrollRef, 'y', [s.choosingImport, !!shown.length]);
+  const [layout, setLayout] = useState({ cols: 1, pitch: size + 80, gap: 12 });
+  const measured = useRef(layout);
+  useLayoutEffect(() => {
     const el = gridRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => { gridColumns = Math.max(1, getComputedStyle(el).gridTemplateColumns.split(' ').length); });
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [s.folder, s.choosingImport, s.source, !!shown.length]);
-  useEffect(() => { gridRef.current?.querySelector<HTMLElement>(`[data-index="${s.active}"]`)?.scrollIntoView({ block: 'nearest' }); }, [s.active]);
+    const cs = getComputedStyle(el);
+    const cols = Math.max(1, cs.gridTemplateColumns.split(' ').length);
+    const gap = parseFloat(cs.rowGap) || 0;
+    const cell = el.querySelector<HTMLElement>('.cell');
+    const pitch = cell && cell.offsetHeight > 0 ? cell.offsetHeight + gap : layout.pitch;
+    gridColumns = cols;
+    measured.current = { cols, pitch, gap };
+    if (cols !== layout.cols || pitch !== layout.pitch || gap !== layout.gap) setLayout({ cols, pitch, gap });
+  });
+  const rows = Math.ceil(shown.length / layout.cols);
+  const win = rowWindow(rows, layout.pitch, Math.max(0, vp.pos - GRID_PAD), vp.size || 800, vp.size || 800);
+  const visible = shown.slice(win.start * layout.cols, win.end * layout.cols);
+  useEffect(() => {
+    const el = scrollRef.current, grid = gridRef.current;
+    const at = shown.indexOf(s.active);
+    if (!el || !grid || at < 0) return;
+    // The measured layout: this can run before a re-render with it.
+    const { cols, pitch, gap } = measured.current;
+    const top = grid.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop + GRID_PAD + Math.floor(at / cols) * pitch;
+    scrollNearest(el, 'y', top, top + pitch - gap);
+    // Only when the active photo changes, as before; scrolling by hand must stay put.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [s.active]);
   const selectedCount = scope.filter(i => s.selected.has(photoId(s.photos[i]))).length;
   return <section className="library library-with-directory" onClickCapture={drag.click}>
     <LibrarySidebar onOpen={setDialog} dragTarget={drag.preview?.target} />
@@ -94,9 +120,10 @@ export function Library() {
           <label className="size-control" title="Thumbnail size"><Square size={12} /><input aria-label="Thumbnail size" type="range" min={140} max={320} step={10} value={size} onChange={e => setSize(Number(e.target.value))} /><Square size={16} /></label>
           <LibraryMenu label="Library view settings" icon={<Settings2 size={14} />}><label className="library-setting"><input type="checkbox" checked={showExif} onChange={e => setPrefs({ libraryExif: e.target.checked })} />Show capture settings</label></LibraryMenu>
         </div>
-        <div className="library-grid-scroll">
-          {shown.length ? <div className="grid" ref={gridRef} role="listbox" aria-label="Photos" aria-multiselectable style={{ ['--cell' as string]: `${size}px` }}>
-            {shown.map(i => <Cell startDrag={drag.start} contextMenu={context.open} key={photoId(s.photos[i])} photo={s.photos[i]} index={i} number={frameNumbers.get(i)!} active={i === s.active} selected={s.selected.has(photoId(s.photos[i]))} showExif={showExif} />)}
+        <div className="library-grid-scroll" ref={scrollRef}>
+          {shown.length ? <div className="grid" ref={gridRef} role="listbox" aria-label="Photos" aria-multiselectable
+            style={{ ['--cell' as string]: `${size}px`, paddingTop: GRID_PAD + win.start * layout.pitch, paddingBottom: GRID_PAD + Math.max(0, rows - win.end) * layout.pitch }}>
+            {visible.map((i, k) => <Cell position={win.start * layout.cols + k + 1} total={shown.length} startDrag={drag.start} contextMenu={context.open} key={photoId(s.photos[i])} photo={s.photos[i]} index={i} number={frameNumbers.get(i)!} active={i === s.active} selected={s.selected.has(photoId(s.photos[i]))} showExif={showExif} />)}
           </div> : <div className="library-empty">
             <h2>{s.loading ? 'Reading photos…' : filtering ? 'No photos match these filters' : s.source?.type === 'collection' ? 'This collection is empty' : s.source?.type === 'import' ? 'No photos from this import are available' : s.folder ? 'No imported photos in this folder' : 'Your library starts here'}</h2>
             {filtering ? <button type="button" className="btn" onClick={clear}>Clear filters</button> : <p>{s.source?.type === 'collection' ? 'Add photos from a folder, or adjust the smart collection rules.' : 'Import photos or choose a folder in the sidebar.'}</p>}

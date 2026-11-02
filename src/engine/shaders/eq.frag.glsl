@@ -13,13 +13,18 @@
 precision highp float;
 precision highp int;
 in vec2 vUv;
-out vec4 outColor;
+layout(location = 0) out vec4 outColor;
+layout(location = 1) out vec4 outCoarse;
 
 uniform sampler2D uIn;
 uniform int uMult;
 uniform float uBoost;
 uniform float uSharpen;
 uniform float uFirst;
+// A second render attachment captures each preview instance's coarse change; .a keeps its mask.
+uniform float uCoarseCapture;
+uniform float uCoarseBoost;
+uniform sampler2D uCoarse;
 
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
@@ -41,4 +46,5 @@ void main() {
   float start = uFirst > 0.5 ? c : here.b;
   float mask = uFirst > 0.5 ? here.g : here.a;
   outColor = vec4(coarse, accum + uBoost * (c - coarse), start, mask);
+  outCoarse = vec4(uCoarseCapture > 0.5 ? (uFirst > 0.5 ? 0.0 : texelFetch(uCoarse, p, 0).r) + uCoarseBoost * (c - coarse) : 0.0, 0.0, 0.0, 1.0);
 }
