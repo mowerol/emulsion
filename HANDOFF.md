@@ -1,5 +1,18 @@
 # Handoff
 
+## Default sharpening, Detail hints as tooltips (2026-11-02)
+
+Oli asked for default sharpening "like in Lightroom", with Capture at 100, and for the Detail section's hint paragraph to move into tooltips on the slider labels.
+- **Defaults** (`src/film/recipe.ts`): Capture 100 and Sharpening 20. Both are RawTherapee's own defaults: Capture 100 is its 20 Richardson-Lucy iterations (`iterationsFor`), and Sharpening 20 is its unsharp-mask amount of 200. Radius 0.5 and Masking 10 already matched RawTherapee. Reset Detail returns to these values.
+- **Saved edits are not changed:** a sidecar that has no `sharpen` / `captureSharpening` (saved before those existed) reads them as 0, so old edits look as they did.
+- **Unedited photos:** Develop (`UNEDITED` in `Develop.tsx`) and Export draw a photo with no recipe as Neutral at its defaults, so they are sharpened too. Before (compare) still shows the unsharpened original. Unedited Library thumbnails remain the camera JPEG.
+  - A temporary probe compared the old no-recipe draw with Neutral at its defaults (sharpening off): mean difference 0.1/255; worst 37/255, on a few very saturated yellows (blue channel 31 vs 68), likely gamut handling. Not investigated further.
+- **Tooltips:** the hint paragraph under Detail is gone. Sharpening's label tooltip says it shows best at 100% zoom; Capture's says it undoes lens and sensor blur on RAWs; Masking's tooltip already explained ⌥.
+- The probe's legacy `defaultRecipe` pins sharpening off so older cases keep their contract.
+- **Checks:** `npm run check` passes (425 TS tests, 57 Rust tests passed / 6 ignored). The probe reports no GL error. The `noise-reduction`, `zoom-full-res` and `workspace` browser tests pass. `export-copies.test.ts` now expects an unedited original to export with the defaults.
+- **For Oli to try in the app (Cmd+R):** open an unedited RAW at 100% and check it's sharpened (Before/After should show the difference); hover the Sharpening, Masking and Capture labels to see the tooltips; open an older edit and check its sharpening hasn't changed.
+- Not committed.
+
 ## Library v4 redesign (2026-11-02)
 
 Implemented Oli's Library redesign against `/Users/oli/Documents/Emulsion Library.html` (the packed reference was decoded for inspection). Library uses the existing Geist/mid-grey theme with the specified #6e6e6e canvas: 56px app header, 280px sidebar, contextual source header, 44px single-line toolbar, scrollable square-well grid and 32px status bar. Import replaces Open folder; folder-root/computer/drive choices live in the Folders menu. Existing folder import management, recursive scope, marks/filters, folding, context menu/virtual copies, multi-selection and Develop shortcuts remain.

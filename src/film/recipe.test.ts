@@ -121,14 +121,22 @@ describe('crop in recipes', () => {
     expect(withSettingsFrom(from, other)).toEqual({ ...from, crop: other.crop });
   });
 
-  it('reads capture sharpening saved under its old name, and starts the unsharp mask at its defaults', () => {
+  it('reads capture sharpening saved under its old name, and keeps sharpening off in edits saved before it existed', () => {
     const r = normalizeRecipe({ stock: 'neutral', sharpening: 60 })!;
     expect(r.captureSharpening).toBe(60);
     expect(r.sharpen).toBe(0);
     expect(r.sharpenRadius).toBe(0.5);
     expect(r.sharpenMasking).toBe(10);
     expect(normalizeRecipe({ captureSharpening: 30, sharpening: 60 })!.captureSharpening).toBe(30);
-    expect(resetSection({ ...r, sharpen: 40, sharpenRadius: 1.2, clarity: 20 }, 'detail')).toEqual({ ...r, captureSharpening: 0 });
+    expect(normalizeRecipe({ stock: 'neutral' })!.captureSharpening).toBe(0);
+    expect(resetSection({ ...r, sharpen: 40, sharpenRadius: 1.2, clarity: 20 }, 'detail')).toEqual({ ...r, captureSharpening: 100, sharpen: 20 });
+  });
+
+  it('sharpens new edits with RawTherapee\'s defaults: capture at 20 iterations, unsharp mask amount 200', () => {
+    const r = defaultRecipe();
+    expect(r.captureSharpening).toBe(100);
+    expect(r.sharpen).toBe(20);
+    expect(normalizeRecipe(r)).toEqual(r);
   });
 
   it('reads Colour from a sidecar, clamping it, and keeps an untouched one as null', () => {

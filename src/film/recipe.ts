@@ -175,10 +175,10 @@ export const SLIDERS: SliderDef[] = [
   { key: 'clarity', label: 'Clarity', group: 'detail', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'dehaze', label: 'Dehaze', group: 'detail', min: -100, max: 100, step: 1, format: formatSigned, hint: 'Darktable haze removal: positive values remove haze; negative values add it.' },
   { key: 'dehazeDistance', label: 'Distance', group: 'detail', min: 0, max: 100, step: 1, default: 20, format: (v) => `${v}%`, hint: 'The maximum distance over which haze is removed.' },
-  { key: 'sharpen', label: 'Sharpening', group: 'detail', min: 0, max: 100, step: 1 },
+  { key: 'sharpen', label: 'Sharpening', group: 'detail', min: 0, max: 100, step: 1, default: 20, hint: 'RawTherapee\'s unsharp mask; 20 is its default amount. Shows best at 100% zoom.' },
   { key: 'sharpenRadius', label: 'Radius', group: 'detail', min: 0.3, max: 3, step: 0.05, default: 0.5, format: (v) => `${v.toFixed(2)} px` },
   { key: 'sharpenMasking', label: 'Masking', group: 'detail', min: 0, max: 100, step: 1, default: 10 },
-  { key: 'captureSharpening', label: 'Capture', group: 'detail', min: 0, max: 100, step: 1 },
+  { key: 'captureSharpening', label: 'Capture', group: 'detail', min: 0, max: 100, step: 1, default: 100, hint: 'Undoes the lens and sensor blur of RAW files, at the pixel level. 100 is RawTherapee\'s default.' },
   { key: 'halation', label: 'Halation', group: 'optics', min: 0, max: 100, step: 1, stockKey: 'halation' },
   { key: 'glow', label: 'Glow', group: 'optics', min: 0, max: 100, step: 1 },
   { key: 'vignette', label: 'Vignette', group: 'optics', min: 0, max: 100, step: 1 },
@@ -227,8 +227,8 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
     clarity: 0,
     dehaze: 0,
     dehazeDistance: 20,
-    captureSharpening: 0,
-    sharpen: 0,
+    captureSharpening: 100,
+    sharpen: 20,
     sharpenRadius: 0.5,
     sharpenMasking: 10,
     vibrance: 0,
@@ -336,8 +336,10 @@ export function normalizeRecipe(input: unknown): Recipe | null {
   const push = typeof o.push === 'number' && [-1, 0, 1, 2].includes(o.push) ? (o.push as Push) : 0;
   const lookEnabled = supplied && (typeof o.lookEnabled === 'boolean' ? o.lookEnabled : true);
   const out: Recipe = { ...base, noiseReduction: normalizeNoiseReduction(o.noiseReduction), profile: normalizeProfile(o.profile), lookEnabled, pack, push, lookBlend: o.lookBlend === 'color' ? 'color' : 'normal', curve: normalizeCurve(o.curve), wb: normalizeWhiteBalance(o.wb), crop: normalizeCrop(o.crop), color: normalizeColor(o.color), grading: normalizeGrading(o.grading), lens: normalizeLens(o.lens), transform: normalizePerspective(o.transform), masks: normalizeMasks(o.masks) };
-  // Capture sharpening was saved as `sharpening` before the unsharp mask came.
-  const read = (key: string) => (key === 'captureSharpening' && o.captureSharpening === undefined ? o.sharpening : o[key]);
+  // Capture sharpening was saved as `sharpening` before the unsharp mask came. Edits saved before
+  // either existed had them off, and keep them off rather than taking today's defaults.
+  const read = (key: string) =>
+    key === 'captureSharpening' ? o.captureSharpening ?? o.sharpening ?? 0 : key === 'sharpen' ? o.sharpen ?? 0 : o[key];
   for (const def of SLIDERS) {
     const v = read(def.key);
     if (typeof v === 'number' && Number.isFinite(v)) out[def.key] = clamp(v, def.min, def.max);

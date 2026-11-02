@@ -332,7 +332,7 @@ export function Panel() {
     color: <Section id="color" title={grouped ? 'HSL' : 'Colour'} summary={recipe?.color ? 'Edited' : 'As shot'} onReset={resetFor('color', 'Colour')}><ColorControls recipe={base} /></Section>,
     grading: <Section id="grading" title={grouped ? 'Colour wheels' : 'Colour Grading'} summary={sectionChanged(recipe, 'grading') ? 'Edited' : 'Neutral'} onReset={resetFor('grading', 'Colour Grading')}><ColourGradingControls recipe={base} /></Section>,
     detail: <Section id="detail" title="Detail" onReset={resetFor('detail', 'Detail')}>
-      {!editing && <NoiseReductionControls recipe={base} path={photo.path} raw={photo.raw} />}{rows(sliderGroup('detail'))}<p className="hint">Sharpening shows best at 100%; hold ⌥ on Masking to see where it reaches. Capture undoes the lens and sensor blur of RAW files, at the pixel level.</p>
+      {!editing && <NoiseReductionControls recipe={base} path={photo.path} raw={photo.raw} />}{rows(sliderGroup('detail'))}
     </Section>,
     optics: <Section id="optics" title="Optics" onReset={resetFor(grouped ? 'refine-optics' : 'optics', 'Optics')}>{rows(grouped ? [...sliderGroup('optics'), 'fade'] : sliderGroup('optics'))}</Section>,
     grain: <Section id="grain" title="Grain" onReset={resetFor('grain', 'Grain')}><GrainSpeed recipe={base} />{rows(sliderGroup('grain'))}</Section>,

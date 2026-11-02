@@ -27,6 +27,9 @@ import { FIT, imagePoint, label, layout, pan, step, zoomAt, type Layout, type Zo
 import { MaskOverlay } from './MaskOverlay';
 import { setMaskUi, updateMask, useMaskUi } from './maskui';
 
+/** What an unedited photo is developed with. */
+const UNEDITED = defaultRecipe();
+
 /** Long edge of the interactive preview. Zooming past it loads the full resolution. */
 const PREVIEW_EDGE = 2560;
 /** Long edge of the small render the histogram is counted from. */
@@ -236,7 +239,8 @@ export function Develop() {
   // crop, which measure in the photo's pixels, wait for the decode (unless it failed and the
   // thumbnail is what is being edited).
   const sizeKnown = !!src && (loaded!.res !== 'thumb' || decodeFailed === path);
-  const saved = photo?.recipe ?? null;
+  // An unedited photo is developed as Neutral at its defaults, default sharpening included (as in Lightroom).
+  const saved = photo ? photo.recipe ?? UNEDITED : null;
   // A preset under the pointer is shown on the photo without being applied.
   const preview = workflow && !cropping && !editingLook ? tools.preview : null;
   const recipe = useMemo(() => (preview ? preview.apply(saved) : saved), [preview, saved]);

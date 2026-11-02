@@ -65,9 +65,9 @@ import { MaskOverlay } from '../../src/ui/MaskOverlay';
 import { setMaskUi } from '../../src/ui/maskui';
 
 
-// Historical probe cases intentionally keep the pre-profile rendering contract.
+// Historical probe cases intentionally keep the pre-profile rendering contract, and sharpening off.
 const defaultRecipe = (stock: Recipe['stock'] = 'neutral', scanner: Recipe['scanner'] = 'frontier'): Recipe => ({
-  ...recipeDefaults(stock, scanner), lookEnabled: stock !== 'neutral',
+  ...recipeDefaults(stock, scanner), lookEnabled: stock !== 'neutral', sharpen: 0, captureSharpening: 0,
 });
 
 setLooksBase(new URL('../../../public/looks/', location.href).href);

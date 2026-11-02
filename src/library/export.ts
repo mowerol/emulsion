@@ -1,4 +1,5 @@
 import { noiseEnabled } from '../film/noisereduction';
+import { defaultRecipe } from '../film/recipe';
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Export: decode, develop on the GPU at the asked size, encode and write in Rust.
 
@@ -63,11 +64,13 @@ export async function exportPhotos(
     try {
       const [w, h, img] = await decodeFor(p, opts.longEdge, engine.maxTextureSize);
       const src = engine.sourceFromHalf(img);
-      if ((p.recipe?.captureSharpening ?? 0) > 0) await ensureCapture(engine, src, p.path);
-      await engine.prepare(p.recipe, src.camera);
+      // An unedited photo exports as Neutral at its defaults, default sharpening included.
+      const recipe = p.recipe ?? defaultRecipe();
+      if (recipe.captureSharpening > 0) await ensureCapture(engine, src, p.path);
+      await engine.prepare(recipe, src.camera);
       let px: Uint8Array;
       try {
-        px = engine.readPixels(src, p.recipe, w, h, p.seed);
+        px = engine.readPixels(src, recipe, w, h, p.seed);
       } finally {
         engine.release(src);
         engine.dropBuffers(img.width, img.height);

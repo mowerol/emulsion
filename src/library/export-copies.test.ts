@@ -36,6 +36,7 @@ it('exports each version with its own recipe, a distinct name and the real sourc
   expect(new Set(result.written).size).toBe(3);
   expect(loadImage).toHaveBeenCalledTimes(3);
   expect(vi.mocked(loadImage).mock.calls.every(([path]) => path === '/a.jpg')).toBe(true);
-  expect(gpu.readPixels.mock.calls.map(c => (c as unknown[])[1])).toEqual(versions.map(p => p.recipe));
+  // The unedited original exports as Neutral at its defaults.
+  expect(gpu.readPixels.mock.calls.map(c => (c as unknown[])[1])).toEqual(versions.map(p => p.recipe ?? defaultRecipe()));
   expect(writeExport).toHaveBeenCalledWith('/exports', 'a_Warm_one', expect.any(Uint8Array), 2, 1, 92);
 });
