@@ -12,6 +12,21 @@ import { defaultRecipe } from '../film/recipe';
 import { exportPhotos } from './export';
 import type { Photo } from './store';
 
+it('requests the shared denoised source for RAW exports and surfaces failures', async () => {
+  const recipe = { ...defaultRecipe(), noiseReduction: { enabled: true, amount: 42, model: 'rawnind-linear-v1' as const } };
+  const photo: Photo = { path: '/test.ORF', rel: 'test.ORF', name: 'test.ORF', size: 1, modified: 0, recipe,
+    seed: 1, white: null, rating: 0, label: null, heart: false, raw: true, pair: null };
+  const options = { dir: '/exports', longEdge: null, quality: 92 };
+  const result = await exportPhotos([photo], options, vi.fn(), { canceled: false });
+  expect(result.failed).toEqual([]);
+  expect(loadImage).toHaveBeenLastCalledWith('/test.ORF', 4096, true);
+  vi.mocked(loadImage).mockRejectedValueOnce(new Error('Model missing'));
+  const failed = await exportPhotos([photo], options, vi.fn(), { canceled: false });
+  expect(failed.written).toEqual([]);
+  expect(failed.failed[0].error).toContain('Model missing');
+  vi.mocked(loadImage).mockClear(); vi.mocked(writeExport).mockClear(); gpu.readPixels.mockClear();
+});
+
 it('exports each version with its own recipe, a distinct name and the real source path', async () => {
   const original: Photo = { path: '/a.jpg', rel: 'a.jpg', name: 'a.jpg', size: 1, modified: 0, recipe: null,
     seed: 1, white: null, rating: 0, label: null, heart: false, raw: false, pair: null };

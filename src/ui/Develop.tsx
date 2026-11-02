@@ -1,3 +1,4 @@
+import { noiseEnabled } from '../film/noisereduction';
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { photoId } from '../library/copies';
 import { PhotoInfo } from './PhotoInfo';
@@ -32,6 +33,8 @@ const HISTOGRAM_EDGE = 384;
 const HISTOGRAM_DELAY_MS = 120;
 /** A pointer that moves less than this many CSS pixels is a click, not a drag. */
 const CLICK_SLOP = 4;
+
+const sourceKey = (path: string, res: string, noise = false) => `${path}:${res}:${noise}`;
 
 type Res = 'thumb' | 'preview' | 'full';
 
@@ -82,6 +85,7 @@ export function Develop() {
   const stageId = useApp((s) => s.stageColor);
   const stage = STAGE_COLORS.find((c) => c.id === stageId)!;
   const path = photo?.path;
+  const wantsNoise = !!photo?.raw && noiseEnabled(photo.recipe);
   const frameId = photo ? photoId(photo) : null;
   const profileVersion = useProfileVersion();
   const lutVersion = useLutVersion();
@@ -103,7 +107,7 @@ export function Develop() {
       const e = engineRef.current;
       if (e) {
         for (const source of sourceCacheRef.current.values()) e.release(source);
-        if (loadedRef.current && !sourceCacheRef.current.has(`${loadedRef.current.path}:${loadedRef.current.res}`)) e.release(loadedRef.current.source);
+        if (loadedRef.current && !sourceCacheRef.current.has(sourceKey(loadedRef.current.path, loadedRef.current.res, !!loadedRef.current.source.denoised))) e.release(loadedRef.current.source);
         e.dispose();
       }
       sourceCacheRef.current.clear();
@@ -114,9 +118,9 @@ export function Develop() {
 
   const swapSource = useCallback((p: string, source: Source, res: Res) => {
     const engine = engineRef.current!;
-    const key = `${p}:${res}`;
+    const key = sourceKey(p, res, !!source.denoised);
     const old = loadedRef.current;
-    if (old && !sourceCacheRef.current.has(`${old.path}:${old.res}`)) engine.release(old.source);
+    if (old && !sourceCacheRef.current.has(sourceKey(old.path, old.res, !!old.source.denoised))) engine.release(old.source);
     if (res !== 'thumb') {
       sourceCacheRef.current.set(key, source);
       while (sourceCacheRef.current.size > 4) {
@@ -147,7 +151,7 @@ export function Develop() {
     const engine = engineRef.current;
     if (!engine || !path) return;
     let cancelled = false;
-    setZoom(FIT);
+    if (loadedRef.current?.path !== path) setZoom(FIT);
     setLoadingFull(false);
     const swap = (source: Source, res: Res) => {
       if (cancelled) engine.release(source);
@@ -156,7 +160,7 @@ export function Develop() {
     (async () => {
       let previewShown = false;
       try {
-        const cached = cachedSource(`${path}:preview`);
+        const cached = cachedSource(sourceKey(path, 'preview', wantsNoise));
         if (cached) {
           swap(cached, 'preview');
           previewShown = true;
@@ -172,12 +176,12 @@ export function Develop() {
         /* fall through to the decode */
       }
       try {
-        const cached = cachedSource(`${path}:preview`);
+        const cached = cachedSource(sourceKey(path, 'preview', wantsNoise));
         if (cached) {
           swap(cached, 'preview');
           return;
         }
-        const img = await loadCachedImage(path, Math.min(PREVIEW_EDGE, engine.maxTextureSize));
+        const img = await loadCachedImage(path, Math.min(PREVIEW_EDGE, engine.maxTextureSize), wantsNoise);
         if (img.white) setPhotoWhite(path, img.white);
         setPhotoLens(path, img.lens ?? null);
         setPhotoCamera(path, img.camera ?? null);
@@ -195,7 +199,7 @@ export function Develop() {
     return () => {
       cancelled = true;
     };
-  }, [path, swapSource]);
+  }, [path, wantsNoise, swapSource]);
 
   // Track the stage size.
   useEffect(() => {
@@ -262,13 +266,13 @@ export function Develop() {
     if (current.scale <= (src.w / src.fullW) * 1.05) return;
     setLoadingFull(true);
     let cancelled = false;
-    const cached = cachedSource(`${path}:full`);
+    const cached = cachedSource(sourceKey(path, 'full', wantsNoise));
     if (cached) {
       swapSource(path, cached, 'full');
       setLoadingFull(false);
       return;
     }
-    loadCachedImage(path, engine.maxTextureSize)
+    loadCachedImage(path, engine.maxTextureSize, wantsNoise)
       .then((img) => {
         if (cancelled || loadedRef.current?.path !== path) return;
         swapSource(path, engine.sourceFromHalf(img), 'full');
@@ -279,7 +283,7 @@ export function Develop() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [current?.scale, path, loadedVersion]);
+  }, [current?.scale, path, wantsNoise, loadedVersion]);
 
   // Render whenever anything that affects the frame changes.
   const seed = photo?.seed ?? 0;

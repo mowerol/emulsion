@@ -163,7 +163,7 @@ pub fn exposure(path: &Path) -> Option<crate::exposure::Exposure> {
 }
 
 /// Profile metadata is independent of lens-profile availability.
-#[derive(Clone, Debug, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CameraMetadata {
     pub make: String,

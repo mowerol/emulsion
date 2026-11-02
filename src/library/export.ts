@@ -1,3 +1,4 @@
+import { noiseEnabled } from '../film/noisereduction';
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Export: decode at full size, develop on the GPU, encode and write in Rust.
 
@@ -44,7 +45,7 @@ export async function exportPhotos(
     const p = photos[i];
     onProgress(i, photos.length, photoName(p));
     try {
-      const img = await loadImage(p.path, limit);
+      const img = await loadImage(p.path, limit, p.raw && noiseEnabled(p.recipe));
       const src = engine.sourceFromHalf(img);
       if ((p.recipe?.captureSharpening ?? 0) > 0) await ensureCapture(engine, src, p.path);
       const [w, h] = framePixels(p.recipe?.crop ?? null, img.width, img.height);

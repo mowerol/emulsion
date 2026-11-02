@@ -1,3 +1,4 @@
+import { noiseJob } from '../library/noise';
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Typed calls into the Rust core (src-tauri/src/commands.rs).
 
@@ -87,17 +88,26 @@ export function parsePayload(buf: ArrayBuffer): HalfImage {
     camera = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, pixelOffset + 4, length)));
     pixelOffset = Math.ceil((pixelOffset + 4 + length) / 4) * 4;
   }
-  const expected = pixelOffset + width * height * 8;
+  const paired = !!(dv.getUint32(12, true) & 8);
+  const expected = pixelOffset + width * height * 8 * (paired ? 2 : 1);
   if (buf.byteLength !== expected) throw new Error(`Image payload is ${buf.byteLength} bytes, expected ${expected}`);
   const white: [number, number] | null = dv.getUint32(12, true) & 1 ? [dv.getFloat32(16, true), dv.getFloat32(20, true)] : null;
   const fullWidth = dv.getUint32(24, true) || width;
   const fullHeight = dv.getUint32(28, true) || height;
-  return { width, height, mode, white, lens, camera, fullWidth, fullHeight, data: new Uint16Array(buf, pixelOffset, width * height * 4) };
+  return { width, height, mode, white, lens, camera, fullWidth, fullHeight, denoised: paired ? new Uint16Array(buf, pixelOffset + width * height * 8, width * height * 4) : undefined, data: new Uint16Array(buf, pixelOffset, width * height * 4) };
 }
 
-export async function loadImage(path: string, maxEdge?: number): Promise<HalfImage> {
-  const buf = await invoke<ArrayBuffer>('load_image', { path, maxEdge: maxEdge ?? null });
-  return parsePayload(buf);
+export async function loadImage(path: string, maxEdge?: number, noiseReduction = false): Promise<HalfImage> {
+  if (noiseReduction) noiseJob(path, { pending: true, done: 0, total: 0, error: undefined });
+  try {
+    const buf = await invoke<ArrayBuffer>('load_image', { path, maxEdge: maxEdge ?? null, noiseReduction });
+    const image = parsePayload(buf);
+    if (noiseReduction) noiseJob(path, { pending: false, done: 1, total: 1 });
+    return image;
+  } catch (error) {
+    if (noiseReduction) noiseJob(path, { pending: false, error: String(error) });
+    throw error;
+  }
 }
 
 export interface CaptureInfo {

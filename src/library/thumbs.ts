@@ -1,3 +1,4 @@
+import { noiseEnabled } from '../film/noisereduction';
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Thumbnails. Originals come from the Rust cache; developed versions are
 // rendered on the GPU from those originals, only for frames that are on screen.
@@ -20,10 +21,10 @@ const IMAGE_CACHE_BYTES = 512 * 1024 * 1024;
 
 // Decoded half-float images are expensive to produce, especially for RAWs.
 // Keep a bounded session cache so revisiting a photo does not decode it again.
-const decodedImages = new ImageLoadCache<HalfImage>(IMAGE_CACHE_BYTES, (img) => img.data.byteLength);
+const decodedImages = new ImageLoadCache<HalfImage>(IMAGE_CACHE_BYTES, (img) => img.data.byteLength + (img.denoised?.byteLength ?? 0));
 
-export function loadCachedImage(path: string, maxEdge: number): Promise<HalfImage> {
-  return decodedImages.get(path, maxEdge, loadImage);
+export function loadCachedImage(path: string, maxEdge: number, noiseReduction = false): Promise<HalfImage> {
+  return decodedImages.get(`${path}\0noise:${noiseReduction}`, maxEdge, () => loadImage(path, maxEdge, noiseReduction));
 }
 
 let engine: Engine | null | undefined;
@@ -224,7 +225,7 @@ export async function sourceFromBlob(eng: Engine, blob: Blob, white: Xy | null =
 async function developBlob(blob: Blob, recipe: Recipe | null, seed: number, edge: number, white: Xy | null, path: string, raw: boolean): Promise<string> {
   const eng = offscreenEngine();
   if (!eng) throw new Error('No GPU');
-  const { src, w: sw, h: sh } = await sourceForPreview(eng, path, blob, white, raw);
+  const { src, w: sw, h: sh } = await sourceForPreview(eng, path, blob, white, raw, recipe);
   try {
     const [w, h] = framePixels(recipe?.crop ?? null, sw, sh);
     const s = Math.min(1, edge / Math.max(w, h));
@@ -255,12 +256,13 @@ export function useThumb(path: string, recipe: Recipe | null, seed: number, visi
 // Camera JPEG previews already contain lens corrections. Edited RAW thumbnails and stock
 // tiles must instead use the actual RAW so toggles/strengths agree with Develop and export.
 const rawPreviews = new Map<string, HalfImage>();
-export async function sourceForPreview(eng: Engine, path: string, blob: Blob, white: Xy | null, raw: boolean) {
+export async function sourceForPreview(eng: Engine, path: string, blob: Blob, white: Xy | null, raw: boolean, recipe: Recipe | null = null) {
   if (!raw) return sourceFromBlob(eng, blob, white);
-  let img = rawPreviews.get(path);
+  const cacheKey = `${path}|${noiseEnabled(recipe)}`;
+  let img = rawPreviews.get(cacheKey);
   if (!img) {
-    img = await loadCachedImage(path, THUMB_EDGE);
-    rawPreviews.set(path, img);
+    img = await loadCachedImage(path, THUMB_EDGE, noiseEnabled(recipe));
+    rawPreviews.set(cacheKey, img);
     while (rawPreviews.size > 2) rawPreviews.delete(rawPreviews.keys().next().value!);
   }
   return { src: eng.sourceFromHalf(img), w: img.width, h: img.height };

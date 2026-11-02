@@ -1,3 +1,4 @@
+import { normalizeNoiseReduction } from './noisereduction';
 // SPDX-License-Identifier: GPL-3.0-or-later
 // A recipe is everything Emulsion knows about how one frame is developed.
 // It is what gets saved to the photo's sidecar.
@@ -23,6 +24,7 @@ export type Push = -1 | 0 | 1 | 2;
 export type LookBlend = 'normal' | 'color';
 
 export interface Recipe {
+  noiseReduction: import('./noisereduction').NoiseReduction | null;
   v: typeof RECIPE_VERSION;
   lookSnapshot?: { id: string; name: string; revision: number; kind?: 'lut' | 'look'; settings: ProfileSettings };
   /** Base camera rendering. Missing in older sidecars: preserve their original pipeline. */
@@ -133,7 +135,7 @@ function normalizeColor(input: unknown): ColorAdjust | null {
   return tidyColor({ hue: list(o.hue, -HUE_MAX, HUE_MAX), sat: list(o.sat, -100, 100), bright: list(o.bright, -100, 100) });
 }
 
-export type SliderKey = Exclude<keyof Recipe, 'v' | 'profile' | 'lookEnabled' | 'stock' | 'pack' | 'lookBlend' | 'push' | 'scanner' | 'scannerFromLook' | 'curve' | 'wb' | 'crop' | 'color' | 'grading' | 'lens' | 'transform' | 'masks' | 'lookSnapshot'>;
+export type SliderKey = Exclude<keyof Recipe, 'noiseReduction' | 'v' | 'profile' | 'lookEnabled' | 'stock' | 'pack' | 'lookBlend' | 'push' | 'scanner' | 'scannerFromLook' | 'curve' | 'wb' | 'crop' | 'color' | 'grading' | 'lens' | 'transform' | 'masks' | 'lookSnapshot'>;
 
 export interface SliderDef {
   key: SliderKey;
@@ -205,6 +207,7 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
   const s = STOCK[stock];
   return {
     v: RECIPE_VERSION,
+    noiseReduction: null,
     profile: 'auto',
     lookEnabled: stock !== 'neutral',
     stock,
@@ -287,7 +290,7 @@ const SECTION_FIELDS: Record<SectionId, (keyof Recipe)[]> = {
   'refine-optics': ['fade', ...SLIDERS.filter(d => d.group === 'optics').map(d => d.key)],
   'colour-basics': ['vibrance', 'saturation'],
   tone: SLIDERS.filter(d => d.group === 'adjust' && d.key !== 'vibrance' && d.key !== 'saturation').map(d => d.key),
-  detail: SLIDERS.filter((d) => d.group === 'detail').map((d) => d.key),
+  detail: ['noiseReduction', ...SLIDERS.filter((d) => d.group === 'detail').map((d) => d.key)],
   optics: SLIDERS.filter((d) => d.group === 'optics').map((d) => d.key),
   grain: SLIDERS.filter((d) => d.group === 'grain').map((d) => d.key),
 };
@@ -332,7 +335,7 @@ export function normalizeRecipe(input: unknown): Recipe | null {
   const base = defaultRecipe(stock, scanner);
   const push = typeof o.push === 'number' && [-1, 0, 1, 2].includes(o.push) ? (o.push as Push) : 0;
   const lookEnabled = supplied && (typeof o.lookEnabled === 'boolean' ? o.lookEnabled : true);
-  const out: Recipe = { ...base, profile: normalizeProfile(o.profile), lookEnabled, pack, push, lookBlend: o.lookBlend === 'color' ? 'color' : 'normal', curve: normalizeCurve(o.curve), wb: normalizeWhiteBalance(o.wb), crop: normalizeCrop(o.crop), color: normalizeColor(o.color), grading: normalizeGrading(o.grading), lens: normalizeLens(o.lens), transform: normalizePerspective(o.transform), masks: normalizeMasks(o.masks) };
+  const out: Recipe = { ...base, noiseReduction: normalizeNoiseReduction(o.noiseReduction), profile: normalizeProfile(o.profile), lookEnabled, pack, push, lookBlend: o.lookBlend === 'color' ? 'color' : 'normal', curve: normalizeCurve(o.curve), wb: normalizeWhiteBalance(o.wb), crop: normalizeCrop(o.crop), color: normalizeColor(o.color), grading: normalizeGrading(o.grading), lens: normalizeLens(o.lens), transform: normalizePerspective(o.transform), masks: normalizeMasks(o.masks) };
   // Capture sharpening was saved as `sharpening` before the unsharp mask came.
   const read = (key: string) => (key === 'captureSharpening' && o.captureSharpening === undefined ? o.sharpening : o[key]);
   for (const def of SLIDERS) {

@@ -1,5 +1,18 @@
 # Handoff
 
+## AI Noise Reduction in the UI (2026-11-02)
+
+- Commit validation: noise-reduction-only staged snapshot passed typecheck, production build, 369 frontend tests, 54 Rust tests (5 optional ignored), and the Chrome UI/GPU regression. Other UI/crop/zoom work remains separate.
+
+Oli asked to add the controls after reviewing the native experiment. **Built:** Refine → Detail → AI Noise Reduction, enabled explicitly on RAWs, Amount 0–100 (initially 50), progress/error text. JPEGs show a RAW-only hint. Settings normalize old sidecars to off and travel with Detail reset/presets, copy/paste and undo/redo; a drag is one undo step.
+
+- `noise_cache.rs` serializes native inference with CoreML → CPU retry, one full-resolution pair in memory, a 2 GiB disk cache keyed by source identity/decode version/model hash. Cached original/result float buffers are resized together; flag 8 appends the denoised RGBA16F pixels to the decoder payload. Develop, zoom, thumbnails, look tiles and export request the same pair. Failures do not silently export original pixels. Jobs finish/cache if the user moves away rather than canceling mid-inference.
+- `Engine.noiseReduced` blends source/result before capture sharpening with a cached GPU pass; Amount does not invoke/decode again. Before bypasses noise reduction; Split composites two finished frames. Fresh texture identity invalidates analysis caches. Capture sharpening now replaces its output texture when input/iterations change and remeasures its threshold for a new input, so downstream lens/profile caches refresh after Amount changes.
+- Verified model/runtime installed at `~/Library/Application Support/app.emulsion.desktop/denoise` on this Mac. Assets can also come from `EMULSION_DENOISE_ASSETS`, resource-dir `denoise`, or the development probe path. No model/runtime is bundled by builds yet; installer script supports Apple Silicon. Model/session load only on demand and the session is explicitly released on app exit. Rust minimum is now 1.88. Native per-package dev optimization keeps full-resolution packing responsive.
+- Checks: `npm run check` passes (384 frontend, 56 Rust passed / 5 optional ignored). `treatment-filters.mjs noise-reduction` covers UI enable/amount, drag undo/redo, RAW gating, paired payload, GPU/reference blend at 0/25/50/100, Before/Split, capture/lens cache refresh, Develop source switching and no loading on Amount edits. The real-RAW ignored test passed: inference, signed paired payload and identical disk-cache reuse after worker shutdown; no model load on cache hit. Completed in 14.5s in optimized dev including file I/O/resizing.
+- App remains running under `npm run tauri dev`. Oli should press Cmd+R, select a RAW, open Refine → Detail, enable AI Noise Reduction and judge the Amount at 100% zoom. Native inference was checked headlessly and controls through browser regression; interaction in the native window still needs Oli's eye. Oli authorized committing and pushing this work.
+
+
 **Tried by Oli in the real app (2026-11-01):** the Workflow layout restyle, custom looks (edit mode, detach, migration of his looks), the LUT Colour blend on real photos, GPU-paced rendering, Colour, grain and RAW+JPEG folding. The "Not tried in the real app" notes below predate this. Oli is building masks (phases 1–3 below).
 
 Rewritten at the end of each session. Last updated 2026-11-02.

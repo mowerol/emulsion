@@ -6,6 +6,16 @@ authors = ["Oli Mower"]
 license = "GPL-3.0-or-later"
 repository = ""
 edition = "2024"
+default-run = "emulsion"
+
+[features]
+# The CLI adds process memory measurements; the app loads AI only on demand.
+denoise-probe = ["dep:libc"]
+
+[[bin]]
+name = "denoise-probe"
+path = "src/bin/denoise_probe.rs"
+required-features = ["denoise-probe"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -36,6 +46,9 @@ kamadak-exif = "0.6.1"
 tauri-plugin-opener = "2"
 percent-encoding = "2.3.2"
 tauri = { version = "2", features = [] }
+ort = { version = "=2.0.0-rc.11", default-features = false, features = ["std", "load-dynamic", "coreml"] }
+sha2 = "0.10"
+libc = { version = "0.2", optional = true }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
@@ -45,6 +58,10 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+
+# Full-resolution AI tile packing/cache I/O must remain responsive in tauri dev.
+[profile.dev.package.emulsion]
+opt-level = 2
 
 [dev-dependencies]
 tempfile = "3.27.0"

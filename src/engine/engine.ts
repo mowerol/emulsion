@@ -1,3 +1,5 @@
+import noiseShader from './shaders/noise.frag.glsl?raw';
+import { noiseEnabled } from '../film/noisereduction';
 import { BrushGpu, brushShapes, brushSize } from './brushgpu';
 import { MASK_UNIT, MaskStack, refinedLayer } from './maskstack';
 import { MaskRefineGpu, refineSize, type RefineJob } from './maskrefinegpu';
@@ -48,6 +50,7 @@ export { GpuError, InputMode };
 
 /** Pixels decoded by the backend: RGBA half floats. */
 export interface HalfImage {
+  denoised?: Uint16Array;
   camera?: import('../film/profiles').CameraMetadata | null;
   lens?: LensMetadata | null;
   width: number;
@@ -72,6 +75,7 @@ export interface View {
 export const FULL_VIEW: View = { x: 0, y: 0, w: 1, h: 1 };
 
 export interface Source {
+  denoised?: WebGLTexture;
   camera?: import('../film/profiles').CameraMetadata | null;
   lens?: LensMetadata | null;
   tex: WebGLTexture;
@@ -229,6 +233,8 @@ export class Engine {
   private ceLuts: { key: string; luts: ColorEqLuts } | null = null;
   private outs: Lru<Target>;
   private store: number;
+  private noiseP: Program;
+  private noiseMade: { input: WebGLTexture; amount: number; out: Target } | null = null;
   private lensP: Program;
   private lensMade: { input: WebGLTexture; key: string; out: Target } | null = null;
   private dehazeGfP: Program;
@@ -242,6 +248,7 @@ export class Engine {
   constructor(canvas: HTMLCanvasElement) {
     this.gpu = new Gpu(canvas);
     this.profiles = new ProfileGpu(this.gpu);
+    this.noiseP = this.gpu.program(SHADERS.vertex, noiseShader);
     this.dcpPass = this.gpu.program(SHADERS.vertex, SHADERS.dcp);
     this.lensP = this.gpu.program(SHADERS.vertex, SHADERS.lenscorrect);
     this.develop = this.gpu.program(SHADERS.vertex, SHADERS.develop);
@@ -300,7 +307,7 @@ export class Engine {
     const mips = this.gpu.hdr;
     if (mips) gl.generateMipmap(gl.TEXTURE_2D);
     this.gpu.params(mips);
-    return { tex, w: img.width, h: img.height, mode: img.mode, white: img.white, lens: img.lens, camera: img.camera, fullW: img.fullWidth, fullH: img.fullHeight };
+    return { denoised: img.denoised ? this.sourceFromHalf({ ...img, data: img.denoised, denoised: undefined }).tex : undefined, tex, w: img.width, h: img.height, mode: img.mode, white: img.white, lens: img.lens, camera: img.camera, fullW: img.fullWidth, fullH: img.fullHeight };
   }
 
   /** Upload an sRGB image (a thumbnail), shot for `white` (a RAW's camera preview) or D65. */
@@ -320,6 +327,8 @@ export class Engine {
   release(src: Source | null | undefined) {
     if (!src) return;
     this.gpu.gl.deleteTexture(src.tex);
+    if (src.denoised) this.gpu.gl.deleteTexture(src.denoised);
+    if (this.noiseMade?.input === src.tex) { this.gpu.free(this.noiseMade.out); this.noiseMade = null; }
     if (this.dh?.input === src.tex || this.dhMasked.some((d) => d.input === src.tex)) this.freeDehaze();
     if (this.dhAmbient?.input === src.tex) this.dhAmbient = null;
     if (this.lensMade?.input === src.tex) { this.gpu.free(this.lensMade.out); this.lensMade = null; }
@@ -527,7 +536,8 @@ export class Engine {
     const border = borderFor(sigma, iterations);
     const tiles = [Math.max(1, Math.ceil((w - 2 * border) / TILE)), Math.max(1, Math.ceil((h - 2 * border) / TILE))];
     const one = () => g.target(w, h, true, true, true);
-    if (this.csOut && (this.csOut.w !== w || this.csOut.h !== h)) {
+    if (this.csMade?.tex !== src.tex) cap.threshold = undefined;
+    if (this.csOut && (this.csOut.w !== w || this.csOut.h !== h || this.csMade?.tex !== src.tex || this.csMade.iterations !== iterations)) {
       g.free(this.csOut);
       this.csOut = null;
     }
@@ -1068,6 +1078,24 @@ export class Engine {
 
   /** Correct the RAW once, before all analysis maps, crop and creative adjustments. Camera
    * JPEG previews already have manufacturer corrections and never enter this pass. */
+  /** Cached RAW strength blend, before capture sharpening and lens correction. */
+  private noiseReduced(src: Source, recipe: Recipe | null): Source {
+    if (!noiseEnabled(recipe) || !src.denoised) return src;
+    const amount = recipe!.noiseReduction!.amount / 100;
+    if (amount === 0) return src;
+    if (amount === 1) return { ...src, tex: src.denoised };
+    if (this.noiseMade?.input !== src.tex || this.noiseMade.amount !== amount) {
+      if (this.noiseMade) this.gpu.free(this.noiseMade.out);
+      // Fresh texture identity invalidates all downstream analysis caches.
+      const out = this.gpu.target(src.w, src.h, true);
+      this.gpu.bind(0, src.tex); this.gpu.bind(1, src.denoised);
+      this.noiseP.set({ uOriginal: 0, uDenoised: 1, uAmount: amount, uSplit: -1 });
+      this.gpu.draw(this.noiseP, out, src.w, src.h);
+      this.noiseMade = { input: src.tex, amount, out };
+    }
+    return { ...src, tex: this.noiseMade.out.tex };
+  }
+
   private lensCorrected(src: Source, recipe: Recipe | null): Source {
     if (src.mode !== InputMode.SceneLinear || !src.lens?.correction || !this.gpu.hdr) return src;
     const model = lensSpline(src.lens.correction, src.w, src.h, recipe?.lens ?? null);
@@ -1119,9 +1147,27 @@ export class Engine {
     },
   ) {
     const g = this.gpu;
+    // Before/after must compare different RAW inputs when noise reduction is on.
+    // Composite two finished frames; no extra texture units in the develop pass.
+    if (opts.split !== undefined && opts.split >= 0 && !opts.compare && noiseEnabled(recipe) && src.denoised) {
+      const size = `${opts.width}x${opts.height}`;
+      const after = this.outs.get(`noise-after:${size}`, () => g.target(opts.width, opts.height, false));
+      const before = this.outs.get(`noise-before:${size}`, () => g.target(opts.width, opts.height, false));
+      this.render(src, recipe, { ...opts, split: undefined, target: after });
+      this.render(src, recipe, { ...opts, split: undefined, compare: true, target: before });
+      g.bind(0, before.tex); g.bind(1, after.tex);
+      this.noiseP.set({ uOriginal: 0, uDenoised: 1, uAmount: 1, uSplit: opts.split });
+      g.draw(this.noiseP, opts.target === 'screen' ? null : opts.target, opts.width, opts.height, opts.target === 'screen');
+      if (opts.target === 'screen') {
+        if (this.fence) g.gl.deleteSync(this.fence);
+        this.fence = g.gl.fenceSync(g.gl.SYNC_GPU_COMMANDS_COMPLETE, 0); g.gl.flush();
+      }
+      return;
+    }
     const picking = opts.pick !== undefined && !!recipe;
     // The picked mask's input: the masks before it have had their say, it and those after none.
     if (picking) recipe = { ...recipe!, masks: recipe!.masks.slice(0, opts.pick) };
+    if (!opts.compare) src = this.noiseReduced(src, recipe);
     // Capture sharpening replaces the source for everything after it.
     const iterations = recipe && !opts.compare && src.capture && g.hdr && g.float32 ? iterationsFor(recipe.captureSharpening) : 0;
     if (iterations > 0) src = { ...src, tex: this.captureSharpened(src, iterations) };
@@ -1425,6 +1471,7 @@ export class Engine {
   sampleScene(src: Source, u: number, v: number, recipe: Recipe | null = null): [number, number, number] {
     const g = this.gpu;
     const gl = g.gl;
+    src = this.noiseReduced(src, recipe);
     src = this.lensCorrected(src, recipe);
     const t = g.target(1, 1, g.hdr, g.float32);
     try {
@@ -1509,6 +1556,8 @@ export class Engine {
   }
 
   dispose() {
+    if (this.noiseMade) this.gpu.free(this.noiseMade.out);
+    this.noiseMade = null;
     this.profiles.dispose();
     this.brushes.dispose();
     this.stack.dispose();

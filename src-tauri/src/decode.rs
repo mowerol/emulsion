@@ -166,6 +166,16 @@ pub fn load_for_engine(path: &Path, max_edge: Option<u32>) -> Result<Vec<u8>, St
     if classify(path) == Kind::Raw {
         let half = max_edge.is_some_and(|m| m <= RAW_HALF_MAX_EDGE);
         let raw = raw::decode(path, half)?;
+        return raw_for_engine(path, raw, max_edge);
+    }
+    let original = open_oriented(path)?;
+    let full = (original.width(), original.height());
+    let img = resize_to(original, max_edge);
+    let (w, h) = (img.width(), img.height());
+    Ok(payload(w, h, InputMode::DisplayLinear, None, full, linear_f16_rgba(&img)))
+}
+
+pub fn raw_for_engine(path: &Path, raw: raw::Decoded, max_edge: Option<u32>) -> Result<Vec<u8>, String> {
         let img = resize_to(raw.image, max_edge);
         let (w, h) = (img.width(), img.height());
         let mut bytes = payload(w, h, InputMode::SceneLinear, raw.white, raw.full_size, vec![]);
@@ -183,13 +193,7 @@ pub fn load_for_engine(path: &Path, max_edge: Option<u32>) -> Result<Vec<u8>, St
         bytes.extend_from_slice(&camera);
         while bytes.len() % 4 != 0 { bytes.push(0); }
         bytes.extend_from_slice(&linear_f16_rgba_impl(&img, true));
-        return Ok(bytes);
-    }
-    let original = open_oriented(path)?;
-    let full = (original.width(), original.height());
-    let img = resize_to(original, max_edge);
-    let (w, h) = (img.width(), img.height());
-    Ok(payload(w, h, InputMode::DisplayLinear, None, full, linear_f16_rgba(&img)))
+        Ok(bytes)
 }
 
 #[cfg(test)]

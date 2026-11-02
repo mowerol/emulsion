@@ -1,3 +1,4 @@
+import { noiseEnabled } from '../film/noisereduction';
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { memo, useState, useMemo, useRef, useEffect } from 'react';
 import { PACK, lookName, stocksForPack, lutBase, type PackId } from '../film/looks';
@@ -49,7 +50,7 @@ export const LutBasePicker = memo(function LutBasePicker({ photo, current, pack,
     const timer = setTimeout(async () => {
       const eng = offscreenEngine();
       if (!eng) return;
-      const key = `${path}|${white}`;
+      const key = `${path}|${white}|noise:${noiseEnabled(recipe)}`;
       if (decoded.current?.key !== key) {
         let orig;
         try {
@@ -58,7 +59,7 @@ export const LutBasePicker = memo(function LutBasePicker({ photo, current, pack,
           return;
         }
         if (cancelled) return;
-        const made = await sourceForPreview(eng, path, orig.blob, white, photo?.raw ?? false);
+        const made = await sourceForPreview(eng, path, orig.blob, white, photo?.raw ?? false, recipe);
         if (cancelled) {
           eng.release(made.src);
           return;

@@ -161,6 +161,30 @@ The develop view decodes a 2560 px preview; while it loads, the cached thumbnail
 
 ## RAW files
 
+RAW noise reduction runs locally through RawNIND/ONNX Runtime on demand, before
+capture sharpening and lens correction. `noise_cache.rs` serializes inference,
+retains one full-resolution source/result pair in memory and bounds its disk cache
+to 2 GiB. Identity includes canonical source path, size, nanosecond mtime, decode
+version/baseline and pinned model hash; amount and virtual-copy identity do not
+rerun inference. CoreML falls back to CPU on initialization or inference failure.
+The runtime session is explicitly released on application exit.
+
+When requested, decoder payload flag 8 appends a second RGBA16F pixel array after
+the original pixels. Both arrays derive from the same full-resolution decode and
+retain camera/lens/white-point metadata. `Engine.noiseReduced` blends them using
+the recipe's `noiseReduction.amount` in a cached source pass; fresh texture identity
+invalidates downstream analysis maps. Before bypasses it; Split composites two
+finished frames. Develop's preview/full caches distinguish enabled/disabled
+sources, while amount changes only render. Thumbnails, look previews and export
+request the same pair. Export errors instead of substituting an undenoised source.
+The setting is off for legacy/new photos, RAW only, and travels with Detail presets,
+copy/paste, undo/redo and sidecars. The enabled amount starts at 50.
+
+Assets are resolved from `EMULSION_DENOISE_ASSETS`, `app_data_dir()/denoise`,
+`resource_dir()/denoise`, or the development probe assets directory. Runtime/model
+are never loaded for ordinary decoding. See [setup and probe](../tools/denoise/README.md)
+and [measured findings](research/ai-noise-reduction.md).
+
 LibRaw 0.22.3 is vendored in `src-tauri/vendor/libraw` and compiled into the app by `build.rs`, always optimised and without OpenMP, LCMS or libjpeg, so the app needs no extra libraries at run time. `native/raw_shim.cpp` is a small C interface over it; `raw.rs` calls it.
 
 - **Decoding:** LibRaw demosaics, applies the white balance as shot and returns 16-bit linear camera RGB, oriented. Previews (2560 px and under) use LibRaw's half-size mode, which skips the demosaic and is several times faster; export decodes at full size.

@@ -6,6 +6,8 @@ mod camera_profiles;
 mod capture;
 mod commands;
 mod decode;
+pub mod denoise;
+mod noise_cache;
 mod export;
 mod exposure;
 mod library;
@@ -121,6 +123,7 @@ pub fn run() {
             commands::startup_options,
             commands::log_message,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running Emulsion");
+        .build(tauri::generate_context!())
+        .expect("error while building Emulsion")
+        .run(|_, event| { if matches!(event, tauri::RunEvent::Exit) { noise_cache::shutdown(); } });
 }

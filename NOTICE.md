@@ -24,6 +24,15 @@ Template:
 - Changes: <for example, "translated from C to GLSL; parameters mapped to Emulsion's recipe">
 -->
 
+### RAW noise reduction, from darktable and RawNIND
+- Upstream: https://github.com/darktable-org/darktable, `src/common/ai/restore_raw_linear.c` and `restore_common.h`, commit 0c67b465033205c46735c5a194f2b23d55e68363
+- Licence: GPL-3.0-or-later (darktable code); RawNIND model package GPL-3.0, with pretrained weights dual licensed GPL3 / CC-BY-4.0 by the author
+- Copyright: Copyright (C) 2026 darktable developers.
+- Ported to: `src-tauri/src/denoise.rs`, `src/film/noisereduction.ts` and `src/engine/shaders/noise.frag.glsl`
+- Changes: Rust translation of periodic mirror padding, 32-pixel linear overlap ramps, per-tile scalar mean gain matching and source/result strength blend. Full-frame accumulation replaces strip storage with the same weights. Emulsion supplies its existing LibRaw demosaic/as-shot WB/linear Rec.2020 decode, removing and restoring its baseline gain around inference. The pinned linear model requests no extra white balance or exposure normalization. The app caches full-strength output, then blends source/result on the GPU before capture sharpening. The shader also composites finished Before/Split frames. The same normalization and weights are used by the native CLI.
+- Model: RawNIND UtNet2 by Benoit Brummer and Christophe De Vleeschouwer, https://github.com/trougnouf/rawnind_jddc, “Learning Joint Denoising, Demosaicing, and Compression from the Raw Natural Image Noise Dataset” (2025), https://arxiv.org/abs/2501.08924. Optional download from `darktable-ai` release `release-5.6.0`; archive SHA-256 `d71b5f1e727c85a359e6f74dca9e2016c9d8fc3e2f7ac3e9b347d80ceca969af`, linear model SHA-256 `df957efadcc152c007d5d3b0917bdff9e41c0d4a0efe56584ef30b36393cd181`. Weights are not committed or bundled with the app binary. They are installed separately. See the author's [weight licensing statement](https://github.com/trougnouf/rawnind_jddc#pre-trained-models).
+- Runtime: optional ONNX Runtime 1.23.2 (MIT), https://github.com/microsoft/onnxruntime; Rust wrapper `ort` 2.0.0-rc.11 (MIT OR Apache-2.0), https://github.com/pykeio/ort. Downloaded runtime retains its upstream licence and third-party notices under the ignored probe assets directory.
+
 ### DCP camera profiles, from RawTherapee
 - Upstream: https://github.com/RawTherapee/RawTherapee, `rtengine/dcp.cc`, `dcp.h`, `color.h`, `curves.h`, `curves.cc`, `diagonalcurves.cc` and `iccmatrices.h`, commit b2ee504c47e5e6d5e054395aa12bf1fe43bd1c3c
 - Licence: GPL-3.0-or-later
