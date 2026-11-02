@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { EXPORT_DIR_NAME, exportPhotos } from '../library/export';
-import { setExportOpen, showToast, useApp, type Photo } from '../library/store';
+import { setExportOpen, showToast, sourcePhotos, useApp, type Photo } from '../library/store';
+import { useCatalog } from '../library/catalog';
 
 type Scope = 'active' | 'selected' | 'developed' | 'all';
 const SIZES: { value: number | null; label: string }[] = [
@@ -31,6 +32,8 @@ export function ExportDialog() {
   const photos = useApp((s) => s.photos);
   const active = useApp((s) => s.active);
   const selected = useApp((s) => s.selected);
+  const source = useApp(s => s.source);
+  const catalog = useCatalog();
 
   const [scope, setScope] = useState<Scope>('developed');
   const [size, setSize] = useState<number | null>(null);
@@ -41,19 +44,20 @@ export function ExportDialog() {
   const firstRef = useRef<HTMLButtonElement>(null);
 
   const lists = useMemo(() => {
-    const developed = photos.filter((p) => p.recipe);
+    const scoped = sourcePhotos(useApp.getState());
+    const developed = scoped.filter((p) => p.recipe);
     return {
-      active: photos[active] ? [photos[active]] : [],
-      selected: photos.filter((p) => selected.has(photoId(p))),
+      active: photos[active] && scoped.includes(photos[active]) ? [photos[active]] : [],
+      selected: scoped.filter((p) => selected.has(photoId(p))),
       developed,
-      all: photos,
+      all: scoped,
     } satisfies Record<Scope, Photo[]>;
-  }, [photos, active, selected]);
+  }, [photos, active, selected, source, catalog]);
 
   useEffect(() => {
     if (!isOpen) return;
     setProgress(null);
-    setScope(selected.size > 1 ? 'selected' : lists.developed.length ? 'developed' : 'active');
+    setScope(selected.size > 1 && lists.selected.length ? 'selected' : lists.developed.length ? 'developed' : lists.active.length ? 'active' : 'all');
     firstRef.current?.focus();
   }, [isOpen]);
 
@@ -103,7 +107,7 @@ export function ExportDialog() {
           {option('active', 'This frame')}
           {option('selected', 'Selected frames')}
           {option('developed', 'Developed frames')}
-          {option('all', 'Every frame in the folder')}
+          {option('all', source?.type === 'collection' ? 'Every frame in the collection' : source?.type === 'import' ? 'Every frame in the import' : 'Every frame in the folder')}
         </fieldset>
         <fieldset disabled={running}>
           <legend>Size</legend>

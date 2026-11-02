@@ -53,6 +53,53 @@ pub fn read(path: &Path) -> Option<Exposure> {
     Some(settings(&exif))
 }
 
+/// Library metadata is independent of pixel decoding and camera rendering profiles.
+#[derive(Debug, Serialize)]
+pub struct CatalogMetadata {
+    pub camera: Option<String>,
+    /// Local capture date, YYYY-MM-DD; no timezone is invented for EXIF timestamps.
+    pub date: Option<String>,
+}
+
+fn text(exif: &Exif, tag: Tag) -> Option<String> {
+    match &exif.get_field(tag, In::PRIMARY)?.value {
+        Value::Ascii(values) => {
+            let value = String::from_utf8_lossy(values.first()?).trim_matches('\0').trim().to_owned();
+            (!value.is_empty()).then_some(value)
+        }
+        _ => None,
+    }
+}
+
+fn catalog_settings(exif: &Exif) -> CatalogMetadata {
+    let make = text(exif, Tag::Make).unwrap_or_default();
+    let model = text(exif, Tag::Model).unwrap_or_default();
+    let camera = format!("{make} {model}").trim().to_owned();
+    let date = text(exif, Tag::DateTimeOriginal).or_else(|| text(exif, Tag::DateTime))
+        .and_then(|value| {
+            let bytes = value.as_bytes();
+            if bytes.len() < 10 || bytes[4] != b':' || bytes[7] != b':' { return None; }
+            let digits = [0, 1, 2, 3, 5, 6, 8, 9];
+            if !digits.iter().all(|i| bytes[*i].is_ascii_digit()) { return None; }
+            let month: u8 = value[5..7].parse().ok()?;
+            let day: u8 = value[8..10].parse().ok()?;
+            if !(1..=12).contains(&month) || !(1..=31).contains(&day) { return None; }
+            Some(value[..10].replace(':', "-"))
+        });
+    CatalogMetadata { camera: (!camera.is_empty()).then_some(camera), date }
+}
+
+pub fn catalog(path: &Path) -> CatalogMetadata {
+    let mut result = File::open(path).ok()
+        .and_then(|file| Reader::new().read_from_container(&mut BufReader::new(file)).ok())
+        .map(|exif| catalog_settings(&exif))
+        .unwrap_or(CatalogMetadata { camera: None, date: None });
+    if result.camera.is_none() && crate::library::classify(path) == crate::library::Kind::Raw {
+        result.camera = crate::raw::catalog_camera(path);
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -137,5 +184,23 @@ mod tests {
         let file = tempfile::NamedTempFile::new().unwrap();
         std::fs::write(file.path(), b"not an image").unwrap();
         assert!(read(file.path()).is_none());
+    }
+
+    #[test]
+    fn indexes_capture_dates_without_inventing_missing_metadata() {
+        let value = b"2026:10:12 07:42:00\0";
+        let mut bytes = tiff(&[(0x9003, 2, value.to_vec())]);
+        // The scalar fixture helper writes a count of one; ASCII counts bytes.
+        bytes[32..36].copy_from_slice(&(value.len() as u32).to_le_bytes());
+        let exif = Reader::new().read_raw(bytes.clone()).unwrap();
+        let metadata = catalog_settings(&exif);
+        assert_eq!(metadata.date.as_deref(), Some("2026-10-12"));
+        assert_eq!(metadata.camera, None);
+        bytes[49] = b'9'; // Invalid month 90.
+        let exif = Reader::new().read_raw(bytes).unwrap();
+        assert_eq!(catalog_settings(&exif).date, None);
+        let file = tempfile::NamedTempFile::new().unwrap();
+        assert_eq!(catalog(file.path()).date, None);
+        assert_eq!(catalog(file.path()).camera, None);
     }
 }

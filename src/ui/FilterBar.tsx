@@ -1,16 +1,21 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { useMemo } from 'react';
-import { setFilter, useApp } from '../library/store';
+import { setFilter, sourcePhotos, useApp } from '../library/store';
 import { EDIT_FILTERS, NO_FILTER, isFiltering, matchCount } from '../library/filter';
 import { LABELS } from '../library/marks';
+import { Heart, Star } from 'lucide-react';
+import { useCatalog } from '../library/catalog';
 import { Segmented } from './common';
 
 /** What the Library grid and the filmstrip show: edited or not, stars and up, hearted, colour tags.
  *  Without `summary` the match count and Clear are left to the caller (the Images pane puts them in its heading). */
-export function FilterBar({ summary = true }: { summary?: boolean }) {
+export function FilterBar({ summary = true, showCount = true }: { summary?: boolean; showCount?: boolean }) {
   const photos = useApp((s) => s.photos);
   const filter = useApp((s) => s.filter);
-  const matching = useMemo(() => matchCount(photos, filter), [photos, filter]);
+  const source = useApp(s => s.source);
+  const catalog = useCatalog();
+  const scoped = useMemo(() => sourcePhotos(useApp.getState()), [photos, source, catalog]);
+  const matching = useMemo(() => matchCount(scoped, filter), [scoped, filter]);
   const on = isFiltering(filter);
 
   return (
@@ -27,7 +32,7 @@ export function FilterBar({ summary = true }: { summary?: boolean }) {
             // Clicking the chosen rating again turns the rating filter off.
             onClick={() => setFilter({ minRating: n === filter.minRating ? 0 : n })}
           >
-            {'★'}
+            <Star size={15} fill="currentColor" strokeWidth={1.8} />
           </button>
         ))}
       </span>
@@ -38,7 +43,7 @@ export function FilterBar({ summary = true }: { summary?: boolean }) {
         title={filter.heart ? 'Any photo, hearted or not' : 'Hearted only'}
         onClick={() => setFilter({ heart: !filter.heart })}
       >
-        {filter.heart ? '♥' : '♡'}
+        <Heart size={15} fill={filter.heart ? 'currentColor' : 'none'} strokeWidth={1.8} />
       </button>
       <span className="filter-labels" role="group" aria-label="Colour tags">
         {LABELS.map((l) => {
@@ -60,9 +65,9 @@ export function FilterBar({ summary = true }: { summary?: boolean }) {
       </span>
       {summary && on && (
         <>
-          <span className="filter-count" aria-live="polite">
-            {matching === 0 ? 'No photos match' : `${matching} of ${photos.length}`}
-          </span>
+          {showCount && <span className="filter-count" aria-live="polite">
+            {matching === 0 ? 'No photos match' : `${matching} of ${scoped.length}`}
+          </span>}
           <button type="button" className="filter-clear" onClick={() => setFilter(NO_FILTER)}>
             Clear
           </button>

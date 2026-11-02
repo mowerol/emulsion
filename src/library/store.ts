@@ -6,8 +6,8 @@ import { captureLook } from '../film/looks';
 import { create } from 'zustand';
 import type { Histogram } from '../engine/histogram';
 import type { Xy } from '../engine/whitebalance';
-import { scanFolder, whitePoints, type Entry } from '../backend/api';
-import { folderImport, importedPaths, rememberFolder, saveFolderImport, type FolderImport } from './folders';
+import { catalogMetadata, isTauri, scanFolder, whitePoints, type Entry } from '../backend/api';
+import { folderImport, importedPaths, importedRoots, rememberFolder, saveFolderImport, type FolderImport } from './folders';
 import { defaultRecipe, normalizeRecipe, withSettingsFrom, type Recipe } from '../film/recipe';
 import { FULL, isFull, type Crop } from '../film/crop';
 import { NO_FILTER, normalizeFilter, passes, rangeWithin, shownIndices, stepWithin, type Filter } from './filter';
@@ -17,8 +17,10 @@ import { findPairs, foldPairs } from './pairs';
 import { cleanCopyName, expandCopies, photoId, savedFrames } from './copies';
 import { applyMark, describeMark, hasMark, normalizeMarks, type Label, type MarkKey, type Marks } from './marks';
 import { History, describe, type Change, type Step } from './history';
+import { cacheEdits, cacheFolder, catalogPhotos, recordImport, sourceMatcher, sourceMatches, useCatalog, viewImport, type SourceSelection } from './catalog';
 
 export interface Photo {
+  capture?: { camera: string | null; date: string | null };
   camera?: import('../film/profiles').CameraMetadata | null;
   lens?: import('../engine/lenscorrection').LensMetadata | null;
   /** Identity of an additional edit; absent on the original frame. */
@@ -60,6 +62,11 @@ export interface Toast {
 }
 
 interface State {
+  source: SourceSelection | null;
+  selectedOnly: boolean;
+  collectionAddIds: string[];
+  /** Explicitly applying a filter with no matches leaves the active edit intact, but hides its tile. */
+  filterExcludedActive: string | null;
   folder: Folder | null;
   subfolders: { path: string; name: string }[];
   candidates: Photo[];
@@ -191,6 +198,10 @@ function savedFilter(): Filter {
 }
 
 export const useApp = create<State>(() => ({
+  source: null,
+  selectedOnly: false,
+  collectionAddIds: [],
+  filterExcludedActive: null,
   folder: null,
   subfolders: [],
   candidates: [],
@@ -240,6 +251,41 @@ const scannedPhoto = (e: Entry): Photo => ({
   ...normalizeMarks(e.rating, e.label, e.heart), raw: e.raw, pair: null,
 });
 
+function withCachedMetadata(photo: Photo, cached?: Photo): Photo {
+  if (!cached || cached.size !== photo.size || cached.modified !== photo.modified) return photo;
+  return { ...photo, camera: cached.camera, lens: cached.lens, white: cached.white, capture: cached.capture };
+}
+
+/** Index metadata in bounded batches so camera/date smart collections cover offscreen frames too. */
+async function loadCatalogMetadata(photos: Photo[]) {
+  if (!isTauri()) return;
+  const pending = [...new Map(photos.filter(p => !p.capture).map(p => [p.path, p])).values()];
+  for (let i = 0; i < pending.length; i += 32) {
+    const batch = pending.slice(i, i + 32);
+    try {
+      const values = await catalogMetadata(batch.map(p => p.path));
+      const updates = new Map(batch.map((p, n) => [p.path, { identity: p, capture: values[n] ?? { camera: null, date: null } }]));
+      const update = (p: Photo) => {
+        const data = updates.get(p.path);
+        return data && p.size === data.identity.size && p.modified === data.identity.modified ? { ...p, capture: data.capture } : p;
+      };
+      cacheEdits(catalogPhotos().map(update));
+      set(s => ({ photos: s.photos.map(update), hidden: s.hidden.map(update), candidates: s.candidates.map(update) }));
+    } catch { return; }
+  }
+}
+
+function cacheScannedFolder(root: string, name: string, photos: Photo[], sync: boolean) {
+  const catalog = useCatalog.getState();
+  const previous = catalog.folders[root];
+  if (sync && previous) {
+    const known = new Set([...previous.map(p => p.path), ...catalog.imports.filter(i => i.destinationPath === root).flatMap(i => i.photoIds.map(id => id.split('\0')[0]))]);
+    const added = photos.filter(p => !known.has(p.path)).map(photoId);
+    if (added.length) recordImport(name, root, added);
+  }
+  cacheFolder(root, photos);
+}
+
 let folderRequest = 0;
 export async function openFolder(path: string) {
   if (get().lookEdit) return showToast('Save or cancel the look draft first');
@@ -258,9 +304,11 @@ export async function openFolder(path: string) {
       res = await scanFolder(res.root, true);
       if (request !== folderRequest) return;
     }
-    const all = res.entries.flatMap(e => expandCopies(scannedPhoto(e), e.copies));
+    const cached = new Map(catalogPhotos().map(p => [photoId(p), p]));
+    const all = res.entries.flatMap(e => expandCopies(scannedPhoto(e), e.copies)).map(p => withCachedMetadata(p, cached.get(photoId(p))));
     history.clear();
     set({
+      source: { type: 'folder', id: res.root },
       folder: { root: res.root, name: res.name, unreadable: res.unreadable },
       subfolders: res.folders ?? [],
       candidates: all,
@@ -272,8 +320,11 @@ export async function openFolder(path: string) {
       ...historyState(),
     });
     displayImported(all, choice);
+    cacheScannedFolder(res.root, res.name, [...get().photos, ...get().hidden], choice?.mode === 'sync');
+    void loadCatalogMetadata([...get().photos, ...get().hidden]);
     rememberFolder(res.root);
     if (res.unreadable) showToast(`${res.unreadable} items could not be read.`);
+    return true;
   } catch (err) {
     if (request === folderRequest) showToast(`Could not open that folder. ${String(err)}`);
   } finally {
@@ -287,14 +338,14 @@ function displayImported(all: Photo[], choice: FolderImport | null) {
   scanOrder.clear();
   imported.forEach((p, i) => scanOrder.set(p.path, i));
   const { shown: photos, hidden } = arrange(imported, get().foldJpegs);
-  const active = photos.length ? Math.max(0, photos.findIndex(p => passes(p, get().filter))) : -1;
+  const active = photos.findIndex(p => passes(p, get().filter));
   set({ photos, hidden, pairCount: findPairs(imported.filter(p => !p.copyId)).size, active, anchor: active,
     selected: active >= 0 ? new Set([photoId(photos[active])]) : new Set(), histogram: null });
   const root = get().folder?.root;
   if (root && photos.length) void loadWhitePoints(root, [...new Set(photos.map(p => p.path))]);
 }
 
-export function importFolderPhotos(choice: FolderImport) {
+export function importFolderPhotos(choice: FolderImport, name?: string) {
   const { folder, candidates, photos, hidden } = get();
   if (!folder || get().loading) return;
   // Preserve in-memory edits when adding more photos or enabling sync.
@@ -305,9 +356,16 @@ export function importFolderPhotos(choice: FolderImport) {
     const available = new Set(all.map(p => p.path));
     choice.paths = choice.paths.filter(path => available.has(path));
   }
+  const previous = importedPaths(all.map(p => p.path), get().importChoice);
+  const wanted = importedPaths(all.map(p => p.path), choice);
+  const added = all.filter(p => wanted.has(p.path) && !previous.has(p.path)).map(photoId);
   saveFolderImport(folder.root, choice);
   set({ importChoice: choice, choosingImport: false, candidates: all });
   displayImported(all, choice);
+  cacheFolder(folder.root, [...get().photos, ...get().hidden]);
+  // A sync refresh is browsing; an explicit import records its own fixed membership.
+  recordImport(name?.trim() || folder.name, folder.root, added.length ? added : all.filter(p => wanted.has(p.path)).map(photoId));
+  void loadCatalogMetadata([...get().photos, ...get().hidden]);
 }
 
 export function chooseImport(choosingImport: boolean) { set({ choosingImport }); }
@@ -340,13 +398,87 @@ export function closeFolder() {
   finishCrop(true);
   endLookEdit();
   history.clear();
-  set({ folder: null, photos: [], hidden: [], candidates: [], subfolders: [], importChoice: null,
+  set({ source: null, folder: null, photos: [], hidden: [], candidates: [], subfolders: [], importChoice: null,
     choosingImport: false, includeSubfolders: false, loading: false, active: -1, selected: new Set(), view: 'library', ...historyState() });
+}
+
+/** Load virtual sources from saved folder memberships, re-reading sidecars before showing them. */
+export async function selectSource(source: SourceSelection) {
+  if (source.type === 'folder') return openFolder(source.id);
+  if (get().lookEdit) return showToast('Save or cancel the look draft first');
+  const request = ++folderRequest;
+  finishCrop(true);
+  cacheEdits([...get().photos, ...get().hidden]);
+  const collectionAddIds = [...get().selected];
+  set({ loading: true });
+  try {
+    await flushSaves();
+    if (request !== folderRequest) return;
+    const catalog = useCatalog.getState();
+    const session = source.type === 'import' ? catalog.imports.find(i => i.id === source.id) : null;
+    const collection = source.type === 'collection' ? catalog.collections.find(c => c.id === source.id) : null;
+    if (!session && !collection) return;
+    const ids = new Set(session?.photoIds ?? (collection?.type === 'manual' ? collection.photoIds : []));
+    const knownRoots = [...new Set([...Object.keys(catalog.folders), ...importedRoots()])];
+    const roots = knownRoots.filter(root => collection?.type === 'smart' || session?.destinationPath === root || [...ids].some(id => id.startsWith(root.replace(/[\\/]$/, '') + (root.includes('\\') ? '\\' : '/'))));
+    const cached = new Map(catalogPhotos().map(p => [photoId(p), p]));
+    const scans = await Promise.allSettled(roots.map(async root => {
+      const choice = folderImport(root);
+      const res = await scanFolder(root, choice?.includeSubfolders === true);
+      const all = res.entries.flatMap(e => expandCopies(scannedPhoto(e), e.copies)).map(p => withCachedMetadata(p, cached.get(photoId(p))));
+      const wanted = importedPaths(all.map(p => p.path), choice);
+      return { root, name: res.name, sync: choice?.mode === 'sync', photos: all.filter(p => wanted.has(p.path)) };
+    }));
+    if (request !== folderRequest) return;
+    for (const result of scans) if (result.status === 'fulfilled') cacheScannedFolder(result.value.root, result.value.name, result.value.photos, result.value.sync);
+    if (scans.some(r => r.status === 'rejected')) showToast('Some folders are unavailable. Showing their saved library entries.');
+    const all = catalogPhotos();
+    scanOrder.clear();
+    all.forEach((p, i) => scanOrder.set(p.path, i));
+    const { shown: photos, hidden } = arrange(all, get().foldJpegs);
+    const first = photos.findIndex(p => sourceMatches(p, source) && passes(p, get().filter));
+    const root = session?.destinationPath ?? roots[0] ?? get().folder?.root;
+    history.clear();
+    set({ source, collectionAddIds, folder: root ? { root, name: root.split(/[\\/]/).pop() || root, unreadable: 0 } : null,
+      photos, hidden, candidates: [], subfolders: [], importChoice: null, choosingImport: false,
+      pairCount: findPairs(all.filter(p => !p.copyId)).size, active: first, anchor: first,
+      selected: first >= 0 ? new Set([photoId(photos[first])]) : new Set(),
+      view: 'library', compare: false, histogram: null, ...historyState() });
+    if (session) viewImport(session.id);
+    if (root) void loadWhitePoints(root, [...new Set(all.map(p => p.path))]);
+    void loadCatalogMetadata(all);
+  } catch (err) {
+    if (request === folderRequest) showToast(`Could not open that source. ${String(err)}`);
+  } finally {
+    if (request === folderRequest) set({ loading: false });
+  }
+}
+
+export function setSelectedOnly(selectedOnly: boolean) { set({ selectedOnly }); }
+
+/** Source membership is evaluated live, before the toolbar filters. */
+export const sourceIndices = (s: State = get()) => {
+  const matches = sourceMatcher(s.source);
+  return s.photos.flatMap((p, i) => matches(p) ? [i] : []);
+};
+export const sourcePhotos = (s: State = get()) => sourceIndices(s).map(i => s.photos[i]);
+
+// Keep the catalog current as edits, marks, versions and decoded camera metadata arrive.
+useApp.subscribe((s, old) => {
+  if ((s.photos !== old.photos || s.hidden !== old.hidden) && !s.loading && !s.lookEdit) cacheEdits([...s.photos, ...s.hidden]);
+});
+
+/** Shared by Library, Develop's Images pane and the classic filmstrip. */
+export function useShown() {
+  const state = useApp();
+  useCatalog();
+  return shown(state);
 }
 
 export const setView = (view: View) => {
   if (get().lookEdit) return showToast('Save or cancel the look draft first');
-  if (view === 'develop' && !get().photos.length) return;
+  if (view === 'develop' && !shown().length) return;
+  if (view === 'develop' && !shown().includes(get().active)) setActive(shown()[0]);
   if (view !== 'develop') finishCrop(true);
   set({ view });
 };
@@ -356,6 +488,7 @@ export function setActive(index: number, mode: 'single' | 'toggle' | 'range' | '
   if (index !== get().active) finishCrop(true);
   const { photos, anchor, selected } = get();
   if (index < 0 || index >= photos.length) return;
+  set({ filterExcludedActive: null });
   const path = photoId(photos[index]);
   if (mode === 'keep') {
     set({ active: index, anchor: index, selected: selected.has(path) ? selected : new Set([path]) });
@@ -373,7 +506,11 @@ export function setActive(index: number, mode: 'single' | 'toggle' | 'range' | '
 }
 
 /** Indices of the photos the grid and the strip show. */
-export const shown = (s: State = get()) => shownIndices(s.photos, s.filter, s.active);
+export const shown = (s: State = get()) => {
+  const scope = new Set(sourceIndices(s));
+  const active = s.photos[s.active] && photoId(s.photos[s.active]) === s.filterExcludedActive ? -1 : s.active;
+  return shownIndices(s.photos, s.filter, active).filter(i => scope.has(i) && (!s.selectedOnly || s.selected.has(photoId(s.photos[i]))));
+};
 
 /** Move through the shown photos; a grid row down is `delta` = columns. */
 export function step(delta: number) {
@@ -395,12 +532,13 @@ export function stepToEnd(end: 'first' | 'last') {
  */
 export function setFilter(change: Partial<Filter>) {
   const filter = { ...get().filter, ...change };
-  set({ filter });
+  set({ filter, filterExcludedActive: null });
   const { photos, active } = get();
   const current = photos[active];
-  if (current && !passes(current, filter)) {
-    const first = photos.findIndex((p) => passes(p, filter));
-    if (first >= 0) setActive(first);
+  if (!current || !passes(current, filter)) {
+    const first = sourceIndices().find(i => passes(photos[i], filter));
+    if (first !== undefined) setActive(first);
+    else set({ filterExcludedActive: current ? photoId(current) : null });
   }
   try {
     localStorage.setItem(FILTER_KEY, JSON.stringify(filter));

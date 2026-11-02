@@ -1,12 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { browseDirectory, computerFolders, isTauri, type Directory } from '../backend/api';
 import { chooseImport, importFolderPhotos, openFolder, setFoldJpegs, setIncludeSubfolders, showToast, useApp, type Photo } from '../library/store';
-import { folderTreeState, saveFolderTree } from '../library/folders';
+import { compareFolders, folderTreeState, saveFolderTree } from '../library/folders';
 import { findPairs, foldPairs } from '../library/pairs';
 import { Thumb, useVisible } from './common';
 import { ExposureInfo } from './ExposureInfo';
+import { BookOpen, ChevronDown, ChevronRight, Ellipsis, Folder, RefreshCw } from 'lucide-react';
+import { LibrarySection, LibraryMenu } from './LibrarySection';
+import { useCatalog } from '../library/catalog';
 
 export function FolderIcon() {
   return <svg viewBox="0 0 64 48" fill="none" aria-hidden="true"><path d="M4 12V7a3 3 0 0 1 3-3h16l6 7h28a3 3 0 0 1 3 3v26a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V12Z" fill="currentColor" opacity=".16"/><path d="M4 16h56v24a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V7a3 3 0 0 1 3-3h16l6 7h28a3 3 0 0 1 3 3v2" stroke="currentColor" strokeWidth="2" strokeLinejoin="round"/></svg>;
@@ -19,7 +22,12 @@ function DirectoryNode({ directory, expandedPaths, onExpand, reveal = true, dept
 }) {
   const current = useApp(s => s.folder?.root);
   const selectedChildren = useApp(s => s.subfolders);
-  const active = current === directory.path;
+  const source = useApp(s => s.source);
+  const active = current === directory.path && (!source || source.type === 'folder');
+  const catalogBundle = /\.(cocatalog|cocatalogdb)$/i.test(directory.name);
+  const cached = useCatalog(s => s.folders[directory.path]);
+  const fold = useApp(s => s.foldJpegs);
+  const count = useMemo(() => cached ? (fold ? foldPairs(cached).shown : cached).length : undefined, [cached, fold]);
   const expanded = expandedPaths.has(directory.path);
   const [children, setChildren] = useState<Directory[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -30,7 +38,7 @@ function DirectoryNode({ directory, expandedPaths, onExpand, reveal = true, dept
     if (active) setChildren(selectedChildren);
   }, [active, selectedChildren]);
   useEffect(() => {
-    if (!expanded || active) return;
+    if (!expanded || active || catalogBundle) return;
     let cancelled = false;
     setError(null);
     browseDirectory(directory.path).then(value => { if (!cancelled) setChildren(value); })
@@ -39,10 +47,10 @@ function DirectoryNode({ directory, expandedPaths, onExpand, reveal = true, dept
   }, [expanded, active, directory.path]);
   return <li>
     <div className={`directory-row${active ? ' active' : ''}`} style={{ paddingLeft: 8 + depth * 14 }}>
-      <button type="button" className="directory-expand" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${directory.name}`} aria-expanded={expanded} onClick={() => onExpand(directory.path, !expanded)}>{expanded ? '⌄' : '›'}</button>
-      <button type="button" className="directory-name" aria-current={active ? 'location' : undefined} title={directory.path} onClick={() => openFolder(directory.path)}><FolderIcon /><span>{directory.name}</span></button>
+      {catalogBundle ? <span className="directory-expand-slot" /> : <button type="button" className="directory-expand" aria-label={`${expanded ? 'Collapse' : 'Expand'} ${directory.name}`} aria-expanded={expanded} onClick={() => onExpand(directory.path, !expanded)}>{expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</button>}
+      <button type="button" className="directory-name" aria-current={active ? 'location' : undefined} title={directory.path} onClick={() => { if (!catalogBundle) onExpand(directory.path, true); void openFolder(directory.path); }}>{catalogBundle ? <BookOpen size={15} /> : <Folder size={15} />}<span>{directory.name}</span>{count !== undefined && <span className="source-count">{count.toLocaleString()}</span>}</button>
     </div>
-    {expanded && <ul>{error ? <li className="directory-message" title={error}>Could not read this folder</li> : children === null ? <li className="directory-message">Reading…</li> : children.map(child => <DirectoryNode key={child.path} directory={child} depth={depth + 1} expandedPaths={expandedPaths} onExpand={onExpand} reveal={reveal} />)}</ul>}
+    {expanded && !catalogBundle && <ul>{error ? <li className="directory-message" title={error}>Could not read this folder</li> : children === null ? <li className="directory-message">Reading…</li> : [...children].sort(compareFolders).map(child => <DirectoryNode key={child.path} directory={child} depth={depth + 1} expandedPaths={expandedPaths} onExpand={onExpand} reveal={reveal} />)}</ul>}
   </li>;
 }
 
@@ -50,7 +58,8 @@ function savedRoot(): Directory | null {
   try { const v = JSON.parse(localStorage.getItem('emulsion.browserRoot') || 'null'); return typeof v?.path === 'string' && typeof v?.name === 'string' ? v : null; } catch { return null; }
 }
 
-export function FolderDirectory() {
+export function FolderDirectory({ children }: { children?: ReactNode } = {}) {
+  const loading = useApp(s => s.loading);
   const sidebar = useRef<HTMLElement>(null);
   const initialScroll = useRef(folderTreeState().scroll);
   const restored = useRef(false);
@@ -102,13 +111,18 @@ export function FolderDirectory() {
   const locations = root ? [root] : roots;
   const revealRoot = current ? locations.filter(r => r.path === current.root || contains(r.path, current.root)).sort((a, b) => b.path.length - a.path.length)[0]?.path : undefined;
   const outside = current && !locations.some(r => r.path === current.root || contains(r.path, current.root));
-  return <aside ref={sidebar} className="folder-directory" aria-label="Folder directory" onScroll={e => { if (restored.current) saveFolderTree({ scroll: e.currentTarget.scrollTop }); }}>
-    <div className="directory-heading"><h2>Folders</h2><button type="button" title="Refresh drives" aria-label="Refresh drives" onClick={() => setRefresh(n => n + 1)}>↻</button></div>
-    <button type="button" className="directory-root-choice" onClick={chooseRoot}>Choose root folder…</button>
-    {root && <button type="button" className="directory-root-choice" onClick={() => scope(null)}>Show computer & drives</button>}
-    <div className="directory-section-label">{root ? 'Root folder' : 'Computer & drives'}</div>
-    <ul className="directory-tree" key={refresh}>{locations.map(directory => <DirectoryNode key={directory.path} directory={directory} expandedPaths={expandedPaths} onExpand={onExpand} reveal={directory.path === revealRoot} />)}{outside && <DirectoryNode directory={{ path: current.root, name: current.name }} expandedPaths={expandedPaths} onExpand={onExpand} />}</ul>
-    <p className="directory-footer">Browse folders, then choose which photos to import.</p>
+  return <aside ref={sidebar} className="folder-directory" aria-label={children ? 'Library sources' : 'Folder directory'} onScroll={e => { if (restored.current) saveFolderTree({ scroll: e.currentTarget.scrollTop }); }}>
+    {children}
+    <LibrarySection id="folders" label="Folders" actions={<>
+      <button type="button" className="library-icon-button" title="Refresh folders" aria-label="Refresh folders" disabled={loading} onClick={() => { setRefresh(n => n + 1); if (current && useApp.getState().source?.type === 'folder') void openFolder(current.root); }}><RefreshCw size={14} /></button>
+      <LibraryMenu label="Folder options" icon={<Ellipsis size={16} />}>
+        <button type="button" onClick={chooseRoot}>Choose root folder…</button>
+        <button type="button" onClick={() => scope(null)}>Show computer &amp; drives</button>
+      </LibraryMenu>
+    </>}>
+      {!root && <div className="directory-section-label">Computer &amp; drives</div>}
+      <ul className="directory-tree" key={refresh}>{[...locations].sort(compareFolders).map(directory => <DirectoryNode key={directory.path} directory={directory} expandedPaths={expandedPaths} onExpand={onExpand} reveal={directory.path === revealRoot} />)}{outside && <DirectoryNode directory={{ path: current.root, name: current.name }} expandedPaths={expandedPaths} onExpand={onExpand} />}</ul>
+    </LibrarySection>
   </aside>;
 }
 
@@ -132,6 +146,7 @@ export function FolderImportView() {
   const includeSubfolders = useApp(s => s.includeSubfolders);
   const pairCount = useMemo(() => findPairs(candidates).size, [candidates]);
   const tiles = useMemo(() => foldJpegs ? foldPairs(candidates).shown : candidates, [candidates, foldJpegs]);
+  const [importName, setImportName] = useState('');
   const [picked, setPicked] = useState(() => new Set(choice?.mode === 'selected' ? choice.paths : []));
   const selectedCount = tiles.filter(p => picked.has(p.path) || (p.pair && picked.has(p.pair))).length;
   const toggle = (photo: Photo) => setPicked(current => {
@@ -142,6 +157,7 @@ export function FolderImportView() {
     return next;
   });
   return <section className="folder-import" aria-label="Import photos">
+    <label className="import-session-name">Import name <input aria-label="Import name" placeholder="Use folder name" value={importName} onChange={e => setImportName(e.target.value)} /></label>
     <div className="import-toolbar" role="toolbar" aria-label="Import options">
       <span className="import-count" role="status">{selectedCount ? `${selectedCount} of ${tiles.length} selected` : `${tiles.length} photos`}</span>
       <button type="button" className="import-select" disabled={loading} onClick={() => setPicked(new Set(candidates.map(p => p.path)))}>Select all</button>
@@ -150,8 +166,8 @@ export function FolderImportView() {
       <label className="import-view-option"><input type="checkbox" checked={includeSubfolders} disabled={loading} onChange={e => void setIncludeSubfolders(e.target.checked)} /> Include subfolders</label>
       <div className="import-actions">
         {choice && <button type="button" className="btn" onClick={() => chooseImport(false)}>Cancel</button>}
-        <button type="button" className="btn" disabled={loading || !candidates.length} title="Import every photo in the current scope. New photos are included when you reopen or refresh it. Originals stay in place." onClick={() => importFolderPhotos({ mode: 'sync' })}>Sync all photos</button>
-        <button type="button" className="btn primary" disabled={!selectedCount || loading} title={picked.size ? 'Import only the selected photos. Originals stay in place.' : 'Select photos below to import them.'} onClick={() => importFolderPhotos({ mode: 'selected', paths: [...picked] })}>Import selected{selectedCount > 0 ? ` (${selectedCount})` : ''}</button>
+        <button type="button" className="btn" disabled={loading || !candidates.length} title="Import every photo in the current scope. New photos are included when you reopen or refresh it. Originals stay in place." onClick={() => importFolderPhotos({ mode: 'sync' }, importName)}>Sync all photos</button>
+        <button type="button" className="btn primary" disabled={!selectedCount || loading} title={picked.size ? 'Import only the selected photos. Originals stay in place.' : 'Select photos below to import them.'} onClick={() => importFolderPhotos({ mode: 'selected', paths: [...picked] }, importName)}>Import selected{selectedCount > 0 ? ` (${selectedCount})` : ''}</button>
       </div>
     </div>
     <div className="import-grid">{tiles.map(photo => {

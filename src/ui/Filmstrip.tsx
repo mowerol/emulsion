@@ -1,9 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { usePhotoContextMenu, type PhotoContextHandler } from './PhotoMenu';
 import { photoId, photoName, versionName } from '../library/copies';
-import { memo, useEffect, useMemo, useRef, type MouseEvent } from 'react';
-import { setActive, useApp, type Photo } from '../library/store';
-import { shownIndices } from '../library/filter';
+import { memo, useEffect, useRef, type MouseEvent } from 'react';
+import { setActive, useApp, useShown, type Photo } from '../library/store';
 import { MarkBadges, Thumb, edgeText, useVisible } from './common';
 import { FilterBar } from './FilterBar';
 
@@ -42,7 +41,7 @@ export function Filmstrip() {
   const selected = useApp((s) => s.selected);
   const filter = useApp((s) => s.filter);
   const ref = useRef<HTMLDivElement>(null);
-  const shown = useMemo(() => shownIndices(photos, filter, active), [photos, filter, active]);
+  const shown = useShown();
 
   useEffect(() => {
     ref.current?.querySelector<HTMLElement>(`[data-index="${active}"]`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });

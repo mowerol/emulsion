@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { usePhotoContextMenu, type PhotoContextHandler } from './PhotoMenu';
 import { photoId, photoName } from '../library/copies';
-import { memo, useEffect, useMemo, useRef } from 'react';
-import { setActive, setFilter, useApp, type Photo } from '../library/store';
-import { NO_FILTER, isFiltering, shownIndices } from '../library/filter';
+import { memo, useEffect, useRef } from 'react';
+import { setActive, setFilter, sourcePhotos, useApp, useShown, type Photo } from '../library/store';
+import { NO_FILTER, isFiltering } from '../library/filter';
 import { FilterBar } from './FilterBar';
 import { ImageViewOptions } from './ImageViewOptions';
 import { recipeLabel } from './common';
@@ -43,7 +43,8 @@ export function Images() {
   const context = usePhotoContextMenu();
   const photos = useApp(s => s.photos), active = useApp(s => s.active), selected = useApp(s => s.selected), filter = useApp(s => s.filter);
   const columns = useWorkspace(s => s.imageColumns);
-  const shown = useMemo(() => shownIndices(photos, filter, active), [photos, filter, active]);
+  const shown = useShown();
+  const sourceCount = sourcePhotos(useApp.getState()).length;
   const ref = useRef<HTMLDivElement>(null);
   const filtersOpen = usePrefs(p => p.filtersOpen);
   const setFiltersOpen = (filtersOpen: boolean) => setPrefs({ filtersOpen });
@@ -55,7 +56,7 @@ export function Images() {
         title={filtersOpen ? 'Hide filters' : 'Show filters'}>
         <ChevronDown className="images-chevron" size={14} strokeWidth={2} aria-hidden="true" /><strong>Images</strong>
       </button>
-      <span className="images-count" aria-live="polite" title={`${shown.length} shown of ${photos.length}`}>{filtering ? <>{shown.length}<span className="images-count-total"> of {photos.length}</span></> : photos.length}</span>
+      <span className="images-count" aria-live="polite" title={`${shown.length} shown of ${sourceCount}`}>{filtering ? <>{shown.length}<span className="images-count-total"> of {sourceCount}</span></> : sourceCount}</span>
       {filtering && <button type="button" className="filter-clear" onClick={() => setFilter(NO_FILTER)}>Clear</button>}
       <ImageViewOptions />
     </header>

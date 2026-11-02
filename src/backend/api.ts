@@ -50,6 +50,9 @@ export interface Exposure {
   focalLength35?: number | null;
 }
 export const photoExposure = (path: string) => invoke<Exposure | null>('photo_exposure', { path });
+export interface CatalogMetadata { camera: string | null; date: string | null }
+/** Camera and capture date, without decoding image pixels. */
+export const catalogMetadata = (paths: string[]) => invoke<(CatalogMetadata | null)[]>('catalog_metadata', { paths });
 
 export async function thumbnail(path: string, maxEdge = 512): Promise<Blob> {
   const buf = await invoke<ArrayBuffer>('thumbnail', { path, maxEdge });

@@ -99,6 +99,7 @@ pub fn run() {
             commands::auto_perspective,
             commands::scan_folder,
             commands::photo_exposure,
+            commands::catalog_metadata,
             commands::browse_directory,
             commands::computer_folders,
             commands::thumbnail,

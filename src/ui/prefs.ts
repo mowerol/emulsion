@@ -12,6 +12,8 @@ export const CROP_OVERLAYS: { id: CropOverlayId; label: string }[] = [
 export interface InterfacePreferences {
   /** Mid grey (the default) or dark surround. */
   theme: Theme;
+  /** Capture settings under Library thumbnails. */
+  libraryExif: boolean;
   /** The histogram folded to a thin strip. */
   histogramSmall: boolean;
   /** The Images pane's filters shown. */
@@ -19,12 +21,13 @@ export interface InterfacePreferences {
   /** The guide shown in the crop frame while it is handled. */
   cropOverlay: CropOverlayId;
 }
-export const INTERFACE_DEFAULTS: InterfacePreferences = { theme: 'mid', histogramSmall: false, filtersOpen: true, cropOverlay: 'thirds' };
+export const INTERFACE_DEFAULTS: InterfacePreferences = { theme: 'mid', libraryExif: true, histogramSmall: false, filtersOpen: true, cropOverlay: 'thirds' };
 
 export function normalizePrefs(input: unknown): InterfacePreferences {
   const p = input && typeof input === 'object' ? (input as Partial<InterfacePreferences>) : {};
   return {
     theme: p.theme === 'dark' ? 'dark' : 'mid',
+    libraryExif: p.libraryExif !== false,
     histogramSmall: p.histogramSmall === true,
     filtersOpen: p.filtersOpen !== false,
     cropOverlay: CROP_OVERLAYS.some(o => o.id === p.cropOverlay) ? p.cropOverlay! : 'thirds',

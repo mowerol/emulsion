@@ -162,6 +162,17 @@ pub fn exposure(path: &Path) -> Option<crate::exposure::Exposure> {
     Some(result)
 }
 
+/// Read the catalog camera name for RAW containers without readable EXIF (e.g. CR3).
+pub fn catalog_camera(path: &Path) -> Option<String> {
+    let path = c_path(path).ok()?;
+    let mut info = EmuRawInfo::empty();
+    let mut err = [0 as c_char; 256];
+    let rc = unsafe { emu_raw_info(path.as_ptr(), &mut info, err.as_mut_ptr(), err.len()) };
+    if rc != 0 { return None; }
+    let name = format!("{} {}", error_text(&info.make), error_text(&info.model)).trim().to_owned();
+    (!name.is_empty()).then_some(name)
+}
+
 /// Profile metadata is independent of lens-profile availability.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]

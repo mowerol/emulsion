@@ -26,6 +26,11 @@ pub async fn photo_exposure(path: String) -> Result<Option<crate::exposure::Expo
 }
 
 #[tauri::command]
+pub async fn catalog_metadata(paths: Vec<String>) -> Result<Vec<crate::exposure::CatalogMetadata>, String> {
+    blocking(move || Ok(paths.par_iter().map(|path| crate::exposure::catalog(Path::new(path))).collect())).await
+}
+
+#[tauri::command]
 pub async fn browse_directory(path: String) -> Result<Vec<library::FolderEntry>, String> {
     blocking(move || library::directories(Path::new(&path)).map_err(|e| e.to_string())).await
 }

@@ -38,7 +38,7 @@ describe('interface preferences', () => {
   it('defaults to mid grey with the filters open, and recovers from bad saved values', () => {
     expect(normalizePrefs(null)).toEqual(INTERFACE_DEFAULTS);
     expect(INTERFACE_DEFAULTS.theme).toBe('mid');
-    expect(normalizePrefs({ theme: 'neon', histogramSmall: 'yes', filtersOpen: false })).toEqual({ theme: 'mid', histogramSmall: false, filtersOpen: false, cropOverlay: 'thirds' });
+    expect(normalizePrefs({ theme: 'neon', histogramSmall: 'yes', filtersOpen: false })).toEqual({ theme: 'mid', libraryExif: true, histogramSmall: false, filtersOpen: false, cropOverlay: 'thirds' });
     expect(normalizePrefs({ cropOverlay: 'golden' }).cropOverlay).toBe('golden');
     expect(normalizePrefs({ theme: 'dark' }).theme).toBe('dark');
   });

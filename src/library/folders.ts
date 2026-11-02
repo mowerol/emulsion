@@ -60,3 +60,15 @@ export function saveFolderTree(patch: Partial<FolderTreeState>) {
   treeMemory = { ...folderTreeState(), ...patch };
   try { localStorage.setItem(TREE_KEY, JSON.stringify(treeMemory)); } catch { /* session only */ }
 }
+
+/** Month names sort by the calendar, followed by ordinary names in natural order. */
+const MONTHS = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october', 'november', 'december'];
+export function compareFolders(a: { name: string }, b: { name: string }): number {
+  const month = (name: string) => { const i = MONTHS.indexOf(name.trim().toLowerCase()); return i < 0 ? 12 : i; };
+  return month(a.name) - month(b.name) || a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' });
+}
+
+export function importedRoots(): string[] {
+  try { return Object.keys(JSON.parse(localStorage.getItem(KEY) || '{}')).filter(root => !!folderImport(root)); }
+  catch { return Object.keys(memory); }
+}

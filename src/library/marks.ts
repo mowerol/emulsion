@@ -4,10 +4,10 @@
 // Saved in each photo's sidecar.
 
 export const LABELS = [
-  { id: 'red', name: 'Red', key: '6', hex: '#d65a4a' },
-  { id: 'yellow', name: 'Yellow', key: '7', hex: '#dcb546' },
-  { id: 'green', name: 'Green', key: '8', hex: '#6ba95c' },
-  { id: 'blue', name: 'Blue', key: '9', hex: '#5b8fd6' },
+  { id: 'red', name: 'Red', key: '6', hex: '#c4574a' },
+  { id: 'yellow', name: 'Yellow', key: '7', hex: '#c2a24a' },
+  { id: 'green', name: 'Green', key: '8', hex: '#5e9a5a' },
+  { id: 'blue', name: 'Blue', key: '9', hex: '#5a7fb8' },
 ] as const;
 export type Label = (typeof LABELS)[number]['id'];
 export const LABEL = Object.fromEntries(LABELS.map((l) => [l.id, l])) as Record<Label, (typeof LABELS)[number]>;
