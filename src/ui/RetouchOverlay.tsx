@@ -6,7 +6,7 @@
 // moving the spot leaves its source where it is, and while dragging only the outline moves: the
 // photo is healed once, on release.
 
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { geometryMatrix, project, type Perspective } from '../engine/perspective';
 import { invert3 } from '../engine/color';
 import { FULL, type Crop, type Rect } from '../film/crop';
@@ -28,6 +28,10 @@ export function RetouchOverlay({ spots: saved, transform, frame, W, H, view, css
 }) {
   const selected = useRetouchUi((s) => s.selected);
   const draft = useRetouchUi((s) => s.draft);
+  const nextRadius = useRetouchUi((s) => s.radius);
+  const nextBorder = useRetouchUi((s) => s.border);
+  /** Where a click would put a new spot, while the pointer is over empty photo and not dragging. */
+  const [hover, setHover] = useState<Pt | null>(null);
   const spots = withDraft(saved, draft);
   const ref = useRef<SVGSVGElement>(null);
   const drag = useRef<{ what: 'spot' | 'source' | 'add'; spot: RetouchSpot | null; start: Pt; startScreen: Pt; from: Pt } | null>(null);
@@ -70,6 +74,8 @@ export function RetouchOverlay({ spots: saved, transform, frame, W, H, view, css
 
   const move = (e: React.PointerEvent) => {
     const d = drag.current;
+    if (!d) setHover((e.target as Element).classList.contains('mask-capture') ? toSource(e) : null);
+    else if (hover) setHover(null);
     if (!d || !d.spot) return;
     const p = toSource(e);
     const to: Pt = [d.from[0] + p[0] - d.start[0], d.from[1] + p[1] - d.start[1]];
@@ -90,7 +96,7 @@ export function RetouchOverlay({ spots: saved, transform, frame, W, H, view, css
 
   const sel = spots.find((s) => s.id === selected) ?? null;
   return (
-    <svg ref={ref} className="mask-overlay drawing retouch-overlay" width={cssW} height={cssH} onPointerMove={move} onPointerUp={end} onPointerCancel={() => { drag.current = null; commitDraft(); }}>
+    <svg ref={ref} className="mask-overlay drawing retouch-overlay" width={cssW} height={cssH} onPointerMove={move} onPointerUp={end} onPointerCancel={() => { drag.current = null; commitDraft(); }} onPointerLeave={() => setHover(null)}>
       <rect className="mask-capture" width={cssW} height={cssH} onPointerDown={(e) => begin(e, 'add', null)} />
       {spots.map((s) => {
         if (s.shape.kind !== 'circle') return null;
@@ -103,6 +109,13 @@ export function RetouchOverlay({ spots: saved, transform, frame, W, H, view, css
           </g>
         );
       })}
+      {hover && (
+        // The next spot's size and feather under the pointer, as darktable previews a new circle.
+        <g className="mask-shape-outline active retouch-cursor">
+          <path d={circle(hover, nextRadius)} className="mask-line" />
+          <path d={circle(hover, nextRadius + nextBorder)} className="mask-line dashed" />
+        </g>
+      )}
       {sel && sel.shape.kind === 'circle' && (() => {
         const a = toScreen(sel.shape.center);
         const b = toScreen(sel.source);

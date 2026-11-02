@@ -880,6 +880,7 @@ body { font-variant-numeric: tabular-nums; min-width: 1200px; }
 .retouch-field output { width: 40px; text-align: right; font-variant-numeric: tabular-nums; }
 .retouch-count { margin-left: auto; font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
 .retouch-hit { fill: transparent; stroke: transparent; stroke-width: 10; pointer-events: all; cursor: move; }
+.retouch-cursor { pointer-events: none; }
 .crop-ratio { position: relative; flex: none; }
 .crop-ratio-button { display: flex; align-items: center; justify-content: space-between; gap: 6px; min-width: 84px; height: 28px; padding: 0 8px; border: 0; border-radius: 6px; background: var(--ctl); color: var(--text); font: inherit; font-size: 12px; font-variant-numeric: tabular-nums; cursor: pointer; }
 .crop-ratio-button:hover, .crop-ratio-button[aria-expanded=true] { background: var(--hover); }
