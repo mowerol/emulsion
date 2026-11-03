@@ -91,6 +91,76 @@ async function main() {
     engine.render(full, recipe, { target: 'screen', width: 307, height: 205, seed: 0, view: { x: .4, y: .4, w: .13, h: .13 }, whole: preview });
     assert(whole.eqMade === eq && whole.llMade === ll, 'Zoom invalidated preview detail handoff after histogram');
     results.histogramCacheReused = true;
+    // Small pans that keep the region's maps (the pan margin): each stage's map is made only
+    // around the view by its own reach and the stages' after it, so every stage must still hold
+    // the moved view. With Sharpening on, so its narrowest clip is tested too.
+    {
+      const r = { ...recipe, sharpen: 40 };
+      const lane = (engine as any).region;
+      const at = (x: number, y: number) => ({ x, y, w: .13, h: .13 });
+      engine.readPixels(full, r, 307, 205, 0, false, at(.4, .4), undefined, preview);
+      const pans: Record<string, number> = {};
+      let kept = 0;
+      for (const [dx, dy] of [[.004, 0], [.004, .004], [-.004, .006], [-.006, -.002]]) {
+        const before = lane.eqMade;
+        const view = at(.4 + dx, .4 + dy);
+        const region = engine.readPixels(full, r, 307, 205, 0, false, view, undefined, preview);
+        if (lane.eqMade === before) kept++;
+        // Against a fresh build of the same view: maps kept from the earlier view must equal it.
+        (engine as any).invalidateRegionMaps();
+        const fresh = engine.readPixels(full, r, 307, 205, 0, false, view, undefined, preview);
+        let worst = 0;
+        for (let i = 0; i < region.length; i++) worst = Math.max(worst, Math.abs(region[i] - fresh[i]));
+        pans[`${dx},${dy}`] = worst;
+        if (worst > 0) failures.push(`pan ${dx},${dy}: kept maps differ from fresh ones by ${worst}/255`);
+      }
+      assert(kept > 0, 'No small pan kept the region maps: the test proves nothing');
+      results.pans = { ...pans, kept };
+    }
+    // Live renders (a drag at 100%): maps already made here are remade over the view only, so
+    // only pixels near the view's edges may differ, and the next exact render is exact again.
+    {
+      const view = { x: .35, y: .27, w: .3, h: .45 };
+      const W2 = 690, H2 = 690;
+      const gl = engine.gpu.gl;
+      const t = engine.gpu.target(W2, H2, false);
+      const read = () => { const px = new Uint8Array(W2 * H2 * 4); gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo); gl.readPixels(0, 0, W2, H2, gl.RGBA, gl.UNSIGNED_BYTE, px); return px; };
+      const draw = (r: Recipe, live: boolean) => { engine.render(full, r, { target: t, width: W2, height: H2, seed: 0, view, whole: preview, live }); return read(); };
+      const r0 = { ...base, texture: 30, clarity: 30, sharpen: 40 };
+      draw(r0, false);
+      let edgeWorst = 0, innerWorst = 0, innerFrom = 0;
+      const perPx = (view.w * W) / W2;
+      const plan = (engine as any).regionPlan(full, r0, { target: t, view });
+      assert(plan, 'Live: the view would not take the region path');
+      innerFrom = Math.ceil(plan.reach / perPx) + 2;
+      for (const exposure of [.1, .2, .3]) {
+        const r = { ...r0, exposure };
+        const live = draw(r, true);
+        assert((engine as any).inexact, 'A live render with maps made here should narrow them');
+        const exact = draw(r, false);
+        assert(!(engine as any).inexact, 'An exact render after live should remake the maps exactly');
+        for (let y = 0; y < H2; y++) for (let x = 0; x < W2; x++) {
+          const i = 4 * (y * W2 + x);
+          const d = Math.max(Math.abs(live[i] - exact[i]), Math.abs(live[i + 1] - exact[i + 1]), Math.abs(live[i + 2] - exact[i + 2]));
+          const fromEdge = Math.min(x, y, W2 - 1 - x, H2 - 1 - y);
+          if (fromEdge >= innerFrom) innerWorst = Math.max(innerWorst, d); else edgeWorst = Math.max(edgeWorst, d);
+        }
+        // Back to live for the next step, from an exact state.
+      }
+      // The exact render after live equals a fresh build of the same recipe.
+      const last = { ...r0, exposure: .3 };
+      const afterLive = draw(last, false);
+      (engine as any).invalidateRegionMaps();
+      const fresh = draw(last, false);
+      let exactWorst = 0;
+      for (let i = 0; i < fresh.length; i++) exactWorst = Math.max(exactWorst, Math.abs(afterLive[i] - fresh[i]));
+      results.live = { edgeWorst, innerWorst, innerFromScreenPx: innerFrom, exactAfterLive: exactWorst };
+      assert(2 * innerFrom < Math.min(W2, H2), `Live: no pixel is farther than the reach (${innerFrom}) from the edges`);
+      if (innerWorst > 0) failures.push(`live render differs ${innerWorst}/255 farther than the reach from the view's edges`);
+      if (exactWorst > 0) failures.push(`exact render after live differs from a fresh one by ${exactWorst}/255`);
+      engine.gpu.free(t);
+      assert(gl.getError() === gl.NO_ERROR, 'Live: WebGL error');
+    }
     // A draft (Develop's 1× render while a slider or brush is dragged) zoomed in must reuse the
     // region and every map the full-size render made, draw what a render at its size draws, and
     // leave the lanes as they were for the full-size render that follows.

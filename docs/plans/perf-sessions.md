@@ -22,7 +22,11 @@ Original brief:
 
 Texture drags at 100% run at 31 fps (36 ms per frame) in the real app; at fit they run at 57 fps. Read the region section of docs/ARCHITECTURE.md first. Reproduce with `node tools/perf/inapp.mjs <photo> zoom`. Suspect: the whole-photo products (Texture's coarse bands, taken from the preview) are rebuilt at 2560 px every frame, on top of the region. Check which passes run per frame (`perFrame`) before changing anything. The Texture region approximation is recorded in NOTICE.md: ask Oli before changing what it computes.
 
-## Session 3: first-drag freezes
+## ~~Session 3: first-drag freezes~~ (done 2026-11-03; see HANDOFF.md)
+
+Cause: allocating the float targets (not the ambient light, not pipeline creation). They are now made one per idle moment after the photo shows. First drags at fit: Texture freeze 92–106 → 31–53 ms, Dehaze 133–240 → 38–47 ms, all PASS. Left: the same first-drag freeze on the region lane at 100% (Dehaze 450 ms).
+
+Original brief:
 
 The first Dehaze drag on each photo freezes once for 90–190 ms; the first Texture drag for 70–110 ms. The ambient light is already measured ahead of time (`Engine.measureAhead`), and a GPU pipeline warm-up was tried and didn't help. Reproduce with `node tools/perf/inapp.mjs <photo> sliders,again`; the second pass shows what the one-time cost is. Find out whether the rest is allocating Dehaze's and Texture's float targets or their first build. Pre-allocating at idle could cost about 240 MB of GPU memory per photo, so bring Oli that trade-off before doing it.
 

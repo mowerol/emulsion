@@ -5,6 +5,11 @@ import type { UniformValue, Uniforms } from './params';
 
 export class GpuError extends Error {}
 
+const spareKey = (w: number, h: number, hdr: boolean, precise: boolean, single: boolean | 'rg') => `${w}x${h}|${hdr}|${precise}|${single}`;
+
+/** The arguments of a `target` call: width, height, hdr, precise, single. */
+export type SpareSpec = [number, number, boolean, boolean, boolean | 'rg'];
+
 export interface Target {
   tex: WebGLTexture;
   fbo: WebGLFramebuffer;
@@ -153,6 +158,58 @@ export class Gpu {
    */
   /** `single`: one channel (true) or two ('rg'), for float targets. */
   target(w: number, h: number, hdr: boolean, precise = false, single: boolean | 'rg' = false): Target {
+    const i = this.spares.findIndex((s) => s.key === spareKey(w, h, hdr, precise, single));
+    if (i >= 0) return this.spares.splice(i, 1)[0].t;
+    return this.make(w, h, hdr, precise, single);
+  }
+
+  /**
+   * Make a target now that `target` will be asked for later with the same arguments, and clear
+   * it, so the driver allocates its memory now. Creating a large float target costs little, but
+   * ANGLE on Metal allocates it at the next sync point and the GPU's first writes to the fresh
+   * memory are slow: the first Dehaze drag on a photo froze 140–240 ms (nine 1664 × 1111 float
+   * targets), the first Texture drag ~100 ms (seven), against ~40 ms with them made ahead.
+   */
+  reserve(w: number, h: number, hdr: boolean, precise = false, single: boolean | 'rg' = false) {
+    const gl = this.gl;
+    const t = this.make(w, h, hdr, precise, single);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.flush();
+    this.spares.push({ key: spareKey(w, h, hdr, precise, single), t });
+  }
+
+  /** The reserved targets no `target` call has taken yet. */
+  get spareCount() { return this.spares.length; }
+
+  /** Free the reserved targets no `target` call has taken. */
+  freeSpares() {
+    this.spares.forEach((s) => this.free(s.t));
+    this.spares = [];
+  }
+
+  /**
+   * Keep the reserved targets `wanted` asks for and free the rest; return the ones of `wanted`
+   * not reserved yet.
+   */
+  keepSpares(wanted: SpareSpec[]): SpareSpec[] {
+    const left = [...this.spares];
+    const missing = wanted.filter((s) => {
+      const i = left.findIndex((x) => x.key === spareKey(...s));
+      if (i < 0) return true;
+      left.splice(i, 1);
+      return false;
+    });
+    left.forEach((x) => this.free(x.t));
+    this.spares = this.spares.filter((x) => !left.includes(x));
+    return missing;
+  }
+
+  private spares: { key: string; t: Target }[] = [];
+
+  private make(w: number, h: number, hdr: boolean, precise: boolean, single: boolean | 'rg'): Target {
     const gl = this.gl;
     const tex = gl.createTexture()!;
     this.scratch();

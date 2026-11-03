@@ -81,23 +81,45 @@ export function lensReach(l: LensSpline, W: number, H: number): number {
  * radius, its 2 px contrast-mask blur and the mask's 3 × 3 neighbourhood).
  */
 export function regionReach(s: ReachSetup): number {
-  let r = 0;
+  const o = own(s);
+  return Math.ceil(o.capture + o.lens + o.dehaze + o.texture + o.color + o.clarity + o.usm + o.scanner);
+}
+
+/** Each stage's own reach, unrounded (see regionReach). */
+function own(s: ReachSetup) {
+  const o = { capture: 0, lens: 0, dehaze: 0, texture: 0, color: 0, clarity: 0, usm: 0, scanner: 0 };
   if (s.capture && s.capture.iterations > 0) {
     const k = kernelFor(s.capture.sigma);
-    r += s.capture.iterations * k.half + borderFor(s.capture.sigma, s.capture.iterations) + (gaussian1d(2).length - 1) / 2;
+    o.capture = s.capture.iterations * k.half + borderFor(s.capture.sigma, s.capture.iterations) + (gaussian1d(2).length - 1) / 2;
   }
-  if (s.lens) r += lensReach(s.lens.spline, s.lens.W, s.lens.H);
+  if (s.lens) o.lens = lensReach(s.lens.spline, s.lens.W, s.lens.H);
   if (s.dehaze) {
     const { w1, w2 } = windows(s.dehaze);
-    r += (s.dehazeCount ?? 1) * (2 * w1 + 3 * w2);
+    o.dehaze = (s.dehazeCount ?? 1) * (2 * w1 + 3 * w2);
   }
-  if (s.color) r += (s.colorCount ?? 1) * (16 + 4);
-  if (s.usmSigma) r += (usmKernel(s.usmSigma).length - 1) / 2 + (gaussian1d(2).length - 1) / 2 + 1;
+  if (s.color) o.color = (s.colorCount ?? 1) * (16 + 4);
+  if (s.usmSigma) o.usm = (usmKernel(s.usmSigma).length - 1) / 2 + (gaussian1d(2).length - 1) / 2 + 1;
   // Scanner sharpness: a half-size copy blurred by one 9-tap pass each way, read bilinearly.
-  if (s.scannerSharpen) r += 2 * 5 + 2;
-  if (s.clarity) r += (s.clarityCount ?? 1) * (4 * (2 ** 4 - 1) + 4);
-  if (s.texture) r += (s.textureCount ?? 1) * 2 * (1 + 2 + 4 + 8 + 16 + 32);
-  return Math.ceil(r);
+  if (s.scannerSharpen) o.scanner = 2 * 5 + 2;
+  if (s.clarity) o.clarity = (s.clarityCount ?? 1) * (4 * (2 ** 4 - 1) + 4);
+  if (s.texture) o.texture = (s.textureCount ?? 1) * 2 * (1 + 2 + 4 + 8 + 16 + 32);
+  return o;
+}
+
+/** The per-edit maps whose clip can be narrowed, in develop order. */
+export interface StageReach { dehaze: number; texture: number; color: number; clarity: number; usm: number }
+
+/**
+ * How far around the view each per-edit map must be right: its own reach plus that of every
+ * stage after it in the develop pass (haze removal, Texture, the colour equalizer, Clarity,
+ * Sharpening, then the scanner's sharpness), as an error at a map's edge travels inwards only
+ * through the stages that come after it. Sharpening's input, for one, need only cover the view
+ * and a few pixels, not Texture's 126.
+ */
+export function stageReach(s: ReachSetup): StageReach {
+  const o = own(s);
+  const usm = o.usm + o.scanner, clarity = usm + o.clarity, color = clarity + o.color, texture = color + o.texture, dehaze = texture + o.dehaze;
+  return { dehaze: Math.ceil(dehaze), texture: Math.ceil(texture), color: Math.ceil(color), clarity: Math.ceil(clarity), usm: Math.ceil(usm) };
 }
 
 /**

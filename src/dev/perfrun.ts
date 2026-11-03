@@ -26,6 +26,9 @@ let depth = 0;
 // Draws per program and target size, to see which passes a frame pays for.
 let draws: Record<string, number> = {};
 let hooked = false;
+/** When on, every draw is bracketed by gl.finish() and its GPU time summed here (by program@size). */
+let passTiming = false;
+let passMs: Record<string, number> = {};
 /** The width of the source the last screen frame was developed from (preview or full). */
 let lastSrcW = 0;
 function hookDraws(engine: Engine) {
@@ -36,9 +39,28 @@ function hookDraws(engine: Engine) {
   for (const fn of ['draw', 'drawInstanced']) {
     const orig = gpu[fn].bind(gpu);
     gpu[fn] = (p: unknown, t: { w?: number; h?: number } | null, ...rest: unknown[]) => {
-      const n = `${names.get(p) ?? 'other'}${fn === 'drawInstanced' ? '(inst)' : ''}@${t?.w ?? 'screen'}x${t?.h ?? ''}`;
+      const c = (engine.gpu as unknown as { clip: { w: number; h: number; tw: number; th: number } | null }).clip;
+      const cl = c && t && c.tw === t.w && c.th === t.h ? `[${c.w}x${c.h}]` : '';
+      const n = `${names.get(p) ?? 'other'}${fn === 'drawInstanced' ? '(inst)' : ''}@${t?.w ?? 'screen'}x${t?.h ?? ''}${cl}`;
       draws[n] = (draws[n] ?? 0) + 1;
-      return orig(p, t, ...rest);
+      if (!passTiming) return orig(p, t, ...rest);
+      const gl = engine.gpu.gl;
+      // gl.finish() doesn't wait in WKWebView; reading a pixel back does.
+      const px = new Uint8Array(4);
+      const fbo = (t as { fbo?: WebGLFramebuffer } | null)?.fbo ?? null;
+      const fpx = new Float32Array(4);
+      const sync = () => {
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+        const type = gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_TYPE), fmt = gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_FORMAT);
+        if (type === gl.FLOAT) gl.readPixels(0, 0, 1, 1, fmt, gl.FLOAT, fpx); else gl.readPixels(0, 0, 1, 1, fmt, type, px);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      };
+      sync();
+      const t0 = performance.now();
+      const r = orig(p, t, ...rest);
+      sync();
+      passMs[n] = (passMs[n] ?? 0) + performance.now() - t0;
+      return r;
     };
   }
 }
@@ -262,6 +284,66 @@ export async function run(which: string) {
       setSliders({ texture: 0, dehaze: 0 });
       await settle(500, 30000);
       out.z100Exposure2 = await sliderDrag('exposure', 'develop', 120);
+      out.zoomOut = await click(key('z'));
+    }
+    if (want('z100combo')) {
+      // Oli, 2026-11-03: at 100% "dehaze, texture, exposure, maybe clarity when all used together".
+      // Each drag runs with the other three on.
+      out.zoomIn = await click(key('z'));
+      const z0 = performance.now(), fullW = useApp.getState().developSize!.W;
+      while (lastSrcW !== fullW && performance.now() - z0 < 60000) await wait(50);
+      out.fullResMs = Math.round(performance.now() - z0);
+      setSliders({ texture: 40, dehaze: 30, clarity: 30 });
+      await settle(800, 30000);
+      out.allExposure = await sliderDrag('exposure', 'develop', 120);
+      out.allTexture = await sliderDrag('texture', 'refine', 120);
+      out.allDehaze = await sliderDrag('dehaze', 'refine', 120);
+      out.allClarity = await sliderDrag('clarity', 'refine', 120);
+      out.allExposure2 = await sliderDrag('exposure', 'develop', 120);
+      setSliders({ texture: 0, dehaze: 0, clarity: 0 });
+      out.zoomOut = await click(key('z'));
+    }
+    if (want('z100min')) {
+      // Which of the three makes an Exposure drag at 100% slow: each alone, then all, then all
+      // without Sharpening (its tap re-runs the develop pass at 100%).
+      out.zoomIn = await click(key('z'));
+      const z0 = performance.now(), fullW = useApp.getState().developSize!.W;
+      while (lastSrcW !== fullW && performance.now() - z0 < 60000) await wait(50);
+      out.fullResMs = Math.round(performance.now() - z0);
+      const sharpen = activePhoto()?.recipe?.sharpen ?? defaultRecipe().sharpen;
+      const cases: [string, Partial<Recipe>][] = [
+        ['none', { texture: 0, dehaze: 0, clarity: 0 }],
+        ['texture', { texture: 40, dehaze: 0, clarity: 0 }],
+        ['clarity', { texture: 0, dehaze: 0, clarity: 30 }],
+        ['dehaze', { texture: 0, dehaze: 30, clarity: 0 }],
+        ['all', { texture: 40, dehaze: 30, clarity: 30 }],
+        ['allNoSharpen', { texture: 40, dehaze: 30, clarity: 30, sharpen: 0 }],
+      ];
+      for (const [name, v] of cases) {
+        setSliders({ sharpen, ...v });
+        await settle(800, 30000);
+        out[`exp_${name}`] = await sliderDrag('exposure', 'develop', 120);
+      }
+      setSliders({ texture: 0, dehaze: 0, clarity: 0, sharpen });
+      out.zoomOut = await click(key('z'));
+    }
+    if (want('z100passes')) {
+      // GPU ms per pass (program@size) per frame, for an Exposure drag at 100% with all three on.
+      out.zoomIn = await click(key('z'));
+      const z0 = performance.now(), fullW = useApp.getState().developSize!.W;
+      while (lastSrcW !== fullW && performance.now() - z0 < 60000) await wait(50);
+      setSliders({ texture: 40, dehaze: 30, clarity: 30 });
+      await settle(800, 30000);
+      for (const [name, slider, group] of [['exposure', 'exposure', 'develop'], ['texture', 'texture', 'refine'], ['clarity', 'clarity', 'refine'], ['dehaze', 'dehaze', 'refine']] as const) {
+        passTiming = true; passMs = {};
+        const r = await sliderDrag(slider, group, 300);
+        passTiming = false;
+        const n = Math.max(1, frames.length);
+        const total = Object.values(passMs).reduce((a, b) => a + b, 0) / n;
+        out[`passes_${name}`] = { frames: frames.length, totalMs: +total.toFixed(1),
+          byPass: Object.entries(passMs).sort((x, y) => y[1] - x[1]).slice(0, 16).map(([k, v]) => `${k} ${(v / n).toFixed(1)}`).join(', '), perFrame: r.perFrame };
+      }
+      setSliders({ texture: 0, dehaze: 0, clarity: 0 });
       out.zoomOut = await click(key('z'));
     }
     if (want('clicks')) {

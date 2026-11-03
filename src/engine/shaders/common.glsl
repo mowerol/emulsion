@@ -4,7 +4,7 @@ precision highp float;
 precision highp int;
 
 in vec2 vUv;
-out vec4 outColor;
+layout(location = 0) out vec4 outColor;
 
 // Output size in pixels, used for resolution-independent effects.
 uniform vec2 uOut;

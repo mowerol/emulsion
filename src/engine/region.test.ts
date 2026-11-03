@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { FULL } from '../film/crop';
 import { TILE } from './capture';
-import { chooseRegion, chooseRegionWithin, lensReach, regionReach, visibleSource, type PixelRect } from './region';
+import { chooseRegion, chooseRegionWithin, lensReach, regionReach, stageReach, visibleSource, type PixelRect } from './region';
 
 const contains = (outer: PixelRect, inner: PixelRect) =>
   outer.x <= inner.x && outer.y <= inner.y && outer.x + outer.w >= inner.x + inner.w && outer.y + outer.h >= inner.y + inner.h;
@@ -101,6 +101,23 @@ describe('reach', () => {
     const capture = regionReach({ capture: { sigma: 0.8, iterations: 20 } });
     expect(capture).toBeGreaterThan(40);
     expect(regionReach({ capture: { sigma: 0.8, iterations: 20 }, dehaze: 1, color: true, usmSigma: 0.5 })).toBeGreaterThan(capture + 50);
+  });
+  it('gives each stage only the reach of itself and the stages after it', () => {
+    const all = { capture: { sigma: 0.8, iterations: 20 }, dehaze: 1, color: true, usmSigma: 0.5, scannerSharpen: true, clarity: true, texture: true };
+    const r = stageReach(all);
+    // Develop order: haze removal, Texture, colour equalizer, Clarity, Sharpening, scanner.
+    expect(r.usm).toBe(regionReach({ usmSigma: 0.5, scannerSharpen: true }));
+    expect(r.clarity).toBe(regionReach({ clarity: true, usmSigma: 0.5, scannerSharpen: true }));
+    expect(r.color).toBe(regionReach({ color: true, clarity: true, usmSigma: 0.5, scannerSharpen: true }));
+    expect(r.texture).toBe(regionReach({ texture: true, color: true, clarity: true, usmSigma: 0.5, scannerSharpen: true }));
+    expect(r.dehaze).toBe(regionReach({ ...all, capture: undefined }));
+    expect(r.usm).toBeLessThan(r.clarity);
+    expect(r.clarity).toBeLessThan(r.texture);
+    expect(r.texture).toBeLessThan(r.dehaze);
+    // The whole region still pads by everything, capture sharpening and lens included.
+    expect(regionReach(all)).toBeGreaterThan(r.dehaze);
+    // Two masked Texture instances reach twice as far as one.
+    expect(stageReach({ texture: true, textureCount: 2 }).texture).toBe(2 * stageReach({ texture: true }).texture);
   });
   it('measures a lens shift', () => {
     // 2% barrel at the corner of a 4000 × 3000 frame: 0.02 × 2500 px = 50 px.

@@ -691,6 +691,28 @@ function probeMapCache() {
   let moved = 0;
   for (let k = 0; k < plain.length; k++) moved = Math.max(moved, Math.abs(plain[k] - hsl[k]));
   worst.lookHslMoves = moved;
+  // Sharpening's input resumed from Clarity's tap against the full develop tap, as above.
+  const full = new Engine(document.createElement('canvas'));
+  full.resumeSharpen = false;
+  const fsrc = full.sourceFromImage(c, w, h);
+  const resumed = new Engine(document.createElement('canvas'));
+  const rsrc = resumed.sourceFromImage(c, w, h);
+  const resume: Record<string, number> = {};
+  for (const [name, r] of steps.slice(0, 8)) {
+    const a = resumed.readPixels(rsrc, r, w, h, 1), b = full.readPixels(fsrc, r, w, h, 1);
+    let d = 0;
+    for (let k = 0; k < a.length; k++) d = Math.max(d, Math.abs(a[k] - b[k]));
+    resume[name] = d;
+  }
+  // Sharpening must change the picture here (else the comparison proves nothing).
+  const soft = full.readPixels(fsrc, { ...base, sharpen: 0 }, w, h, 1);
+  const sharp = full.readPixels(fsrc, base, w, h, 1);
+  let sharpMoves = 0;
+  for (let k = 0; k < soft.length; k++) sharpMoves = Math.max(sharpMoves, Math.abs(soft[k] - sharp[k]));
+  resume.sharpenMoves = sharpMoves;
+  resume.glError = resumed.gpu.gl.getError();
+  for (const e of [full, resumed]) { e.dispose(); e.gpu.gl.getExtension('WEBGL_lose_context')?.loseContext(); }
+  (worst as Record<string, unknown>).resumeSharpen = resume;
   return worst;
 }
 

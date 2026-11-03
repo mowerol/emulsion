@@ -21,7 +21,7 @@ import type { Recipe } from '../film/recipe';
 import { lensCenter, lensColourUniforms, lensSpline, lensUniforms, type LensMetadata } from './lenscorrection';
 import { geometryMatrix } from './perspective';
 import { FULL, orientedSize, type Orientation, type Rect } from '../film/crop';
-import { Gpu, GpuError, Lru, type Program, type Target } from './gpu';
+import { Gpu, GpuError, Lru, type Program, type SpareSpec, type Target } from './gpu';
 import { InputMode, LUT_UNIT, colorBalanceUniforms, developUniforms, llParams, needsPasses, type Uniforms } from './params';
 import { maskActive } from '../film/masks';
 import { textureData } from './lut3d';
@@ -43,7 +43,7 @@ import { composedCurveTable, lookColorFor } from '../film/creative';
 import { profileSettingsFor } from '../film/looks';
 import type { Xy } from './whitebalance';
 import { SHADERS, SHADER_FILES } from './shaders';
-import { chooseRegionWithin, regionReach, regionWorthIt, visibleSource, type PixelRect } from './region';
+import { chooseRegionWithin, regionReach, regionWorthIt, stageReach, visibleSource, type PixelRect, type StageReach } from './region';
 
 // DCP calibration uses 12 only in its separate early pass. The develop shader
 // reads the late DCP tables (13–15), leaving 12 for the cached dark channel.
@@ -231,6 +231,8 @@ interface RegionPlan {
   rect: PixelRect;
   visible: PixelRect;
   reach: number;
+  /** How far around the view each per-edit map must be right (region.ts stageReach). */
+  stages: StageReach;
 }
 
 const clampRect = (r: PixelRect, W: number, H: number): PixelRect => {
@@ -267,7 +269,10 @@ class Lane {
   csOut: Target | null = null;
   csMade: { tex: WebGLTexture; iterations: number } | null = null;
   /** The texture map's ping-pong targets for the latest source size, and what it was made from. */
-  eq: { w: number; h: number; a: Target; b: Target; d: Target[]; coarse?: { a: Target; b: Target; pa: Target; pb: Target } } | null = null;
+  /** Texture's targets: a, b hold the detail sums and mask (RGBA), ia, ib the image at each
+   *  scale (one channel, what the 25 taps read), ga, gb draw into a + ia and b + ib at once;
+   *  coarse adds the preview's coarse capture as a third output. */
+  eq: { w: number; h: number; a: Target; b: Target; ia: Target; ib: Target; ga: Target; gb: Target; d: Target[]; coarse?: { a: Target; b: Target; pa: Target; pb: Target } } | null = null;
   eqMade: { tex: WebGLTexture; key: string; out: Target; coarse: boolean } | null = null;
   /** The photo's own Texture decomposition (eq target a or b), the same for every amount: a
    *  Texture drag only folds it again. Dropped when a masked instance reuses those targets. */
@@ -275,6 +280,11 @@ class Lane {
   /** Sharpening's ping-pong targets for the latest source size, and what its map was made from. */
   usm: { w: number; h: number; a: Target; b: Target } | null = null;
   usmMade: { tex: WebGLTexture; key: string; out: Target } | null = null;
+  /** The print Clarity's photo tap measured (its input), kept in usm.b until Sharpening's map
+   *  overwrites it, so Sharpening's input resumes from it (develop.frag tap 11); and the target
+   *  drawing into the tap's lightness and usm.b at once. */
+  printMade: { tex: WebGLTexture; key: string } | null = null;
+  printGroup: { o: WebGLTexture; b: WebGLTexture; t: Target } | null = null;
   /** The colour equalizer's five 32-bit targets for the latest source size, and what its map was made from. */
   ce: { w: number; h: number; t: Target[]; pair: Target } | null = null;
   /** Mode 2's scene-only analysis stays in ce.t[3] across colour slider changes. */
@@ -305,9 +315,25 @@ class Lane {
 }
 
 /** The part of a region its per-edit maps must cover: the view in it, grown by the stages' reach. */
-function clipNeed({ rect, visible, reach }: RegionPlan): PixelRect {
-  return clampRect({ x: visible.x - rect.x - reach - 2, y: visible.y - rect.y - reach - 2, w: visible.w + 2 * reach + 4, h: visible.h + 2 * reach + 4 }, rect.w, rect.h);
+function clipNeed({ rect, visible, reach }: RegionPlan, r = reach): PixelRect {
+  return clampRect({ x: visible.x - rect.x - r - 2, y: visible.y - rect.y - r - 2, w: visible.w + 2 * r + 4, h: visible.h + 2 * r + 4 }, rect.w, rect.h);
 }
+
+/**
+ * The clips the region's per-edit maps are made in, for a view: each stage's need (clipNeed at
+ * its own reach) grown by the same pan margin `m`. `all` is the widest, for everything else.
+ */
+function regionClips(plan: RegionPlan, m: number): { all: PixelRect } & StageReach_<PixelRect> {
+  const grow = (r: PixelRect) => clampRect({ x: r.x - m, y: r.y - m, w: r.w + 2 * m, h: r.h + 2 * m }, plan.rect.w, plan.rect.h);
+  const s = plan.stages;
+  return { all: grow(clipNeed(plan)), dehaze: grow(clipNeed(plan, s.dehaze)), texture: grow(clipNeed(plan, s.texture)), color: grow(clipNeed(plan, s.color)), clarity: grow(clipNeed(plan, s.clarity)), usm: grow(clipNeed(plan, s.usm)) };
+}
+type StageReach_<T> = { [K in keyof StageReach]: T };
+type RegionClips = ReturnType<typeof regionClips>;
+
+/** Whether clips made for an earlier view still hold this view's needs, stage by stage. */
+const clipsCover = (c: RegionClips | null, plan: RegionPlan) =>
+  !!c && covers(c.all, clipNeed(plan)) && (Object.keys(plan.stages) as (keyof StageReach)[]).every((k) => covers(c[k], clipNeed(plan, plan.stages[k])));
 
 const covers = (outer: PixelRect | null, inner: PixelRect) =>
   !!outer && outer.x <= inner.x && outer.y <= inner.y && outer.x + outer.w >= inner.x + inner.w && outer.y + outer.h >= inner.y + inner.h;
@@ -325,7 +351,16 @@ export class Engine {
   /** The region of a full-size source last copied out, and the copy (docs/plans/roi.md). */
   private regionMade: { input: WebGLTexture; rect: PixelRect; source: Source; targets: Target[] } | null = null;
   /** Where in the region its per-edit maps are made (region pixels). */
-  private regionClip: PixelRect | null = null;
+  private regionClip: RegionClips | null = null;
+  /** During a live render: the clip a live map is remade in (the view and 2 px), else null. */
+  private liveClip: PixelRect | null = null;
+  /** The region maps made since the lane's last invalidation, so a live render narrows only a map
+   *  whose targets already hold this place around the view. */
+  private regionBuilt = new Set<keyof RegionClips>();
+  /** A live render narrowed a region map: the next exact render must remake them all. */
+  private regionLive = false;
+  /** Whether the last screen render was live and narrowed a map, so an exact one is owed. */
+  get inexact() { return this.regionLive; }
   /**
    * Whether the last screen render showed the preview in place of a region it would have had to
    * build (`moving`): render again once the view settles to show the full resolution.
@@ -484,6 +519,34 @@ export class Engine {
     try { this.render(src, r, { target: t, width: src.w, height: src.h, seed: 1, products: {} }); } finally { this.gpu.free(t); }
   }
 
+  /**
+   * Ahead of a first Texture or Dehaze drag on `src` (the whole photo): steps that each make one
+   * of the working targets that drag's first frame would make (Gpu.reserve), the ones the whole
+   * lane doesn't already hold at the source's size. Run one per idle moment: made all at once
+   * they block the main thread ~75 ms, and in the drag's first frame they froze it 100–240 ms.
+   * They hold ~320 MB of GPU memory at a 1664 × 1111 preview, which that drag would make anyway.
+   */
+  prepareSteps(src: Source): (() => void)[] {
+    const g = this.gpu;
+    if (!g.hdr || !g.float32) { g.freeSpares(); return []; }
+    const { w, h } = src;
+    const L = this.whole;
+    const wanted: SpareSpec[] = [];
+    const add = (n: number, precise: boolean, single: boolean | 'rg') => {
+      for (let i = 0; i < n; i++) wanted.push([w, h, true, precise, single]);
+    };
+    // dehazeTargets: six RGBA and three one-channel, 32-bit.
+    if (!L.dh || L.dh.w !== w || L.dh.h !== h) { add(6, true, false); add(3, true, true); }
+    // eqTargets (two RGBA, four one-channel), the coarse capture (two RG) and the photo's
+    // boundary (one RG), as a screen render's textureMap makes them.
+    const eqFits = !!L.eq && L.eq.w === w && L.eq.h === h;
+    if (!eqFits) { add(2, g.float32, false); add(4, g.float32, true); }
+    if (!eqFits || !L.eq!.coarse) add(2, true, 'rg');
+    const b = L.textureBoundaries.get(-1);
+    if (!b || b.target.w !== w || b.target.h !== h) add(1, true, 'rg');
+    return g.keepSpares(wanted).map((s) => () => g.reserve(...s));
+  }
+
   release(src: Source | null | undefined) {
     if (!src) return;
     this.gpu.gl.deleteTexture(src.tex);
@@ -522,7 +585,6 @@ export class Engine {
     L.clarityBoundaries.clear();
     for (const b of L.textureBoundaries.values()) g.free(b.target);
     L.textureBoundaries.clear();
-    if (L.eq?.coarse) { g.freePair(L.eq.coarse.pa); g.freePair(L.eq.coarse.pb); g.free(L.eq.coarse.a); g.free(L.eq.coarse.b); }
     this.freeDehaze();
     L.dhAmbient = null;
     if (L.noiseMade) g.free(L.noiseMade.out);
@@ -530,8 +592,10 @@ export class Engine {
     if (L.retouchMade) g.free(L.retouchMade.out);
     if (L.csOut) g.free(L.csOut);
     if (L.profileEarly.early) g.free(L.profileEarly.early.out);
-    if (L.eq) [L.eq.a, L.eq.b, ...L.eq.d].forEach((t) => g.free(t));
+    this.freeEq();
     if (L.usm) [L.usm.a, L.usm.b].forEach((t) => g.free(t));
+    if (L.printGroup) g.freePair(L.printGroup.t);
+    L.printGroup = L.printMade = null;
     if (L.ce) { g.freePair(L.ce.pair); L.ce.t.forEach((t) => g.free(t)); }
     L.lls.clear();
     L.refiner.release();
@@ -830,7 +894,7 @@ export class Engine {
     const lens = src.mode === InputMode.SceneLinear && src.lens?.correction ? lensSpline(src.lens.correction, src.w, src.h, recipe.lens ?? null) : null;
     const usm = usmParams(recipe.sharpen ?? 0, recipe.sharpenRadius ?? 0.5, recipe.sharpenMasking ?? 0);
     const dehazeCount = Number(recipe.dehaze !== 0) + recipe.masks.filter(m => maskActive(m) && m.dehaze !== 0).length;
-    const reach = regionReach({
+    const setup = {
       capture: iterations > 0 ? { sigma: src.capture!.radius * scale, iterations } : undefined,
       lens: lens ? { spline: lens, W: src.w, H: src.h } : null,
       dehaze: !compare && dehazeCount > 0 ? scale : null,
@@ -843,7 +907,8 @@ export class Engine {
       clarityCount: Number(recipe.clarity !== 0) + recipe.masks.filter(m => maskActive(m) && m.clarity !== 0).length,
       texture: !compare && (recipe.texture !== 0 || recipe.masks.some(m => maskActive(m) && m.texture !== 0)),
       textureCount: Number(recipe.texture !== 0) + recipe.masks.filter(m => maskActive(m) && m.texture !== 0).length,
-    });
+    };
+    const reach = regionReach(setup), stages = stageReach(setup);
     // A margin so a little panning reuses the region's maps.
     const margin = Math.round(0.15 * Math.max(visible.w, visible.h));
     const prev = this.regionMade?.input === src.tex ? this.regionMade.rect : null;
@@ -854,7 +919,7 @@ export class Engine {
       // rebuild the lane just because a source spot sits outside the freshly chosen rectangle.
       rect = chooseRegionWithin(required, 0, 0, src.w, src.h, prev);
     }
-    return regionWorthIt(rect, src.w, src.h) ? { rect, visible, reach } : null;
+    return regionWorthIt(rect, src.w, src.h) ? { rect, visible, reach, stages } : null;
   }
 
   /**
@@ -874,15 +939,17 @@ export class Engine {
       this.regionProductsSource = opts.whole!.tex;
     }
     if (region.capture && src.capture) region.capture.threshold = src.capture.threshold;
-    // The maps an edit remakes (haze removal, Colour, Sharpening's) are made only around the view:
-    // its rectangle in the region grown by the stages' reach, plus a little margin so a small pan
-    // keeps them; capture sharpening, lens and profile stay made over the whole region.
-    const need = clipNeed(plan);
-    if (!covers(this.regionClip, need)) {
-      const m = Math.round(0.05 * Math.max(visible.w, visible.h));
-      this.regionClip = clampRect({ x: need.x - m, y: need.y - m, w: need.w + 2 * m, h: need.h + 2 * m }, rect.w, rect.h);
+    // The maps an edit remakes (haze removal, Texture, Colour, Clarity, Sharpening's) are made
+    // only around the view: its rectangle in the region grown by the reach of that stage and the
+    // stages after it, plus a little margin so a small pan keeps them; capture sharpening, lens
+    // and profile stay made over the whole region.
+    if (!clipsCover(this.regionClip, plan)) {
+      this.regionClip = regionClips(plan, Math.round(0.05 * Math.max(visible.w, visible.h)));
       this.invalidateRegionMaps();
     }
+    // Live: remake maps over the view only. Exact after live: remake them all with their reach.
+    if (!opts.live && this.regionLive) this.invalidateRegionMaps();
+    this.liveClip = opts.live ? clipNeed(plan, 0) : null;
     this.L = this.region;
     this.inject = products;
     try {
@@ -891,6 +958,7 @@ export class Engine {
       this.L = this.whole;
       this.inject = null;
       this.gpu.clip = null;
+      this.liveClip = null;
     }
   }
 
@@ -901,14 +969,16 @@ export class Engine {
    */
   private regionHolds(src: Source, whole: Source, plan: RegionPlan): boolean {
     const made = this.regionMade;
-    return !!made && made.input === src.tex && made.rect === plan.rect && this.regionProductsSource === whole.tex && covers(this.regionClip, clipNeed(plan));
+    return !!made && made.input === src.tex && made.rect === plan.rect && this.regionProductsSource === whole.tex && clipsCover(this.regionClip, plan);
   }
 
   /** The region lane's per-edit maps no longer cover what they must (the clip moved): remake them. */
   private invalidateRegionMaps() {
     const L = this.region;
+    this.regionBuilt.clear();
+    this.regionLive = false;
     for (const d of [L.dh, ...L.dhMasked]) if (d) d.input = null;
-    L.ceScene = L.ceMade = L.ceLookMade = L.usmMade = L.eqMade = L.eqPhoto = L.llMade = L.refineMade = null;
+    L.ceScene = L.ceMade = L.ceLookMade = L.usmMade = L.eqMade = L.eqPhoto = L.llMade = L.refineMade = L.printMade = null;
   }
 
   /** The region `rect` of `src` (and of its denoised pixels and clip mask), copied out once per region. */
@@ -960,6 +1030,8 @@ export class Engine {
     this.regionMade.targets.forEach((t) => this.gpu.free(t));
     this.regionMade = null;
     this.regionClip = null;
+    this.regionBuilt.clear();
+    this.regionLive = false;
     this.regionProductsSource = null;
   }
 
@@ -1023,10 +1095,7 @@ export class Engine {
     }
     this.L.lls.delete(`${w}x${h}`);
     if (this.L.eq && this.L.eq.w === w && this.L.eq.h === h) {
-      const c = this.L.eq.coarse;
-      if (c) { this.gpu.freePair(c.pa); this.gpu.freePair(c.pb); this.gpu.free(c.a); this.gpu.free(c.b); }
-      [this.L.eq.a, this.L.eq.b, ...this.L.eq.d].forEach((t) => this.gpu.free(t));
-      this.L.eq = null;
+      this.freeEq();
       this.L.eqMade = null; this.L.eqPhoto = null;
     }
     // Sharpening's and the colour equalizer's 32-bit targets: 112 bytes per source pixel together.
@@ -1035,6 +1104,7 @@ export class Engine {
       this.gpu.free(this.L.usm.b);
       this.L.usm = null;
       this.L.usmMade = null;
+      this.L.printMade = null;
     }
     if (this.L.ce && this.L.ce.w === w && this.L.ce.h === h) {
       this.gpu.freePair(this.L.ce.pair);
@@ -1210,17 +1280,38 @@ export class Engine {
   /** The texture map's two targets for a w × h source, made on first use (one size at a time). */
   private eqTargets(w: number, h: number) {
     if (!this.L.eq || this.L.eq.w !== w || this.L.eq.h !== h) {
-      if (this.L.eq) {
-        if (this.L.eq.coarse) { const c = this.L.eq.coarse; this.gpu.freePair(c.pa); this.gpu.freePair(c.pb); this.gpu.free(c.a); this.gpu.free(c.b); }
-        [this.L.eq.a, this.L.eq.b, ...this.L.eq.d].forEach((t) => this.gpu.free(t));
-      }
+      this.freeEq();
       // 32-bit where possible: L* runs to 100 and more, where half floats step by 0.06.
-      const precise = this.gpu.float32;
-      const one = () => this.gpu.target(w, h, true, precise, true);
-      this.L.eq = { w, h, a: this.gpu.target(w, h, true, precise), b: this.gpu.target(w, h, true, precise), d: [one(), one()] };
+      const g = this.gpu, precise = g.float32;
+      const one = () => g.target(w, h, true, precise, true);
+      const a = g.target(w, h, true, precise), b = g.target(w, h, true, precise), ia = one(), ib = one();
+      this.L.eq = { w, h, a, b, ia, ib, ga: g.group([a, ia]), gb: g.group([b, ib]), d: [one(), one()] };
       this.L.eqMade = null; this.L.eqPhoto = null;
     }
     return this.L.eq;
+  }
+
+  /** Free this lane's Texture targets. */
+  private freeEq() {
+    const g = this.gpu, e = this.L.eq;
+    if (!e) return;
+    if (e.coarse) { g.freePair(e.coarse.pa); g.freePair(e.coarse.pb); g.free(e.coarse.a); g.free(e.coarse.b); }
+    g.freePair(e.ga); g.freePair(e.gb);
+    [e.a, e.b, e.ia, e.ib, ...e.d].forEach((t) => g.free(t));
+    this.L.eq = null;
+  }
+
+  /** Sharpening's input resumed from Clarity's tap (develop.frag tap 11); off only for the probe's comparison. */
+  resumeSharpen = true;
+
+  /** A target drawing into `t` (Clarity's tap) and usm.b at once, kept while both are. */
+  private printTarget(t: Target): Target {
+    const b = this.L.usm!.b, p = this.L.printGroup;
+    if (p?.o === t.tex && p.b === b.tex) return p.t;
+    if (p) this.gpu.freePair(p.t);
+    const group = this.gpu.group([t, b]);
+    this.L.printGroup = { o: t.tex, b: b.tex, t: group };
+    return group;
   }
 
   /** Sharpening's two 32-bit targets for a w × h source, made on first use (one size at a time). */
@@ -1232,6 +1323,7 @@ export class Engine {
       }
       this.L.usm = { w, h, a: this.gpu.target(w, h, true, true), b: this.gpu.target(w, h, true, true) };
       this.L.usmMade = null;
+      this.L.printMade = null;
     }
     return this.L.usm;
   }
@@ -1251,6 +1343,8 @@ export class Engine {
       uG: pad(kernel, 25), uGHalf: (kernel.length - 1) / 2, uM: pad(m, 13), uMHalf: (m.length - 1) / 2,
     };
     drawInput(a);
+    // The passes below overwrite b, where Clarity's tap left its print.
+    this.L.printMade = null;
     [a, b, a].forEach((from, mode) => {
       const to = from === a ? b : a;
       g.bind(0, from.tex);
@@ -1423,12 +1517,12 @@ export class Engine {
    */
   private textureMap(src: Source, drawInput: (t: Target) => void, captureCoarse = false, slot = -1): Target {
     const g = this.gpu;
-    const { a, b } = this.eqTargets(src.w, src.h);
+    const { a, b, ia, ib, ga, gb } = this.eqTargets(src.w, src.h);
     const all = amountScales(...wholeSize(src), src.fullW, src.fullH);
     const sc = src.roi && this.inject?.texture?.has(slot) ? regionFineScales(all) : all;
     if (captureCoarse && !this.L.eq!.coarse) {
       const ca = g.target(src.w, src.h, true, true, 'rg'), cb = g.target(src.w, src.h, true, true, 'rg');
-      this.L.eq!.coarse = { a: ca, b: cb, pa: g.pair(a, ca), pb: g.pair(b, cb) };
+      this.L.eq!.coarse = { a: ca, b: cb, pa: g.group([a, ia, ca]), pb: g.group([b, ib, cb]) };
     }
     drawInput(a);
     let from = a;
@@ -1437,9 +1531,10 @@ export class Engine {
     sc.forEach((s, i) => {
       g.bind(0, from.tex);
       g.bind(1, coarseFrom?.tex ?? g.blackTexture);
-      this.eqP.set({ uIn: 0, uCoarse: 1, uMult: s.mult, uA: s.a, uC: s.c, uSharpen: s.sharpen, uFirst: i === 0 ? 1 : 0, uCoarseCapture: captureCoarse ? 1 : 0, uCoarseOn: isRegionCoarse(s, pxScale(src)) ? 1 : 0 });
+      g.bind(2, i === 0 ? g.blackTexture : from === a ? ia.tex : ib.tex);
+      this.eqP.set({ uIn: 0, uCoarse: 1, uImg: 2, uMult: s.mult, uA: s.a, uC: s.c, uSharpen: s.sharpen, uFirst: i === 0 ? 1 : 0, uCoarseCapture: captureCoarse ? 1 : 0, uCoarseOn: isRegionCoarse(s, pxScale(src)) ? 1 : 0 });
       const c = this.L.eq!.coarse;
-      const target = captureCoarse ? (to === a ? c!.pa : c!.pb) : to;
+      const target = captureCoarse ? (to === a ? c!.pa : c!.pb) : to === a ? ga : gb;
       g.draw(this.eqP, target, to.w, to.h);
       if (captureCoarse) coarseFrom = to === a ? c!.a : c!.b;
       [from, to] = [to, from];
@@ -1855,6 +1950,14 @@ export class Engine {
        * full size, so the next full-size render reuses what the draft made.
        */
       draft?: number;
+      /**
+       * A slider or brush is being dragged: a region's per-edit maps that are already made at
+       * this place are remade over the view only, without the reach around it, as darktable's
+       * full pipe never pads its region of interest. Pixels near the view's edges may then differ
+       * slightly (the filters see the previous values around the view); the next render without
+       * `live` remakes every map exactly, and `inexact` says until then that one is owed.
+       */
+      live?: boolean;
       /** Internal: the canvas size a draft stands in for, which the choices above are made for. */
       shown?: [number, number];
     },
@@ -1978,7 +2081,18 @@ export class Engine {
     }
     // Retouch's source can be far from the view. Copy its complete input before scissoring
     // later per-edit maps; otherwise the remote source is left blank in the retouched target.
-    if (src.roi && this.inject && this.regionClip) this.gpu.clip = { ...this.regionClip, tw: src.w, th: src.h };
+    // Each per-edit map below narrows it to its own stage's clip (clipTo).
+    const clips = src.roi && this.inject ? this.regionClip : null;
+    const clipTo = (k: keyof RegionClips) => {
+      if (!clips) return;
+      // A live render narrows a map whose targets already hold this place (made since the
+      // lane's last invalidation); a first build is exact, so nothing stale from elsewhere shows.
+      const narrow = !!this.liveClip && k !== 'all' && this.regionBuilt.has(k);
+      this.gpu.clip = { ...(narrow ? this.liveClip! : clips[k]), tw: src.w, th: src.h };
+      if (narrow) this.regionLive = true;
+      if (k !== 'all') this.regionBuilt.add(k);
+    };
+    clipTo('all');
     // Effects that belong to the film (grain, vignette) see the whole uncropped
     // frame at the size it is shown, so cropping enlarges them as it would a negative.
     const look = recipe && !opts.compare ? lookLut(recipe) : null;
@@ -2021,6 +2135,7 @@ export class Engine {
     const dehazeWanted = !opts.products || ((early.toneEqualizer || early.highlights || early.clarity || early.texture || dehazeMasked.length || recipe?.masks.some(m => maskActive(m) && (m.texture !== 0 || m.clarity !== 0))) && !picking);
     if (opts.products && photoDehaze && !dehazeWanted) opts.products.ambient = this.dehazeAmbient(src, u);
     if (dehazeWanted && (photoDehaze || dehazeMasked.length)) {
+      clipTo('dehaze');
       // What a mask's value depends on: the shapes, ranges and opacities of the masks, the brushes, and its refinement.
       const geometry = `${pick(u, ['uMaskCount', 'uMaskShapeCount', 'uMaskShapes', 'uMaskRange', 'uMaskRangeOn'])}|${((u.uMaskMeta as number[] | undefined) ?? []).filter((_, i) => i % 4 === 0)}|${this.L.stack.generation}|${BrushGpu.key(brushList)}|${ObjectGpu.key(objectList)}`;
       const [rw, rh] = refineSize(src.w, src.h);
@@ -2198,6 +2313,7 @@ export class Engine {
     }
     if (eqOn && this.L.eqMade?.tex === src.tex && this.L.eqMade.key === textureKey && (!collectCoarse || this.L.eqMade.coarse)) texture = this.L.eqMade.out.tex;
     else if (eqOn) {
+      clipTo('texture');
       const out = this.textureDelta(src, passes.texture ? (u.uTextureMix as number) : null, maskTexture, (t, slot, acc) => {
         bindDevelop(g.blackTexture);
         if (slot < 0) tap(t, 2, { uTextureOn: 0, uClarityOn: 0 });
@@ -2215,6 +2331,7 @@ export class Engine {
     }
     if (ceOn && this.L.ceMade?.tex === src.tex && this.L.ceMade.key === ceKey) ceTex = this.L.ceMade.out.tex;
     else if (ceOn) {
+      clipTo('color');
       // The equalizer's input: the scene after texture, analysed, at every source pixel.
       const analyseScene = (t: Target) => {
         bindDevelop(g.blackTexture);
@@ -2239,12 +2356,19 @@ export class Engine {
     let clarity: WebGLTexture = g.blackTexture;
     if (ll && this.L.llMade?.tex === src.tex && this.L.llMade.key === llKey && (!collectCoarse || this.L.llMade.coarse)) clarity = this.L.llMade.out.tex;
     else if (ll) {
+      clipTo('clarity');
       // The filter's input: the print's lightness at every source pixel, uncropped (and for a
       // masked instance, after the instances before it, with the mask's value).
       const out = this.clarityDelta(ll, passes.clarity ? (u.uLl as number[]) : null, maskClarity, (t, slot, acc) => {
         bindDevelop(acc?.tex ?? g.blackTexture);
-        if (slot < 0) tap(t, 1, { uTextureOn: eqOn ? 1 : 0, uClarityOn: 0 });
-        else tap(t, 8, { uTextureOn: eqOn ? 1 : 0, uClarityOn: acc ? 1 : 0, uTapMask: slot });
+        if (slot < 0) {
+          // With Sharpening on, keep the print too, for Sharpening's input (tap 11).
+          const keep = usmOn && this.resumeSharpen;
+          tap(keep ? this.printTarget(t) : t, 1, { uTextureOn: eqOn ? 1 : 0, uClarityOn: 0 });
+          this.L.printMade = keep ? { tex: src.tex, key: llKey } : null;
+          // usm.b held Sharpening's map; it holds the print now.
+          if (keep) this.L.usmMade = null;
+        } else tap(t, 8, { uTextureOn: eqOn ? 1 : 0, uClarityOn: acc ? 1 : 0, uTapMask: slot });
       }, src, collectCoarse);
       this.L.llMade = { tex: src.tex, key: llKey, out, coarse: collectCoarse };
       clarity = out.tex;
@@ -2255,10 +2379,13 @@ export class Engine {
     }
     if (usmOn && this.L.usmMade?.tex === src.tex && this.L.usmMade.key === usmKey) usm = this.L.usmMade.out.tex;
     else if (usmOn) {
+      clipTo('usm');
       // The mask's input: the finished print's lightness at every source pixel, uncropped.
       const out = this.usmMap(src.w, src.h, usmP, usmKern, (t) => {
         bindDevelop(clarity);
-        tap(t, 3, { uTextureOn: eqOn ? 1 : 0, uClarityOn: ll ? 1 : 0 });
+        const print = this.L.printMade?.tex === src.tex && this.L.printMade.key === llKey;
+        if (print) g.bind(0, this.L.usm!.b.tex);
+        tap(t, print ? 11 : 3, { uTextureOn: eqOn ? 1 : 0, uClarityOn: ll ? 1 : 0 });
       });
       this.L.usmMade = { tex: src.tex, key: usmKey, out };
       usm = out.tex;
@@ -2382,6 +2509,7 @@ export class Engine {
       this.L.stack.dispose();
     });
     this.profiles.dispose();
+    this.gpu.freeSpares();
     this.retouchCache.clear();
     if (this.retouchAsync) { this.retouchAsync.worker.terminate(); this.retouchAsync = null; }
     if (this.retouchFbo) this.gpu.gl.deleteFramebuffer(this.retouchFbo);

@@ -364,7 +364,9 @@ export function Develop() {
     }
   });
 
-  // Each photo's haze removal ambient light, measured while idle (Engine.measureAhead).
+  // Each photo's haze removal ambient light, measured while idle (Engine.measureAhead), then the
+  // working targets a first Texture or Dehaze drag would make, one per idle moment
+  // (Engine.prepareSteps).
   const preparedRef = useRef<WebGLTexture | null>(null);
   useEffect(() => {
     const engine = engineRef.current;
@@ -372,10 +374,23 @@ export function Develop() {
     if (!engine || !sizeKnown || !l || l.path !== path) return;
     const whole = wholeOf(l) ?? l.source;
     if (preparedRef.current === whole.tex) return;
-    const timer = setTimeout(() => {
+    let steps: (() => void)[] = [];
+    const next = () => {
       if (engineRef.current !== engine || loadedRef.current !== l) return;
-      preparedRef.current = whole.tex;
-      try { engine.measureAhead(whole, photo?.recipe ?? UNEDITED); } catch (err) { logToTerminal('warn', `Prepare: ${String(err)}`); }
+      if (!steps.length) { preparedRef.current = whole.tex; return; }
+      // Wait for the GPU to finish what is drawn, so a step never queues behind a frame.
+      if (engine.idle()) {
+        try { steps.shift()!(); } catch (err) { steps = []; logToTerminal('warn', `Prepare: ${String(err)}`); return; }
+      }
+      timer = setTimeout(next, 50);
+    };
+    let timer = setTimeout(() => {
+      if (engineRef.current !== engine || loadedRef.current !== l) return;
+      try {
+        engine.measureAhead(whole, photo?.recipe ?? UNEDITED);
+        steps = engine.prepareSteps(whole);
+      } catch (err) { logToTerminal('warn', `Prepare: ${String(err)}`); }
+      timer = setTimeout(next, 50);
     }, 900);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -502,11 +517,14 @@ export function Develop() {
         }
       }
       const draft = !settled && heldRef.current && pace.scale < 1 ? pace.scale : undefined;
+      // While a pointer is held, zoomed-in maps are remade without their reach (Engine.render's
+      // `live`); the settle render below remakes them exactly.
+      const live = !settled && heldRef.current;
       try {
         engine.retouchShow = healing ? showScale : 0;
-        engine.render(l.source, recipe, { target: 'screen', width: canvas.width, height: canvas.height, seed, compare, view: current.view, clipping, split, frame, outside: rgb(stage.hex), sharpenMask, maskShow: compare ? null : maskShow, whole: wholeOf(l) ?? undefined, moving, draft });
+        engine.render(l.source, recipe, { target: 'screen', width: canvas.width, height: canvas.height, seed, compare, view: current.view, clipping, split, frame, outside: rgb(stage.hex), sharpenMask, maskShow: compare ? null : maskShow, whole: wholeOf(l) ?? undefined, moving, draft, live });
         Object.assign(pace, { submitted: performance.now(), full: !draft, waited: false });
-        if ((moving && engine.stoodIn) || draft) settle = window.setTimeout(() => { id = requestAnimationFrame(() => tick(false, true)); }, VIEW_SETTLE_MS);
+        if ((moving && engine.stoodIn) || draft || engine.inexact) settle = window.setTimeout(() => { id = requestAnimationFrame(() => tick(false, true)); }, VIEW_SETTLE_MS);
       } catch (err) {
         setError(`Rendering failed. ${String(err)}`);
       }

@@ -48,8 +48,12 @@ uniform vec3 uOutside;
 // uMaskTap's exposure instance's input and its unrefined value, for mask refinement; 7, the
 // scene's L* after Texture (the photo's and earlier masks' instances) with mask uTapMask's value
 // in .g, a masked Texture instance's input; 8, the print's lightness after Clarity likewise; 9
-// and 10, a masked haze removal instance's input and mask (see main).
+// and 10, a masked haze removal instance's input and mask (see main); 11, tap 3 resumed from
+// the print tap 1 wrote to outPrint, bound as uSrc (the same operations on the same values, so
+// Sharpening's input costs one clarity step instead of a develop pass).
 uniform float uTap;
+// Tap 1 also writes the print it measured (Clarity's input) here, when a second target is bound.
+layout(location = 1) out vec4 outPrint;
 uniform float uTapMask;
 // 1 shows Sharpening's contrast mask as grey instead of the photo.
 uniform float uUsmShowMask;
@@ -72,6 +76,11 @@ void main() {
   }
   uv = clamp(uv, 0.0, 1.0);
   vec2 ruv = (uv - uRoi.xy) / uRoi.zw;
+  if (uTap > 10.5) {
+    vec3 print = stageClarity(texelFetch(uSrc, ivec2(gl_FragCoord.xy), 0).rgb, ruv);
+    outColor = vec4(clarityLightness(print), 0.0, 0.0, 1.0);
+    return;
+  }
   if (uUsmShowMask > 0.5) {
     outColor = vec4(vec3(usmMask(ruv)), 1.0);
     return;
@@ -137,6 +146,7 @@ void main() {
   if (uLutOn > 0.5) e = stageLookPrint(e);
   if (uTap > 0.5 && uTap < 1.5) {
     outColor = vec4(clarityLightness(e), 0.0, 0.0, 1.0);
+    outPrint = vec4(e, 1.0);
     return;
   }
   e = stageClarity(e, ruv);
