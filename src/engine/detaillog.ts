@@ -12,10 +12,15 @@
 // as darktable's L* detail is to first order. The look differs in the second order: the edge
 // weights see stops, not L*, and large contrasts. ε keeps the deepest shadows' noise from being
 // boosted as log space would; below it the lightness is no longer exactly exposure-free.
+// Clarity (darktable's local laplacian) runs on the same log lightness, after Texture's change,
+// scaled to the filter's 0-1 and clamped to its extended grid (LOG_GAMMAS in locallaplacian.ts);
+// its change is applied as a ratio of luminance in scene light, before the camera profile and
+// the film's curve, where darktable's order applies it to the print's L* after them.
 // Mirrors shaders/stages/detaillog.glsl.
 
 import type { Vec3 } from '../film/stocks';
 import { REC2020_TO_XYZ } from './colorbalance';
+import { LOG_RANGE } from './locallaplacian';
 
 /** The luminance (Y, white 1) of linear working RGB (Rec.2020). */
 export const lumY = (lin: Vec3) => REC2020_TO_XYZ[1][0] * lin[0] + REC2020_TO_XYZ[1][1] * lin[1] + REC2020_TO_XYZ[1][2] * lin[2];
@@ -43,4 +48,9 @@ export function logShift(Y: number, du: number): number {
   const y = Math.max(Y, 0);
   const moved = (y + LOG_EPS) * 2 ** (du / LOG_SLOPE) - LOG_EPS;
   return lstar(moved) - lstar(y);
+}
+
+/** Clarity's input (the local laplacian's 0-1 scale) for a luminance and Texture's change `du` there. */
+export function clarityLogInput(Y: number, du: number): number {
+  return Math.min(Math.max((logLightness(Y) + du) / 100, LOG_RANGE[0]), LOG_RANGE[1]);
 }

@@ -42,13 +42,13 @@ import { StageMenu } from '../../src/ui/StageMenu';
 import { Panel } from '../../src/ui/Panel';
 import { startLookEdit, useApp } from '../../src/library/store';
 import { bandFactors, bandGains, correction, luminance, toneEqualize } from '../../src/engine/toneequalizer';
-import { clarityParams, lightness, localLaplacian, withLightness } from '../../src/engine/locallaplacian';
+import { LOG_GAMMAS, clarityParams, lightness, localLaplacian, withLightness } from '../../src/engine/locallaplacian';
 import { unsharpMask, usmParams } from '../../src/engine/usm';
 import { colorEqualize } from '../../src/engine/colorequal';
 import { equalize, scales } from '../../src/engine/equalizer';
 import { autoContrast, blendMask, deconvolve } from '../../src/engine/capture';
 import { labL, labShiftL } from '../../src/engine/lab';
-import { logLightness, logShift, lumY } from '../../src/engine/detaillog';
+import { clarityLogInput, logLightness, logShift, lumY } from '../../src/engine/detaillog';
 import { LUT_UNIT } from '../../src/engine/params';
 import { loadLut, setLooksBase } from '../../src/engine/lutstore';
 import { tetrahedral, textureData, type Clut } from '../../src/engine/lut3d';
@@ -551,6 +551,16 @@ function probeClarity(eng: Engine) {
     for (let k = 0; k < w * h; k++) worst = Math.max(worst, Math.abs(got[k] - (ref.data[k] - plane.data[k])));
     filter[`slider${slider}`] = worst;
   }
+  // Detail before Exposure: the ten-level grid on log lightness, running past darktable's [0, 1].
+  const logPlane = { w, h, data: plane.data.map((v) => -0.45 + 1.5 * (v - 0.15)) };
+  for (const slider of [100, -100]) {
+    const got = eng.probeLocalLaplacian(Float32Array.from(logPlane.data), w, h, llParams(slider), true);
+    const ref = localLaplacian(logPlane, clarityParams(slider), undefined, LOG_GAMMAS);
+    let worst = 0, size = 0;
+    for (let k = 0; k < w * h; k++) { worst = Math.max(worst, Math.abs(got[k] - (ref.data[k] - logPlane.data[k]))); size = Math.max(size, Math.abs(ref.data[k] - logPlane.data[k])); }
+    filter[`log${slider}`] = worst;
+    filter[`log${slider}Size`] = size;
+  }
   const u = developUniforms(defaultRecipe(), stageCtx);
   const inputs = COLOURS.map((c) => c.map((v) => Math.min(v, 1.2)) as Vec3);
   const stage = probeStage(eng, ['stages/clarity.glsl'], 'clarityShift(c, 0.04)', inputs, {
@@ -559,7 +569,10 @@ function probeClarity(eng: Engine) {
   const lum = probeStage(eng, ['stages/clarity.glsl'], 'vec3(clarityLightness(c))', inputs, {
     lightness: { uniforms: u, ref: (c: Vec3) => [lightness(c), lightness(c), lightness(c)] as Vec3 },
   });
-  return { worstLightnessError: filter, shift: stage, lightness: lum };
+  const logIn = probeStage(eng, ['stages/texture.glsl'], 'vec3(clarityLogInput(c, 0.0), clarityLogInput(c, 7.0), 0.0)', COLOURS, {
+    logInput: { uniforms: u, ref: (c: Vec3) => [clarityLogInput(lumY(c), 0), clarityLogInput(lumY(c), 7), 0] as Vec3 },
+  });
+  return { worstLightnessError: filter, shift: stage, lightness: lum, logInput: logIn };
 }
 
 /** Sharpening: RawTherapee's unsharp mask on the GPU against the reference, change in lightness and mask. */
@@ -735,13 +748,16 @@ function probeMapCache() {
     const res: Record<string, unknown> = {};
     for (const [name, r, keep] of logSteps) {
       const made = (lg.e as any).L.eqPhoto; // eslint-disable-line @typescript-eslint/no-explicit-any
+      const llMade = (lg.e as any).L.llMade; // eslint-disable-line @typescript-eslint/no-explicit-any
       const got = lg.e.readPixels(lg.s, r, w, h, 1);
       const kept = !!made && (lg.e as any).L.eqPhoto === made; // eslint-disable-line @typescript-eslint/no-explicit-any
+      // Clarity's map too, but a Texture change remakes it (its input is after Texture).
+      const clarityKept = !!llMade && (lg.e as any).L.llMade === llMade; // eslint-disable-line @typescript-eslint/no-explicit-any
       const fresh = mk();
       const want = fresh.e.readPixels(fresh.s, r, w, h, 1);
       let d = 0;
       for (let k = 0; k < got.length; k++) d = Math.max(d, Math.abs(got[k] - want[k]));
-      res[name] = { vsFresh: d, kept, keepWanted: keep };
+      res[name] = { vsFresh: d, kept, keepWanted: keep, clarityKept, clarityKeepWanted: keep && name !== 'texture' };
       fresh.e.dispose(); fresh.e.gpu.gl.getExtension('WEBGL_lose_context')?.loseContext();
     }
     // Against darktable's order at the same recipe (exposure 0.9): how far the look moves.
@@ -1170,7 +1186,9 @@ try {
       return w;
     };
     const result: Record<string, unknown> = {};
-    for (const key of ['texture', 'clarity'] as const) {
+    // In darktable's order, and with Texture and Clarity before Exposure (detailOrder 'log').
+    for (const order of ['darktable', 'log'] as const) for (const key of ['texture', 'clarity'] as const) {
+      eng.detailOrder = order;
       const whole: Mask = { ...newMask(newEllipse([0.5, 0.5], [2, 2], 0, 0.001), 0), [key]: 60 };
       const nowhere: Mask = { ...newMask(newEllipse([-1, -1], [0.01, 0.01], 0, 0.001), 1), [key]: -80 };
       const left: Mask = { ...newMask(newEllipse([0, 0.5], [0.75, 2], 0, 0.001), 0), [key]: 60 };
@@ -1183,13 +1201,14 @@ try {
       const stacked = eng.readPixels(tsrc, { ...base, [key]: 60, masks: [whole] }, tw, th, 1);
       // With the photo's own at -60, a whole-frame mask at +60 runs on the photo's result.
       const undone = eng.readPixels(tsrc, { ...base, [key]: -60, masks: [whole] }, tw, th, 1);
-      result[key] = {
+      result[order === 'log' ? `log:${key}` : key] = {
         wholeVsPhoto: worst(masked, photo), photoMoves: worst(plain, photo), secondMaskNowhere: worst(two, masked),
         halfLeftVsPhoto: worst(half, photo, 0, 140), halfRightVsPlain: worst(half, plain, 160, tw),
         stackedMovesFromPhoto: worst(stacked, photo), minusThenPlusVsPlain: worst(undone, plain),
         glError: eng.gpu.gl.getError(),
       };
     }
+    eng.detailOrder = undefined;
     out.maskDetail = result;
     eng.release(tsrc);
   }

@@ -7,6 +7,9 @@
 // Clarity, on the print: darktable's local laplacian filter changes CIE
 // lightness and keeps Lab a and b. The filter itself runs in the ll*.frag
 // passes over the whole photo; this stage adds its lightness change.
+// Trial deviation (Oli, 2026-11-03, off by default): with uTextureLog the filter ran on log
+// lightness before Exposure and stageClarityLog (texture.glsl) applies its change in scene light,
+// before the film's curve, instead of this stage (detaillog.ts; NOTICE.md).
 
 #include "stages/lab.glsl"
 

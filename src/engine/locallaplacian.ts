@@ -9,6 +9,9 @@
 // levels and an explicit filter halo instead of LL_FILL's preview padding. Each instance keeps
 // its own reconstructed preview levels. This can differ from full-size mode 0; the pinned bilat.c
 // passes a null boundary and does not itself enable mode 2. Exports retain the full pyramid.
+// Trial deviation (Oli, 2026-11-03, off by default): with Engine.detailOrder 'log' the filter runs
+// on log lightness before Exposure over an extended grid of ten levels (LOG_GAMMAS, below), and its
+// change is applied as a ratio of luminance before the film's curve (detaillog.ts; NOTICE.md).
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Reference implementation of the clarity stage: darktable's local laplacian
@@ -25,6 +28,19 @@ import { labL, labShiftL } from './lab';
 export const NUM_GAMMA = 6;
 /** Brightness levels the remapping curves centre on: evenly spaced in [0, 1]. */
 export const GAMMAS = Array.from({ length: NUM_GAMMA }, (_, k) => (k + 0.5) / NUM_GAMMA);
+/**
+ * Detail before Exposure (Engine.detailOrder 'log', detaillog.ts): the input is log lightness,
+ * which runs past [0, 1], and at the clarity preset the curve goes flat more than 2 sigma from
+ * its level, which would erase detail there. darktable's grid extended at the same spacing
+ * (Oli, 2026-11-03: "more levels, same spacing") by three levels below, for shadows a later
+ * Exposure lifts, and one above; ten, so the GPU packs them with the lightness and a mask in
+ * three RGBA images. The input is clamped to the range the levels cover, half a spacing past
+ * the outer ones, as darktable's L* in [0, 1] is: log lightness -50 to 117, a luminance of
+ * about 0.0017 (L* 1.5) to 3.8 (two stops over white) before Exposure.
+ */
+export const LOG_GAMMAS = Array.from({ length: NUM_GAMMA + 4 }, (_, k) => (k - 3 + 0.5) / NUM_GAMMA);
+/** The range the log grid covers. */
+export const LOG_RANGE: [number, number] = [-3 / NUM_GAMMA, 1 + 1 / NUM_GAMMA];
 const MAX_LEVELS = 30;
 
 export interface ClarityParams {
@@ -121,12 +137,12 @@ export function expandAt(coarse: Plane, i: number, j: number): number {
 }
 
 /** The local laplacian filter on a lightness plane (0 to 1). */
-export function localLaplacian(input: Plane, p: ClarityParams, boundary?: { last: number; coarse: Plane }): Plane {
+export function localLaplacian(input: Plane, p: ClarityParams, boundary?: { last: number; coarse: Plane }, gammas = GAMMAS): Plane {
   const last = boundary ? Math.min(boundary.last, numLevels(input.w, input.h) - 1) : numLevels(input.w, input.h) - 1;
   if (last < 1) return input;
   const gauss: Plane[] = [input];
   for (let l = 1; l <= last; l++) gauss.push(reduce(gauss[l - 1]));
-  const bufs = GAMMAS.map((g) => {
+  const bufs = gammas.map((g) => {
     const b0 = plane(input.w, input.h);
     for (let k = 0; k < b0.data.length; k++) b0.data[k] = curve(input.data[k], g, p);
     const levels = [b0];
@@ -140,7 +156,7 @@ export function localLaplacian(input: Plane, p: ClarityParams, boundary?: { last
     for (let j = 0; j < next.h; j++)
       for (let i = 0; i < next.w; i++) {
         const v = gauss[l].data[j * next.w + i];
-        const [lo, hi, a] = gammaSpan(v);
+        const [lo, hi, a] = gammaSpan(v, gammas);
         const l0 = bufs[lo][l].data[j * next.w + i] - expandAt(bufs[lo][l + 1], i, j);
         const l1 = bufs[hi][l].data[j * next.w + i] - expandAt(bufs[hi][l + 1], i, j);
         next.data[j * next.w + i] = expandAt(out, i, j) + l0 * (1 - a) + l1 * a;
@@ -169,11 +185,11 @@ export function clarityBoundary(levels: Plane[], width: number, height: number, 
 }
 
 /** The two brightness levels around `v` and the weight of the upper one (darktable's search). */
-export function gammaSpan(v: number): [number, number, number] {
+export function gammaSpan(v: number, gammas = GAMMAS): [number, number, number] {
   let hi = 1;
-  while (hi < NUM_GAMMA - 1 && GAMMAS[hi] <= v) hi++;
+  while (hi < gammas.length - 1 && gammas[hi] <= v) hi++;
   const lo = hi - 1;
-  return [lo, hi, Math.min(Math.max((v - GAMMAS[lo]) / (GAMMAS[hi] - GAMMAS[lo]), 0), 1)];
+  return [lo, hi, Math.min(Math.max((v - gammas[lo]) / (gammas[hi] - gammas[lo]), 0), 1)];
 }
 
 // ---------- Lightness ----------

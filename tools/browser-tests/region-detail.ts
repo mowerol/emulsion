@@ -62,10 +62,10 @@ async function main() {
   const results: Record<string, unknown> = {};
   const failures: string[] = [];
   try {
-    // The same cases with Texture measured before Exposure (detailOrder 'log'), for the recipes with Texture.
+    // The same cases with Texture and Clarity measured before Exposure (detailOrder 'log'), for the recipes with either.
     const orders: ['darktable' | 'log', string][] = [['darktable', ''], ['log', 'log:']];
     for (const [order, prefix] of orders) for (const [name, recipe] of Object.entries(recipes)) for (const [position, origin] of Object.entries({ centre: [.4, .4], corner: [0, 0], edge: [.87, .87] })) {
-      if (order === 'log' && !['texture', 'combined', 'maskedDetail', 'maskedCombined'].includes(name)) continue;
+      if (order === 'log' && !['clarity', 'texture', 'combined', 'maskedDetail', 'maskedCombined'].includes(name)) continue;
       engine.detailOrder = order;
       const view = { x: origin[0], y: origin[1], w: 0.13, h: 0.13 };
       const key = `${prefix}${name}:${position}`;

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
-import { LOG_EPS, LOG_SLOPE, LOG_Y50, logLightness, logShift } from './detaillog';
+import { LOG_EPS, LOG_SLOPE, LOG_Y50, clarityLogInput, logLightness, logShift } from './detaillog';
+import { LOG_RANGE } from './locallaplacian';
 import { amountScales, equalizeParts } from './equalizer';
 
 const lstar = (Y: number) => (Y > 216 / 24389 ? 116 * Math.cbrt(Y) - 16 : (24389 / 27) * Y);
@@ -60,5 +61,14 @@ describe('log lightness', () => {
     }
     expect(size).toBeGreaterThan(0.5);
     expect(worst).toBeLessThan(0.15 * size);
+  });
+  it('gives Clarity the log lightness after Texture, on its scale, within the grid', () => {
+    expect(clarityLogInput(LOG_Y50 - LOG_EPS, 0)).toBeCloseTo(0.5, 10);
+    expect(clarityLogInput(0.18, 3)).toBeCloseTo((logLightness(0.18) + 3) / 100, 12);
+    expect(clarityLogInput(0, 0)).toBe(LOG_RANGE[0]);
+    expect(clarityLogInput(64, 0)).toBe(LOG_RANGE[1]);
+    // The grid spans L* 1.5 to two stops over white, before Exposure.
+    expect(clarityLogInput(0.002, 0)).toBeGreaterThan(LOG_RANGE[0]);
+    expect(clarityLogInput(3.5, 0)).toBeLessThan(LOG_RANGE[1]);
   });
 });

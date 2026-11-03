@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Vec3 } from '../film/stocks';
 import {
-  CLARITY_PRESET, GAMMAS, clarityParams, curve, expandAt, gammaSpan, levelSize, lightness, localLaplacian, numLevels, reduce, withLightness, type Plane,
+  CLARITY_PRESET, GAMMAS, LOG_GAMMAS, LOG_RANGE, clarityParams, curve, expandAt, gammaSpan, levelSize, lightness, localLaplacian, numLevels, reduce, withLightness, type Plane,
 } from './locallaplacian';
 
 const make = (w: number, h: number, f: (i: number, j: number) => number): Plane => {
@@ -68,6 +68,33 @@ describe('local laplacian', () => {
     const base = spread(tex);
     expect(spread(localLaplacian(tex, clarityParams(100)))).toBeGreaterThan(base * 1.15);
     expect(spread(localLaplacian(tex, clarityParams(-100)))).toBeLessThan(base * 0.85);
+  });
+});
+
+describe('local laplacian on the log grid (detail before Exposure)', () => {
+  it('extends darktable\'s levels at the same spacing over the range it covers', () => {
+    expect(LOG_GAMMAS).toHaveLength(10);
+    for (const g of GAMMAS) expect(LOG_GAMMAS.some((h) => Math.abs(h - g) < 1e-12)).toBe(true);
+    for (let k = 1; k < LOG_GAMMAS.length; k++) expect(LOG_GAMMAS[k] - LOG_GAMMAS[k - 1]).toBeCloseTo(1 / 6, 12);
+    expect(LOG_RANGE[0]).toBeCloseTo(LOG_GAMMAS[0] - 1 / 12, 12);
+    expect(LOG_RANGE[1]).toBeCloseTo(LOG_GAMMAS[9] + 1 / 12, 12);
+  });
+
+  it('equals darktable\'s grid where darktable\'s levels hold the input', () => {
+    const tex = make(64, 48, (i, j) => 0.5 + 0.3 * Math.sin(i * 0.31) * Math.cos(j * 0.23) + 0.05 * Math.sin(i * 1.7));
+    expect(maxDiff(localLaplacian(tex, CLARITY_PRESET, undefined, LOG_GAMMAS), localLaplacian(tex, CLARITY_PRESET))).toBeLessThan(1e-12);
+  });
+
+  it('adds the same local contrast below darktable\'s levels as in the midtones', () => {
+    const at = (m: number) => make(64, 48, (i, j) => m + 0.03 * Math.sin(i * 1.3) * Math.sin(j * 1.1));
+    const gain = (m: number, gammas: number[]) => spread(localLaplacian(at(m), CLARITY_PRESET, undefined, gammas)) / spread(at(m));
+    // Whole spacings apart on an even grid, with the texture inside it, the filter sees the same thing.
+    const mid = gain(0.45, LOG_GAMMAS);
+    expect(mid).toBeGreaterThan(1.15);
+    expect(gain(0.45 - 4 / 6, LOG_GAMMAS)).toBeCloseTo(mid, 9);
+    expect(gain(0.45 + 3 / 6, LOG_GAMMAS)).toBeCloseTo(mid, 9);
+    // darktable's six levels see these through the edge of their curve, which compresses detail.
+    expect(gain(0.45 - 4 / 6, GAMMAS)).toBeLessThan(1);
   });
 });
 

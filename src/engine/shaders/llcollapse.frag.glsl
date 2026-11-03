@@ -10,6 +10,9 @@
 // brightness levels around this pixel's own brightness at this scale.
 // uA*: remapped images for levels 0-3; uB*: levels 4-5 in .rg and the
 // lightness Gaussian pyramid in .b. *0 is this level, *1 the next coarser.
+// With LL_LOG defined (detail before Exposure, LOG_GAMMAS in locallaplacian.ts): ten levels,
+// darktable's six extended at the same spacing, three below and one above: uA* 0-3, uB* 4-7,
+// uC* 8-9 in .rg and the lightness in .b.
 precision highp float;
 precision highp int;
 in vec2 vUv;
@@ -20,6 +23,15 @@ uniform sampler2D uA0;
 uniform sampler2D uA1;
 uniform sampler2D uB0;
 uniform sampler2D uB1;
+#ifdef LL_LOG
+uniform sampler2D uC0;
+uniform sampler2D uC1;
+#define NG 10
+#define G0 -3
+#else
+#define NG 6
+#define G0 0
+#endif
 // 1 at the coarsest step: the coarser output is the lightness pyramid's last level (uB1.b).
 uniform float uTop;
 // 1 at the finest level: write the change in lightness rather than the lightness.
@@ -45,18 +57,26 @@ void main() {
   vec4 b0 = texelFetch(uB0, p, 0);
   vec4 la = a0 - expandAt(uA1, p);
   vec4 lb = b0 - expandAt(uB1, p);
-  float lap[6] = float[6](la.x, la.y, la.z, la.w, lb.x, lb.y);
+#ifdef LL_LOG
+  vec4 c0 = texelFetch(uC0, p, 0);
+  vec4 lc = c0 - expandAt(uC1, p);
+  float lap[NG] = float[NG](la.x, la.y, la.z, la.w, lb.x, lb.y, lb.z, lb.w, lc.x, lc.y);
+  float base = uTop > 0.5 ? expandAt(uC1, p).b : expandAt(uCoarse, p).r;
+  float v = c0.b;
+#else
+  float lap[NG] = float[NG](la.x, la.y, la.z, la.w, lb.x, lb.y);
   float base = uTop > 0.5 ? expandAt(uB1, p).b : expandAt(uCoarse, p).r;
+  float v = b0.b;
+#endif
 
   // darktable's search for the two brightness levels around v.
-  float v = b0.b;
   int hi = 1;
-  for (int k = 1; k < 5; k++) if ((float(hi) + 0.5) / 6.0 <= v) hi++;
+  for (int k = 1; k < NG - 1; k++) if ((float(hi + G0) + 0.5) / 6.0 <= v) hi++;
   int lo = hi - 1;
-  float glo = (float(lo) + 0.5) / 6.0;
+  float glo = (float(lo + G0) + 0.5) / 6.0;
   float a = clamp((v - glo) * 6.0, 0.0, 1.0);
   float l0 = lap[0], l1 = lap[1];
-  for (int k = 0; k < 6; k++) {
+  for (int k = 0; k < NG; k++) {
     if (k == lo) l0 = lap[k];
     if (k == hi) l1 = lap[k];
   }

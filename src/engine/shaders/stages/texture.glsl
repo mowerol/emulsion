@@ -11,6 +11,7 @@
 // Trial deviation (Oli, 2026-11-03, off by default): with uTextureLog the detail was measured in
 // log lightness before Exposure and is applied as a ratio of luminance (detaillog.glsl; NOTICE.md).
 #include "stages/detaillog.glsl"
+#include "stages/clarity.glsl"
 
 // 1 applies the change in L* in uTextureTex (.r): the photo's instance and the masks'
 // masked instances folded together (maskfold.frag).
@@ -19,6 +20,16 @@ uniform sampler2D uTextureTex;
 // 1 (Engine.detailOrder 'log'): the change is in log lightness, taken before Exposure
 // (detaillog.glsl), and applied as a ratio of luminance.
 uniform float uTextureLog;
+
+// Clarity with detail before Exposure (detaillog.ts): its input, on the local laplacian's 0-1
+// scale within the extended grid (LOG_RANGE in locallaplacian.ts), and its change applied as a
+// ratio of luminance in scene light (uClarityTex, clarity.glsl, holds it on that scale).
+const vec2 LL_LOG_RANGE = vec2(-0.5, 7.0 / 6.0);
+float clarityLogInput(vec3 lin, float du) { return clamp((logLightness(lin) + du) / 100.0, LL_LOG_RANGE.x, LL_LOG_RANGE.y); }
+vec3 stageClarityLog(vec3 x, vec2 uv) {
+  if (uTextureLog < 0.5 || uClarityOn < 0.5) return x;
+  return labShiftL(x, logShift(x, 100.0 * texture(uClarityTex, uv).r));
+}
 
 vec3 stageTexture(vec3 x, vec2 uv) {
   if (uTextureOn < 0.5) return x;

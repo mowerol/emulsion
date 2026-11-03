@@ -371,15 +371,18 @@ export async function run(which: string) {
       logToTerminal('info', 'PERF-TRACE-DONE');
       setSliders({ texture: 0, dehaze: 0, clarity: 0 });
     }
-    if (want('sidebyside')) {
-      // Texture in darktable's order against measured before Exposure (ui/detailorder.ts), on each
-      // photo of the run: the whole frame at preview size and a 100% crop at its centre, at a few
-      // Texture/Exposure settings. JPEGs to VITE_PERF_OUT, and how far each pair differs.
+    if (want('sidebyside') || want('sideclarity')) {
+      // Texture (sidebyside) or Clarity (sideclarity) in darktable's order against measured before
+      // Exposure (ui/detailorder.ts), on each photo of the run: the whole frame at preview size and
+      // a 100% crop at its centre, at a few amount/Exposure settings. JPEGs to VITE_PERF_OUT, and
+      // how far each pair differs.
       const dir = import.meta.env.VITE_PERF_OUT;
       if (!dir) throw Error('sidebyside needs VITE_PERF_OUT');
+      const slider = want('sideclarity') ? 'clarity' : 'texture';
+      const tag = slider === 'clarity' ? 'cla' : 'tex';
       const settings: [string, Partial<Recipe>][] = [
-        ['tex50', { texture: 50 }], ['tex50_ev+1', { texture: 50, exposure: 1 }],
-        ['tex-50_ev-1', { texture: -50, exposure: -1 }], ['tex100', { texture: 100 }],
+        [`${tag}50`, { [slider]: 50 }], [`${tag}50_ev+1`, { [slider]: 50, exposure: 1 }],
+        [`${tag}-50_ev-1`, { [slider]: -50, exposure: -1 }], [`${tag}100`, { [slider]: 100 }],
       ];
       const stats: Record<string, unknown> = {};
       const photos = useApp.getState().photos.length;
@@ -415,12 +418,12 @@ export async function run(which: string) {
           await writeExport(dir, `${name}_${scale}_${label}_worst`, side, cw2 * 4, ch2 * 2, 95);
           diffs.sort((x, y) => x - y);
           stats[`${name}_${scale}_${label}`] = { mean: +(sum / diffs.length).toFixed(2), p99: diffs[Math.floor(diffs.length * 0.99)], max: diffs[diffs.length - 1], at: [ax, ay] };
-          if (label === 'tex50') {
-            // How much Texture itself moves the picture, for scale.
-            const none = eng.readPixels(src, { ...base, texture: 0 } as Recipe, w, h, 0, false, view, undefined, wh);
+          if (label === `${tag}50`) {
+            // How much the slider itself moves the picture, for scale.
+            const none = eng.readPixels(src, { ...base, [slider]: 0 } as Recipe, w, h, 0, false, view, undefined, wh);
             let t = 0;
             for (let k = 0; k < a.length; k += 4) t += Math.max(Math.abs(a[k] - none[k]), Math.abs(a[k + 1] - none[k + 1]), Math.abs(a[k + 2] - none[k + 2]));
-            stats[`${name}_${scale}_textureItself`] = { mean: +(t / diffs.length).toFixed(2) };
+            stats[`${name}_${scale}_${slider}Itself`] = { mean: +(t / diffs.length).toFixed(2) };
           }
         }
       };
@@ -433,7 +436,7 @@ export async function run(which: string) {
         const name = (useApp.getState().developSize?.path ?? `photo${n}`).split('/').pop()!.replace(/\.[^.]+$/, '');
         await settle(1500, 30000);
         const eng = lastEngine!;
-        const base = { ...(activePhoto()?.recipe ?? defaultRecipe()), dehaze: 0, clarity: 0 };
+        const base = { ...(activePhoto()?.recipe ?? defaultRecipe()), dehaze: 0, clarity: 0, texture: 0 };
         const preview = lastSrc!;
         await pair(eng, name, 'fit', preview, preview.w, preview.h, undefined, undefined, base);
         // 100%: the full resolution, a 1200 × 800 window at the centre.

@@ -30,7 +30,7 @@ import { recipeLookFile } from '../film/looks';
 import { GLOW_SIGMA, HALATION_SIGMA, blurPlan, pyramidFor, type Pyramid } from './pyramid';
 import { MASK_SIGMA } from './toneequalizer';
 import { ANALYSIS_MAX, SQRT_EPS, ambientLight, minTransmission, windows } from './dehaze';
-import { GAMMAS, levelSize, numLevels } from './locallaplacian';
+import { GAMMAS, LOG_GAMMAS, levelSize, numLevels } from './locallaplacian';
 import { amountScales, scales, regionFineScales, isRegionCoarse } from './equalizer';
 import { usmKernel, usmParams, type UsmParams } from './usm';
 import { DEFAULTS as CE, SAT_SHIFT, WHITE, colorEqLuts, pixelUvl, type ColorEqLuts, type ColorEqParams } from './colorequal';
@@ -164,10 +164,12 @@ interface DehazeTargets {
   guide: Target;
 }
 
-/** The clarity filter's pyramids, from full size down: remapped images (A: levels 0-3, B: 4-5 and the lightness), and the output. */
+/** The clarity filter's pyramids, from full size down: remapped images (A: levels 0-3, B: 4-5 and the lightness), and the output.
+ *  With detail before Exposure, ten levels (LOG_GAMMAS): A 0-3, B 4-7, C 8-9 and the lightness. */
 interface Ll {
   A: Target[];
   B: Target[];
+  C?: Target[];
   O: Target[];
   /** The change in lightness of the photo's instance and the masked ones, folded together (two, in turn). */
   D: Target[];
@@ -313,7 +315,7 @@ class Lane {
     this.brushes = new BrushGpu(gpu, p.brush);
     this.objects = new ObjectGpu(gpu, p.object);
     this.refiner = new MaskRefineGpu(gpu, p.refine);
-    this.lls = new Lru<Ll>(2, (l) => [...l.A, ...l.B, ...l.O, ...l.D].forEach((t) => gpu.free(t)));
+    this.lls = new Lru<Ll>(2, (l) => [...l.A, ...l.B, ...(l.C ?? []), ...l.O, ...l.D].forEach((t) => gpu.free(t)));
   }
 }
 
@@ -389,6 +391,7 @@ export class Engine {
   private llCurve: Program;
   private llReduce: Program;
   private llCollapse: Program;
+  private llCollapseLog: Program;
   private llBoundary: Program;
   private eqP: Program;
   private foldP: Program;
@@ -438,6 +441,7 @@ export class Engine {
     this.llCurve = this.gpu.program(SHADERS.vertex, SHADERS.llcurve);
     this.llReduce = this.gpu.program(SHADERS.vertex, SHADERS.llreduce);
     this.llCollapse = this.gpu.program(SHADERS.vertex, SHADERS.llcollapse);
+    this.llCollapseLog = this.gpu.program(SHADERS.vertex, SHADERS.llcollapse.replace('#version 300 es', '#version 300 es\n#define LL_LOG 1'));
     this.llBoundary = this.gpu.program(SHADERS.vertex, SHADERS.llboundary);
     this.eqP = this.gpu.program(SHADERS.vertex, SHADERS.eq);
     this.csP = this.gpu.program(SHADERS.vertex, SHADERS.cs);
@@ -1097,6 +1101,7 @@ export class Engine {
       this.L.csMade = null;
     }
     this.L.lls.delete(`${w}x${h}`);
+    this.L.lls.delete(`${w}x${h}|log`);
     if (this.L.eq && this.L.eq.w === w && this.L.eq.h === h) {
       this.freeEq();
       this.L.eqMade = null; this.L.eqPhoto = null;
@@ -1193,13 +1198,13 @@ export class Engine {
   }
 
   /** The clarity filter's pyramids for a w × h source, made on first use. */
-  private llPyramids(w: number, h: number, last?: number): Ll {
-    return this.L.lls.get(`${w}x${h}${last === undefined ? '' : `:${last}`}`, () => {
+  private llPyramids(w: number, h: number, last?: number, log = false): Ll {
+    return this.L.lls.get(`${w}x${h}${last === undefined ? '' : `:${last}`}${log ? '|log' : ''}`, () => {
       this.L.llMade = null;
       const levels = Array.from({ length: Math.min(numLevels(w, h), last === undefined ? Infinity : last + 1) }, (_, l) => [levelSize(w, l), levelSize(h, l)]);
       const make = () => levels.map(([lw, lh]) => this.gpu.target(lw, lh, true));
       const one = () => this.gpu.target(w, h, true, false, true);
-      return { A: make(), B: make(), O: make(), D: [one(), one()] };
+      return { A: make(), B: make(), C: log ? make() : undefined, O: make(), D: [one(), one()] };
     });
   }
 
@@ -1223,12 +1228,17 @@ export class Engine {
     };
     drawInput(ll.O[0]);
     g.bind(0, ll.O[0].tex);
-    this.llCurve.set({ uL: 0, uGamma: GAMMAS.slice(0, 4), uCarry: 0, uLl });
-    draw(this.llCurve, ll.A[0], 0);
-    this.llCurve.set({ uL: 0, uGamma: [GAMMAS[4], GAMMAS[5], 0, 0], uCarry: 1, uLl });
-    draw(this.llCurve, ll.B[0], 0);
+    // Four levels per image; the last image carries the lightness (.b) and a mask (.a).
+    const gammas = ll.C ? LOG_GAMMAS : GAMMAS;
+    const packs = ll.C ? [ll.A, ll.B, ll.C] : [ll.A, ll.B];
+    packs.forEach((p, k) => {
+      const carry = k === packs.length - 1;
+      const gs = gammas.slice(4 * k, 4 * k + (carry ? 2 : 4));
+      this.llCurve.set({ uL: 0, uGamma: [...gs, 0, 0, 0, 0].slice(0, 4), uCarry: carry ? 1 : 0, uLl });
+      draw(this.llCurve, p[0], 0);
+    });
     for (let l = 1; l <= last; l++) {
-      for (const p of [ll.A, ll.B]) {
+      for (const p of packs) {
         g.bind(0, p[l - 1].tex);
         this.llReduce.set({ uFine: 0 });
         draw(this.llReduce, p[l], l);
@@ -1252,8 +1262,10 @@ export class Engine {
       g.bind(2, ll.A[l + 1].tex);
       g.bind(3, ll.B[l].tex);
       g.bind(4, ll.B[l + 1].tex);
-      this.llCollapse.set({ uCoarse: 0, uA0: 1, uA1: 2, uB0: 3, uB1: 4, uTop: l === last - 1 && !boundary ? 1 : 0, uDelta: l === 0 ? 1 : 0 });
-      draw(this.llCollapse, ll.O[l], l);
+      if (ll.C) { g.bind(5, ll.C[l].tex); g.bind(6, ll.C[l + 1].tex); }
+      const collapse = ll.C ? this.llCollapseLog : this.llCollapse;
+      collapse.set({ uCoarse: 0, uA0: 1, uA1: 2, uB0: 3, uB1: 4, uC0: 5, uC1: 6, uTop: l === last - 1 && !boundary ? 1 : 0, uDelta: l === 0 ? 1 : 0 });
+      draw(collapse, ll.O[l], l);
     }
     return ll.O[0].tex;
   }
@@ -1274,8 +1286,9 @@ export class Engine {
       gl.blitFramebuffer(0, 0, to.w, to.h, 0, 0, to.w, to.h, gl.COLOR_BUFFER_BIT, gl.NEAREST);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     };
-    for (let l = first; l <= top; l++) copy(l === top ? ll.B[l] : ll.O[l], b.levels[l - first]);
-    if (b.base) copy(ll.B[0], b.base);
+    const carry = ll.C ?? ll.B;
+    for (let l = first; l <= top; l++) copy(l === top ? carry[l] : ll.O[l], b.levels[l - first]);
+    if (b.base) copy(carry[0], b.base);
     b.source = source;
     this.L.clarityBoundaries.set(slot, b);
   }
@@ -1632,8 +1645,8 @@ export class Engine {
     let acc: Target | null = null;
     const add = (weighted: boolean) => {
       const to = acc === ll.D[0] ? ll.D[1] : ll.D[0];
-      // The filter's change is in O[0]; the mask came down through B[0].a (llcurve's carry).
-      this.fold(to, acc, ll.O[0], 1, weighted, ll.B[0]);
+      // The filter's change is in O[0]; the mask came down through the last image's .a (llcurve's carry).
+      this.fold(to, acc, ll.O[0], 1, weighted, (ll.C ?? ll.B)[0]);
       acc = to;
     };
     if (photoLl) {
@@ -1685,9 +1698,9 @@ export class Engine {
   }
 
   /** The clarity filter alone on a lightness plane, for the probe: the change in lightness per pixel. */
-  probeLocalLaplacian(L: Float32Array, w: number, h: number, uLl: number[]): Float32Array {
+  probeLocalLaplacian(L: Float32Array, w: number, h: number, uLl: number[], log = false): Float32Array {
     const gl = this.gpu.gl;
-    const ll = this.llPyramids(w, h);
+    const ll = this.llPyramids(w, h, undefined, log);
     this.L.llMade = null;
     this.clarityMap(ll, uLl, (t) => {
       const rgba = new Float32Array(w * h * 4);
@@ -2196,7 +2209,9 @@ export class Engine {
     let teq: WebGLTexture = g.blackTexture;
     const curve = u.uCurveOn === 1 && recipe ? this.curveTexture(recipe) : g.blackTexture;
     // Clarity needs float targets and at least two pyramid levels.
-    const ll = !picking && (passes.clarity || maskClarity.length > 0) && g.hdr && numLevels(src.w, src.h) >= 2 ? this.llPyramids(src.w, src.h, src.roi ? 4 : undefined) : null;
+    // With detail before Exposure, on log lightness over ten levels (LOG_GAMMAS).
+    const detailLog = u.uTextureLog === 1;
+    const ll = !picking && (passes.clarity || maskClarity.length > 0) && g.hdr && numLevels(src.w, src.h) >= 2 ? this.llPyramids(src.w, src.h, src.roi ? 4 : undefined, detailLog) : null;
     // Texture needs float targets and at least one wavelet scale.
     const eqOn = !picking && (passes.texture || maskTexture.length > 0) && g.hdr && scales(...wholeSize(src), src.fullW, src.fullH, 1).length > 0;
     if (eqOn) this.eqTargets(src.w, src.h);
@@ -2320,8 +2335,14 @@ export class Engine {
     const ceKey = `${ceSceneKey}|${pick(u, COLOR_STAGE)}|${JSON.stringify(recipe?.color ?? null)}|${lookKey}`;
     // The vignette reads the frame's aspect.
     const aspect = ((u.uOut as number[])[0] / (u.uOut as number[])[1]).toFixed(6);
-    const llKey = `${ceKey}|${pick(u, BEFORE_CLARITY)}|${aspect}|${pick(u, CLARITY_STAGE)}|${JSON.stringify(maskClarity)}`;
-    const usmKey = `${llKey}|${recipe?.sharpen},${recipe?.sharpenRadius},${recipe?.sharpenMasking}`;
+    // With detail before Exposure, Clarity's input is the log lightness after Texture: Texture's
+    // map and what it read. A masked instance's mask reads the exposed pixel, so then everything
+    // up to Texture's output.
+    const llKey = detailLog
+      ? `${maskClarity.length ? sceneKey : textureKey}|log|${pick(u, CLARITY_STAGE)}|${JSON.stringify(maskClarity)}`
+      : `${ceKey}|${pick(u, BEFORE_CLARITY)}|${aspect}|${pick(u, CLARITY_STAGE)}|${JSON.stringify(maskClarity)}`;
+    // Sharpening reads the print, after everything up to it, Clarity included.
+    const usmKey = `${detailLog ? `${ceKey}|${pick(u, BEFORE_CLARITY)}|${aspect}|${llKey}` : llKey}|${recipe?.sharpen},${recipe?.sharpenRadius},${recipe?.sharpenMasking}`;
     let texture: WebGLTexture = g.blackTexture;
     if (picking) {
       if (opts.target === 'screen') throw Error('A pick renders into a target');
@@ -2376,10 +2397,14 @@ export class Engine {
     else if (ll) {
       clipTo('clarity');
       // The filter's input: the print's lightness at every source pixel, uncropped (and for a
-      // masked instance, after the instances before it, with the mask's value).
+      // masked instance, after the instances before it, with the mask's value); with detail
+      // before Exposure, the log lightness after Texture (taps 12 and 13).
       const out = this.clarityDelta(ll, passes.clarity ? (u.uLl as number[]) : null, maskClarity, (t, slot, acc) => {
         bindDevelop(acc?.tex ?? g.blackTexture);
-        if (slot < 0) {
+        if (detailLog) {
+          tap(t, slot < 0 ? 12 : 13, { uTextureOn: eqOn ? 1 : 0, uClarityOn: acc ? 1 : 0, uTapMask: Math.max(slot, 0) });
+          this.L.printMade = null;
+        } else if (slot < 0) {
           // With Sharpening on, keep the print too, for Sharpening's input (tap 11).
           const keep = usmOn && this.resumeSharpen;
           tap(keep ? this.printTarget(t) : t, 1, { uTextureOn: eqOn ? 1 : 0, uClarityOn: 0 });

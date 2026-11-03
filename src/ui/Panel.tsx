@@ -526,7 +526,7 @@ function DetailOrderToggle() {
   return (
     <label className="detail-order-toggle" title="Trial: measure Texture's detail in log lightness before Exposure (faster Exposure and tone drags with Texture on; a slightly different look from darktable's order)">
       <input type="checkbox" checked={order === 'log'} onChange={e => setDetailOrder(e.target.checked ? 'log' : 'darktable')} />
-      <span>Texture before Exposure (trial)</span>
+      <span>Texture and Clarity before Exposure (trial)</span>
     </label>
   );
 }

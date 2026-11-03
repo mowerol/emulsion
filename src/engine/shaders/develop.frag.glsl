@@ -50,7 +50,9 @@ uniform vec3 uOutside;
 // in .g, a masked Texture instance's input; 8, the print's lightness after Clarity likewise; 9
 // and 10, a masked haze removal instance's input and mask (see main); 11, tap 3 resumed from
 // the print tap 1 wrote to outPrint, bound as uSrc (the same operations on the same values, so
-// Sharpening's input costs one clarity step instead of a develop pass).
+// Sharpening's input costs one clarity step instead of a develop pass). With detail before
+// Exposure (uTextureLog): 12, Clarity's input, the log lightness after Texture's change; 13, a
+// masked Clarity instance's, after the instances before it, with the mask's value in .g.
 uniform float uTap;
 // Tap 1 also writes the print it measured (Clarity's input) here, when a second target is bound.
 layout(location = 1) out vec4 outPrint;
@@ -76,7 +78,7 @@ void main() {
   }
   uv = clamp(uv, 0.0, 1.0);
   vec2 ruv = (uv - uRoi.xy) / uRoi.zw;
-  if (uTap > 10.5) {
+  if (uTap > 10.5 && uTap < 11.5) {
     vec3 print = stageClarity(texelFetch(uSrc, ivec2(gl_FragCoord.xy), 0).rgb, ruv);
     outColor = vec4(clarityLightness(print), 0.0, 0.0, 1.0);
     return;
@@ -93,7 +95,7 @@ void main() {
     return;
   }
   computeMasks(uv, whole);
-  if (uTap > 8.5) {
+  if (uTap > 8.5 && uTap < 10.5) {
     // A masked haze removal instance's input (the instances before it bound as uDehazeTex) and
     // its mask there: 9, the input and the unrefined mask, for refining it; 10, the mask.
     vec3 xin = stageDehaze(x, ruv);
@@ -111,6 +113,10 @@ void main() {
     outColor = vec4(logLightness(x), 0.0, 0.0, 1.0);
     return;
   }
+  if (uTap > 11.5 && uTap < 12.5) {
+    outColor = vec4(clarityLogInput(x, uTextureOn > 0.5 ? texture(uTextureTex, ruv).r : 0.0), 0.0, 0.0, 1.0);
+    return;
+  }
   x = stageExposure(x);
   x = stageMaskExposure(x);
   if (uTap > 5.5 && uTap < 6.5) {
@@ -125,6 +131,12 @@ void main() {
   x = stageMaskToneEqualizer(x, uv);
   if (uTap > 1.5 && uTap < 2.5) {
     outColor = vec4(labL(x), 0.0, 0.0, 1.0);
+    return;
+  }
+  if (uTap > 12.5) {
+    float du = uTextureOn > 0.5 ? texture(uTextureTex, ruv).r : 0.0;
+    float acc = uClarityOn > 0.5 ? texture(uClarityTex, ruv).r : 0.0;
+    outColor = vec4(clamp(clarityLogInput(preExposure, du) + acc, LL_LOG_RANGE.x, LL_LOG_RANGE.y), gMaskFinal[int(uTapMask + 0.5)], 0.0, 1.0);
     return;
   }
   if (uTextureLog > 0.5 && uTap > 6.5 && uTap < 7.5) {
@@ -148,6 +160,7 @@ void main() {
   x = stageMaskColorBalance(x);
   x = stageLens(x, uv);
   x = stageOptics(x, uv);
+  x = stageClarityLog(x, ruv);
   // The camera profile renders the print, then the optional look applies to it.
   vec3 e;
   vec3 base = stageDcpLate(x);
@@ -161,7 +174,7 @@ void main() {
     outPrint = vec4(e, 1.0);
     return;
   }
-  e = stageClarity(e, ruv);
+  if (uTextureLog < 0.5) e = stageClarity(e, ruv);
   if (uTap > 7.5 && uTap < 8.5) {
     outColor = vec4(clarityLightness(e), gMaskFinal[int(uTapMask + 0.5)], 0.0, 1.0);
     return;
