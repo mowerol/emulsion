@@ -18,6 +18,7 @@ import { Engine, type Source, type View } from '../engine/engine';
 import { pickStats, pickedRange } from '../engine/masks';
 import { RANGE_CHANNELS } from '../film/masks';
 import { histogram } from '../engine/histogram';
+import { warmStageOf, type WarmStage } from '../engine/warm';
 import { defaultRecipe } from '../film/recipe';
 import { D65_XY, clampWhiteBalance, neutralizingWhite, temperatureTint } from '../engine/whitebalance';
 import { STAGE_COLORS, activePhoto, editActive, finishCrop, setCropDraft, setPhotoWhite, setPhotoLens, setPhotoCamera, showToast, startCrop, useApp } from '../library/store';
@@ -39,6 +40,8 @@ const UNEDITED = defaultRecipe();
 const HISTOGRAM_EDGE = 384;
 /** Wait this long after the last change before counting, so dragging stays smooth. */
 const HISTOGRAM_DELAY_MS = 120;
+/** How long the pointer rests on a slider before its stage's map is warmed. */
+const WARM_REST_MS = 80;
 /**
  * How long the view must stay still before a zoom or pan builds the full-resolution region it
  * now needs; until then the preview stands in, so the gesture keeps up.
@@ -89,6 +92,12 @@ export function Develop() {
   const engineRef = useRef<Engine | null>(null);
   // Whether a pointer is held down anywhere in the window (see SLOW_FRAME_MS).
   const heldRef = useRef(false);
+  // Called once when the held pointer is let go (the histogram waits for it).
+  const onReleaseRef = useRef(new Set<() => void>());
+  // Warms a stage's map for the current render (Engine.warm); set by the render effect.
+  const warmRef = useRef<((stage: WarmStage) => void) | null>(null);
+  // The stage whose slider the pointer rests on, if any.
+  const hoverRef = useRef<WarmStage | null>(null);
   // The last screen render: when it was submitted, whether it was full size, whether a frame had
   // to wait for it; and the draft scale this drag has settled on (1 = full resolution).
   const paceRef = useRef({ submitted: 0, full: false, waited: false, scale: 1, slow: 0, fastest: Infinity });
@@ -98,7 +107,12 @@ export function Develop() {
       const brush = useMaskUi.getState().tool?.kind === 'brush' && e.target instanceof Element && !!e.target.closest('svg.mask-overlay');
       Object.assign(paceRef.current, { scale: brush ? Math.min(1, 1 / dpr()) : 1, slow: 0, fastest: Infinity });
     };
-    const up = () => { heldRef.current = false; };
+    const up = () => {
+      heldRef.current = false;
+      const waiting = [...onReleaseRef.current];
+      onReleaseRef.current.clear();
+      for (const f of waiting) f();
+    };
     window.addEventListener('pointerdown', down, true);
     window.addEventListener('pointerup', up, true);
     window.addEventListener('pointercancel', up, true);
@@ -108,6 +122,26 @@ export function Develop() {
       window.removeEventListener('pointerup', up, true);
       window.removeEventListener('pointercancel', up, true);
       window.removeEventListener('blur', up);
+    };
+  }, []);
+  // Resting on the slider of a stage that is off warms its map (Engine.warm), so the click that
+  // turns it on doesn't build it from scratch. After a short rest, so sweeping across the panel
+  // warms nothing.
+  useEffect(() => {
+    let timer = 0;
+    const enter = (e: PointerEvent) => {
+      const row = e.target instanceof Element ? e.target.closest('.slider, .track') : null;
+      const el = row?.querySelector('input[type=range][id]') ?? (e.target instanceof HTMLInputElement ? e.target : null);
+      const which = el?.id ? warmStageOf(el.id) : null;
+      if (which === hoverRef.current) return;
+      hoverRef.current = which;
+      clearTimeout(timer);
+      if (which) timer = window.setTimeout(() => warmRef.current?.(which), WARM_REST_MS);
+    };
+    window.addEventListener('pointerover', enter, true);
+    return () => {
+      window.removeEventListener('pointerover', enter, true);
+      clearTimeout(timer);
     };
   }, []);
   const loadedRef = useRef<Loaded | null>(null);
@@ -533,17 +567,49 @@ export function Develop() {
       }
     };
     id = requestAnimationFrame(() => tick(moving));
+    // The same render, stopped once the hovered stage's map is built. Once per stage and render.
+    const warmed = new Set<WarmStage>();
+    warmRef.current = (which) => {
+      const engine = engineRef.current;
+      const l = loadedRef.current;
+      const canvas = canvasRef.current;
+      if (warmed.has(which) || heldRef.current || !engine || !l || !canvas || l.path !== path || !canvas.width || !current) return;
+      if (engine.waiting(recipe, l.source.camera, compare)) return;
+      // The GPU is still on the last frame: try again shortly, if the pointer is still there.
+      if (!engine.idle()) {
+        window.setTimeout(() => hoverRef.current === which && warmRef.current?.(which), WARM_REST_MS);
+        return;
+      }
+      warmed.add(which);
+      try {
+        engine.warm(l.source, recipe, which, { width: canvas.width, height: canvas.height, seed, compare, view: current.view, clipping, split, frame, outside: rgb(stage.hex), sharpenMask, maskShow: compare ? null : maskShow, whole: wholeOf(l) ?? undefined });
+      } catch {
+        /* warming is a head start; the click builds the map anyway */
+      }
+    };
+    // Still resting on a slider whose stage this change turned off (a reset): warm it again.
+    const rest = hoverRef.current ? window.setTimeout(() => hoverRef.current && warmRef.current?.(hoverRef.current), WARM_REST_MS) : 0;
     return () => {
       cancelAnimationFrame(id);
       clearTimeout(settle);
+      clearTimeout(rest);
+      warmRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [recipe, seed, compare, loadedVersion, viewKey, path, clipping, split, JSON.stringify(frame), stage, sharpenMask, lutVersion, profileVersion, maskShow, retouchVersion, healing, showScale, detailOrder]);
 
-  // Count the histogram from a small render of the whole frame, once changes settle.
+  // Count the histogram from a small render of the whole frame, once changes settle. Not while a
+  // pointer is held: its readPixels waits for the GPU, and during a drag (or a click that has just
+  // turned a stage on and is building its map) that blocks the main thread. It counts
+  // HISTOGRAM_DELAY_MS after the release instead.
   useEffect(() => {
     let cancelled = false;
-    const timer = setTimeout(async () => {
+    let timer = 0;
+    const count = async () => {
+      if (heldRef.current) {
+        onReleaseRef.current.add(later);
+        return;
+      }
       const engine = engineRef.current;
       const l = loadedRef.current;
       if (!engine || !l || l.path !== path) return;
@@ -562,10 +628,15 @@ export function Develop() {
       } catch {
         /* the histogram is a convenience; a failed count leaves the last one */
       }
-    }, HISTOGRAM_DELAY_MS);
+    };
+    function later() {
+      if (!cancelled) timer = window.setTimeout(count, HISTOGRAM_DELAY_MS);
+    }
+    later();
     return () => {
       cancelled = true;
       clearTimeout(timer);
+      onReleaseRef.current.delete(later);
     };
   }, [recipe, seed, compare, loadedVersion, path, frameId, lutVersion, profileVersion]);
 

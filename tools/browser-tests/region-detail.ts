@@ -314,6 +314,85 @@ async function main() {
         assert(gl.getError() === gl.NO_ERROR, `held ${name}: WebGL error`);
       }
     }
+    // Warming a stage that is off (Engine.warm, on hovering its slider) builds its map and leaves
+    // every other map as it was; the click that turns it on then draws fewer passes than from
+    // cold, and its settle equals a fresh build. At fit and at 100%.
+    {
+      const gl = engine.gpu.gl, e = engine as any;
+      const others = { ...base, dehaze: 20, texture: 30, clarity: 30, sharpen: 40 };
+      const sat = (v: number) => ({ hue: new Array(8).fill(0), sat: [0, 0, v, 0, 0, 0, 0, 0], bright: new Array(8).fill(0) });
+      // [stage, start (the stage off), the click, the lane fields that are the stage's own]
+      const cases: [Parameters<Engine['warm']>[2], Recipe, Recipe, string[]][] = [
+        ['dehaze', { ...others, dehaze: 0 }, { ...others, dehaze: 35 }, ['dh']],
+        ['texture', { ...others, texture: 0 }, { ...others, texture: 40 }, ['eqMade', 'eqPhoto']],
+        ['color', others, { ...others, color: sat(30) }, ['ceMade', 'ceScene']],
+        ['clarity', { ...others, clarity: 0 }, { ...others, clarity: 25 }, ['llMade', 'printMade']],
+      ];
+      const fields = ['eqMade', 'eqPhoto', 'llMade', 'usmMade', 'printMade', 'ceMade', 'ceScene', 'dh'];
+      let draws = 0;
+      const draw0 = engine.gpu.draw;
+      engine.gpu.draw = function (...a: Parameters<typeof draw0>) { draws++; return draw0.apply(this, a); };
+      try {
+        for (const at of ['region', 'fit'] as const) for (const [stage, start, click, own] of cases) {
+          const name = `${at}:${stage}`;
+          const region = at === 'region';
+          const W2 = region ? 345 : 384, H2 = region ? 345 : 256;
+          const view = region ? { x: .4, y: .4, w: .15, h: .15 } : undefined;
+          const src = region ? full : preview;
+          const extra = region ? { view, whole: preview } : {};
+          const t = engine.gpu.target(W2, H2, false);
+          const read = () => { const px = new Uint8Array(W2 * H2 * 4); gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo); gl.readPixels(0, 0, W2, H2, gl.RGBA, gl.UNSIGNED_BYTE, px); return px; };
+          const draw = (r: Recipe, live: boolean) => { engine.render(src, r, { target: t, width: W2, height: H2, seed: 0, live, ...extra }); return read(); };
+          // The photo as Develop shows it before the hover: on screen (which keeps the coarse levels).
+          const show = (r: Recipe) => engine.render(src, r, { target: 'screen', width: W2, height: H2, seed: 0, ...extra });
+          const clear = () => { e.freeRegion(); e.freeLaneTargets(); };
+          // What each lane holds, by field (dehaze by its keys: its targets are reused in place).
+          const snap = () => [e.whole, e.region].flatMap((L: any) => fields.map(f => f === 'dh' ? (L.dh ? `${L.dh.guideKey}|${L.dh.abKey}|${L.dh.foldKey}` : null) : L[f]));
+          const ownAt = new Set([0, 1].flatMap(l => own.map(f => l * fields.length + fields.indexOf(f))));
+          const diff = (a: Uint8Array, b: Uint8Array) => { let w = 0; for (let i = 0; i < a.length; i++) w = Math.max(w, Math.abs(a[i] - b[i])); return w; };
+          try {
+            // From cold: the click's first (live, pointer held) frame builds the map.
+            clear();
+            show(start);
+            draws = 0;
+            draw(click, true);
+            const cold = draws;
+            const coldExact = draw(click, false);
+            // Warmed.
+            clear();
+            show(start);
+            const before = snap();
+            const clip = e.regionClip;
+            const warmed = engine.warm(src, start, stage, { width: W2, height: H2, seed: 0, ...extra });
+            assert(warmed, `warm ${name}: nothing warmed`);
+            const after = snap();
+            // At 100% a stage turned on can widen the region's clip (its reach), which remakes the
+            // region's maps, as the click itself would.
+            const clipGrew = region && e.regionClip !== clip;
+            before.forEach((m, i) => {
+              if (ownAt.has(i) || (clipGrew && i >= fields.length)) return;
+              if (after[i] !== m) failures.push(`warm ${name}: ${fields[i % fields.length]} (${i < fields.length ? 'whole' : 'region'}) changed`);
+            });
+            const ownLane = region ? fields.length : 0;
+            if (!own.some(f => after[ownLane + fields.indexOf(f)] && after[ownLane + fields.indexOf(f)] !== before[ownLane + fields.indexOf(f)])) failures.push(`warm ${name}: its own map was not made`);
+            draws = 0;
+            const live = draw(click, true);
+            const hot = draws;
+            const exact = draw(click, false);
+            clear();
+            const fresh = draw(click, false);
+            // Against the cold click from the same start (a fresh build after clearing everything
+            // may choose another region rectangle: 1/255 there, from cold too).
+            const exactWorst = diff(exact, coldExact);
+            results[`warm_${name}`] = { coldDraws: cold, warmDraws: hot, clipGrew, liveVsExact: diff(live, exact), exactVsCold: exactWorst, exactVsFresh: diff(exact, fresh), coldVsFresh: diff(coldExact, fresh) };
+            if (hot >= cold) failures.push(`warm ${name}: the click drew ${hot} passes after warming, ${cold} from cold`);
+            if (exactWorst > 0) failures.push(`warm ${name}: the settle differs from the cold click's by ${exactWorst}/255`);
+            assert(!engine.warm(src, click, stage, { width: W2, height: H2, seed: 0, ...extra }), `warm ${name}: warmed a stage already on`);
+          } finally { engine.gpu.free(t); }
+          assert(gl.getError() === gl.NO_ERROR, `warm ${name}: WebGL error`);
+        }
+      } finally { engine.gpu.draw = draw0; }
+    }
     // A draft (Develop's 1× render while a slider or brush is dragged) zoomed in must reuse the
     // region and every map the full-size render made, draw what a render at its size draws, and
     // leave the lanes as they were for the full-size render that follows.

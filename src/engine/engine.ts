@@ -43,6 +43,7 @@ import { composedCurveTable, lookColorFor } from '../film/creative';
 import { profileSettingsFor } from '../film/looks';
 import type { Xy } from './whitebalance';
 import { SHADERS, SHADER_FILES } from './shaders';
+import { warmRecipe, type WarmStage } from './warm';
 import { chooseRegionWithin, regionReach, regionWorthIt, stageReach, visibleSource, type PixelRect, type StageReach } from './region';
 
 // DCP calibration uses 12 only in its separate early pass. The develop shader
@@ -2043,11 +2044,16 @@ export class Engine {
       live?: boolean;
       /** Internal: the canvas size a draft stands in for, which the choices above are made for. */
       shown?: [number, number];
+      /**
+       * Build this stage's map and the maps before it, then stop: draw nothing and leave every
+       * map after it as it was (see `warm`).
+       */
+      warm?: WarmStage;
     },
   ): void {
     const g = this.gpu;
     // An exact render remakes any map a live one held (its key no longer matches).
-    if (!opts.live) this.mapsHeld = false;
+    if (!opts.live && !opts.warm) this.mapsHeld = false;
     if (opts.target === 'screen' && opts.draft !== undefined && opts.draft < 1 && !this.draftTarget) {
       const w = Math.max(1, Math.round(opts.width * opts.draft)), h = Math.max(1, Math.round(opts.height * opts.draft));
       const t = this.outs.get(`draft:${w}x${h}`, () => g.target(w, h, false));
@@ -2243,6 +2249,11 @@ export class Engine {
         if (job && !this.inject?.mask) this.L.refiner.run([job], rw, rh, rw / src.fullW, layers.slice(2), (_, t) => draw(t, 9));
         draw(to, 10);
       });
+    }
+    if (opts.warm === 'dehaze') {
+      // A region measures nothing itself: it takes the whole photo's ambient light.
+      if (opts.products && photoDehaze) opts.products.ambient = this.dehazeAmbient(src, u);
+      return;
     }
     if (jobs.length) {
       const meta = [...(u.uMaskMeta as number[])];
@@ -2467,6 +2478,7 @@ export class Engine {
       }
       if (!passes.clarity && !maskClarity.length) return;
     }
+    if (opts.warm === 'texture') return;
     if (ceOn && this.L.ceMade?.tex === src.tex && this.L.ceMade.key === ceKey) ceTex = this.L.ceMade.out.tex;
     else if (ceOn) {
       clipTo('color');
@@ -2491,6 +2503,7 @@ export class Engine {
       this.L.ceMade = { tex: src.tex, key: ceKey, out };
       ceTex = out.tex;
     }
+    if (opts.warm === 'color') return;
     let clarity: WebGLTexture = g.blackTexture;
     const made = ll && this.L.llMade && (!collectCoarse || this.L.llMade.coarse) && holds(this.L.llMade, llKey, clarityOwn) ? this.L.llMade : null;
     // The map made at another amount, scaled (exact over the whole photo, which makes it at ±100 so
@@ -2523,7 +2536,8 @@ export class Engine {
           this.L.printMade = null;
         } else if (slot < 0) {
           // With Sharpening on, keep the print too, for Sharpening's input (tap 11).
-          const keep = usmOn && this.resumeSharpen;
+          // Not while warming: that would take usm.b from Sharpening's map, which stays as it is.
+          const keep = usmOn && this.resumeSharpen && !opts.warm;
           tap(keep ? this.printTarget(t) : t, 1, { uTextureOn: eqOn ? 1 : 0, uClarityOn: 0 });
           this.L.printMade = keep ? { tex: src.tex, key: llKey } : null;
           // usm.b held Sharpening's map; it holds the print now.
@@ -2541,6 +2555,7 @@ export class Engine {
       }
       return;
     }
+    if (opts.warm === 'clarity') return;
     if (usmOn && holds(this.L.usmMade, usmKey, usmOwn)) usm = this.L.usmMade!.out.tex;
     else if (usmOn) {
       clipTo('usm');
@@ -2641,6 +2656,20 @@ export class Engine {
     } finally {
       g.free(t);
     }
+  }
+
+  /**
+   * Build, ahead of the click that turns it on, the part of `stage`'s map that doesn't depend on
+   * its value (warm.ts), for the render `opts` would make: the same source, view and products as
+   * the screen render, so the whole lane at fit and the preview and region at 100%. Draws nothing
+   * and leaves every other map as it was. False when there was nothing to warm.
+   */
+  warm(src: Source, recipe: Recipe | null, stage: WarmStage, opts: Omit<Parameters<Engine['render']>[2], 'target' | 'warm' | 'draft' | 'live' | 'moving' | 'products'>): boolean {
+    // A split view composites two finished frames: nothing to stop early in.
+    const warmed = opts.compare || (opts.split !== undefined && opts.split >= 0) ? null : warmRecipe(recipe, stage);
+    if (!warmed) return false;
+    this.render(src, warmed, { ...opts, target: 'screen', warm: stage });
+    return true;
   }
 
   /** Develop into RGBA8 pixels, top row first, at width × height; size it to the recipe's crop (`framePixels`). */

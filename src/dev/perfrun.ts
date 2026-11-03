@@ -528,12 +528,20 @@ export async function run(which: string) {
         }
       };
       let watched = false;
-      const pressOnce = async (id: string, group: ControlGroupId, frac: number) => {
+      // `hover`: rest the pointer on the slider first, as a hand does before clicking, so Develop
+      // warms the stage's map (Engine.warm); then leave it, so the next case starts cold.
+      const pressOnce = async (id: string, group: ControlGroupId, frac: number, hover = false) => {
         if (!watched) { const gl = (document.querySelector('.main canvas, canvas') as HTMLCanvasElement).getContext('webgl2'); if (gl) watch(gl); watched = true; }
         await showGroup(group);
         const el = document.getElementById(id) as HTMLInputElement | null;
         if (!el) throw Error(`no ${id}`);
         await settle(400, 30000);
+        if (hover) {
+          el.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+          // Develop waits 80 ms of rest, then warms; let the GPU finish it.
+          await wait(300);
+          await settle(400, 30000);
+        }
         frames = []; draws = {};
         const box = el.getBoundingClientRect();
         const at = { clientX: box.left + box.width * frac, clientY: box.top + box.height / 2, pointerId: 1, button: 0, buttons: 1, bubbles: true };
@@ -557,6 +565,7 @@ export async function run(which: string) {
         window.dispatchEvent(new PointerEvent('pointerup', at));
         const end = await settle(400);
         const gaps = rafStop();
+        if (hover) document.body.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
         const last = frames[frames.length - 1];
         return {
           firstShownMs: first ? +(first.done - t0).toFixed(0) : null,
@@ -579,6 +588,15 @@ export async function run(which: string) {
           out[`${prefix}${name}Off`] = await pressOnce(id, group, 0.7);
           out[`${prefix}${name}On`] = await pressOnce(id, group, 0.6);
           setSliders(off);
+          if (name !== 'exposure') {
+            // From cold again: the engine keeps a stage's maps after it is turned off.
+            const e = lastEngine as any;
+            e.invalidateRegionMaps();
+            if (e.whole.dh) e.whole.dh.input = null;
+            e.whole.eqMade = e.whole.eqPhoto = e.whole.llMade = e.whole.ceMade = e.whole.ceScene = e.whole.printMade = null;
+            out[`${prefix}${name}Hovered`] = await pressOnce(id, group, 0.7, true);
+            setSliders(off);
+          }
         }
       };
       setSliders({ texture: 0, dehaze: 0, clarity: 0, color: null });
