@@ -4,7 +4,7 @@
 import { Engine, InputMode } from '../../src/engine/engine';
 import { defaultRecipe, type Recipe } from '../../src/film/recipe';
 import { newCircleSpot } from '../../src/film/retouch';
-import { newGradient, newMask } from '../../src/film/masks';
+import { newGradient, newMask, type Mask } from '../../src/film/masks';
 import { trackTextures } from '../performance/gpu-memory';
 import { SHADERS } from '../../src/engine/shaders';
 import { clarityBoundary } from '../../src/engine/locallaplacian';
@@ -139,8 +139,9 @@ async function main() {
       const plan = (engine as any).regionPlan(full, r0, { target: t, view });
       assert(plan, 'Live: the view would not take the region path');
       innerFrom = Math.ceil(plan.reach / perPx) + 2;
+      // Sharpening's own drag remakes its map (narrowed); an edit before it would hold it.
       for (const exposure of [.1, .2, .3]) {
-        const r = { ...r0, exposure };
+        const r = { ...r0, sharpen: 40 + 100 * exposure };
         const live = draw(r, true);
         assert((engine as any).inexact, 'A live render with maps made here should narrow them');
         const exact = draw(r, false);
@@ -154,7 +155,7 @@ async function main() {
         // Back to live for the next step, from an exact state.
       }
       // The exact render after live equals a fresh build of the same recipe.
-      const last = { ...r0, exposure: .3 };
+      const last = { ...r0, sharpen: 70 };
       const afterLive = draw(last, false);
       (engine as any).invalidateRegionMaps();
       const fresh = draw(last, false);
@@ -213,12 +214,17 @@ async function main() {
         let liveWorst = 0;
         for (const v of [.1, .2, .3]) {
           const r = drag(r0, v);
+          // From an exact state the region holds its own maps (heldMaps below): no stand-in.
+          calls.length = 0;
+          draw(r, true);
+          assert(calls.length === 0, `Preview maps ${name}: ${calls.length} stand-ins drawn over held maps`);
+          draw(r0, false);
+          // With no region maps yet (a drag reaching a new place), the preview's stand in.
+          e.invalidateRegionMaps();
           calls.length = 0;
           const live = draw(r, true);
-          // Measured before Exposure (log), the photo's own maps don't depend on it: nothing to stand in for.
-          const want = order === 'log' && kind === 'exposure' ? 0 : 2;
-          assert(calls.length === want, `Preview maps ${name}: ${calls.length} stand-ins drawn, not ${want}`);
-          if (want) assert(e.inexact, `Preview maps ${name}: a live render from the preview must owe an exact one`);
+          assert(calls.length === 2, `Preview maps ${name}: ${calls.length} stand-ins drawn, not 2`);
+          assert(e.inexact, `Preview maps ${name}: a live render from the preview must owe an exact one`);
           const exact = draw(r, false);
           assert(!e.inexact, `Preview maps ${name}: the settle should be exact`);
           for (let i = 0; i < live.length; i++) liveWorst = Math.max(liveWorst, Math.abs(live[i] - exact[i]));
@@ -234,15 +240,79 @@ async function main() {
         for (let i = 0; i < fresh.length; i++) exactWorst = Math.max(exactWorst, Math.abs(afterLive[i] - fresh[i]));
         results[`previewMaps_${name}`] = { liveVsExact: liveWorst, exactAfterLive: exactWorst };
         if (exactWorst > 0) failures.push(`preview maps ${name}: the settle differs from a fresh build by ${exactWorst}/255`);
-        // A Texture drag at 100% only folds the region's own decomposition: no stand-in.
+        // A Texture drag at 100% only folds the region's own decomposition and holds Clarity's.
         if (kind === 'exposure') {
           calls.length = 0;
           draw({ ...last, texture: 40 }, true);
-          assert(calls.length === 1, `A Texture drag at 100% should fold its own map and take only Clarity's from the preview (${calls.length})`);
+          assert(calls.length === 0, `A Texture drag at 100% should fold its own map and hold Clarity's (${calls.length} stand-ins)`);
           draw({ ...last, texture: 40 }, false);
         }
       } finally { e.mapFromPreview = original; engine.gpu.free(t); engine.detailOrder = undefined; }
       assert(gl.getError() === gl.NO_ERROR, `Preview maps ${name}: WebGL error`);
+    }
+    // A live drag holds each detail map below the dragged stage whose own settings are unchanged
+    // (Texture's, Clarity's, Sharpening's), at 100% and at fit; the dragged stage's own map stays
+    // live, a mask that moves remakes its instances' maps, and the settle equals a fresh build.
+    {
+      const gl = engine.gpu.gl, e = engine as any;
+      const mask = (over: Partial<Mask> = {}, anchor: [number, number] = [.5, .5]) => ({ ...newMask(newGradient(anchor), 0), texture: 25, clarity: 20, ...over });
+      const r0 = { ...base, texture: 30, clarity: 30, sharpen: 40, dehaze: 10 };
+      const m0 = { ...base, texture: 30, clarity: 30, masks: [mask()] };
+      // [name, start, dragged, the maps (Texture, Clarity, Sharpening) kept as made before (held
+      // or unaffected), whether any was held (made for other settings upstream)]
+      const cases: [string, Recipe, Recipe, ('eq' | 'll' | 'usm')[], boolean | 'usm'][] = [
+        ['exposure', r0, { ...r0, exposure: .4 }, ['eq', 'll', 'usm'], true],
+        ['dehaze', r0, { ...r0, dehaze: 40 }, ['eq', 'll', 'usm'], true],
+        ['texture', r0, { ...r0, texture: 60 }, ['ll', 'usm'], true],
+        ['clarity', r0, { ...r0, clarity: 60 }, ['eq', 'll', 'usm'], 'usm'],
+        ['sharpen', r0, { ...r0, sharpen: 80 }, ['eq', 'll'], false],
+        ['maskExposure', m0, { ...m0, masks: [{ ...m0.masks[0], exposure: .5 }] }, ['eq', 'll', 'usm'], true],
+        ['maskMoved', m0, { ...m0, masks: [{ ...m0.masks[0], shapes: [newGradient([.6, .45])] }] }, ['usm'], 'usm'],
+      ];
+      for (const at of ['region', 'fit'] as const) for (const [kind, start, dragged, held, anyHeld] of cases) {
+        const name = `${at}:${kind}`;
+        const region = at === 'region';
+        const W2 = region ? 345 : 384, H2 = region ? 345 : 256;
+        const view = region ? { x: .4, y: .4, w: .15, h: .15 } : undefined;
+        const t = engine.gpu.target(W2, H2, false);
+        const read = () => { const px = new Uint8Array(W2 * H2 * 4); gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo); gl.readPixels(0, 0, W2, H2, gl.RGBA, gl.UNSIGNED_BYTE, px); return px; };
+        const draw = (r: Recipe, live: boolean) => {
+          if (region) engine.render(full, r, { target: t, width: W2, height: H2, seed: 0, view, whole: preview, live });
+          else engine.render(preview, r, { target: t, width: W2, height: H2, seed: 0, live });
+          return read();
+        };
+        const clear = () => { if (region) e.invalidateRegionMaps(); e.whole.eqMade = e.whole.eqPhoto = e.whole.llMade = e.whole.usmMade = e.whole.printMade = null; };
+        try {
+          clear();
+          draw(start, false);
+          const lane = region ? e.region : e.whole;
+          const made = () => ({ eq: lane.eqMade, ll: lane.llMade, usm: lane.usmMade });
+          const before = made();
+          const live = draw(dragged, true);
+          const during = made();
+          for (const k of ['eq', 'll', 'usm'] as const) {
+            if (!before[k]) continue;
+            const kept = during[k] === before[k];
+            if (held.includes(k) && !kept) failures.push(`held ${name}: ${k} was remade during the drag`);
+            if (!held.includes(k) && kept) failures.push(`held ${name}: ${k} was held though its own settings changed`);
+          }
+          // 'usm': only Sharpening's map is held, which the fit size may not make.
+          const expected = anyHeld === 'usm' ? !!before.usm : anyHeld;
+          if (e.mapsHeld !== expected) failures.push(`held ${name}: mapsHeld ${e.mapsHeld}, expected ${anyHeld}`);
+          if (expected && !e.inexact) failures.push(`held ${name}: a live render holding maps must owe an exact one`);
+          const exact = draw(dragged, false);
+          assert(!e.mapsHeld, `held ${name}: the settle should remake the held maps`);
+          let liveWorst = 0, liveSum = 0;
+          for (let i = 0; i < live.length; i++) { const d = Math.abs(live[i] - exact[i]); liveWorst = Math.max(liveWorst, d); liveSum += d; }
+          clear();
+          const fresh = draw(dragged, false);
+          let exactWorst = 0;
+          for (let i = 0; i < fresh.length; i++) exactWorst = Math.max(exactWorst, Math.abs(exact[i] - fresh[i]));
+          results[`held_${name}`] = { liveWorst, liveMean: +(liveSum / live.length).toFixed(3), exactAfterLive: exactWorst };
+          if (exactWorst > 0) failures.push(`held ${name}: the settle differs from a fresh build by ${exactWorst}/255`);
+        } finally { engine.gpu.free(t); }
+        assert(gl.getError() === gl.NO_ERROR, `held ${name}: WebGL error`);
+      }
     }
     // A draft (Develop's 1× render while a slider or brush is dragged) zoomed in must reuse the
     // region and every map the full-size render made, draw what a render at its size draws, and

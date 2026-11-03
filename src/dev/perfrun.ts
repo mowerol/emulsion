@@ -511,6 +511,85 @@ export async function run(which: string) {
       }
       out.sidebyside = stats;
     }
+    if (want('firstclick')) {
+      // Oli, 2026-11-03: "first click lag at times", on HSL, Clarity, Texture... A click on a
+      // slider's track at rest (the stage off, then on), held, nudged and let go, at fit and 100%.
+      // Blocking WebGL calls on the main thread during the first frame: count and ms by name.
+      const blocking: Record<string, [number, number]> = {};
+      let watching = false;
+      const watch = (gl: WebGL2RenderingContext) => {
+        for (const name of ['readPixels', 'texImage2D', 'texStorage2D', 'texImage3D', 'texStorage3D', 'linkProgram', 'compileShader', 'getProgramParameter', 'clientWaitSync', 'getBufferSubData', 'renderbufferStorage'] as const) {
+          const f = (gl as any)[name] as (...a: unknown[]) => unknown;
+          (gl as any)[name] = function (...a: unknown[]) {
+            if (!watching) return f.apply(gl, a);
+            const t = performance.now();
+            try { return f.apply(gl, a); } finally { const b = blocking[name] ??= [0, 0]; b[0]++; b[1] += performance.now() - t; }
+          };
+        }
+      };
+      let watched = false;
+      const pressOnce = async (id: string, group: ControlGroupId, frac: number) => {
+        if (!watched) { const gl = (document.querySelector('.main canvas, canvas') as HTMLCanvasElement).getContext('webgl2'); if (gl) watch(gl); watched = true; }
+        await showGroup(group);
+        const el = document.getElementById(id) as HTMLInputElement | null;
+        if (!el) throw Error(`no ${id}`);
+        await settle(400, 30000);
+        frames = []; draws = {};
+        const box = el.getBoundingClientRect();
+        const at = { clientX: box.left + box.width * frac, clientY: box.top + box.height / 2, pointerId: 1, button: 0, buttons: 1, bubbles: true };
+        rafLoop();
+        for (const k of Object.keys(blocking)) delete blocking[k];
+        watching = true;
+        const t0 = performance.now();
+        el.dispatchEvent(new PointerEvent('pointerdown', at));
+        const lo = Number(el.min), hi = Number(el.max), st = Number(el.step) || 1;
+        const v = Math.round((lo + (hi - lo) * frac) / st) * st;
+        setRange(el, v);
+        while (!frames[0]?.done && performance.now() - t0 < 5000) await wait(1);
+        const firstDraws = { ...draws };
+        watching = false;
+        const calls = Object.entries(blocking).map(([k, [n, ms]]) => `${k}×${n}:${ms.toFixed(0)}ms`).join(' ');
+        const first = frames[0];
+        // Held a moment, nudged twice, let go.
+        await wait(120);
+        setRange(el, v + st); await wait(30); setRange(el, v + 2 * st); await wait(30);
+        el.dispatchEvent(new PointerEvent('pointerup', at));
+        window.dispatchEvent(new PointerEvent('pointerup', at));
+        const end = await settle(400);
+        const gaps = rafStop();
+        const last = frames[frames.length - 1];
+        return {
+          firstShownMs: first ? +(first.done - t0).toFixed(0) : null,
+          firstCpu: first ? +first.cpu.toFixed(0) : null, firstGpu: first ? +(first.done - first.start).toFixed(0) : null,
+          settleGpu: last ? +(last.done - last.start).toFixed(0) : null, settleMs: +(end - t0).toFixed(0),
+          worstGap: gaps.length ? +Math.max(...gaps).toFixed(0) : null, frames: frames.length, calls,
+          firstDraws: Object.entries(firstDraws).sort((x, y) => y[1] - x[1]).slice(0, 12).map(([k, n]) => `${k}×${n}`).join(' '),
+        };
+      };
+      const sliders: [string, string, ControlGroupId, Partial<Recipe>][] = [
+        ['exposure', 'slider-exposure', 'develop', { exposure: 0 }],
+        ['texture', 'slider-texture', 'refine', { texture: 0 }],
+        ['clarity', 'slider-clarity', 'refine', { clarity: 0 }],
+        ['dehaze', 'slider-dehaze', 'refine', { dehaze: 0 }],
+        ['hsl', 'color-sat-2', 'colour', { color: null }],
+      ];
+      const pass = async (prefix: string) => {
+        for (const [name, id, group, off] of sliders) {
+          setSliders(off);
+          out[`${prefix}${name}Off`] = await pressOnce(id, group, 0.7);
+          out[`${prefix}${name}On`] = await pressOnce(id, group, 0.6);
+          setSliders(off);
+        }
+      };
+      setSliders({ texture: 0, dehaze: 0, clarity: 0, color: null });
+      await pass('fit:');
+      out.zoomIn = await click(key('z'));
+      const z0 = performance.now(), fullW = useApp.getState().developSize!.W;
+      while (lastSrcW !== fullW && performance.now() - z0 < 60000) await wait(50);
+      await settle(800, 30000);
+      await pass('z100:');
+      out.zoomOut = await click(key('z'));
+    }
     if (want('clicks')) {
       const tabs: Record<string, unknown> = {};
       for (const g of ['colour', 'refine', 'masks', 'presets', 'develop'] as ControlGroupId[]) tabs[g] = await click(pressed(`button[aria-label="${({ colour: 'Colour Grading', refine: 'Refine', masks: 'Masks', presets: 'Presets', develop: 'Develop' } as Record<string, string>)[g]}"]`));

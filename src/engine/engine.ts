@@ -276,7 +276,7 @@ class Lane {
   /** The clarity filter's pyramids: full-size ones are large, so only the latest two sizes. */
   lls: Lru<Ll>;
   /** What the clarity map in `lls` was last made from, so panning and zooming reuse it. */
-  llMade: { tex: WebGLTexture; key: string; out: Target; coarse: boolean; amount: number } | null = null;
+  llMade: { tex: WebGLTexture; key: string; own: string; out: Target; coarse: boolean; amount: number } | null = null;
   /** The capture-sharpened source for the latest size, and what it was made from. */
   csOut: Target | null = null;
   csMade: { tex: WebGLTexture; iterations: number } | null = null;
@@ -285,13 +285,13 @@ class Lane {
    *  scale (one channel, what the 25 taps read), ga, gb draw into a + ia and b + ib at once;
    *  coarse adds the preview's coarse capture as a third output. */
   eq: { w: number; h: number; a: Target; b: Target; ia: Target; ib: Target; ga: Target; gb: Target; d: Target[]; coarse?: { a: Target; b: Target; pa: Target; pb: Target } } | null = null;
-  eqMade: { tex: WebGLTexture; key: string; out: Target; coarse: boolean } | null = null;
+  eqMade: { tex: WebGLTexture; key: string; own: string; out: Target; coarse: boolean } | null = null;
   /** The photo's own Texture decomposition (eq target a or b), the same for every amount: a
    *  Texture drag only folds it again. Dropped when a masked instance reuses those targets. */
   eqPhoto: { tex: WebGLTexture; key: string; out: Target; coarse: boolean } | null = null;
   /** Sharpening's ping-pong targets for the latest source size, and what its map was made from. */
   usm: { w: number; h: number; a: Target; b: Target } | null = null;
-  usmMade: { tex: WebGLTexture; key: string; out: Target } | null = null;
+  usmMade: { tex: WebGLTexture; key: string; own: string; out: Target } | null = null;
   /** The print Clarity's photo tap measured (its input), kept in usm.b until Sharpening's map
    *  overwrites it, so Sharpening's input resumes from it (develop.frag tap 11); and the target
    *  drawing into the tap's lightness and usm.b at once. */
@@ -377,8 +377,12 @@ export class Engine {
   /** A live render showed the preview's Texture or Clarity map in the region instead of remaking
    *  the region's own: everything from Texture on must be made again at the settle. */
   private regionFromPreview = false;
+  /** A live screen render held a detail map made before the drag (Texture's, Clarity's or
+   *  Sharpening's, whose own settings were unchanged though an edit before it moved): the settle
+   *  remakes it, as its key no longer matches. */
+  private mapsHeld = false;
   /** Whether the last screen render was live and narrowed a map, so an exact one is owed. */
-  get inexact() { return this.regionLive || this.regionClarityScaled || this.regionFromPreview; }
+  get inexact() { return this.regionLive || this.regionClarityScaled || this.regionFromPreview || this.mapsHeld; }
   /**
    * Whether the last screen render showed the preview in place of a region it would have had to
    * build (`moving`): render again once the view settles to show the full resolution.
@@ -2042,6 +2046,8 @@ export class Engine {
     },
   ): void {
     const g = this.gpu;
+    // An exact render remakes any map a live one held (its key no longer matches).
+    if (!opts.live) this.mapsHeld = false;
     if (opts.target === 'screen' && opts.draft !== undefined && opts.draft < 1 && !this.draftTarget) {
       const w = Math.max(1, Math.round(opts.width * opts.draft)), h = Math.max(1, Math.round(opts.height * opts.draft));
       const t = this.outs.get(`draft:${w}x${h}`, () => g.target(w, h, false));
@@ -2402,6 +2408,25 @@ export class Engine {
       : `${ceKey}|${pick(u, BEFORE_CLARITY)}|${aspect}|${clarityStage}|${JSON.stringify(maskClarity)}`;
     // Sharpening reads the print, after everything up to it, Clarity included (its amount too).
     const usmKey = `${detailLog ? `${ceKey}|${pick(u, BEFORE_CLARITY)}|${aspect}|${llKey}` : llKey}|${photoClarity}|${recipe?.sharpen},${recipe?.sharpenRadius},${recipe?.sharpenMasking}`;
+    // A live drag holds each of these maps as made before it while its own settings stay the
+    // same, even though an edit before it moved (Capture One's trick: the stages after the
+    // dragged one keep their change in lightness); the dragged stage's own map stays live, and
+    // the settle remakes every held one exactly (`inexact`). Colour and the tone equalizer are
+    // never held: their maps are the picture's brightness and colours, not a change.
+    // Where the masks are, not what they do (uMaskMeta's opacity and refined flag, not its
+    // exposure gain): a masked instance's map is held only while its mask stays put.
+    const meta = (u.uMaskMeta as number[] | undefined) ?? [];
+    const shapes = `${pick(u, ['uMaskCount', 'uMaskShapeCount', 'uMaskShapes', 'uMaskRange', 'uMaskRangeOn', 'uMaskRasters'])}|${meta.filter((_, i) => i % 4 === 0 || i % 4 === 3)}|${this.L.stack.generation}|${JSON.stringify(recipe?.masks.map(m => m.refine) ?? null)}`;
+    const textureOwn = `${textureLog}|${pick(u, TEXTURE_STAGE)}|${JSON.stringify(maskTexture)}|${maskTexture.length ? shapes : ''}`;
+    const clarityOwn = `${detailLog}|${clarityStage}|${JSON.stringify(maskClarity)}|${maskClarity.length ? shapes : ''}`;
+    const usmOwn = `${recipe?.sharpen},${recipe?.sharpenRadius},${recipe?.sharpenMasking}`;
+    const holds = (made: { tex: WebGLTexture; key: string; own: string } | null, key: string, own: string) => {
+      if (!made || made.tex !== src.tex) return false;
+      if (made.key === key) return true;
+      if (!opts.live || made.own !== own) return false;
+      this.mapsHeld = true;
+      return true;
+    };
     let texture: WebGLTexture = g.blackTexture;
     if (picking) {
       if (opts.target === 'screen') throw Error('A pick renders into a target');
@@ -2414,7 +2439,7 @@ export class Engine {
     const preview = src.roi && this.inject && this.liveClip ? this.inject : null;
     const photoTexture = this.L.eqPhoto;
     const textureFolds = passes.texture && !maskTexture.length && photoTexture?.tex === src.tex && photoTexture.key === photoTextureKey;
-    if (eqOn && this.L.eqMade?.tex === src.tex && this.L.eqMade.key === textureKey && (!collectCoarse || this.L.eqMade.coarse)) texture = this.L.eqMade.out.tex;
+    if (eqOn && this.L.eqMade && (!collectCoarse || this.L.eqMade.coarse) && holds(this.L.eqMade, textureKey, textureOwn)) texture = this.L.eqMade.out.tex;
     else if (eqOn && preview?.textureMap && !textureFolds) {
       if (clips) this.gpu.clip = { ...clips.texture, tw: src.w, th: src.h };
       const to = this.eqTargets(src.w, src.h).d[0];
@@ -2432,7 +2457,7 @@ export class Engine {
           tap(t, 7, { uTextureOn: acc ? 1 : 0, uClarityOn: 0, uTapMask: slot });
         }
       }, collectCoarse, photoTextureKey);
-      this.L.eqMade = { tex: src.tex, key: textureKey, out, coarse: collectCoarse };
+      this.L.eqMade = { tex: src.tex, key: textureKey, own: textureOwn, out, coarse: collectCoarse };
       texture = out.tex;
     }
     if (opts.products) {
@@ -2467,7 +2492,7 @@ export class Engine {
       ceTex = out.tex;
     }
     let clarity: WebGLTexture = g.blackTexture;
-    const made = ll && this.L.llMade?.tex === src.tex && this.L.llMade.key === llKey && (!collectCoarse || this.L.llMade.coarse) ? this.L.llMade : null;
+    const made = ll && this.L.llMade && (!collectCoarse || this.L.llMade.coarse) && holds(this.L.llMade, llKey, clarityOwn) ? this.L.llMade : null;
     // The map made at another amount, scaled (exact over the whole photo, which makes it at ±100 so
     // the half-float map's rounding only ever shrinks). A region's own map has its boundary's change
     // at any amount, so it is made at the amount, scales only while dragging and is made again after.
@@ -2505,7 +2530,7 @@ export class Engine {
           if (keep) this.L.usmMade = null;
         } else tap(t, 8, { uTextureOn: eqOn ? 1 : 0, uClarityOn: acc ? 1 : 0, uTapMask: slot });
       }, src, collectCoarse);
-      this.L.llMade = { tex: src.tex, key: llKey, out, coarse: collectCoarse, amount: buildAmount };
+      this.L.llMade = { tex: src.tex, key: llKey, own: clarityOwn, out, coarse: collectCoarse, amount: buildAmount };
       clarity = out.tex;
       u.uClarityScale = buildAmount === photoClarity ? 1 : clarityScale(photoClarity, buildAmount)!;
     }
@@ -2516,7 +2541,7 @@ export class Engine {
       }
       return;
     }
-    if (usmOn && this.L.usmMade?.tex === src.tex && this.L.usmMade.key === usmKey) usm = this.L.usmMade.out.tex;
+    if (usmOn && holds(this.L.usmMade, usmKey, usmOwn)) usm = this.L.usmMade!.out.tex;
     else if (usmOn) {
       clipTo('usm');
       // The mask's input: the finished print's lightness at every source pixel, uncropped.
@@ -2526,7 +2551,7 @@ export class Engine {
         if (print) g.bind(0, this.L.usm!.b.tex);
         tap(t, print ? 11 : 3, { uTextureOn: eqOn ? 1 : 0, uClarityOn: ll ? 1 : 0 });
       });
-      this.L.usmMade = { tex: src.tex, key: usmKey, out };
+      this.L.usmMade = { tex: src.tex, key: usmKey, own: usmOwn, out };
       usm = out.tex;
     }
     // The frame itself is never clipped, whatever its size.
