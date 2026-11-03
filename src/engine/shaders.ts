@@ -49,6 +49,7 @@ import llcurve from './shaders/llcurve.frag.glsl?raw';
 import llreduce from './shaders/llreduce.frag.glsl?raw';
 import llcollapse from './shaders/llcollapse.frag.glsl?raw';
 import llboundary from './shaders/llboundary.frag.glsl?raw';
+import llkeep from './shaders/llkeep.frag.glsl?raw';
 
 export const SHADER_FILES: Record<string, string> = {
   'stages/dcp.glsl': dcp,
@@ -94,6 +95,7 @@ export const SHADERS = {
   llreduce,
   llcollapse,
   llboundary,
+  llkeep,
   eq,
   cs,
   usm,

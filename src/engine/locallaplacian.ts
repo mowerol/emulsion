@@ -12,6 +12,8 @@
 // Trial deviation (Oli, 2026-11-03, off by default): with Engine.detailOrder 'log' the filter runs
 // on log lightness before Exposure over an extended grid of ten levels (LOG_GAMMAS, below), and its
 // change is applied as a ratio of luminance before the film's curve (detaillog.ts; NOTICE.md).
+// Not a deviation: the engine keeps the photo's map made at ±100 and scales it to the amount
+// (clarityScale), which is exact because the filter's change is proportional to it on each side of 0.
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Reference implementation of the clarity stage: darktable's local laplacian
@@ -73,6 +75,21 @@ export function clarityParams(slider: number): ClarityParams {
     };
   }
   return { sigma: CLARITY_PRESET.sigma, shadows: 1, highlights: 1, clarity: CLARITY_PRESET.clarity * t };
+}
+
+/**
+ * How a Clarity map made at slider `built` becomes the map at `slider`, or null if it must be
+ * made again. darktable's curve is affine in shadows, highlights and detail, and clarityParams
+ * moves them linearly on each side of zero from the identity at 0; the pyramids, the
+ * interpolation weights (from the input's own Gaussian pyramid) and the collapse are linear.
+ * So on one side of zero every output level is its input level plus the amount times a fixed
+ * change, and the map at `slider` is the map at `built` times slider / built, exactly. Not a
+ * retuning: the same filter, only not recomputed (as Texture's equalizer folds its mix).
+ */
+export function clarityScale(slider: number, built: number): number | null {
+  const t = Math.max(-1, Math.min(1, slider / 100)), b = Math.max(-1, Math.min(1, built / 100));
+  if (b === 0 || Math.sign(t) !== Math.sign(b)) return null;
+  return t / b;
 }
 
 /** darktable's curve_scalar: the remapping curve around brightness level `g`. */
@@ -138,8 +155,17 @@ export function expandAt(coarse: Plane, i: number, j: number): number {
 
 /** The local laplacian filter on a lightness plane (0 to 1). */
 export function localLaplacian(input: Plane, p: ClarityParams, boundary?: { last: number; coarse: Plane }, gammas = GAMMAS): Plane {
+  return localLaplacianLevels(input, p, boundary, gammas).output[0];
+}
+
+/**
+ * The filter's reconstructed output at every level, finest first (the last is the coarse
+ * boundary or the input's Gaussian), and the input's Gaussian pyramid beside it: what a region
+ * view takes from the preview (clarityBoundary).
+ */
+export function localLaplacianLevels(input: Plane, p: ClarityParams, boundary?: { last: number; coarse: Plane }, gammas = GAMMAS): { output: Plane[]; gauss: Plane[] } {
   const last = boundary ? Math.min(boundary.last, numLevels(input.w, input.h) - 1) : numLevels(input.w, input.h) - 1;
-  if (last < 1) return input;
+  if (last < 1) return { output: [input], gauss: [input] };
   const gauss: Plane[] = [input];
   for (let l = 1; l <= last; l++) gauss.push(reduce(gauss[l - 1]));
   const bufs = gammas.map((g) => {
@@ -151,6 +177,7 @@ export function localLaplacian(input: Plane, p: ClarityParams, boundary?: { last
   });
   let out = boundary?.coarse ?? gauss[last];
   if (out.w !== gauss[last].w || out.h !== gauss[last].h) throw Error('Clarity boundary has the wrong dimensions');
+  const output: Plane[] = [out];
   for (let l = last - 1; l >= 0; l--) {
     const next = plane(gauss[l].w, gauss[l].h);
     for (let j = 0; j < next.h; j++)
@@ -162,8 +189,15 @@ export function localLaplacian(input: Plane, p: ClarityParams, boundary?: { last
         next.data[j * next.w + i] = expandAt(out, i, j) + l0 * (1 - a) + l1 * a;
       }
     out = next;
+    output.unshift(out);
   }
-  return out;
+  return { output, gauss };
+}
+
+/** A reconstructed output level made at one amount, moved to another: its input level plus
+ *  `scale` times its change (clarityScale). What the engine's kept boundary levels hold. */
+export function scaleLevel(level: Plane, gauss: Plane, scale: number): Plane {
+  return { w: level.w, h: level.h, data: level.data.map((v, k) => gauss.data[k] + scale * (v - gauss.data[k])) };
 }
 
 /** Integer-index bilinear/trilinear coarse sampling used by darktable's full-pipe boundary.

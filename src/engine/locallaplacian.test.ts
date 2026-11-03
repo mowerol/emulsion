@@ -2,7 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Vec3 } from '../film/stocks';
 import {
-  CLARITY_PRESET, GAMMAS, LOG_GAMMAS, LOG_RANGE, clarityParams, curve, expandAt, gammaSpan, levelSize, lightness, localLaplacian, numLevels, reduce, withLightness, type Plane,
+  CLARITY_PRESET, GAMMAS, LOG_GAMMAS, LOG_RANGE, clarityBoundary, clarityParams, clarityScale, curve, expandAt, gammaSpan, levelSize, lightness, localLaplacian, localLaplacianLevels, numLevels, reduce, scaleLevel, withLightness, type Plane,
 } from './locallaplacian';
 
 const make = (w: number, h: number, f: (i: number, j: number) => number): Plane => {
@@ -68,6 +68,52 @@ describe('local laplacian', () => {
     const base = spread(tex);
     expect(spread(localLaplacian(tex, clarityParams(100)))).toBeGreaterThan(base * 1.15);
     expect(spread(localLaplacian(tex, clarityParams(-100)))).toBeLessThan(base * 0.85);
+  });
+});
+
+describe('Clarity map scaled with the amount instead of made again', () => {
+  const tex = make(64, 48, (i, j) => 0.45 + 0.25 * Math.sin(i * 0.37) * Math.cos(j * 0.29) + 0.04 * Math.sin(i * 1.3) * Math.sin(j * 1.1));
+  const change = (out: Plane) => ({ w: out.w, h: out.h, data: out.data.map((v, k) => v - tex.data[k]) });
+  const scaled = (p: Plane, s: number) => ({ w: p.w, h: p.h, data: p.data.map((v) => v * s) });
+
+  it('scales only on the side of zero the map was made on', () => {
+    expect(clarityScale(30, 60)).toBeCloseTo(0.5, 12);
+    expect(clarityScale(-20, -80)).toBeCloseTo(0.25, 12);
+    expect(clarityScale(-20, 80)).toBeNull();
+    expect(clarityScale(20, 0)).toBeNull();
+    expect(clarityScale(0, 50)).toBeNull();
+  });
+
+  it('gives darktable\'s filter at the new amount exactly, on both sides of zero and on the log grid', () => {
+    for (const gammas of [GAMMAS, LOG_GAMMAS])
+      for (const [built, slider] of [[60, 10], [60, 100], [100, 35], [-80, -15], [-30, -100]]) {
+        const made = change(localLaplacian(tex, clarityParams(built), undefined, gammas));
+        const fresh = change(localLaplacian(tex, clarityParams(slider), undefined, gammas));
+        expect(maxDiff(scaled(made, clarityScale(slider, built)!), fresh)).toBeLessThan(1e-12);
+      }
+  });
+
+  it('moves every reconstructed level the same way, so a region\'s boundary scales too', () => {
+    const made = localLaplacianLevels(tex, clarityParams(70));
+    const fresh = localLaplacianLevels(tex, clarityParams(20));
+    made.output.forEach((level, l) => expect(maxDiff(scaleLevel(level, made.gauss[l], clarityScale(20, 70)!), fresh.output[l])).toBeLessThan(1e-12));
+    // A region made over the scaled boundary is the region made over a fresh one.
+    const sample = (levels: Plane[]) => clarityBoundary(levels, 4, 3, [5, 7], 8);
+    const region = make(32, 24, (i, j) => tex.data[(j + 7) * 64 + i + 5]);
+    const over = (levels: Plane[]) => localLaplacian(region, clarityParams(20), { last: 3, coarse: sample(levels) });
+    const kept = made.output.map((level, l) => scaleLevel(level, made.gauss[l], clarityScale(20, 70)!));
+    expect(maxDiff(over(kept), over(fresh.output))).toBeLessThan(1e-12);
+  });
+
+  it('does not scale a region\'s own map: its boundary from the preview adds a change that is there at any amount', () => {
+    // So a region scales only while dragging (live, owed an exact render) and is made again after.
+    const region = make(32, 24, (i, j) => tex.data[(j + 7) * 64 + i + 5]);
+    const at = (slider: number) => {
+      const preview = localLaplacianLevels(tex, clarityParams(slider)).output;
+      return change2(localLaplacian(region, clarityParams(slider), { last: 3, coarse: clarityBoundary(preview, 4, 3, [5, 7], 8) }), region);
+    };
+    const change2 = (out: Plane, input: Plane) => ({ w: out.w, h: out.h, data: out.data.map((v, k) => v - input.data[k]) });
+    expect(maxDiff(scaled(at(70), 20 / 70), at(20))).toBeGreaterThan(1e-6);
   });
 });
 

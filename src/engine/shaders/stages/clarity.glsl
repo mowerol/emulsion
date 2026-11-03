@@ -17,6 +17,10 @@
 // photo's instance and the masks' masked instances folded together (maskfold.frag).
 uniform float uClarityOn;
 uniform sampler2D uClarityTex;
+// The photo's amount over the one its map was made at (clarityScale in locallaplacian.ts): the
+// filter's change is proportional to the amount on each side of zero, so a drag scales the map
+// instead of making it again. 1 with masked instances, whose maps are always made again.
+uniform float uClarityScale;
 
 /** CIE lightness (0 to 1) of a tone-stage pixel: display-encoded Rec.2020. */
 float clarityLightness(vec3 e) { return labL(srgbEotf(max(e, vec3(0.0)))) / 100.0; }
@@ -26,5 +30,5 @@ vec3 clarityShift(vec3 e, float delta) { return srgbOetf(labShiftL(srgbEotf(max(
 
 vec3 stageClarity(vec3 e, vec2 uv) {
   if (uClarityOn < 0.5) return e;
-  return clarityShift(e, texture(uClarityTex, uv).r);
+  return clarityShift(e, uClarityScale * texture(uClarityTex, uv).r);
 }

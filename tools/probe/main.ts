@@ -42,7 +42,7 @@ import { StageMenu } from '../../src/ui/StageMenu';
 import { Panel } from '../../src/ui/Panel';
 import { startLookEdit, useApp } from '../../src/library/store';
 import { bandFactors, bandGains, correction, luminance, toneEqualize } from '../../src/engine/toneequalizer';
-import { LOG_GAMMAS, clarityParams, lightness, localLaplacian, withLightness } from '../../src/engine/locallaplacian';
+import { LOG_GAMMAS, clarityParams, clarityScale, lightness, localLaplacian, withLightness } from '../../src/engine/locallaplacian';
 import { unsharpMask, usmParams } from '../../src/engine/usm';
 import { colorEqualize } from '../../src/engine/colorequal';
 import { equalize, scales } from '../../src/engine/equalizer';
@@ -551,6 +551,17 @@ function probeClarity(eng: Engine) {
     for (let k = 0; k < w * h; k++) worst = Math.max(worst, Math.abs(got[k] - (ref.data[k] - plane.data[k])));
     filter[`slider${slider}`] = worst;
   }
+  // The map the engine keeps: made at ±100 and scaled to the amount (clarityScale), against the
+  // reference made at that amount.
+  for (const slider of [15, 50, -20]) {
+    const built = 100 * Math.sign(slider);
+    const got = eng.probeLocalLaplacian(Float32Array.from(plane.data), w, h, llParams(built));
+    const ref = localLaplacian(plane, clarityParams(slider));
+    const s = clarityScale(slider, built)!;
+    let worst = 0;
+    for (let k = 0; k < w * h; k++) worst = Math.max(worst, Math.abs(s * got[k] - (ref.data[k] - plane.data[k])));
+    filter[`scaled${slider}`] = worst;
+  }
   // Detail before Exposure: the ten-level grid on log lightness, running past darktable's [0, 1].
   const logPlane = { w, h, data: plane.data.map((v) => -0.45 + 1.5 * (v - 0.15)) };
   for (const slider of [100, -100]) {
@@ -770,6 +781,40 @@ function probeMapCache() {
     res.glError = lg.e.gpu.gl.getError();
     for (const e of [dt, lg.e]) { e.dispose(); e.gpu.gl.getExtension('WEBGL_lose_context')?.loseContext(); }
     (worst as Record<string, unknown>).detailLog = res;
+  }
+  // Clarity drags scale the map made at another amount on the same side of zero (clarityScale):
+  // each step must equal a fresh engine, keep the map on one side, and make it again across zero.
+  {
+    const res: Record<string, unknown> = {};
+    for (const order of ['darktable', 'log'] as const) {
+      const mk = () => { const e = new Engine(document.createElement('canvas')); e.detailOrder = order; return { e, s: e.sourceFromImage(c, w, h) }; };
+      const lv = mk();
+      const amounts = [40, 70, 15, 100, -30, -80, 25, 25];
+      const steps: Record<string, unknown> = {};
+      let prev = 0;
+      for (const amount of amounts) {
+        const before = (lv.e as any).L.llMade; // eslint-disable-line @typescript-eslint/no-explicit-any
+        const r = { ...base, clarity: amount };
+        const got = lv.e.readPixels(lv.s, r, w, h, 1);
+        const kept = !!before && (lv.e as any).L.llMade === before; // eslint-disable-line @typescript-eslint/no-explicit-any
+        const fresh = mk();
+        const want = fresh.e.readPixels(fresh.s, r, w, h, 1);
+        let d = 0;
+        for (let k = 0; k < got.length; k++) d = Math.max(d, Math.abs(got[k] - want[k]));
+        steps[String(amount)] = { vsFresh: d, kept, keepWanted: Math.sign(prev) === Math.sign(amount) };
+        fresh.e.dispose(); fresh.e.gpu.gl.getExtension('WEBGL_lose_context')?.loseContext();
+        prev = amount;
+      }
+      // Clarity must change the picture between amounts (else the steps prove nothing).
+      const a = lv.e.readPixels(lv.s, { ...base, clarity: 15 }, w, h, 1), b = lv.e.readPixels(lv.s, { ...base, clarity: 100 }, w, h, 1);
+      let moved = 0;
+      for (let k = 0; k < a.length; k++) moved = Math.max(moved, Math.abs(a[k] - b[k]));
+      steps.clarityMoves = moved;
+      steps.glError = lv.e.gpu.gl.getError();
+      lv.e.dispose(); lv.e.gpu.gl.getExtension('WEBGL_lose_context')?.loseContext();
+      res[order] = steps;
+    }
+    (worst as Record<string, unknown>).clarityScale = res;
   }
   return worst;
 }
@@ -2217,6 +2262,21 @@ if (photoArg) {
       const sameRect=(eng as unknown as {regionMade:{source:unknown}|null}).regionMade?.source===made;
       const whole=eng.readPixels(full,r,w,h,1,false,pv);
       out[`pan${dx}`]={sameRegion:sameRect,...compare(whole,viaRegion)};
+    }
+    // Clarity at 100%: the preview's map and its kept boundary levels scale to a new amount on the
+    // same side of zero (clarityScale); the region, made again over the scaled boundary, must give
+    // what it gives when everything was made at that amount (reached from the other side of zero,
+    // which makes every map again).
+    {
+      const cr:Record<string,unknown>={};
+      const at=(amount:number)=>eng.readPixels(full,{...base,clarity:amount,sharpen:30},w,h,1,false,v,undefined,preview);
+      for(const [from,to] of [[60,20],[20,95],[-40,-10],[-10,-90]]){
+        at(from);const scaled=at(to);
+        at(-Math.sign(to)*50);const made=at(to);
+        cr[`${from}to${to}`]=compare(scaled,made);
+      }
+      const a=at(20),b=at(95);cr.clarityMoves=compare(a,b).worst;
+      out.clarityScale=cr;
     }
     out.reuse={sameRegion:(eng as unknown as {regionMade:{source:unknown}|null}).regionMade?.source===made,repeatEqual:compare(a,c).worst===0,panned:compare(a,b).worst>0};
     out.glError=gl.getError();

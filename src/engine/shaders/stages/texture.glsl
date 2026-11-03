@@ -28,7 +28,7 @@ const vec2 LL_LOG_RANGE = vec2(-0.5, 7.0 / 6.0);
 float clarityLogInput(vec3 lin, float du) { return clamp((logLightness(lin) + du) / 100.0, LL_LOG_RANGE.x, LL_LOG_RANGE.y); }
 vec3 stageClarityLog(vec3 x, vec2 uv) {
   if (uTextureLog < 0.5 || uClarityOn < 0.5) return x;
-  return labShiftL(x, logShift(x, 100.0 * texture(uClarityTex, uv).r));
+  return labShiftL(x, logShift(x, 100.0 * uClarityScale * texture(uClarityTex, uv).r));
 }
 
 vec3 stageTexture(vec3 x, vec2 uv) {

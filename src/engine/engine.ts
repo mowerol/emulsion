@@ -30,7 +30,7 @@ import { recipeLookFile } from '../film/looks';
 import { GLOW_SIGMA, HALATION_SIGMA, blurPlan, pyramidFor, type Pyramid } from './pyramid';
 import { MASK_SIGMA } from './toneequalizer';
 import { ANALYSIS_MAX, SQRT_EPS, ambientLight, minTransmission, windows } from './dehaze';
-import { GAMMAS, LOG_GAMMAS, levelSize, numLevels } from './locallaplacian';
+import { GAMMAS, LOG_GAMMAS, clarityScale, levelSize, numLevels } from './locallaplacian';
 import { amountScales, scales, regionFineScales, isRegionCoarse } from './equalizer';
 import { usmKernel, usmParams, type UsmParams } from './usm';
 import { DEFAULTS as CE, SAT_SHIFT, WHITE, colorEqLuts, pixelUvl, type ColorEqLuts, type ColorEqParams } from './colorequal';
@@ -204,7 +204,8 @@ const BEFORE_TEXTURE_LOG = ['stages/input.glsl', 'stages/dehaze.glsl'].flatMap(u
 const TEXTURE_INPUT = TEXTURE_STAGE.filter(k => k !== 'uTextureMix');
 const COLOR_STAGE = uniformsOf('stages/colorequal.glsl');
 const BEFORE_CLARITY = ['stages/colorbalance.glsl', 'stages/lens.glsl', 'stages/tone.glsl', 'stages/lut.glsl', 'stages/dcp.glsl'].flatMap(uniformsOf).concat('uHal', 'uHalCol', 'uGlow', 'uLutId');
-const CLARITY_STAGE = uniformsOf('stages/clarity.glsl').concat('uLl');
+// uClarityScale only rescales a finished map, so it is never part of one's key.
+const CLARITY_STAGE = uniformsOf('stages/clarity.glsl').filter((n) => n !== 'uClarityScale').concat('uLl');
 const pick = (u: Uniforms, names: string[]) => JSON.stringify(names.map((n) => u[n] ?? null));
 
 /**
@@ -225,6 +226,8 @@ interface Products {
 
 interface ClarityBoundary {
   source: Source;
+  /** The slider value the levels were kept at (llkeep.frag stores their change, so they scale). */
+  amount: number;
   first: number;
   top: number;
   levels: Target[];
@@ -269,7 +272,7 @@ class Lane {
   /** The clarity filter's pyramids: full-size ones are large, so only the latest two sizes. */
   lls: Lru<Ll>;
   /** What the clarity map in `lls` was last made from, so panning and zooming reuse it. */
-  llMade: { tex: WebGLTexture; key: string; out: Target; coarse: boolean } | null = null;
+  llMade: { tex: WebGLTexture; key: string; out: Target; coarse: boolean; amount: number } | null = null;
   /** The capture-sharpened source for the latest size, and what it was made from. */
   csOut: Target | null = null;
   csMade: { tex: WebGLTexture; iterations: number } | null = null;
@@ -364,8 +367,11 @@ export class Engine {
   private regionBuilt = new Set<keyof RegionClips>();
   /** A live render narrowed a region map: the next exact render must remake them all. */
   private regionLive = false;
+  /** A live render scaled the region's Clarity map made at another amount (clarityScale): exact for
+   *  the whole photo, not for a region, whose boundary adds a change at any amount. */
+  private regionClarityScaled = false;
   /** Whether the last screen render was live and narrowed a map, so an exact one is owed. */
-  get inexact() { return this.regionLive; }
+  get inexact() { return this.regionLive || this.regionClarityScaled; }
   /**
    * Whether the last screen render showed the preview in place of a region it would have had to
    * build (`moving`): render again once the view settles to show the full resolution.
@@ -393,6 +399,7 @@ export class Engine {
   private llCollapse: Program;
   private llCollapseLog: Program;
   private llBoundary: Program;
+  private llKeep: Program;
   private eqP: Program;
   private foldP: Program;
   private csP: Program;
@@ -443,6 +450,7 @@ export class Engine {
     this.llCollapse = this.gpu.program(SHADERS.vertex, SHADERS.llcollapse);
     this.llCollapseLog = this.gpu.program(SHADERS.vertex, SHADERS.llcollapse.replace('#version 300 es', '#version 300 es\n#define LL_LOG 1'));
     this.llBoundary = this.gpu.program(SHADERS.vertex, SHADERS.llboundary);
+    this.llKeep = this.gpu.program(SHADERS.vertex, SHADERS.llkeep);
     this.eqP = this.gpu.program(SHADERS.vertex, SHADERS.eq);
     this.csP = this.gpu.program(SHADERS.vertex, SHADERS.cs);
     this.usmP = this.gpu.program(SHADERS.vertex, SHADERS.usm);
@@ -956,6 +964,10 @@ export class Engine {
     }
     // Live: remake maps over the view only. Exact after live: remake them all with their reach.
     if (!opts.live && this.regionLive) this.invalidateRegionMaps();
+    if (!opts.live && this.regionClarityScaled) {
+      this.region.llMade = this.region.usmMade = this.region.printMade = null;
+      this.regionClarityScaled = false;
+    }
     this.liveClip = opts.live ? clipNeed(plan, 0) : null;
     this.L = this.region;
     this.inject = products;
@@ -984,6 +996,7 @@ export class Engine {
     const L = this.region;
     this.regionBuilt.clear();
     this.regionLive = false;
+    this.regionClarityScaled = false;
     for (const d of [L.dh, ...L.dhMasked]) if (d) d.input = null;
     L.ceScene = L.ceMade = L.ceLookMade = L.usmMade = L.eqMade = L.eqPhoto = L.llMade = L.refineMade = L.printMade = null;
   }
@@ -1213,7 +1226,7 @@ export class Engine {
    * lightness: returns a texture of the change in lightness for each source
    * pixel. `drawInput` renders the lightness into a target.
    */
-  private clarityMap(ll: Ll, uLl: number[], drawInput: (t: Target) => void, source?: Source, slot = -1): WebGLTexture {
+  private clarityMap(ll: Ll, uLl: number[], drawInput: (t: Target) => void, source?: Source, slot = -1, amount = 0): WebGLTexture {
     const g = this.gpu;
     const last = ll.A.length - 1;
     const clip = source?.roi ? g.clip : null;
@@ -1253,7 +1266,7 @@ export class Engine {
       const lo = Math.floor(pl), hi = Math.min(top, lo + 1);
       const target = (l: number) => boundary.levels[l - first];
       g.bind(0, target(lo).tex); g.bind(1, target(hi).tex); g.bind(2, boundary.base?.tex ?? g.blackTexture);
-      this.llBoundary.set({ uLow: 0, uHigh: 1, uBase: 2, uBoundary: [source.roi!.x * preview.w, source.roi!.y * preview.h, 2 ** last * pxScale(preview) / pxScale(source), 2 ** last * pxScale(preview) / pxScale(source)], uLevels: [lo, hi, pl - lo], uModes: [lo === top ? 1 : lo === 0 ? 2 : 0, hi === top ? 1 : hi === 0 ? 2 : 0] });
+      this.llBoundary.set({ uScale: boundary.amount === amount ? 1 : clarityScale(amount, boundary.amount) ?? 1, uLow: 0, uHigh: 1, uBase: 2, uBoundary: [source.roi!.x * preview.w, source.roi!.y * preview.h, 2 ** last * pxScale(preview) / pxScale(source), 2 ** last * pxScale(preview) / pxScale(source)], uLevels: [lo, hi, pl - lo], uModes: [lo === top ? 1 : lo === 0 ? 2 : 0, hi === top ? 1 : hi === 0 ? 2 : 0] });
       draw(this.llBoundary, ll.O[last], last);
     }
     for (let l = last - 1; l >= 0; l--) {
@@ -1272,7 +1285,7 @@ export class Engine {
 
   /** Keep only the coarse reconstructed output levels a full-resolution region can need.
    * Copies are per Clarity instance: the next masked instance reuses and overwrites ll.O. */
-  private keepClarityBoundary(ll: Ll, source: Source, slot: number) {
+  private keepClarityBoundary(ll: Ll, source: Source, slot: number, amount: number) {
     const g = this.gpu, gl = g.gl;
     const top = ll.O.length - 1;
     const first = Math.max(0, Math.min(top, Math.floor(Math.log2(16 * pxScale(source)))));
@@ -1280,16 +1293,26 @@ export class Engine {
     if (b && (b.first !== first || b.top !== top || b.source.w !== source.w || b.source.h !== source.h)) {
       b.levels.forEach(t => g.free(t)); if (b.base) g.free(b.base); b = undefined;
     }
-    if (!b) b = { source, first, top, levels: ll.O.slice(first).map(t => g.target(t.w, t.h, true)), base: first === 0 ? g.target(source.w, source.h, true) : null };
+    if (!b) b = { source, amount, first, top, levels: ll.O.slice(first).map(t => g.target(t.w, t.h, true)), base: first === 0 ? g.target(source.w, source.h, true) : null };
     const copy = (from: Target, to: Target) => {
       gl.bindFramebuffer(gl.READ_FRAMEBUFFER, from.fbo); gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, to.fbo);
       gl.blitFramebuffer(0, 0, to.w, to.h, 0, 0, to.w, to.h, gl.COLOR_BUFFER_BIT, gl.NEAREST);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     };
     const carry = ll.C ?? ll.B;
-    for (let l = first; l <= top; l++) copy(l === top ? carry[l] : ll.O[l], b.levels[l - first]);
+    for (let l = first; l <= top; l++) {
+      // Between the finest (already a change) and the top (the input's Gaussian): the change from
+      // the input, beside it, so the region can scale it to another amount (llboundary's uScale).
+      if (l === 0 || l === top) { copy(l === top ? carry[l] : ll.O[l], b.levels[l - first]); continue; }
+      g.bind(0, ll.O[l].tex); g.bind(1, carry[l].tex);
+      this.llKeep.set({ uOut: 0, uCarry: 1 });
+      const previous = g.clip; g.clip = null;
+      try { g.draw(this.llKeep, b.levels[l - first], b.levels[l - first].w, b.levels[l - first].h); }
+      finally { g.clip = previous; }
+    }
     if (b.base) copy(carry[0], b.base);
     b.source = source;
+    b.amount = amount;
     this.L.clarityBoundaries.set(slot, b);
   }
 
@@ -1634,7 +1657,8 @@ export class Engine {
   }
 
   /** Clarity's change in lightness over the whole photo, as textureDelta: the photo's local laplacian instance, then the masks'. */
-  private clarityDelta(ll: Ll, photoLl: number[] | null, masked: Masked[], drawInput: (t: Target, slot: number, acc: Target | null) => void, source?: Source, collectCoarse = true): Target {
+  private clarityDelta(ll: Ll, photo: number | null, masked: Masked[], drawInput: (t: Target, slot: number, acc: Target | null) => void, source?: Source, collectCoarse = true): Target {
+    const photoLl = photo === null ? null : llParams(photo);
     if (source && !source.roi) {
       const active = new Set([...(photoLl ? [-1] : []), ...masked.map(m => m.slot)]);
       for (const [slot, b] of this.L.clarityBoundaries) if (!active.has(slot)) {
@@ -1650,13 +1674,13 @@ export class Engine {
       acc = to;
     };
     if (photoLl) {
-      this.clarityMap(ll, photoLl, (t) => drawInput(t, -1, null), source);
-      if (source && !source.roi && collectCoarse) this.keepClarityBoundary(ll, source, -1);
+      this.clarityMap(ll, photoLl, (t) => drawInput(t, -1, null), source, -1, photo!);
+      if (source && !source.roi && collectCoarse) this.keepClarityBoundary(ll, source, -1, photo!);
       add(false);
     }
     for (const m of masked) {
-      this.clarityMap(ll, llParams(m.value), (t) => drawInput(t, m.slot, acc), source, m.slot);
-      if (source && !source.roi && collectCoarse) this.keepClarityBoundary(ll, source, m.slot);
+      this.clarityMap(ll, llParams(m.value), (t) => drawInput(t, m.slot, acc), source, m.slot, m.value);
+      if (source && !source.roi && collectCoarse) this.keepClarityBoundary(ll, source, m.slot, m.value);
       add(true);
     }
     return acc!;
@@ -2338,11 +2362,16 @@ export class Engine {
     // With detail before Exposure, Clarity's input is the log lightness after Texture: Texture's
     // map and what it read. A masked instance's mask reads the exposed pixel, so then everything
     // up to Texture's output.
+    // Without masked instances the photo's map is keyed on its amount's sign only: on one side of
+    // zero the filter's change is proportional to the amount (clarityScale), so a drag scales it.
+    const photoClarity = passes.clarity ? recipe!.clarity : 0;
+    const scalable = !!ll && passes.clarity && !maskClarity.length;
+    const clarityStage = scalable ? `sign:${Math.sign(photoClarity)}` : pick(u, CLARITY_STAGE);
     const llKey = detailLog
-      ? `${maskClarity.length ? sceneKey : textureKey}|log|${pick(u, CLARITY_STAGE)}|${JSON.stringify(maskClarity)}`
-      : `${ceKey}|${pick(u, BEFORE_CLARITY)}|${aspect}|${pick(u, CLARITY_STAGE)}|${JSON.stringify(maskClarity)}`;
-    // Sharpening reads the print, after everything up to it, Clarity included.
-    const usmKey = `${detailLog ? `${ceKey}|${pick(u, BEFORE_CLARITY)}|${aspect}|${llKey}` : llKey}|${recipe?.sharpen},${recipe?.sharpenRadius},${recipe?.sharpenMasking}`;
+      ? `${maskClarity.length ? sceneKey : textureKey}|log|${clarityStage}|${JSON.stringify(maskClarity)}`
+      : `${ceKey}|${pick(u, BEFORE_CLARITY)}|${aspect}|${clarityStage}|${JSON.stringify(maskClarity)}`;
+    // Sharpening reads the print, after everything up to it, Clarity included (its amount too).
+    const usmKey = `${detailLog ? `${ceKey}|${pick(u, BEFORE_CLARITY)}|${aspect}|${llKey}` : llKey}|${photoClarity}|${recipe?.sharpen},${recipe?.sharpenRadius},${recipe?.sharpenMasking}`;
     let texture: WebGLTexture = g.blackTexture;
     if (picking) {
       if (opts.target === 'screen') throw Error('A pick renders into a target');
@@ -2393,13 +2422,23 @@ export class Engine {
       ceTex = out.tex;
     }
     let clarity: WebGLTexture = g.blackTexture;
-    if (ll && this.L.llMade?.tex === src.tex && this.L.llMade.key === llKey && (!collectCoarse || this.L.llMade.coarse)) clarity = this.L.llMade.out.tex;
-    else if (ll) {
+    const made = ll && this.L.llMade?.tex === src.tex && this.L.llMade.key === llKey && (!collectCoarse || this.L.llMade.coarse) ? this.L.llMade : null;
+    // The map made at another amount, scaled (exact over the whole photo, which makes it at ±100 so
+    // the half-float map's rounding only ever shrinks). A region's own map has its boundary's change
+    // at any amount, so it is made at the amount, scales only while dragging and is made again after.
+    const region = !!src.roi && !!this.inject;
+    const buildAmount = scalable && !region ? 100 * Math.sign(photoClarity) : photoClarity;
+    const scale = made && made.amount !== photoClarity ? clarityScale(photoClarity, made.amount) : 1;
+    if (made && scale !== null && (!region || scale === 1 || this.liveClip)) {
+      clarity = made.out.tex;
+      u.uClarityScale = scale;
+      if (region && scale !== 1) this.regionClarityScaled = true;
+    } else if (ll) {
       clipTo('clarity');
       // The filter's input: the print's lightness at every source pixel, uncropped (and for a
       // masked instance, after the instances before it, with the mask's value); with detail
       // before Exposure, the log lightness after Texture (taps 12 and 13).
-      const out = this.clarityDelta(ll, passes.clarity ? (u.uLl as number[]) : null, maskClarity, (t, slot, acc) => {
+      const out = this.clarityDelta(ll, passes.clarity ? buildAmount : null, maskClarity, (t, slot, acc) => {
         bindDevelop(acc?.tex ?? g.blackTexture);
         if (detailLog) {
           tap(t, slot < 0 ? 12 : 13, { uTextureOn: eqOn ? 1 : 0, uClarityOn: acc ? 1 : 0, uTapMask: Math.max(slot, 0) });
@@ -2413,8 +2452,9 @@ export class Engine {
           if (keep) this.L.usmMade = null;
         } else tap(t, 8, { uTextureOn: eqOn ? 1 : 0, uClarityOn: acc ? 1 : 0, uTapMask: slot });
       }, src, collectCoarse);
-      this.L.llMade = { tex: src.tex, key: llKey, out, coarse: collectCoarse };
+      this.L.llMade = { tex: src.tex, key: llKey, out, coarse: collectCoarse, amount: buildAmount };
       clarity = out.tex;
+      u.uClarityScale = buildAmount === photoClarity ? 1 : clarityScale(photoClarity, buildAmount)!;
     }
     if (opts.products) {
       if (ll) opts.products.clarity = this.L.clarityBoundaries;

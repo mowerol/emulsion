@@ -118,7 +118,7 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uDcpHasCurve: 0,
   };
   if (!recipe || ctx.compare) {
-    return { ...base, ...NO_MASKS, uCompare: 1, uExposure: 0, uExpBlack: 0, uWbMat: IDENTITY, uTeqOn: 0, uCurveOn: 0, uClarityOn: 0, uTextureOn: 0, uUsmOn: 0, uCeOn: 0 };
+    return { ...base, ...NO_MASKS, uCompare: 1, uExposure: 0, uExpBlack: 0, uWbMat: IDENTITY, uTeqOn: 0, uCurveOn: 0, uClarityOn: 0, uClarityScale: 1, uTextureOn: 0, uUsmOn: 0, uCeOn: 0 };
   }
 
   // The look's LUT, applied to the camera profile's print.
@@ -146,6 +146,7 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uCurveOn: isIdentity(recipe.curve) && (isIdentity(profile?.curve ?? null) || recipe.lookAmount === 0) ? 0 : 1,
     uTeqOn: teqOn ? 1 : 0,
     uClarityOn: recipe.clarity !== 0 ? 1 : 0,
+    uClarityScale: 1,
     uDehazeOn: recipe.dehaze !== 0 ? 1 : 0,
     uDehazeStrength: recipe.dehaze / 100,
     uDehazeDistance: recipe.dehazeDistance / 100,
