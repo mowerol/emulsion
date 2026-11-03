@@ -250,6 +250,69 @@ async function main() {
       } finally { e.mapFromPreview = original; engine.gpu.free(t); engine.detailOrder = undefined; }
       assert(gl.getError() === gl.NO_ERROR, `Preview maps ${name}: WebGL error`);
     }
+    // A live render that would remake the region's haze removal transmission (the strength crossing
+    // zero, a region with no map yet) shows the preview's folded map at the region's place; a drag
+    // on one side of zero only folds the region's own; the settle equals a fresh build.
+    {
+      const view = { x: .35, y: .27, w: .3, h: .45 }, W2 = 690, H2 = W2;
+      const e = engine as any, gl = engine.gpu.gl;
+      const t = engine.gpu.target(W2, H2, false);
+      const read = () => { const px = new Uint8Array(W2 * H2 * 4); gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo); gl.readPixels(0, 0, W2, H2, gl.RGBA, gl.UNSIGNED_BYTE, px); return px; };
+      const draw = (r: Recipe, live: boolean) => { engine.render(full, r, { target: t, width: W2, height: H2, seed: 0, view, whole: preview, live }); return read(); };
+      const readTex = (tex: WebGLTexture, w: number, h: number) => {
+        const fbo = gl.createFramebuffer()!, px = new Float32Array(w * h * 4);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+        gl.readPixels(0, 0, w, h, gl.RGBA, gl.FLOAT, px); gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.deleteFramebuffer(fbo);
+        return px;
+      };
+      const calls: number[] = [];
+      const original = e.dehazeStandIn;
+      e.dehazeStandIn = function (src: any, map: WebGLTexture) {
+        const out = original.call(this, src, map);
+        const to = e.L.dhStandIn, roi = src.roi, c = engine.gpu.clip!;
+        const got = readTex(out, to.w, to.h), pv = readTex(map, preview.w, preview.h);
+        const at = (x: number, y: number, k: number) => pv[4 * (Math.min(preview.h - 1, Math.max(0, y)) * preview.w + Math.min(preview.w - 1, Math.max(0, x))) + k];
+        let worst = 0, peak = 0;
+        for (let y = c.y; y < c.y + c.h; y += 7) for (let x = c.x; x < c.x + c.w; x += 7) {
+          const u = (roi.x + ((x + .5) / to.w) * roi.w) * preview.w - .5, v = (roi.y + ((y + .5) / to.h) * roi.h) * preview.h - .5;
+          const x0 = Math.floor(u), y0 = Math.floor(v), fx = u - x0, fy = v - y0;
+          for (let k = 0; k < 4; k++) {
+            const want = (1 - fy) * ((1 - fx) * at(x0, y0, k) + fx * at(x0 + 1, y0, k)) + fy * ((1 - fx) * at(x0, y0 + 1, k) + fx * at(x0 + 1, y0 + 1, k));
+            worst = Math.max(worst, Math.abs(got[4 * (y * to.w + x) + k] - want));
+            peak = Math.max(peak, Math.abs(want));
+          }
+        }
+        calls.push(worst / Math.max(peak, 1e-6));
+        return out;
+      };
+      const r0 = { ...base, texture: 30, clarity: 30, dehaze: 20 };
+      try {
+        draw(r0, false);
+        calls.length = 0;
+        draw({ ...r0, dehaze: 35 }, true);
+        assert(calls.length === 0, `Preview dehaze: a drag on one side of zero should fold the region's own map (${calls.length} stand-ins)`);
+        draw(r0, false);
+        calls.length = 0;
+        const live = draw({ ...r0, dehaze: -20 }, true);
+        assert(calls.length === 1, `Preview dehaze: crossing zero should draw 1 stand-in, not ${calls.length}`);
+        assert(e.inexact, 'Preview dehaze: a live render from the preview must owe an exact one');
+        const exact = draw({ ...r0, dehaze: -20 }, false);
+        assert(!e.inexact, 'Preview dehaze: the settle should be exact');
+        e.invalidateRegionMaps();
+        const fresh = draw({ ...r0, dehaze: -20 }, false);
+        e.invalidateRegionMaps();
+        calls.length = 0;
+        draw({ ...r0, dehaze: -25 }, true);
+        assert(calls.length === 1, `Preview dehaze: a region with no map yet should draw 1 stand-in, not ${calls.length}`);
+        let liveWorst = 0, exactWorst = 0;
+        for (let i = 0; i < live.length; i++) { liveWorst = Math.max(liveWorst, Math.abs(live[i] - exact[i])); exactWorst = Math.max(exactWorst, Math.abs(exact[i] - fresh[i])); }
+        const placed = Math.max(...calls);
+        results.previewDehaze = { liveVsExact: liveWorst, exactAfterLive: exactWorst, placed };
+        if (placed > 1e-4) failures.push(`preview dehaze: the region's map differs from the preview's at its place by ${placed} of its peak`);
+        if (exactWorst > 0) failures.push(`preview dehaze: the settle differs from a fresh build by ${exactWorst}/255`);
+      } finally { e.dehazeStandIn = original; engine.gpu.free(t); }
+      assert(gl.getError() === gl.NO_ERROR, 'Preview dehaze: WebGL error');
+    }
     // A live drag holds each detail map below the dragged stage whose own settings are unchanged
     // (Texture's, Clarity's, Sharpening's), at 100% and at fit; the dragged stage's own map stays
     // live, a mask that moves remakes its instances' maps, and the settle equals a fresh build.

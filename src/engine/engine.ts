@@ -223,6 +223,8 @@ interface Products {
    *  times `scale`), which a live region render shows in place of remaking its own. */
   textureMap?: WebGLTexture;
   clarityMap?: { tex: WebGLTexture; scale: number };
+  /** The preview's haze removal map (every instance folded) and its uDehazeKey, likewise. */
+  dehazeMap?: { tex: WebGLTexture; key: number };
   teq?: WebGLTexture;
   hal?: WebGLTexture;
   glow?: WebGLTexture;
@@ -317,6 +319,8 @@ class Lane {
   dhMasked: DehazeTargets[] = [];
   /** The ambient light and depth of the latest source, measured on a small copy. */
   dhAmbient: { input: WebGLTexture; key: string; A0: [number, number, number]; distanceMax: number } | null = null;
+  /** A live drag's stand-in for the region's haze removal map, read from the preview's. */
+  dhStandIn: Target | null = null;
 
   constructor(gpu: Gpu, p: LanePrograms) {
     this.stack = new MaskStack(gpu);
@@ -645,6 +649,8 @@ export class Engine {
     this.L.dhMasked.forEach((d) => this.freeDehazeTargets(d));
     this.L.dh = null;
     this.L.dhMasked = [];
+    if (this.L.dhStandIn) this.gpu.free(this.L.dhStandIn);
+    this.L.dhStandIn = null;
   }
 
   /** An instance's working images at w × h, kept if they already have that size. */
@@ -743,6 +749,32 @@ export class Engine {
     step(4, d.s2, { A: d.s1.tex });
     step(4, d.s1, { A: d.s2.tex }, { uDir: [0, 1] });
     d.abKey = abKey;
+  }
+
+  /**
+   * Whether dehazeMap would redo at most each instance's fold (one pass): its input, guide's
+   * means and transmission are made for these settings. A live region render that would remake
+   * more shows the preview's map instead. Mirrors dehazeMap's keys.
+   */
+  private dehazeFoldsOnly(src: Source, u: Uniforms, photoOn: boolean, masked: { strength: number; key: string }[]): boolean {
+    const d0 = this.L.dh;
+    const inputKey = `${pick(u, ['uInputMode', 'uToWorking', 'uSigN'])}`;
+    if (!d0 || d0.w !== src.w || d0.h !== src.h || d0.input !== src.tex || d0.inputKey !== inputKey) return false;
+    let chain = inputKey;
+    if (photoOn) {
+      const { A0, distanceMax } = this.dehazeAmbient(src, u);
+      const strength = u.uDehazeStrength as number;
+      if (d0.guideKey !== inputKey || d0.abKey !== JSON.stringify([A0, Math.sign(strength)])) return false;
+      chain += `|${JSON.stringify([A0, strength, minTransmission(u.uDehazeDistance as number, distanceMax)])}`;
+    }
+    return masked.every((m, k) => {
+      const d = this.L.dhMasked[k];
+      const before = chain;
+      chain += `|${m.key}`;
+      if (!d || d.w !== src.w || d.h !== src.h || d.input !== src.tex) return false;
+      if (d.foldKey === chain) return true;
+      return d.ambient?.key === before && d.guideKey === before && d.abKey === JSON.stringify([d.ambient.A0, Math.sign(m.strength)]);
+    });
   }
 
   /**
@@ -1640,6 +1672,23 @@ export class Engine {
     this.regionFromPreview = true;
   }
 
+  /** Haze removal's stand-in on the region lane: the preview's map `map` read at the region's place. */
+  private dehazeStandIn(src: Source, map: WebGLTexture): WebGLTexture {
+    const g = this.gpu;
+    let to = this.L.dhStandIn;
+    if (to && (to.w !== src.w || to.h !== src.h)) { g.free(to); to = null; }
+    if (!to) to = this.L.dhStandIn = g.target(src.w, src.h, true, true);
+    const roi = src.roi!;
+    g.bind(0, g.blackTexture);
+    g.bind(1, map);
+    g.bind(2, g.blackTexture);
+    g.bind(3, g.blackTexture);
+    this.foldP.set({ uPrev: 0, uNew: 1, uMask: 2, uPrevOn: 0, uWeighted: 0, uKind: 3, uCoarse: 3, uCoarseOn: 0, uCoarseRoi: [roi.x, roi.y, roi.w, roi.h], uMix: 1 });
+    g.draw(this.foldP, to, to.w, to.h);
+    this.regionFromPreview = true;
+    return to.tex;
+  }
+
   private fold(to: Target, acc: Target | null, nw: Target, kind: 0 | 1, weighted: boolean, mask: Target | null = null, source?: Source, slot = -1, mix = 1) {
     const g = this.gpu;
     g.bind(0, acc?.tex ?? g.blackTexture);
@@ -2224,14 +2273,24 @@ export class Engine {
     // The products of a region render need the dehazed whole photo only for the tone equalizer's
     // map and the highlights (halation, glow); otherwise just haze removal's ambient light.
     const early = needsPasses(u);
-    const dehazeWanted = !opts.products || ((early.toneEqualizer || early.highlights || early.clarity || early.texture || dehazeMasked.length || recipe?.masks.some(m => maskActive(m) && (m.texture !== 0 || m.clarity !== 0))) && !picking);
+    // A live region frame may also show the preview's map in place of its own (dehazeStandIn).
+    const dehazeWanted = !opts.products || ((opts.live || early.toneEqualizer || early.highlights || early.clarity || early.texture || dehazeMasked.length || recipe?.masks.some(m => maskActive(m) && (m.texture !== 0 || m.clarity !== 0))) && !picking);
     if (opts.products && photoDehaze && !dehazeWanted) opts.products.ambient = this.dehazeAmbient(src, u);
     if (dehazeWanted && (photoDehaze || dehazeMasked.length)) {
       clipTo('dehaze');
       // What a mask's value depends on: the shapes, ranges and opacities of the masks, the brushes, and its refinement.
       const geometry = `${pick(u, ['uMaskCount', 'uMaskShapeCount', 'uMaskShapes', 'uMaskRange', 'uMaskRangeOn'])}|${((u.uMaskMeta as number[] | undefined) ?? []).filter((_, i) => i % 4 === 0)}|${this.L.stack.generation}|${BrushGpu.key(brushList)}|${ObjectGpu.key(objectList)}`;
       const [rw, rh] = refineSize(src.w, src.h);
-      dehaze = this.dehazeMap(src, u, photoDehaze, dehazeMasked.map((m) => ({ slot: m.slot, strength: m.strength, key: `${m.slot}|${m.strength}|${geometry}|${JSON.stringify(m.job)}` })), (slot, prev, to) => {
+      const dhInstances = dehazeMasked.map((m) => ({ slot: m.slot, strength: m.strength, key: `${m.slot}|${m.strength}|${geometry}|${JSON.stringify(m.job)}` }));
+      // A live drag at full resolution that would remake the region's transmission (the first
+      // Dehaze frame, its strength crossing zero, an edit before it, a masked instance) shows the
+      // preview's map instead, as Texture and Clarity do; a Dehaze drag on one side of zero only folds.
+      const dhPreview = src.roi && this.inject && this.liveClip ? this.inject.dehazeMap : undefined;
+      if (dhPreview && !this.dehazeFoldsOnly(src, u, photoDehaze, dhInstances)) {
+        dehaze = this.dehazeStandIn(src, dhPreview.tex);
+        u.uDehazeOn = 1;
+        u.uDehazeKey = hashKey(`preview|${dhPreview.key}`);
+      } else dehaze = this.dehazeMap(src, u, photoDehaze, dhInstances, (slot, prev, to) => {
         const job = dehazeMasked.find((m) => m.slot === slot)!.job;
         const draw = (t: Target, uTap: number) => {
           g.bind(0, src.tex);
@@ -2250,6 +2309,7 @@ export class Engine {
         draw(to, 10);
       });
     }
+    if (opts.products && u.uDehazeOn === 1) opts.products.dehazeMap = { tex: dehaze, key: u.uDehazeKey as number };
     if (opts.warm === 'dehaze') {
       // A region measures nothing itself: it takes the whole photo's ambient light.
       if (opts.products && photoDehaze) opts.products.ambient = this.dehazeAmbient(src, u);

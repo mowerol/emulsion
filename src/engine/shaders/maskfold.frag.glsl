@@ -9,6 +9,7 @@
 //  uKind 1, Clarity: uNew is the local laplacian's output, ΔL = .r; the mask is uMask's .a.
 //  uKind 2, a live drag's stand-in on the region lane: uNew is the preview's finished map of the
 //  change (every instance folded), read at the region's place (uCoarseRoi) and scaled by uMix.
+//  uKind 3, the same for haze removal: uNew is the preview's folded (beta, alpha), read whole.
 // Without uWeighted (the photo's own instance) the mask is 1; without uPrevOn the sum starts at 0.
 precision highp float;
 precision highp int;
@@ -41,6 +42,10 @@ vec4 bilinear(sampler2D t, vec2 uv) {
 }
 
 void main() {
+  if (uKind == 3) {
+    outColor = bilinear(uNew, uCoarseRoi.xy + vUv * uCoarseRoi.zw);
+    return;
+  }
   if (uKind == 2) {
     outColor = vec4(uMix * bilinear(uNew, uCoarseRoi.xy + vUv * uCoarseRoi.zw).r, 0.0, 0.0, 1.0);
     return;
