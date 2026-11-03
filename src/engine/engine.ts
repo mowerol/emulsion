@@ -2479,8 +2479,22 @@ export class Engine {
       if (!passes.clarity && !maskClarity.length) return;
     }
     if (opts.warm === 'texture') return;
-    if (ceOn && this.L.ceMade?.tex === src.tex && this.L.ceMade.key === ceKey) ceTex = this.L.ceMade.out.tex;
-    else if (ceOn) {
+    // Whether Clarity's map is reused (held or scaled) rather than made: decided before the colour
+    // map, which only its making reads when collecting products.
+    const made = ll && this.L.llMade && (!collectCoarse || this.L.llMade.coarse) && holds(this.L.llMade, llKey, clarityOwn) ? this.L.llMade : null;
+    // The map made at another amount, scaled (exact over the whole photo, which makes it at ±100 so
+    // the half-float map's rounding only ever shrinks). A region's own map has its boundary's change
+    // at any amount, so it is made at the amount, scales only while dragging and is made again after.
+    const region = !!src.roi && !!this.inject;
+    const buildAmount = scalable && !region ? 100 * Math.sign(photoClarity) : photoClarity;
+    const scale = made && made.amount !== photoClarity ? clarityScale(photoClarity, made.amount) : 1;
+    const clarityReused = !!made && scale !== null && (!region || scale === 1 || !!this.liveClip);
+    // The whole photo's products, developed before each region frame, end at Clarity's: when that
+    // map is reused, nothing in them reads the colour map (an HSL drag at 100% would remake it on
+    // the preview every frame for nothing).
+    const ceNeeded = ceOn && !(opts.products && clarityReused);
+    if (ceNeeded && this.L.ceMade?.tex === src.tex && this.L.ceMade.key === ceKey) ceTex = this.L.ceMade.out.tex;
+    else if (ceNeeded) {
       clipTo('color');
       // The equalizer's input: the scene after texture, analysed, at every source pixel.
       const analyseScene = (t: Target) => {
@@ -2505,14 +2519,7 @@ export class Engine {
     }
     if (opts.warm === 'color') return;
     let clarity: WebGLTexture = g.blackTexture;
-    const made = ll && this.L.llMade && (!collectCoarse || this.L.llMade.coarse) && holds(this.L.llMade, llKey, clarityOwn) ? this.L.llMade : null;
-    // The map made at another amount, scaled (exact over the whole photo, which makes it at ±100 so
-    // the half-float map's rounding only ever shrinks). A region's own map has its boundary's change
-    // at any amount, so it is made at the amount, scales only while dragging and is made again after.
-    const region = !!src.roi && !!this.inject;
-    const buildAmount = scalable && !region ? 100 * Math.sign(photoClarity) : photoClarity;
-    const scale = made && made.amount !== photoClarity ? clarityScale(photoClarity, made.amount) : 1;
-    if (made && scale !== null && (!region || scale === 1 || this.liveClip)) {
+    if (clarityReused) {
       clarity = made.out.tex;
       u.uClarityScale = scale;
       if (region && scale !== 1) this.regionClarityScaled = true;

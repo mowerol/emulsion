@@ -204,6 +204,8 @@ async function gesture(steps: number, fire: (i: number) => void) {
     handlerMs: +(handler / steps).toFixed(2), worstHandlerMs: +worstHandler.toFixed(1),
     screenGapMedian: median(gaps), screenGapP90: p90(gaps), screenGapMax: gaps.length ? +Math.max(...gaps).toFixed(0) : null,
     gapsOver50: gaps.filter(g => g > 50).length,
+    // Where in the drag the worst freeze fell: screen frames before it, out of all.
+    worstGapAt: gaps.length ? `${gaps.indexOf(Math.max(...gaps))}/${gaps.length}` : null,
     // The first frames: main-thread time inside render, and GPU finish time after it started.
     first: frames.slice(0, 4).map(f => `${f.cpu.toFixed(0)}/${(f.done - f.start).toFixed(0)}`).join(' '),
     // Draws per screen frame, by program@size, the largest counts first.
@@ -223,8 +225,10 @@ async function showGroup(group: ControlGroupId) {
 
 async function sliderDrag(key: string, group: ControlGroupId, steps = 240) {
   await showGroup(group);
-  const el = document.getElementById(`slider-${key}`) as HTMLInputElement | null;
-  if (!el) throw Error(`no slider-${key}`);
+  // A bare key is a named slider (`slider-<key>`); an id with a dash is used as it is (HSL: `color-sat-2`).
+  const id = key.includes('-') ? key : `slider-${key}`;
+  const el = document.getElementById(id) as HTMLInputElement | null;
+  if (!el) throw Error(`no ${id}`);
   const box = el.getBoundingClientRect();
   const at = { clientX: box.left + box.width / 2, clientY: box.top + box.height / 2, pointerId: 1, button: 0, buttons: 1, bubbles: true };
   el.dispatchEvent(new PointerEvent('pointerdown', at));
@@ -344,6 +348,35 @@ export async function run(which: string) {
       out.z100Exposure2 = await sliderDrag('exposure', 'develop', 120);
       out.zoomOut = await click(key('z'));
     }
+    if (want('z100hsl')) {
+      // The HSL drag alone, minimised: at fit, at 100% alone, at 100% with the three on; each twice.
+      setSliders({ texture: 0, dehaze: 0, clarity: 0, color: null });
+      await settle(800, 30000);
+      out.hFit = await sliderDrag('color-sat-2', 'colour', 120);
+      out.hFit2 = await sliderDrag('color-sat-2', 'colour', 120);
+      out.zoomIn = await click(key('z'));
+      const z0 = performance.now(), fullW = useApp.getState().developSize!.W;
+      while (lastSrcW !== fullW && performance.now() - z0 < 60000) await wait(50);
+      await settle(800, 30000);
+      setSliders({ color: null });
+      await settle(800, 30000);
+      out.hZ = await sliderDrag('color-sat-2', 'colour', 120);
+      out.hZ2 = await sliderDrag('color-sat-2', 'colour', 120);
+      setSliders({ texture: 40, dehaze: 30, clarity: 30, color: null });
+      await settle(800, 30000);
+      out.hAll = await sliderDrag('color-sat-2', 'colour', 120);
+      out.hAll2 = await sliderDrag('color-sat-2', 'colour', 120);
+      // From HSL off again, with the pointer resting on the slider first (Develop warms the map).
+      setSliders({ color: null });
+      await settle(800, 30000);
+      await showGroup('colour');
+      document.getElementById('color-sat-2')?.dispatchEvent(new PointerEvent('pointerover', { bubbles: true }));
+      await wait(300);
+      await settle(400, 30000);
+      out.hAllHovered = await sliderDrag('color-sat-2', 'colour', 120);
+      setSliders({ texture: 0, dehaze: 0, clarity: 0, color: null });
+      out.zoomOut = await click(key('z'));
+    }
     if (want('z100combo')) {
       // Oli, 2026-11-03: at 100% "dehaze, texture, exposure, maybe clarity when all used together".
       // Each drag runs with the other three on.
@@ -358,7 +391,9 @@ export async function run(which: string) {
       out.allDehaze = await sliderDrag('dehaze', 'refine', 120);
       out.allClarity = await sliderDrag('clarity', 'refine', 120);
       out.allExposure2 = await sliderDrag('exposure', 'develop', 120);
-      setSliders({ texture: 0, dehaze: 0, clarity: 0 });
+      // An HSL drag (saturation of the third colour) with the three on.
+      out.allHsl = await sliderDrag('color-sat-2', 'colour', 120);
+      setSliders({ texture: 0, dehaze: 0, clarity: 0, color: null });
       out.zoomOut = await click(key('z'));
     }
     if (want('z100min')) {

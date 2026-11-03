@@ -614,5 +614,66 @@ async function gesture() {
   } finally { engine.release(full); engine.release(preview); engine.dispose(); }
   document.body.dataset.result = `PASS: ${JSON.stringify(out)}`;
 }
+
+// An HSL drag at 100% with Clarity on: the whole photo's products (developed first on each frame)
+// must not remake the colour map when Clarity's map is held, since nothing else in them reads it.
+async function hslDrag() {
+  const engine = new Engine(document.createElement('canvas'));
+  const W = 2301, H = 1533;
+  const upload = (w: number, h: number) => {
+    const data = new Uint16Array(w * h * 4);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const X = Math.floor(x * W / w), Y = Math.floor(y * H / h);
+      const detail = (((X >> 4) ^ (Y >> 4)) & 1) * 384 + Math.round(64 * Math.sin(X * .7) ** 2);
+      data.set([0x3000 + Math.round(512 * x / w) + detail, 0x3000 + Math.round(512 * y / h), 0x2c00 + Math.round(256 * Math.sin(x / w * 12) ** 2), 0x3c00], 4 * (y * w + x));
+    }
+    return engine.sourceFromHalf({ width: w, height: h, fullWidth: W, fullHeight: H, mode: InputMode.SceneLinear, white: null, data });
+  };
+  const full = upload(W, H), preview = upload(384, 256);
+  const sat = (v: number) => ({ hue: new Array(8).fill(0), sat: [0, 0, v, 0, 0, 0, 0, 0], bright: new Array(8).fill(0) });
+  const base = { ...defaultRecipe('neutral', 'straight'), captureSharpening: 0, grain: 0, dehaze: 20, texture: 30, clarity: 30 };
+  const out: Record<string, unknown> = {};
+  const failures: string[] = [];
+  const e = engine as any, gl = engine.gpu.gl;
+  const counts: Record<string, number> = {};
+  const draw0 = engine.gpu.draw;
+  engine.gpu.draw = function (...a: Parameters<typeof draw0>) {
+    const [p, t] = a as unknown as [unknown, { w: number; h: number } | null];
+    const k = `${p === e.ceP ? 'ceP' : 'other'}@${t?.w ?? 'screen'}x${t?.h ?? ''}`;
+    counts[k] = (counts[k] ?? 0) + 1;
+    return draw0.apply(this, a);
+  };
+  try {
+    for (const order of ['darktable', 'log'] as const) {
+      engine.detailOrder = order;
+      const view = { x: .4, y: .4, w: .15, h: .15 };
+      const opts = { target: 'screen' as const, width: 345, height: 345, seed: 0, view, whole: preview };
+      engine.render(full, { ...base, color: sat(30) }, opts);
+      engine.render(full, { ...base, color: sat(30) }, opts);
+      // Two frames of the drag: the first may settle bookkeeping, the second is the steady cost.
+      engine.render(full, { ...base, color: sat(35) }, { ...opts, live: true });
+      for (const k of Object.keys(counts)) delete counts[k];
+      engine.render(full, { ...base, color: sat(40) }, { ...opts, live: true });
+      const previewCe = counts['ceP@384x256'] ?? 0;
+      out[order] = { ...counts };
+      if (previewCe) failures.push(`${order}: a live HSL frame remade the preview's colour map (${previewCe} ceP passes)`);
+      // The settle is still exact: equal to a render from nothing.
+      const t = engine.gpu.target(345, 345, false);
+      const read = () => { const px = new Uint8Array(345 * 345 * 4); gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo); gl.readPixels(0, 0, 345, 345, gl.RGBA, gl.UNSIGNED_BYTE, px); return px; };
+      engine.render(full, { ...base, color: sat(40) }, { ...opts, target: t });
+      const settled = read();
+      e.freeRegion(); e.freeLaneTargets();
+      engine.render(full, { ...base, color: sat(40) }, { ...opts, target: t });
+      const fresh = read();
+      let worst = 0;
+      for (let i = 0; i < fresh.length; i++) worst = Math.max(worst, Math.abs(fresh[i] - settled[i]));
+      engine.gpu.free(t);
+      (out[order] as Record<string, unknown>).settleVsFresh = worst;
+      if (worst > 0) failures.push(`${order}: the settle differs from a fresh render by ${worst}/255`);
+      assert(gl.getError() === gl.NO_ERROR, `${order}: WebGL error`);
+    }
+  } finally { engine.gpu.draw = draw0; engine.release(full); engine.release(preview); engine.dispose(); }
+  document.body.dataset.result = `${failures.length ? 'FAIL' : 'PASS'}: ${JSON.stringify({ failures, out })}`;
+}
 const mode = new URLSearchParams(location.search);
-(mode.has('gesture') ? gesture() : mode.has('timing') ? timing() : main()).catch(error => { document.body.dataset.result = `FAIL: ${document.body.dataset.progress ?? ''}: ${String(error)} ${error?.stack ?? ''}`; });
+(mode.has('hsl') ? hslDrag() : mode.has('gesture') ? gesture() : mode.has('timing') ? timing() : main()).catch(error => { document.body.dataset.result = `FAIL: ${document.body.dataset.progress ?? ''}: ${String(error)} ${error?.stack ?? ''}`; });
