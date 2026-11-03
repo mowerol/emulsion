@@ -35,6 +35,7 @@ import dehazePass from './shaders/dehaze.frag.glsl?raw';
 import dehazeGf from './shaders/dehazegf.frag.glsl?raw';
 import maskFold from './shaders/maskfold.frag.glsl?raw';
 import lab from './shaders/stages/lab.glsl?raw';
+import detaillog from './shaders/stages/detaillog.glsl?raw';
 import texture from './shaders/stages/texture.glsl?raw';
 import usmStage from './shaders/stages/usm.glsl?raw';
 import usm from './shaders/usm.frag.glsl?raw';
@@ -69,6 +70,7 @@ export const SHADER_FILES: Record<string, string> = {
   'stages/clarity.glsl': clarity,
   'stages/dehaze.glsl': dehaze,
   'stages/lab.glsl': lab,
+  'stages/detaillog.glsl': detaillog,
   'stages/texture.glsl': texture,
   'stages/usm.glsl': usmStage,
   'stages/colorequal.glsl': colorequal,

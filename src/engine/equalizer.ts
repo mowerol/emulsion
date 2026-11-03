@@ -11,6 +11,8 @@
 // Scale counts and boost curves still use whole-photo dimensions. Exports use every full-size band.
 // The detail is summed by the boost's two terms in the mix (amountScales, equalizeParts) so the
 // amount applies after the decomposition: the same synthesis, regrouped, exact for the preset.
+// Trial deviation (Oli, 2026-11-03, off by default): with Engine.detailOrder 'log' the filter
+// runs on a log lightness before Exposure instead of L* after it (detaillog.ts; NOTICE.md).
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Reference implementation of the texture stage: darktable's contrast equalizer.

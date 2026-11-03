@@ -196,6 +196,9 @@ const MASK_UNIFORMS = uniformsOf('stages/masks.glsl').filter((n) => n !== 'uMask
 const BEFORE_MASKS = ['stages/input.glsl', 'stages/dehaze.glsl', 'stages/exposure.glsl'].flatMap(uniformsOf).concat('uSharp', 'uStore', 'uDehazeKey', ...MASK_UNIFORMS);
 const BEFORE_TEXTURE = ['stages/input.glsl', 'stages/dehaze.glsl', 'stages/exposure.glsl', 'stages/toneequalizer.glsl'].flatMap(uniformsOf).concat('uSharp', 'uStore', 'uDehazeKey', ...MASK_UNIFORMS);
 const TEXTURE_STAGE = uniformsOf('stages/texture.glsl').concat('uTextureMix');
+/** What Texture's input depends on with detail before Exposure (detaillog.ts): the input stage
+ *  and haze removal, not Exposure, the tone equalizer or anything after. */
+const BEFORE_TEXTURE_LOG = ['stages/input.glsl', 'stages/dehaze.glsl'].flatMap(uniformsOf).concat('uSharp', 'uStore', 'uDehazeKey');
 const TEXTURE_INPUT = TEXTURE_STAGE.filter(k => k !== 'uTextureMix');
 const COLOR_STAGE = uniformsOf('stages/colorequal.glsl');
 const BEFORE_CLARITY = ['stages/colorbalance.glsl', 'stages/lens.glsl', 'stages/tone.glsl', 'stages/lut.glsl', 'stages/dcp.glsl'].flatMap(uniformsOf).concat('uHal', 'uHalCol', 'uGlow', 'uLutId');
@@ -1304,6 +1307,15 @@ export class Engine {
   /** Sharpening's input resumed from Clarity's tap (develop.frag tap 11); off only for the probe's comparison. */
   resumeSharpen = true;
 
+  /**
+   * Where Texture measures its detail: 'darktable', on L* after Exposure (darktable's order);
+   * 'log', on log lightness before Exposure (detaillog.ts, Oli's option B, under trial), so
+   * Exposure and the stages after it no longer remake Texture's map. App-wide (ui/detailorder.ts
+   * sets it); an engine's own value, when set, overrides it (the probe compares the two).
+   */
+  static detailOrder: 'darktable' | 'log' = 'darktable';
+  detailOrder?: 'darktable' | 'log';
+
   /** A target drawing into `t` (Clarity's tap) and usm.b at once, kept while both are. */
   private printTarget(t: Target): Target {
     const b = this.L.usm!.b, p = this.L.printGroup;
@@ -2103,6 +2115,7 @@ export class Engine {
       width: turned ? fullH : fullW, height: turned ? fullW : fullH, seed: opts.seed, inputMode: src.mode, store: this.store, compare: opts.compare, white: src.white, look, maskShow: opts.maskShow,
     });
     Object.assign(u,this.profiles.uniforms(profile));
+    u.uTextureLog = (this.detailOrder ?? Engine.detailOrder) === 'log' ? 1 : 0;
     const geo = geometryMatrix({ ...FULL, ...frame }, src.fullW, src.fullH, recipe?.transform);
     u.uGeoU = geo[0];
     u.uGeoV = geo[1];
@@ -2293,11 +2306,16 @@ export class Engine {
     // Keep region handoff data for the screen/preview, without allocating export-sized copies.
     // A cached screen render also serves histogram reads; only a missing handoff needs a refresh.
     const collectCoarse = !src.roi && (!!opts.products || opts.target === 'screen');
-    const textureKey = `${src.w}x${src.h}|${pick(u, BEFORE_TEXTURE)}|${pick(u, TEXTURE_STAGE)}|${JSON.stringify(maskTexture)}`;
+    // Everything up to Texture's output: what the stages after it depend on.
+    const sceneKey = `${src.w}x${src.h}|${pick(u, BEFORE_TEXTURE)}|${pick(u, TEXTURE_STAGE)}|${JSON.stringify(maskTexture)}`;
+    // Texture's own map. With detail before Exposure, the photo's instance depends only on the
+    // stages before Exposure; a masked instance's mask reads the exposed pixel, so it doesn't.
+    const textureLog = u.uTextureLog === 1;
+    const textureKey = textureLog && !maskTexture.length ? `${src.w}x${src.h}|${pick(u, BEFORE_TEXTURE_LOG)}|${pick(u, TEXTURE_STAGE)}` : sceneKey;
     // The photo's own decomposition: everything its input depends on, but not its amount.
-    const photoTextureKey = `${src.w}x${src.h}|${pick(u, BEFORE_TEXTURE)}|${pick(u, TEXTURE_INPUT)}`;
+    const photoTextureKey = `${src.w}x${src.h}|${pick(u, textureLog ? BEFORE_TEXTURE_LOG : BEFORE_TEXTURE)}|${pick(u, TEXTURE_INPUT)}`;
     // The prefilter's Gaussian kernels depend on the source/full-resolution ratio.
-    const ceSceneKey = `${textureKey}|${pxScale(src)}`;
+    const ceSceneKey = `${sceneKey}|${pxScale(src)}`;
     const lookKey = lookColor ? JSON.stringify(lookColor) : '';
     const ceKey = `${ceSceneKey}|${pick(u, COLOR_STAGE)}|${JSON.stringify(recipe?.color ?? null)}|${lookKey}`;
     // The vignette reads the frame's aspect.

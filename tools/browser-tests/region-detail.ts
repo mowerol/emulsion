@@ -62,9 +62,13 @@ async function main() {
   const results: Record<string, unknown> = {};
   const failures: string[] = [];
   try {
-    for (const [name, recipe] of Object.entries(recipes)) for (const [position, origin] of Object.entries({ centre: [.4, .4], corner: [0, 0], edge: [.87, .87] })) {
+    // The same cases with Texture measured before Exposure (detailOrder 'log'), for the recipes with Texture.
+    const orders: ['darktable' | 'log', string][] = [['darktable', ''], ['log', 'log:']];
+    for (const [order, prefix] of orders) for (const [name, recipe] of Object.entries(recipes)) for (const [position, origin] of Object.entries({ centre: [.4, .4], corner: [0, 0], edge: [.87, .87] })) {
+      if (order === 'log' && !['texture', 'combined', 'maskedDetail', 'maskedCombined'].includes(name)) continue;
+      engine.detailOrder = order;
       const view = { x: origin[0], y: origin[1], w: 0.13, h: 0.13 };
-      const key = `${name}:${position}`;
+      const key = `${prefix}${name}:${position}`;
       document.body.dataset.progress = key;
       // Access the actual admission decision, rather than a previously cached region.
       const plan = (engine as any).regionPlan(full, recipe, { target: 'screen', view });
@@ -81,6 +85,7 @@ async function main() {
       assert(engine.gpu.gl.getError() === engine.gpu.gl.NO_ERROR, `${key}: WebGL error`);
       if (worst > 1) failures.push(`${key}: whole/region difference ${worst}/255`);
     }
+    engine.detailOrder = undefined;
     // A settled histogram must reuse the screen's expensive maps, then the next zoom must
     // reuse the same preview handoff. Changing target type is not an upstream image edit.
     const recipe = recipes.maskedCombined;

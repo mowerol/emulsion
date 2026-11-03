@@ -1,3 +1,4 @@
+import { useDetailOrder } from './detailorder';
 import { noiseEnabled } from '../film/noisereduction';
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { photoId } from '../library/copies';
@@ -478,6 +479,8 @@ export function Develop() {
 
   // Render whenever anything that affects the frame changes.
   const seed = photo?.seed ?? 0;
+  // The trial detail order (ui/detailorder.ts): switching it redraws the photo.
+  const detailOrder = useDetailOrder(st => st.order);
   const viewKey = current ? `${current.pxW}x${current.pxH}:${current.view.x},${current.view.y},${current.view.w},${current.view.h}` : '';
   const shownViewRef = useRef('');
   useEffect(() => {
@@ -535,7 +538,7 @@ export function Develop() {
       clearTimeout(settle);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recipe, seed, compare, loadedVersion, viewKey, path, clipping, split, JSON.stringify(frame), stage, sharpenMask, lutVersion, profileVersion, maskShow, retouchVersion, healing, showScale]);
+  }, [recipe, seed, compare, loadedVersion, viewKey, path, clipping, split, JSON.stringify(frame), stage, sharpenMask, lutVersion, profileVersion, maskShow, retouchVersion, healing, showScale, detailOrder]);
 
   // Count the histogram from a small render of the whole frame, once changes settle.
   useEffect(() => {

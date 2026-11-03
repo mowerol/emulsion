@@ -1332,3 +1332,7 @@ select { accent-color: var(--accent); }
 .look-entries.grid .look-row-menu { position: absolute; right: 6px; bottom: 6px; }
 .look-entries.grid .look-row-menu summary { padding: 2px 4px; }
 .look-entries.grid .look-delete-confirm { padding: 0 10px 10px; }
+
+/* Trial switch under the Detail sliders (ui/detailorder.ts). */
+.detail-order-toggle { display: flex; align-items: center; gap: 6px; margin: 6px 0 2px; font-size: 11px; color: var(--muted, inherit); cursor: pointer; }
+.detail-order-toggle input { margin: 0; }

@@ -7,12 +7,13 @@
 // Per gesture: frames that reached the GPU, input → GPU-done latency, the screen's frame gaps
 // (requestAnimationFrame intervals: what the eye sees as stutter), and the main-thread time the
 // input handlers took. Per click: time to the next painted frame, and to the photo settling.
-import { logToTerminal } from '../backend/api';
+import { logToTerminal, writeExport } from '../backend/api';
 import { Engine } from '../engine/engine';
 import { defaultRecipe, type Recipe } from '../film/recipe';
 import { activePhoto, editActive, importFolderPhotos, useApp } from '../library/store';
 import { setWorkspace, type ControlGroupId } from '../ui/workspace';
 import { useCatalog } from '../library/catalog';
+import { setDetailOrder } from '../ui/detailorder';
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const median = (v: number[]) => v.length ? +v.slice().sort((a, b) => a - b)[Math.floor(v.length / 2)].toFixed(1) : null;
@@ -31,8 +32,13 @@ let passTiming = false;
 let passMs: Record<string, number> = {};
 /** The width of the source the last screen frame was developed from (preview or full). */
 let lastSrcW = 0;
+/** The sources of the last screen frame: what it developed, and the preview beside a full size. */
+let lastSrc: Parameters<Engine['render']>[0] | null = null;
+let lastWhole: Parameters<Engine['render']>[0] | null = null;
+let lastEngine: Engine | null = null;
 function hookDraws(engine: Engine) {
   hooked = true;
+  lastEngine = engine;
   const names = new Map<unknown, string>();
   for (const [k, v] of Object.entries(engine)) if (v && typeof v === 'object' && 'set' in (v as object)) names.set(v, k);
   const gpu = engine.gpu as unknown as Record<string, (...a: any[]) => unknown>; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -69,6 +75,7 @@ Engine.prototype.render = function (this: Engine, ...a: Parameters<Engine['rende
   if (!hooked) hookDraws(this);
   const outer = depth++ === 0 && a[2]?.target === 'screen';
   const t0 = performance.now();
+  if (outer) { lastSrc = a[0]; lastWhole = (a[2] as { whole?: Parameters<Engine['render']>[0] } | undefined)?.whole ?? null; }
   if (outer) { const s = a[0] as { w: number; h: number }; lastSrcW = s.w; const k = `src@${s.w}x${s.h}`; draws[k] = (draws[k] ?? 0) + 1; }
   try { return render.apply(this, a); } finally {
     depth--;
@@ -207,7 +214,9 @@ function setSliders(values: Partial<Recipe>) {
 }
 
 export async function run(which: string) {
-  const out: Record<string, unknown> = { which, dpr: devicePixelRatio, ua: navigator.userAgent.replace(/.*AppleWebKit\/(\S+).*/, 'WebKit $1') };
+  // VITE_PERF_DETAIL=log times the trial detail order (ui/detailorder.ts).
+  setDetailOrder(import.meta.env.VITE_PERF_DETAIL === 'log' ? 'log' : 'darktable');
+  const out: Record<string, unknown> = { which, detailOrder: import.meta.env.VITE_PERF_DETAIL ?? 'darktable', dpr: devicePixelRatio, ua: navigator.userAgent.replace(/.*AppleWebKit\/(\S+).*/, 'WebKit $1') };
   try {
     for (let i = 0; i < 600 && !(useApp.getState().view === 'develop' && useApp.getState().developSize); i++) {
       const s = useApp.getState();
@@ -345,6 +354,100 @@ export async function run(which: string) {
       }
       setSliders({ texture: 0, dehaze: 0, clarity: 0 });
       out.zoomOut = await click(key('z'));
+    }
+    if (want('z100trace')) {
+      // For Instruments' Metal System Trace (tools/perf/trace.mjs): set up 100% with Texture,
+      // Dehaze and Clarity on, say so, give the recorder time to start, then one long Exposure drag.
+      out.zoomIn = await click(key('z'));
+      const z0 = performance.now(), fullW = useApp.getState().developSize!.W;
+      while (lastSrcW !== fullW && performance.now() - z0 < 60000) await wait(50);
+      setSliders({ texture: 40, dehaze: 30, clarity: 30 });
+      await settle(800, 30000);
+      await sliderDrag('exposure', 'develop', 60);
+      logToTerminal('info', 'PERF-TRACE-READY');
+      await wait(Number(import.meta.env.VITE_PERF_TRACE_WAIT ?? 12000));
+      logToTerminal('info', 'PERF-TRACE-DRAG');
+      out.traceExposure = await sliderDrag('exposure', 'develop', 600);
+      logToTerminal('info', 'PERF-TRACE-DONE');
+      setSliders({ texture: 0, dehaze: 0, clarity: 0 });
+    }
+    if (want('sidebyside')) {
+      // Texture in darktable's order against measured before Exposure (ui/detailorder.ts), on each
+      // photo of the run: the whole frame at preview size and a 100% crop at its centre, at a few
+      // Texture/Exposure settings. JPEGs to VITE_PERF_OUT, and how far each pair differs.
+      const dir = import.meta.env.VITE_PERF_OUT;
+      if (!dir) throw Error('sidebyside needs VITE_PERF_OUT');
+      const settings: [string, Partial<Recipe>][] = [
+        ['tex50', { texture: 50 }], ['tex50_ev+1', { texture: 50, exposure: 1 }],
+        ['tex-50_ev-1', { texture: -50, exposure: -1 }], ['tex100', { texture: 100 }],
+      ];
+      const stats: Record<string, unknown> = {};
+      const photos = useApp.getState().photos.length;
+      type Src = Parameters<Engine['render']>[0];
+      type V = { x: number; y: number; w: number; h: number } | undefined;
+      // Each pair is rendered as soon as its sources are on screen: Develop frees a preview it replaces.
+      const pair = async (eng: Engine, name: string, scale: string, src: Src, w: number, h: number, view: V, wh: Src | undefined, base: Recipe) => {
+        for (const [label, v] of settings) {
+          const r = { ...base, ...v } as Recipe;
+          const px: Record<string, Uint8Array> = {};
+          for (const order of ['darktable', 'log'] as const) {
+            eng.detailOrder = order;
+            px[order] = eng.readPixels(src, r, w, h, 0, false, view, undefined, wh);
+            await writeExport(dir, `${name}_${scale}_${label}_${order}`, px[order], w, h, 95);
+          }
+          eng.detailOrder = undefined;
+          const a = px.darktable, b = px.log, diffs: number[] = [];
+          let sum = 0;
+          for (let k = 0; k < a.length; k += 4) { const d = Math.max(Math.abs(a[k] - b[k]), Math.abs(a[k + 1] - b[k + 1]), Math.abs(a[k + 2] - b[k + 2])); diffs.push(d); sum += d; }
+          // Where the largest difference is, and a 2× side-by-side of the 240 × 160 around it.
+          let at = 0;
+          for (let k = 0; k < diffs.length; k++) if (diffs[k] > diffs[at]) at = k;
+          const ax = at % w, ay = Math.floor(at / w);
+          const cw2 = Math.min(240, w), ch2 = Math.min(160, h);
+          const x0 = Math.max(0, Math.min(w - cw2, ax - cw2 / 2)), y0 = Math.max(0, Math.min(h - ch2, ay - ch2 / 2));
+          const side = new Uint8Array(cw2 * 2 * 2 * ch2 * 2 * 4);
+          for (let y = 0; y < ch2 * 2; y++) for (let x = 0; x < cw2 * 4; x++) {
+            const img = x < cw2 * 2 ? a : b, sx = x0 + (Math.floor(x / 2) % cw2), sy = y0 + Math.floor(y / 2);
+            const from = 4 * (sy * w + sx), to = 4 * (y * cw2 * 4 + x);
+            for (let c = 0; c < 4; c++) side[to + c] = img[from + c];
+            if (x === cw2 * 2) side[to] = side[to + 1] = side[to + 2] = 255;
+          }
+          await writeExport(dir, `${name}_${scale}_${label}_worst`, side, cw2 * 4, ch2 * 2, 95);
+          diffs.sort((x, y) => x - y);
+          stats[`${name}_${scale}_${label}`] = { mean: +(sum / diffs.length).toFixed(2), p99: diffs[Math.floor(diffs.length * 0.99)], max: diffs[diffs.length - 1], at: [ax, ay] };
+          if (label === 'tex50') {
+            // How much Texture itself moves the picture, for scale.
+            const none = eng.readPixels(src, { ...base, texture: 0 } as Recipe, w, h, 0, false, view, undefined, wh);
+            let t = 0;
+            for (let k = 0; k < a.length; k += 4) t += Math.max(Math.abs(a[k] - none[k]), Math.abs(a[k + 1] - none[k + 1]), Math.abs(a[k + 2] - none[k + 2]));
+            stats[`${name}_${scale}_textureItself`] = { mean: +(t / diffs.length).toFixed(2) };
+          }
+        }
+      };
+      for (let n = 0; n < photos; n++) {
+        if (n > 0) {
+          const was = useApp.getState().developSize?.path;
+          key('ArrowRight')();
+          for (let i = 0; i < 300 && useApp.getState().developSize?.path === was; i++) await wait(50);
+        }
+        const name = (useApp.getState().developSize?.path ?? `photo${n}`).split('/').pop()!.replace(/\.[^.]+$/, '');
+        await settle(1500, 30000);
+        const eng = lastEngine!;
+        const base = { ...(activePhoto()?.recipe ?? defaultRecipe()), dehaze: 0, clarity: 0 };
+        const preview = lastSrc!;
+        await pair(eng, name, 'fit', preview, preview.w, preview.h, undefined, undefined, base);
+        // 100%: the full resolution, a 1200 × 800 window at the centre.
+        await click(key('z'));
+        const z0 = performance.now(), fullW = useApp.getState().developSize!.W;
+        while (lastSrcW !== fullW && performance.now() - z0 < 60000) await wait(50);
+        await settle(800, 30000);
+        const full = lastSrc!, whole = lastWhole ?? preview;
+        const cw = 1200, ch = 800;
+        await pair(eng, name, '100', full, cw, ch, { x: 0.5 - cw / full.w / 2, y: 0.5 - ch / full.h / 2, w: cw / full.w, h: ch / full.h }, whole, base);
+        await click(key('z'));
+        await settle(800, 30000);
+      }
+      out.sidebyside = stats;
     }
     if (want('clicks')) {
       const tabs: Record<string, unknown> = {};

@@ -48,6 +48,7 @@ import { colorEqualize } from '../../src/engine/colorequal';
 import { equalize, scales } from '../../src/engine/equalizer';
 import { autoContrast, blendMask, deconvolve } from '../../src/engine/capture';
 import { labL, labShiftL } from '../../src/engine/lab';
+import { logLightness, logShift, lumY } from '../../src/engine/detaillog';
 import { LUT_UNIT } from '../../src/engine/params';
 import { loadLut, setLooksBase } from '../../src/engine/lutstore';
 import { tetrahedral, textureData, type Clut } from '../../src/engine/lut3d';
@@ -522,7 +523,15 @@ function probeTexture(eng: Engine) {
   const l = probeStage(eng, ['stages/lab.glsl'], 'vec3(labL(c))', COLOURS, {
     L: { uniforms: u, ref: (c: Vec3) => [labL(c), labL(c), labL(c)] as Vec3 },
   });
-  return { worstLStarError: worst, shift, lightness: l };
+  // Detail before Exposure (Engine.detailOrder 'log'): the log lightness, and a change of 4 in it
+  // applied back as a change in L*.
+  const logL = probeStage(eng, ['stages/detaillog.glsl'], 'vec3(logLightness(c))', COLOURS, {
+    log: { uniforms: u, ref: (c: Vec3) => { const v = logLightness(lumY(c)); return [v, v, v] as Vec3; } },
+  });
+  const logD = probeStage(eng, ['stages/detaillog.glsl'], 'vec3(logShift(c, 4.0), logShift(c, -6.0), 0.0)', COLOURS, {
+    shift: { uniforms: u, ref: (c: Vec3) => [logShift(lumY(c), 4), logShift(lumY(c), -6), 0] as Vec3 },
+  });
+  return { worstLStarError: worst, shift, lightness: l, logLightness: logL, logShift: logD };
 }
 
 /** Clarity: darktable's local laplacian on the GPU against the reference, and the lightness change per pixel. */
@@ -713,6 +722,39 @@ function probeMapCache() {
   resume.glError = resumed.gpu.gl.getError();
   for (const e of [full, resumed]) { e.dispose(); e.gpu.gl.getExtension('WEBGL_lose_context')?.loseContext(); }
   (worst as Record<string, unknown>).resumeSharpen = resume;
+  // Detail before Exposure: Exposure and tone equalizer steps keep Texture's map; every step
+  // still equals a fresh engine in the same order; and the order changes the picture a little.
+  {
+    const mk = () => { const e = new Engine(document.createElement('canvas')); e.detailOrder = 'log'; return { e, s: e.sourceFromImage(c, w, h) }; };
+    const lg = mk();
+    const logSteps: [string, Recipe, boolean][] = [
+      ['base', base, false], ['exposure', { ...base, exposure: 0.4 }, true], ['exposure2', { ...base, exposure: 0.9 }, true],
+      ['shadows', { ...base, exposure: 0.9, shadows: 40 }, true], ['colour', { ...base, exposure: 0.9, shadows: 40, saturation: 30 }, true],
+      ['texture', { ...base, exposure: 0.9, shadows: 40, saturation: 30, texture: -20 }, true], ['dehaze', { ...base, dehaze: 30 }, false],
+    ];
+    const res: Record<string, unknown> = {};
+    for (const [name, r, keep] of logSteps) {
+      const made = (lg.e as any).L.eqPhoto; // eslint-disable-line @typescript-eslint/no-explicit-any
+      const got = lg.e.readPixels(lg.s, r, w, h, 1);
+      const kept = !!made && (lg.e as any).L.eqPhoto === made; // eslint-disable-line @typescript-eslint/no-explicit-any
+      const fresh = mk();
+      const want = fresh.e.readPixels(fresh.s, r, w, h, 1);
+      let d = 0;
+      for (let k = 0; k < got.length; k++) d = Math.max(d, Math.abs(got[k] - want[k]));
+      res[name] = { vsFresh: d, kept, keepWanted: keep };
+      fresh.e.dispose(); fresh.e.gpu.gl.getExtension('WEBGL_lose_context')?.loseContext();
+    }
+    // Against darktable's order at the same recipe (exposure 0.9): how far the look moves.
+    const dt = new Engine(document.createElement('canvas'));
+    const r = { ...base, exposure: 0.9 };
+    const a = dt.readPixels(dt.sourceFromImage(c, w, h), r, w, h, 1), b = lg.e.readPixels(lg.s, r, w, h, 1);
+    let moved = 0, sum = 0;
+    for (let k = 0; k < a.length; k++) { const d = Math.abs(a[k] - b[k]); moved = Math.max(moved, d); sum += d; }
+    res.vsDarktableOrder = { worst: moved, mean: +(sum / a.length).toFixed(3) };
+    res.glError = lg.e.gpu.gl.getError();
+    for (const e of [dt, lg.e]) { e.dispose(); e.gpu.gl.getExtension('WEBGL_lose_context')?.loseContext(); }
+    (worst as Record<string, unknown>).detailLog = res;
+  }
   return worst;
 }
 

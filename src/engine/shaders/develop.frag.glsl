@@ -105,6 +105,12 @@ void main() {
   // Scene light
   x = stageSharpen(x, ruv);
   x = stageDehaze(x, ruv);
+  // With detail before Exposure, Texture's input is the log lightness here (detaillog.glsl).
+  vec3 preExposure = x;
+  if (uTextureLog > 0.5 && uTap > 1.5 && uTap < 2.5) {
+    outColor = vec4(logLightness(x), 0.0, 0.0, 1.0);
+    return;
+  }
   x = stageExposure(x);
   x = stageMaskExposure(x);
   if (uTap > 5.5 && uTap < 6.5) {
@@ -119,6 +125,12 @@ void main() {
   x = stageMaskToneEqualizer(x, uv);
   if (uTap > 1.5 && uTap < 2.5) {
     outColor = vec4(labL(x), 0.0, 0.0, 1.0);
+    return;
+  }
+  if (uTextureLog > 0.5 && uTap > 6.5 && uTap < 7.5) {
+    // A masked instance's input in log lightness: before Exposure, plus the instances before it.
+    float acc = uTextureOn > 0.5 ? texture(uTextureTex, ruv).r : 0.0;
+    outColor = vec4(logLightness(preExposure) + acc, gMaskFinal[int(uTapMask + 0.5)], 0.0, 1.0);
     return;
   }
   x = stageTexture(x, ruv);

@@ -49,6 +49,9 @@ const scan = (chunk) => {
   while ((i = buf.indexOf('\n')) >= 0) {
     const line = buf.slice(0, i); buf = buf.slice(i + 1);
     if (line.includes('[webview:error]')) console.error(line);
+    // Cues for a recorder running beside the app (tools/perf/trace.mjs).
+    const cue = line.match(/PERF-TRACE-[A-Z]+/);
+    if (cue) console.log(cue[0]);
     const m = line.match(/\[webview:info\] PERF (.*)$/);
     if (m) { clearTimeout(timer); finish(report(JSON.parse(m[1]))); }
   }

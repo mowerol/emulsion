@@ -32,6 +32,7 @@ import { CONTROL_GROUPS, setWorkspace, useWorkspace } from './workspace';
 import { CropControls, cropSummary } from './CropControls';
 import { commitTyped } from './typed';
 import { Section } from './Section';
+import { setDetailOrder, useDetailOrder } from './detailorder';
 import { ISOS } from '../engine/grain';
 import { WhiteBalanceControls } from './WhiteBalanceControls';
 import { sliderGradient } from '../engine/colorequal';
@@ -418,6 +419,7 @@ export function Panel() {
     grading: <Section id="grading" title={grouped ? 'Colour wheels' : 'Colour Grading'} summary={sectionChanged(recipe, 'grading') ? 'Edited' : 'Neutral'} onReset={resetFor('grading', 'Colour Grading')}><ColourGradingControls recipe={base} /></Section>,
     detail: <Section id="detail" title="Detail" onReset={resetFor('detail', 'Detail')}>
       {!editing && <NoiseReductionControls recipe={base} path={photo.path} raw={photo.raw} />}{rows(sliderGroup('detail'))}
+      <DetailOrderToggle />
     </Section>,
     optics: <Section id="optics" title="Optics" onReset={resetFor(grouped ? 'refine-optics' : 'optics', 'Optics')}>{rows(grouped ? [...sliderGroup('optics'), 'fade'] : sliderGroup('optics'))}</Section>,
     grain: <Section id="grain" title="Grain" onReset={resetFor('grain', 'Grain')}><GrainSpeed recipe={base} />{rows(sliderGroup('grain'))}</Section>,
@@ -515,5 +517,16 @@ export function Panel() {
         {!multi && <OverflowMenu>{(close) => <EarlierEdits close={close} />}</OverflowMenu>}
       </div>}
     </aside>
+  );
+}
+
+/** Trial (option B): Texture measured before Exposure, so Exposure drags don't remake it. */
+function DetailOrderToggle() {
+  const order = useDetailOrder(s => s.order);
+  return (
+    <label className="detail-order-toggle" title="Trial: measure Texture's detail in log lightness before Exposure (faster Exposure and tone drags with Texture on; a slightly different look from darktable's order)">
+      <input type="checkbox" checked={order === 'log'} onChange={e => setDetailOrder(e.target.checked ? 'log' : 'darktable')} />
+      <span>Texture before Exposure (trial)</span>
+    </label>
   );
 }
