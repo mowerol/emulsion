@@ -20,8 +20,9 @@ const child = spawn('npx', ['tauri', 'dev', '--config', config], {
   cwd: new URL('../..', import.meta.url).pathname, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
   env: { ...process.env, VITE_PERF: which, EMULSION_OPEN_FOLDER: dir },
 });
-// The budget a drag must meet to feel live: 45 fps on screen and no freeze over 100 ms.
-const FPS = Number(process.env.PERF_FPS ?? 45), FREEZE = Number(process.env.PERF_FREEZE ?? 100);
+// The budget a drag must meet to feel live (Oli, 2026-11-03: "60fps throughout"): 55 fps on a
+// 60 Hz screen and no freeze over 50 ms (about three dropped frames).
+const FPS = Number(process.env.PERF_FPS ?? 55), FREEZE = Number(process.env.PERF_FREEZE ?? 50);
 function report(r) {
   console.log(JSON.stringify(r, null, 1));
   if (r.error) return 1;

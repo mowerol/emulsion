@@ -377,6 +377,42 @@ export async function run(which: string) {
       setSliders({ texture: 0, dehaze: 0, clarity: 0, color: null });
       out.zoomOut = await click(key('z'));
     }
+    if (want('zooms')) {
+      // Oli, 2026-11-03: 60 fps at every zoom, not just 100%. The six sliders he uses, each with
+      // Texture 40, Dehaze 30 and Clarity 30 on, at 50% (the preview at shown size), 100% and 200%
+      // (a region of the full resolution).
+      const modKey = (k: string) => () => window.dispatchEvent(new KeyboardEvent('keydown', { key: k, metaKey: true, bubbles: true }));
+      setSliders({ texture: 40, dehaze: 30, clarity: 30, color: null });
+      const fullW = useApp.getState().developSize!.W;
+      const drags = async (tag: string) => {
+        out[`${tag}Exposure`] = await sliderDrag('exposure', 'develop', 120);
+        out[`${tag}Texture`] = await sliderDrag('texture', 'refine', 120);
+        out[`${tag}Dehaze`] = await sliderDrag('dehaze', 'refine', 120);
+        out[`${tag}Clarity`] = await sliderDrag('clarity', 'refine', 120);
+        out[`${tag}Hsl`] = await sliderDrag('color-sat-2', 'colour', 120);
+        out[`${tag}Sharpen`] = await sliderDrag('sharpen', 'refine', 120);
+        out[`${tag}Src`] = lastSrcW;
+      };
+      out.zoomIn = await click(key('z'));
+      const z0 = performance.now();
+      while (lastSrcW !== fullW && performance.now() - z0 < 60000) await wait(50);
+      await settle(800, 30000);
+      await drags('z100');
+      // 50%: the preview is decoded again at the shown size once the view stays put.
+      out.zoom50 = await click(modKey('-'));
+      await wait(4000);
+      await settle(800, 30000);
+      await drags('z50');
+      out.zoom200 = await click(modKey('='));
+      await click(modKey('='));
+      const z1 = performance.now();
+      while (lastSrcW !== fullW && performance.now() - z1 < 60000) await wait(50);
+      await wait(1500);
+      await settle(800, 30000);
+      await drags('z200');
+      setSliders({ texture: 0, dehaze: 0, clarity: 0, color: null });
+      await click(modKey('0'));
+    }
     if (want('z100combo')) {
       // Oli, 2026-11-03: at 100% "dehaze, texture, exposure, maybe clarity when all used together".
       // Each drag runs with the other three on.
