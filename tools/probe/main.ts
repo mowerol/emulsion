@@ -10,6 +10,7 @@ import lensFixtures from '../../src/engine/fixtures/lens-metadata.json';
 import { LENS_DEFAULTS, lensCenter, lensColourUniforms, lensCorrectPixels, lensSpline, lensUniforms, type LensMetadata } from '../../src/engine/lenscorrection';
 import { setPrefs } from '../../src/ui/prefs';
 import { setWorkspace } from '../../src/ui/workspace';
+import { setLookBrowserView, toggleLookFavourite, useLookBrowser } from '../../src/ui/lookbrowser';
 import App from '../../src/App';
 import { Engine, colorEqParams, type Source } from '../../src/engine/engine';
 import { updateGrade } from '../../src/film/grading';
@@ -39,7 +40,7 @@ import { Filmstrip } from '../../src/ui/Filmstrip';
 import { Library } from '../../src/ui/Library';
 import { StageMenu } from '../../src/ui/StageMenu';
 import { Panel } from '../../src/ui/Panel';
-import { useApp } from '../../src/library/store';
+import { startLookEdit, useApp } from '../../src/library/store';
 import { bandFactors, bandGains, correction, luminance, toneEqualize } from '../../src/engine/toneequalizer';
 import { clarityParams, lightness, localLaplacian, withLightness } from '../../src/engine/locallaplacian';
 import { unsharpMask, usmParams } from '../../src/engine/usm';
@@ -369,7 +370,8 @@ function probeTone(eng: Engine) {
     uniforms: developUniforms({ ...defaultRecipe(), whites, blacks, toneCharacter }, stageCtx),
     ref: (c: Vec3) => toneProfileRgb(c, whites, blacks, toneCharacter),
   }]));
-  const tone = probeStage(eng, ['stages/tone.glsl'], 'stageToneProfile(c)', COLOURS, cases);
+  // Very large scene values too: the curve's film term overflows floats there (darktable's NaN check).
+  const tone = probeStage(eng, ['stages/tone.glsl'], 'stageToneProfile(c)', [...COLOURS, [1e6, 1e15, 1e30], [3e38, 1e20, 50]], cases);
   // The input stage's inverse followed by the original's neutral curve must give back the display value.
   const display: Vec3[] = Array.from({ length: 16 }, (_, i) => [i / 15, Math.min(1, (i * 0.37) % 1), 0.002 + (i / 15) * 0.9] as Vec3);
   const roundTrip = probeStage(eng, ['stages/tone.glsl'], 'stageToneNeutral(vec3(toneInverse(c.r), toneInverse(c.g), toneInverse(c.b)))', display, {
@@ -608,6 +610,21 @@ function probeColorEq(eng: Engine) {
     }
     cases[name] = { worst, largestChange: big };
   }
+  // A look's instance, then the photo's on its output (darktable's two instances in a row).
+  {
+    const look = { hue: [0, 15, 0, 0, -20, 0, 0, 0], sat: [40, 0, -30, 0, 0, 20, 0, 0], bright: [0, -20, 0, 30, 0, 0, 0, 0] };
+    const own = { hue: [0, 0, 10, 0, 0, 0, -15, 0], sat: [0, 30, 0, -40, 0, 0, 0, 25], bright: [20, 0, 0, 0, -30, 0, 0, 0] };
+    for (const roi of [1, 0.4]) {
+      const got = eng.probeColorEqPair(Float32Array.from(rgb), w, h, look, own, roi);
+      const ref = colorEqualize(colorEqualize(rgb, w, h, colorEqParams(look), roi), w, h, colorEqParams(own), roi);
+      let worst = 0, big = 0;
+      for (let k = 0; k < rgb.length; k++) {
+        worst = Math.max(worst, Math.abs(got[k] - ref[k]));
+        big = Math.max(big, Math.abs(ref[k] - rgb[k]));
+      }
+      cases[roi === 1 ? 'lookThenPhoto' : 'lookThenPhotoPreview'] = { worst, largestChange: big };
+    }
+  }
   // Every node at rest: darktable's curves ripple slightly, so this is near, not at, the input.
   const restC = { hue: zero(), sat: zero(), bright: zero() };
   const restGot = eng.probeColorEq(Float32Array.from(rgb), w, h, restC, 1);
@@ -630,6 +647,9 @@ function probeMapCache() {
     x.fillRect(i, j, 1, 1);
   }
   const zero8 = () => new Array(8).fill(0);
+  const lookHsl = { hue: [0, 20, 0, 0, -25, 0, 0, 0], sat: [0, 0, 50, 0, 0, -40, 0, 0], bright: [0, -30, 0, 0, 0, 0, 25, 0] };
+  const withLookColor = (r: Recipe, color: typeof lookHsl | null, amount: number): Recipe => ({ ...r, lookEnabled: true, pack: 't3mujinpack', stock: 'portra400', lookAmount: amount,
+    lookSnapshot: { id: 'probe', name: 'Probe', revision: 1, kind: 'look', settings: { colorBalance: null, curve: null, lut: { kind: 'pack', pack: 't3mujinpack', stock: 'portra400', amount: 1 }, ...(color ? { color } : {}) } } });
   const base: Recipe = { ...defaultRecipe('portra400'), grain: 0, texture: 30, clarity: 40, sharpen: 30, halation: 20, color: { hue: zero8(), sat: [40, 0, 0, 0, 0, 0, 0, 0], bright: zero8() } };
   const steps: [string, Recipe][] = [
     ['base', base],
@@ -643,6 +663,13 @@ function probeMapCache() {
     ['halation', { ...base, halation: 60 }],
     ['stock', { ...base, stock: 'gold200' }],
     ['back', base],
+    // A look's HSL: its own colour equalizer instance before the photo's.
+    ['lookColour', withLookColor(base, lookHsl, 100)],
+    ['lookPhotoColour', withLookColor({ ...base, color: { hue: zero8(), sat: [0, 0, -30, 0, 0, 0, 0, 20], bright: zero8() } }, lookHsl, 100)],
+    ['lookAmount', withLookColor(base, lookHsl, 40)],
+    ['lookOnly', withLookColor({ ...base, color: null }, lookHsl, 100)],
+    ['lookExposure', { ...withLookColor(base, lookHsl, 100), exposure: 0.3 }],
+    ['lookBack', base],
   ];
   const live = new Engine(document.createElement('canvas'));
   const lsrc = live.sourceFromImage(c, w, h);
@@ -655,7 +682,15 @@ function probeMapCache() {
     for (let k = 0; k < got.length; k++) d = Math.max(d, Math.abs(got[k] - want[k]));
     worst[name] = d;
     fresh.dispose();
+    // Chrome keeps about 16 WebGL contexts and drops the oldest (the live engine's) past that.
+    fresh.gpu.gl.getExtension('WEBGL_lose_context')?.loseContext();
   }
+  // The look's HSL must change the picture (else the steps above prove nothing).
+  const plain = live.readPixels(lsrc, withLookColor(base, null, 100), w, h, 1);
+  const hsl = live.readPixels(lsrc, withLookColor(base, lookHsl, 100), w, h, 1);
+  let moved = 0;
+  for (let k = 0; k < plain.length; k++) moved = Math.max(moved, Math.abs(plain[k] - hsl[k]));
+  worst.lookHslMoves = moved;
   return worst;
 }
 
@@ -985,7 +1020,8 @@ try {
     };
     const base = { ...defaultRecipe('neutral', 'straight'), grain: 0 };
     const result: Record<string, unknown> = {};
-    for (const strength of [60, -40]) {
+    // 25 and -90 reuse the filter made for 60 and -40 (it depends on the sign only; uGfScale).
+    for (const strength of [60, 25, -40, -90]) {
       const plain = eng.readPixels(hsrc, base, hw, hh, 1);
       const px = eng.readPixels(hsrc, { ...base, dehaze: strength, dehazeDistance: 20 }, hw, hh, 1);
       const I = read(anyEng.dh.I.fbo), ab = read(anyEng.dh.s1.fbo);
@@ -994,7 +1030,8 @@ try {
       const t = dehazeGuided(I, dehazeTransition(I, hw, hh, w1, amb.A0, strength / 100), hw, hh, w2, DEHAZE_EPS);
       let worstT = 0, moved = 0;
       for (let i = 0; i < hw * hh; i++) {
-        const got = ab[4 * i] * I[4 * i] + ab[4 * i + 1] * I[4 * i + 1] + ab[4 * i + 2] * I[4 * i + 2] + ab[4 * i + 3];
+        const k = Math.abs(strength) / 100;
+        const got = (1 - k) + k * (ab[4 * i] * I[4 * i] + ab[4 * i + 1] * I[4 * i + 1] + ab[4 * i + 2] * I[4 * i + 2] + ab[4 * i + 3]);
         worstT = Math.max(worstT, Math.abs(got - t[i]));
       }
       px.forEach((v, i) => { if (i % 4 < 3) moved = Math.max(moved, Math.abs(v - plain[i])); });
@@ -1629,6 +1666,22 @@ try {
         const draft: Crop = turned ? flip(turn(setAngle(setAspect(FULL, 'xpan', 6000, 4000), 1.8, 6000, 4000), 1), 'h') : setAngle(setAspect(FULL, '3:2', 6000, 4000), 1.8, 6000, 4000);
         useApp.setState({ cropEdit: { path: many[1].path, draft, W: 6000, H: 4000 } });
         if (params.has('ratiomenu')) setTimeout(() => (appHost.querySelector('.crop-ratio-button') as HTMLElement | null)?.click(), 500);
+      }
+      // &look: the Look Creator on the active photo (&lut picks a base LUT so the summary shows).
+      if (params.has('look')) {
+        // Count tile (re-)observations: a settled grid observes each tile once.
+        const counts = { observe: 0 };
+        const Real = window.IntersectionObserver;
+        window.IntersectionObserver = class extends Real { observe(t: Element) { counts.observe++; super.observe(t); } };
+        setTimeout(() => { (window as unknown as { lookObserve: number }).lookObserve = counts.observe; document.body.dataset.lookObserve = String(counts.observe); document.body.dataset.lookTiles = String(document.querySelectorAll('.lut-tile').length); }, 3000);
+        const draft = { ...defaultRecipe(), lookEnabled: false, contrast: 12 };
+        startLookEdit(many[1].path, 'probe-look', 'My look', params.has('lut') ? { ...draft, lookEnabled: true, pack: 't3mujinpack', stock: 'portra400', lookAmount: 80 } as Recipe : draft);
+      }
+      // &looks: the Look browser in grid view, with two favourites (previews need a decoded photo).
+      if (params.has('looks')) {
+        setLookBrowserView('grid');
+        for (const k of ['t3mujinpack:portra400', 't3mujinpack:superia400']) if (!useLookBrowser.getState().favourites.includes(k)) toggleLookFavourite(k);
+        setTimeout(() => (appHost.querySelector('.look-browse-button') as HTMLElement | null)?.click(), 600);
       }
       if (new URLSearchParams(location.search).has('viewmenu')) setTimeout(() => (appHost.querySelector('.image-view-toggle') as HTMLElement | null)?.click(), 500);
     }

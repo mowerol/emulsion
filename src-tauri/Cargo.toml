@@ -10,7 +10,7 @@ default-run = "emulsion"
 
 [features]
 # The CLI adds process memory measurements; the app loads AI only on demand.
-denoise-probe = ["dep:libc"]
+denoise-probe = []
 
 [[bin]]
 name = "denoise-probe"
@@ -48,7 +48,8 @@ percent-encoding = "2.3.2"
 tauri = { version = "2", features = [] }
 ort = { version = "=2.0.0-rc.11", default-features = false, features = ["std", "load-dynamic", "coreml"] }
 sha2 = "0.10"
-libc = { version = "0.2", optional = true }
+libc = "0.2"
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

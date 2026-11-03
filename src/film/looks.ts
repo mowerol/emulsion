@@ -211,7 +211,7 @@ export function lookSettings(pack: PackId, stock: StockId): ProfileSettings | nu
 /** Only the raw LUT ingredient is selectable in the Look editor. */
 export function lutBase(pack: PackId, stock: StockId) {
   const settings = lookSettings(pack, stock);
-  return settings && !settings.colorBalance && !settings.curve && (!settings.scanner || settings.scanner === 'straight') ? settings.lut : null;
+  return settings && !settings.colorBalance && !settings.curve && !settings.color && (!settings.scanner || settings.scanner === 'straight') ? settings.lut : null;
 }
 
 export function withLook(recipe: Recipe, pack: PackId, stock: StockId): Recipe {

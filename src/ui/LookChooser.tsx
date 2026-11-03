@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { ScannerFinishControls } from './ScannerFinish';
 import type { ScannerId } from '../film/scanners';
-import { PACK, PACKS, lookName, type PackId } from '../film/looks';
+import { PACK, PACKS, lookName, withLook, type PackId } from '../film/looks';
 import type { StockId } from '../film/stocks';
-import type { Recipe } from '../film/recipe';
+import { defaultRecipe, type Recipe } from '../film/recipe';
+import type { Photo } from '../library/store';
+import { useTileRenders } from './tilerenders';
 import { useUserLooksVersion } from '../library/userlooks';
 import { choiceKey, lookChoices, setLookBrowserView, toggleLookFavourite, useLookBrowser, type LookChoice } from './lookbrowser';
 
@@ -16,23 +18,51 @@ function Swatch({ name, bw = false }: { name: string; bw?: boolean }) {
   return <span className="look-swatch" aria-hidden="true" style={{ background: `linear-gradient(160deg, ${a} 55%, ${b} 55%)` }} />;
 }
 function GridIcon() { return <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M2 2h6v6H2zM12 2h6v6h-6zM2 12h6v6H2zM12 12h6v6h-6z" stroke="currentColor" strokeWidth="1.5"/></svg>; }
-function LookRow({ item, selected, favourite, onPick, onDelete, onDuplicate }: { item: LookChoice; selected: boolean; favourite: boolean; onPick: () => void; onDelete: () => Promise<void>; onDuplicate: () => void }) {
+function LookRow({ item, selected, favourite, thumb, placeholder, onPick, onDelete, onDuplicate }: { item: LookChoice; selected: boolean; favourite: boolean; thumb: ((el: HTMLCanvasElement | null) => void) | null; placeholder: string | null; onPick: () => void; onDelete: () => Promise<void>; onDuplicate: () => void }) {
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   return <div className={`look-row${selected ? ' selected' : ''}`}>
-    <button type="button" className="look-row-pick" title={item.name} aria-pressed={selected} onClick={onPick}><Swatch name={item.name} bw={item.bw}/><span>{item.name}</span></button>
+    <button type="button" className="look-row-pick" title={item.name} aria-pressed={selected} onClick={onPick}>{thumb ? <canvas ref={thumb} className="look-swatch look-thumb" aria-hidden="true" style={placeholder ? { backgroundImage: `url("${placeholder}")` } : undefined}/> : <Swatch name={item.name} bw={item.bw}/>}<span>{item.name}</span></button>
     <button type="button" className="look-star" aria-label={`${favourite ? 'Remove' : 'Add'} ${item.name} ${favourite ? 'from' : 'to'} favourites`} aria-pressed={favourite} onClick={() => toggleLookFavourite(item.key)}>{favourite ? '★' : '☆'}</button>
     <details className="look-row-menu"><summary aria-label={`Manage ${item.name}`}>⋯</summary><div className="look-row-menu-items"><button type="button" onClick={onDuplicate}>Duplicate…</button>{item.custom && <button type="button" onClick={() => setConfirm(true)}>Delete look…</button>}</div></details>
     {confirm && <div className="look-delete-confirm"><p>Delete {item.name} from your library? Existing photos keep their appearance.</p>{error && <p role="alert">{error}</p>}<button disabled={busy} onClick={async () => { setBusy(true); setError(''); try { await onDelete(); } catch(e) { setError(String(e)); } finally { setBusy(false); } }}>Delete</button><button disabled={busy} onClick={() => setConfirm(false)}>Cancel</button></div>}
   </div>;
 }
-export function LookChooser({ recipe, onPick, onAmount, onEdit, onNew, onRemove, onDelete, onDuplicate, onScannerChange }: {
-  recipe: Recipe; onPick: (pack: PackId, id: StockId) => void; onAmount: (amount: number) => void; onEdit: () => void;
+/** The photo without its look, which every look's preview starts from. */
+const withoutLook = (r: Recipe): Recipe => ({ ...r, pack: defaultRecipe().pack, stock: defaultRecipe().stock, lookEnabled: false, lookSnapshot: undefined, lookAmount: 100, scannerFromLook: true });
+
+/**
+ * The browser's groups. In the grid view each look is previewed on the current photo (as
+ * the Look Creator's LUT grid does): drawn as they scroll into view, kept until the photo's own edits change.
+ */
+function LookGroups({ photo, groups, view, selected, favourites, onPick, onDelete, onDuplicate }: {
+  photo: Photo | null; groups: { id: string; title: string; entries: LookChoice[] }[]; view: string; selected: string | null; favourites: string[];
+  onPick: (item: LookChoice) => void; onDelete: (item: LookChoice) => Promise<void>; onDuplicate: (item: LookChoice) => void;
+}) {
+  const root = useRef<HTMLDivElement>(null);
+  const base = useMemo(() => withoutLook(photo?.recipe ?? defaultRecipe()), [photo?.recipe]);
+  const baseKey = useMemo(() => JSON.stringify(base), [base]);
+  const shown = groups.filter(g => g.entries.length > 0);
+  // A look can show twice (Favourites and its collection), so tiles are keyed by group too.
+  // Only the grid shows previews; the list keeps the small colour swatches.
+  const grid = view === 'grid';
+  const byKey = new Map<string, LookChoice>(!grid ? [] : shown.flatMap(g => g.entries.map(i => [`${g.id}|${i.key}`, i] as const)));
+  const { tileRef, placeholder } = useTileRenders({
+    photo, keys: [...byKey.keys()], baseKey, root,
+    // Covers a 4:3 grid card (about 135 px wide) at 2×.
+    size: [280, 210],
+    recipeFor: k => { const i = byKey.get(k); return i ? withLook(base, i.pack, i.stock) : base; },
+  });
+  return <div ref={root} className="look-browser-groups">{shown.map(({ id, title, entries }) => <details open key={id} className="look-browser-group"><summary>{title} <span>({entries.length})</span></summary><div className={`look-entries ${view}`}>{entries.map(item=><LookRow key={item.key} item={item} selected={selected===item.key} favourite={favourites.includes(item.key)} thumb={grid ? tileRef(`${id}|${item.key}`) : null} placeholder={placeholder} onPick={()=>onPick(item)} onDelete={()=>onDelete(item)} onDuplicate={()=>onDuplicate(item)}/>)}</div></details>)}</div>;
+}
+
+export function LookChooser({ photo, recipe, onPick, onAmount, onEdit, onNew, onRemove, onDelete, onDuplicate, onScannerChange }: {
+  photo: Photo | null; recipe: Recipe; onPick: (pack: PackId, id: StockId) => void; onAmount: (amount: number) => void; onEdit: () => void;
   onScannerChange: (choice: ScannerId | 'look') => void;
   onDuplicate: (pack: PackId, stock: StockId) => void; onNew: () => void; onRemove: () => void; onDelete: (id: StockId) => Promise<void>;
 }) {
-  useUserLooksVersion();
+  const looksVersion = useUserLooksVersion();
   const preferences = useLookBrowser();
   const [quick, setQuick] = useState(false);
   const [browse, setBrowse] = useState(false);
@@ -41,13 +71,15 @@ export function LookChooser({ recipe, onPick, onAmount, onEdit, onNew, onRemove,
   const host = useRef<HTMLDivElement>(null);
   const dialog = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement | null>(null);
-  const items = lookChoices();
+  // Every look in every pack: made again only when custom looks change, not on every edit.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const items = useMemo(() => lookChoices(), [looksVersion]);
   const key = recipe.lookEnabled ? choiceKey(recipe.pack, recipe.stock) : null;
   const name = recipe.lookEnabled ? recipe.lookSnapshot?.name ?? lookName(recipe.pack, recipe.stock) : 'None';
   const active = items.find(i => i.key === key);
   const favourites = items.filter(i => preferences.favourites.includes(i.key));
   const matches = items.filter(i => i.name.toLowerCase().includes(query.trim().toLowerCase()) && (filter === 'all' || (filter === 'bw' ? i.bw : !i.bw)));
-  const groups: { id: string; title: string; entries: LookChoice[] }[] = [
+  const groups: { id: string; title: string; entries: LookChoice[] }[] = !browse ? [] : [
     { id: 'favourites', title: 'Favourites', entries: matches.filter(i => preferences.favourites.includes(i.key)) },
     { id: 'custom', title: 'My looks', entries: matches.filter(i => i.custom) },
     ...PACKS.filter(p => !p.hidden && !p.user).flatMap(p => {
@@ -94,8 +126,8 @@ export function LookChooser({ recipe, onPick, onAmount, onEdit, onNew, onRemove,
     <header className="look-browser-heading"><div><strong>{name}</strong><button className="btn" onClick={close}>Close</button></div>{amount}</header>
     <div className="look-browser-toolbar"><div className="look-colour-filters" role="group" aria-label="Look colour filter">{(['all','colour','bw'] as const).map(f=><button key={f} aria-pressed={filter===f} onClick={()=>setFilter(f)}>{f==='all'?'All':f==='colour'?'Colour':'B&W'}</button>)}</div><div className="look-view-buttons" role="group" aria-label="Look browser layout"><button aria-label="List view" aria-pressed={preferences.view==='list'} onClick={()=>setLookBrowserView('list')}>☰</button><button aria-label="Grid view" aria-pressed={preferences.view==='grid'} onClick={()=>setLookBrowserView('grid')}><GridIcon/></button></div></div>
     <input className="look-search" type="search" aria-label="Search looks" placeholder="Search looks…" value={query} onChange={e=>setQuery(e.target.value)}/>
-    <div className="look-browser-groups">{groups.map(({ id, title, entries }) => entries.length > 0 && <details open key={id} className="look-browser-group"><summary>{title} <span>({entries.length})</span></summary><div className={`look-entries ${preferences.view}`}>{entries.map(item=><LookRow key={item.key} item={item} selected={key===item.key} favourite={preferences.favourites.includes(item.key)} onPick={()=>pick(item)} onDelete={()=>onDelete(item.stock)} onDuplicate={()=>{close();onDuplicate(item.pack,item.stock);}}/>)}</div></details>)}
-    {!matches.length && <p className="look-empty">{query ? 'No matching looks.' : 'No looks in this category.'}</p>}</div>
+    <LookGroups photo={photo} groups={groups} view={preferences.view} selected={key} favourites={preferences.favourites} onPick={item=>pick(item)} onDelete={item=>onDelete(item.stock)} onDuplicate={item=>{close();onDuplicate(item.pack,item.stock);}}/>
+    {!matches.length && <p className="look-empty">{query ? 'No matching looks.' : 'No looks in this category.'}</p>}
     <footer><button onClick={()=>{close();onNew();}}>＋ New look…</button></footer>
   </div>;
   const portalHost = host.current?.closest('.panel');

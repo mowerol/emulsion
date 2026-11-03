@@ -3,7 +3,8 @@ import { describe, expect, it } from 'vitest';
 import { CB_DEFAULTS } from '../engine/colorbalance';
 import { InputMode, developUniforms } from '../engine/params';
 import { curveTable } from './curve';
-import { colourAtRest, composedCurveTable, normalizeSettings, recipeFromSettings, scaledColorBalance, scaledSettings, settingsFromRecipe, withoutProfileFields } from './creative';
+import { colourAtRest, composedCurveTable, lookColorFor, normalizeSettings, recipeFromSettings, scaledColor, scaledColorBalance, scaledSettings, settingsFromRecipe, withoutProfileFields } from './creative';
+import { lutBase } from './looks';
 import { customLookId, fileLutId, registerCustomLook, registerFileLut } from './looks';
 import { defaultRecipe, type Recipe } from './recipe';
 
@@ -112,5 +113,33 @@ describe('creative profiles', () => {
     expect(colourAtRest(defaultRecipe())).toBe(true);
     expect(colourAtRest(graded())).toBe(false);
   });
-});
 
+  it('carries HSL as a colour equalizer instance of its own, scaled by Amount', () => {
+    const color = { hue: [0, 20, 0, 0, 0, 0, 0, 0], sat: [40, 0, 0, 0, -30, 0, 0, 0], bright: [0, 0, 10, 0, 0, 0, 0, 0] };
+    const s = settingsFromRecipe({ ...defaultRecipe(), color }, null);
+    expect(s.color).toEqual(color);
+    // Through a saved file and back onto the editor's sliders.
+    const read = normalizeSettings(JSON.parse(JSON.stringify(s)))!;
+    expect(read.color).toEqual(color);
+    expect(recipeFromSettings(defaultRecipe(), read).color).toEqual(color);
+    expect(normalizeSettings({ color: { hue: [999], sat: 'x' } })!.color).toEqual({ hue: [120, 0, 0, 0, 0, 0, 0, 0], sat: new Array(8).fill(0), bright: new Array(8).fill(0) });
+    expect(normalizeSettings({ color: { hue: [0], sat: [], bright: [] } })!.color).toBeUndefined();
+    // Amount scales every value towards 0; nothing left is no instance.
+    expect(scaledColor(color, 0.5)).toEqual({ hue: [0, 10, 0, 0, 0, 0, 0, 0], sat: [20, 0, 0, 0, -15, 0, 0, 0], bright: [0, 0, 5, 0, 0, 0, 0, 0] });
+    expect(scaledColor(color, 0)).toBeNull();
+    expect(scaledSettings(s, 0.5).color).toEqual(scaledColor(color, 0.5));
+    const applied: Recipe = { ...defaultRecipe(), lookEnabled: true, lookAmount: 50, lookSnapshot: { id: 'x', name: 'X', revision: 1, kind: 'look', settings: s } };
+    expect(lookColorFor(applied)).toEqual(scaledColor(color, 0.5));
+    expect(lookColorFor({ ...applied, lookEnabled: false })).toBeNull();
+    // A photo saved as a look hands its HSL to the look.
+    expect(withoutProfileFields({ ...defaultRecipe(), color }).color).toBeNull();
+    expect(colourAtRest({ ...defaultRecipe(), color })).toBe(false);
+  });
+
+  it('does not treat a look with HSL as a bare LUT', () => {
+    const settings = { colorBalance: null, curve: null, lut: { kind: 'pack' as const, pack: 't3mujinpack', stock: 'portra400', amount: 1 }, color: { hue: new Array(8).fill(0), sat: [10, 0, 0, 0, 0, 0, 0, 0], bright: new Array(8).fill(0) } };
+    const id = customLookId('hsl-probe');
+    registerCustomLook('hsl-probe', 'HSL', settings);
+    expect(lutBase('custom', id)).toBeNull();
+  });
+});

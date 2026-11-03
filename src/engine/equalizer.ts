@@ -9,6 +9,8 @@
 // Region preview deviation, approved by Oli (2026-11-02, docs/plans/roi.md): bands with spacing
 // <=32 full-resolution pixels run locally; broader-band changes are sampled from the preview.
 // Scale counts and boost curves still use whole-photo dimensions. Exports use every full-size band.
+// The detail is summed by the boost's two terms in the mix (amountScales, equalizeParts) so the
+// amount applies after the decomposition: the same synthesis, regrouped, exact for the preset.
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Reference implementation of the texture stage: darktable's contrast equalizer.
@@ -24,8 +26,8 @@ export const BANDS = 6;
 export const MAX_SCALES = 8;
 /** Approved region preview split: evaluate fine bands locally, coarse changes in the preview. */
 export const REGION_FINE_MULT = 32;
-export const regionFineScales = (sc: Scale[]) => sc.filter(s => s.mult <= REGION_FINE_MULT);
-export const isRegionCoarse = (s: Scale, previewScale: number) => (4 * s.mult + 1) / previewScale > 4 * REGION_FINE_MULT + 1;
+export const regionFineScales = <T extends { mult: number }>(sc: T[]) => sc.filter(s => s.mult <= REGION_FINE_MULT);
+export const isRegionCoarse = (s: { mult: number }, previewScale: number) => (4 * s.mult + 1) / previewScale > 4 * REGION_FINE_MULT + 1;
 
 /** A curve over the sizes, coarse (x = 0) to fine (x = 1). */
 export interface BandCurve {
@@ -104,6 +106,27 @@ export function scales(srcW: number, srcH: number, fullW: number, fullH: number,
   return out.slice(0, Math.min(maxRoi, i));
 }
 
+/**
+ * A band's boost as a function of the Texture amount: boost - 1 = a·mix + c·mix². The mix moves
+ * the preset's L curve linearly (applyMix leaves x alone, and the curve through points on a line
+ * is that line), so the boost (2·curve)² is (1 + 2·mix·g)² = 1 + 4g·mix + 4g²·mix², g the
+ * curve's distance from 0.5 at mix 1; the sharpness curve is flat, so mixing leaves it and the
+ * edge weights as they are. The decomposition is then the same for every amount and the change in
+ * lightness is mix·A + mix²·B (equalizeParts), the same sum darktable's synthesis makes, regrouped.
+ */
+export interface AmountScale {
+  mult: number;
+  sharpen: number;
+  a: number;
+  c: number;
+}
+
+/** The bands of `scales` with their boosts split by power of the mix (from the boosts at ±1). */
+export function amountScales(srcW: number, srcH: number, fullW: number, fullH: number): AmountScale[] {
+  const up = scales(srcW, srcH, fullW, fullH, 1), down = scales(srcW, srcH, fullW, fullH, -1);
+  return up.map((s, i) => ({ mult: s.mult, sharpen: s.sharpen, a: (s.boost - down[i].boost) / 2, c: (s.boost + down[i].boost) / 2 - 1 }));
+}
+
 const FILTER = [1, 4, 6, 4, 1];
 
 /**
@@ -133,6 +156,25 @@ export function decompose(L: Float64Array, w: number, h: number, s: Scale, accum
       accum[j * w + i] += s.boost * (c - sum / wgt);
     }
   return coarse;
+}
+
+/**
+ * The contrast equalizer's change in lightness split by power of the mix, for `amountScales`:
+ * equalize(L, scales(mix)) - L = mix·A + mix²·B. The detail of every band, boosted by a and by c.
+ */
+export function equalizeParts(L: Float64Array, w: number, h: number, sc: AmountScale[]): { A: Float64Array; B: Float64Array } {
+  const A = new Float64Array(w * h), B = new Float64Array(w * h);
+  let buf = L;
+  for (const s of sc) {
+    const detail = new Float64Array(w * h);
+    const next = decompose(buf, w, h, { mult: s.mult, sharpen: s.sharpen, boost: 1 }, detail);
+    for (let k = 0; k < w * h; k++) {
+      A[k] += s.a * detail[k];
+      B[k] += s.c * detail[k];
+    }
+    buf = next;
+  }
+  return { A, B };
 }
 
 /** The contrast equalizer on a lightness plane (0 to 100). */

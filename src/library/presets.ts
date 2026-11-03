@@ -3,6 +3,7 @@ import { useSyncExternalStore } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { isTauri } from '../backend/api';
 import { normalizePreset, type Preset } from '../film/presets';
+import { getSetting, setSetting } from './appsettings';
 let entries: Preset[] = [];
 const listeners = new Set<() => void>();
 function changed() { listeners.forEach(l => l()); }
@@ -23,13 +24,14 @@ export async function deletePreset(id: string) {
   changed();
 }
 
-// Favourites and empty collections are remembered on this computer, like Look favourites.
+// Favourites and empty collections are kept in the app's settings file, like Look favourites.
 const FAV_KEY = 'emulsion.presetFavourites';
 const COLL_KEY = 'emulsion.presetCollections';
-const readList = (key: string): string[] => {
-  try { const v = JSON.parse(localStorage.getItem(key) ?? '[]'); return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : []; } catch { return []; }
+const readList = (key: typeof FAV_KEY | typeof COLL_KEY): string[] => {
+  const v = getSetting(key);
+  return Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
 };
-const writeList = (key: string, list: string[]) => { try { localStorage.setItem(key, JSON.stringify(list)); } catch { /* still works for this session */ } };
+const writeList = (key: typeof FAV_KEY | typeof COLL_KEY, list: string[]) => setSetting(key, list);
 let favourites = readList(FAV_KEY);
 let collections = readList(COLL_KEY);
 const prefListeners = new Set<() => void>();

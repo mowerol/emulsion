@@ -45,7 +45,7 @@ async function check() {
   assert(moved>2,`Dehaze changed the image by only ${moved} levels`);
   // The ambient light (once) and the module's input (once): strength changes reuse both.
   assert(builds===2,`Changing strength remade the input ${builds} times`);
-  const map=(eng as any).dh.s1.tex;
+  const map=(eng as any).L.dh.s1.tex;
   eng.dropBuffers(W,H);
   assert(!eng.gpu.gl.isTexture(map),'Export cleanup retained the full-sized haze removal maps');
   eng.release(a);eng.dispose();

@@ -18,7 +18,9 @@
 // An instance is x -> (x - A0) / t + A0 blended by its mask m, which is affine per pixel, so the
 // instances fold into one image of (beta, alpha), x -> alpha x + beta:
 //  7 from uI (the instance's input), uB (its a, b), uC (its mask, .r, with uWeighted) and uA (the
-//    instances before it, with uPrevOn): the fold up to this instance
+//    instances before it, with uPrevOn): the fold up to this instance. Steps 1-6 run for a
+//    strength of ±1 (the sign); uGfScale, the strength's size k, makes their transmission t into
+//    (1 - k) + k t, which is exactly the filter's output for the strength (Engine.dehazeTransmission).
 //  8 from uI (the photo's input) and uA (with uPrevOn): a masked instance's input
 //  9 the same at a small size, uI at this size and uA sampled, for measuring the ambient light
 precision highp float;
@@ -43,6 +45,7 @@ uniform float uEps;
 uniform float uTmin;
 uniform float uPrevOn;
 uniform float uWeighted;
+uniform float uGfScale;
 
 const int MAX_W = 12;
 const float FLT_MAX = 3.402823466e38;
@@ -66,7 +69,7 @@ void main() {
       return;
     }
     vec4 ab = texelFetch(uB, p, 0);
-    float t = max(dot(ab.rgb, x) + ab.a, uTmin);
+    float t = max((1.0 - uGfScale) + uGfScale * (dot(ab.rgb, x) + ab.a), uTmin);
     float m = uWeighted > 0.5 ? texelFetch(uC, p, 0).r : 1.0;
     // (1 - m) x + m ((x - A0) / t + A0)
     float alpha = 1.0 + m * (1.0 / t - 1.0);

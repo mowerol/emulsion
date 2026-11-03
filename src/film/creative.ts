@@ -9,7 +9,8 @@ import { CB_DEFAULTS, colorBalanceParams, sliderParams, type CbParams } from '..
 import { CURVE_RES, curveTable, isIdentity, normalizeCurve, type ToneCurve } from './curve';
 import { isScannerId, type ScannerId } from './scanners';
 import { normalizeGrading } from './grading';
-import type { Recipe } from './recipe';
+import { normalizeColor, tidyColor, type ColorAdjust, type Recipe } from './recipe';
+import { profileSettingsFor } from './looks';
 
 /**
  * A custom look's LUT, with how much of it applies (0 to 1): a system look it refers to, or a LUT
@@ -29,10 +30,12 @@ export interface ProfileSettings {
   curve: ToneCurve | null;
   lut: LutSource | null;
   scanner?: ScannerId;
+  /** HSL: a colour equalizer instance before the photo's own (absent when every value is 0). */
+  color?: ColorAdjust;
 }
 
 /** The recipe fields a profile takes over when it is saved from a photo. */
-export const PROFILE_FIELDS = ['contrast', 'vibrance', 'saturation', 'shadows', 'grading', 'curve'] as const;
+export const PROFILE_FIELDS = ['contrast', 'vibrance', 'saturation', 'shadows', 'grading', 'curve', 'color'] as const;
 
 /** The colour balance settings Amount scales towards darktable's defaults. Hues, weights and fulcrums stay. */
 const SCALED = /(_Y|_C)$|^(chroma|saturation|brilliance)_|^(vibrance|contrast|hue_angle)$/;
@@ -50,6 +53,7 @@ export function settingsFromRecipe(r: Recipe, lut: LutSource | null): ProfileSet
     curve: isIdentity(r.curve) ? null : r.curve,
     lut,
     ...(r.scanner !== 'straight' ? { scanner: r.scanner } : {}),
+    ...(tidyColor(r.color) ? { color: structuredClone(r.color!) } : {}),
   };
 }
 
@@ -68,6 +72,7 @@ export function recipeFromSettings(r: Recipe, s: ProfileSettings): Recipe {
     shadows: (cb.shadows_Y ?? 0) * 100,
     grading: normalizeGrading(cb),
     curve: s.curve,
+    color: s.color ? structuredClone(s.color) : null,
     scanner: s.scanner ?? 'straight',
     scannerFromLook: false,
   };
@@ -87,11 +92,11 @@ export function withLutBase(r: Recipe, lut: LutSource | null): Recipe {
 
 /** Whether the photo's own colour and tone sliders (the ones a look's settings use) are at rest. */
 export const colourAtRest = (r: Recipe) =>
-  r.contrast === 0 && r.vibrance === 0 && r.saturation === 0 && r.shadows === 0 && !r.grading && isIdentity(r.curve);
+  r.contrast === 0 && r.vibrance === 0 && r.saturation === 0 && r.shadows === 0 && !r.grading && isIdentity(r.curve) && !r.color;
 
 /** The photo with the settings a profile took over back at rest (the profile now supplies them). */
 export function withoutProfileFields(r: Recipe): Recipe {
-  return { ...r, contrast: 0, vibrance: 0, saturation: 0, shadows: 0, grading: null, curve: null };
+  return { ...r, contrast: 0, vibrance: 0, saturation: 0, shadows: 0, grading: null, curve: null, color: null };
 }
 
 /** A look's settings at `amount` (0 to 1), as fixed settings: how a look at less than full Amount is detached. */
@@ -107,10 +112,24 @@ export function scaledSettings(s: ProfileSettings, amount: number): ProfileSetti
     curve: amount > 0 ? curve : null,
     lut: s.lut && { ...s.lut, amount: s.lut.amount * amount },
     ...(s.scanner ? { scanner: s.scanner } : {}),
+    ...(scaledColor(s.color, amount) ? { color: scaledColor(s.color, amount)! } : {}),
   };
 }
 
-export const hasSettings = (s: ProfileSettings | null | undefined) => !!s && (!!s.colorBalance || !!s.curve || !!s.scanner && s.scanner !== 'straight');
+/**
+ * A look's HSL at `amount` (0 to 1): every hue, saturation and brightness value scaled towards 0,
+ * as the colour balance instance's are. Null when nothing is left.
+ */
+export function scaledColor(c: ColorAdjust | null | undefined, amount: number): ColorAdjust | null {
+  if (!c || amount <= 0) return null;
+  const k = Math.min(amount, 1);
+  return tidyColor(k === 1 ? c : { hue: c.hue.map((v) => v * k), sat: c.sat.map((v) => v * k), bright: c.bright.map((v) => v * k) });
+}
+
+/** The HSL of the recipe's look (its colour equalizer instance before the photo's), at the look's Amount. */
+export const lookColorFor = (r: Recipe): ColorAdjust | null => scaledColor(profileSettingsFor(r)?.color, r.lookAmount / 100);
+
+export const hasSettings = (s: ProfileSettings | null | undefined) => !!s && (!!s.colorBalance || !!s.curve || !!s.color || !!s.scanner && s.scanner !== 'straight');
 
 /** A profile's colour balance at `amount` (0 to 1), or null when it has none. */
 export function scaledColorBalance(s: ProfileSettings | null, amount: number): CbParams | null {
@@ -168,7 +187,8 @@ export function normalizeSettings(input: unknown): ProfileSettings | null {
     const merged = { ...graded, ...sliders } as Partial<CbParams>;
     colorBalance = Object.keys(merged).length ? merged : null;
   }
-  return { colorBalance, curve: normalizeCurve(o.curve), lut: normalizeLut(o.lut ?? (o.look && { kind: 'pack', ...(o.look as object) })), ...(isScannerId(o.scanner) ? { scanner: o.scanner } : {}) };
+  const color = normalizeColor(o.color);
+  return { colorBalance, curve: normalizeCurve(o.curve), lut: normalizeLut(o.lut ?? (o.look && { kind: 'pack', ...(o.look as object) })), ...(isScannerId(o.scanner) ? { scanner: o.scanner } : {}), ...(color ? { color } : {}) };
 }
 
 /** A look's LUT read from a file. Looks saved first wrote a system look as `look: { pack, stock, amount }`. */

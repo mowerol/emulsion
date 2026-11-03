@@ -44,8 +44,8 @@ function bmp(W: number, H: number) {
     return bmp(512, 384);
   }
   if (command === 'load_image') {
-    if (args.maxEdge === 2560 && args.path === '/slow.ORF') await wait(800);
-    if (args.maxEdge === 2560) return payload(PREVIEW_W, PREVIEW_H);
+    if (args.maxEdge <= 2560 && args.path === '/slow.ORF') await wait(800);
+    if (args.maxEdge <= 2560) return payload(PREVIEW_W, PREVIEW_H);
     fullLoads.push(performance.now());
     await wait(1500); // a slow RAW decode
     return payload(FULL_W, FULL_H);

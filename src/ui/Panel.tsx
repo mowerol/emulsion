@@ -1,19 +1,22 @@
 import { NoiseReductionControls } from './NoiseReduction';
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { TreatmentControls, LookEditorHeader } from './TreatmentControls';
+import { TreatmentControls } from './TreatmentControls';
+import { LookLutSummary } from './LookCreator';
 import { PresetControls } from './PresetControls';
 import { lookName } from '../film/looks';
 import { photoId } from '../library/copies';
+import { sidecarHistory, type EarlierEdit } from '../backend/api';
+import { flushSaves } from '../library/sidecars';
 // The lab order: what this frame is developed with.
 
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type ReactNode, memo, useEffect, useRef, useState } from 'react';
 import { Blend, ClipboardPaste, Copy, Ellipsis, Eraser, Redo2, RotateCcw, SlidersHorizontal, Sparkle, SquareDashedMousePointer, SwatchBook, Undo2, type LucideIcon } from 'lucide-react';
 import { CameraProfileControls } from './CameraProfile';
 import { profileLabel, useProfileVersion } from '../engine/profilestore';
 import { TransformControls, transformSummary } from './TransformControls';
 import { LensControls } from './LensControls';
 import { ColourGradingControls } from './ColourGrading';
-import { BRIGHT_RANGE, COLOR_CHANNELS, DEFAULT_STOCK, HUE_DEGREES, SAT_RANGE, SLIDER, SLIDERS, defaultRecipe, tidyColor, type ColorAdjust, resetAdjustments, resetSection, sectionChanged, sliderDefault, withSettingsFrom, type Recipe, type SectionId, type SliderDef } from '../film/recipe';
+import { BRIGHT_RANGE, COLOR_CHANNELS, DEFAULT_STOCK, HUE_DEGREES, SAT_RANGE, SLIDER, SLIDERS, defaultRecipe, normalizeRecipe, tidyColor, type ColorAdjust, resetAdjustments, resetSection, sectionChanged, sliderDefault, withSettingsFrom, type Recipe, type SectionId, type SliderDef } from '../film/recipe';
 import type { ScannerId } from '../film/scanners';
 import { ScannerFinishControls } from './ScannerFinish';
 import { STOCK } from '../film/stocks';
@@ -67,7 +70,13 @@ export function useDragGrouping(name: string) {
 type Grouping = { key: string; continuous: boolean } | undefined;
 let typedCount = 0;
 
-function SliderRow({ def, recipe, onChange }: { def: SliderDef; recipe: Recipe | null; onChange: (key: SliderDef['key'], v: number, grouping?: Grouping) => void }) {
+type SliderRowProps = { def: SliderDef; recipe: Recipe | null; onChange: (key: SliderDef['key'], v: number, grouping?: Grouping) => void };
+
+/**
+ * A row reads only its own value and the stock (for its default), so a drag on one slider doesn't
+ * re-render the others.
+ */
+const SliderRow = memo(function SliderRow({ def, recipe, onChange }: SliderRowProps) {
   const value = recipe ? recipe[def.key] : sliderDefault(def, DEFAULT_STOCK);
   const fmt = def.format ?? String;
   const fallback = sliderDefault(def, recipe?.stock ?? DEFAULT_STOCK);
@@ -107,7 +116,8 @@ function SliderRow({ def, recipe, onChange }: { def: SliderDef; recipe: Recipe |
       </div>
     </div>
   );
-}
+}, (a: SliderRowProps, b: SliderRowProps) => a.def === b.def && a.onChange === b.onChange && !!a.recipe === !!b.recipe
+  && a.recipe?.[a.def.key] === b.recipe?.[b.def.key] && a.recipe?.stock === b.recipe?.stock);
 
 /** The eight colours of darktable's color equalizer, with a swatch to recognise each. */
 const COLOR_NODES = [
@@ -131,39 +141,48 @@ const trackFor = (channel: 'hue' | 'sat' | 'bright', node: number) => {
 
 const signed = (v: number, unit: string) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v)}${unit}`;
 
-/** Colour: hue, saturation and brightness for each of the eight colours, one channel at a time. */
+type ColorChannel = (typeof COLOR_CHANNELS)[number]['key'];
+
+/** Colour: hue, saturation and brightness for each of the eight colours, one channel at a time or all three (Lightroom's All). */
 function ColorControls({ recipe }: { recipe: Recipe }) {
-  const [channel, setChannel] = useState<(typeof COLOR_CHANNELS)[number]['key']>('sat');
-  const def = COLOR_CHANNELS.find((c) => c.key === channel)!;
+  const [view, setView] = useState<ColorChannel | 'all'>('sat');
   const color: ColorAdjust = recipe.color ?? { hue: new Array(8).fill(0), sat: new Array(8).fill(0), bright: new Array(8).fill(0) };
-  const set = (i: number, v: number) =>
+  const set = (channel: ColorChannel, i: number, v: number) =>
     editActive((r) => {
       const base = r ?? defaultRecipe();
       const c = base.color ?? color;
       const next = { ...c, [channel]: c[channel].map((x, k) => (k === i ? v : x)) };
       return { ...base, color: tidyColor(next) };
     });
-  return (
-    <>
-      <Segmented label="Colour channel" options={COLOR_CHANNELS.map((c) => ({ value: c.key, label: c.label }))} value={channel} onChange={setChannel} />
-      <div className="sliders color-sliders">
+  const sliders = (channel: ColorChannel) => {
+    const def = COLOR_CHANNELS.find((c) => c.key === channel)!;
+    return (
+      <div className="sliders color-sliders" key={channel}>
         {COLOR_NODES.map((n, i) => {
           const id = `color-${channel}-${i}`;
           const v = color[channel][i];
           return (
             <div className="slider" key={id} style={{ ['--track' as string]: trackFor(channel, i) }}>
-              <label htmlFor={id} onDoubleClick={() => set(i, 0)} title="Double-click the name or the handle to reset">
+              <label htmlFor={id} onDoubleClick={() => set(channel, i, 0)} title="Double-click the name or the handle to reset">
                 <span className="color-dot" style={{ background: n.swatch }} />
                 {n.name}
               </label>
               <output htmlFor={id}>{signed(v, '')}</output>
               <div className="track">
-                <input id={id} type="range" min={def.min} max={def.max} step={1} value={v} onChange={(e) => set(i, Number(e.target.value))} onDoubleClick={() => set(i, 0)} />
+                <input id={id} type="range" min={def.min} max={def.max} step={1} value={v} onChange={(e) => set(channel, i, Number(e.target.value))} onDoubleClick={() => set(channel, i, 0)} />
               </div>
             </div>
           );
         })}
       </div>
+    );
+  };
+  return (
+    <>
+      <div className="color-channels"><Segmented label="Colour channel" options={[...COLOR_CHANNELS.map((c) => ({ value: c.key as ColorChannel | 'all', label: c.label })), { value: 'all', label: 'All' }]} value={view} onChange={setView} /></div>
+      {view === 'all'
+        ? COLOR_CHANNELS.map((c) => <div className="color-all-group" key={c.key}><h3 className="color-all-title">{c.label}</h3>{sliders(c.key)}</div>)
+        : sliders(view)}
     </>
   );
 }
@@ -262,6 +281,62 @@ const changedSummary = (recipe: Recipe | null, keys: readonly string[]) => {
   return n ? `${n} changed` : undefined;
 };
 
+/** When an earlier edit was saved, as "Today, 14:20" or "2 Nov 2026, 14:20". */
+function whenSaved(ms: number, now = new Date()): string {
+  const d = new Date(ms);
+  const time = d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+  const day = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+  const days = Math.round((day(now) - day(d)) / 86_400_000);
+  const date = days === 0 ? 'Today' : days === 1 ? 'Yesterday' : d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: d.getFullYear() === now.getFullYear() ? undefined : 'numeric' });
+  return `${date}, ${time}`;
+}
+
+/**
+ * Earlier states of the active frame's edits, kept in its sidecar (src-tauri/src/sidecar.rs) at
+ * resets, pastes, edits of several photos and the start of each editing session. Picking one puts
+ * it back as an undoable step, and keeps what it replaces.
+ */
+function EarlierEdits({ close }: { close: () => void }) {
+  const photo = useApp(activePhoto);
+  const [open, setOpen] = useState(false);
+  const [list, setList] = useState<EarlierEdit[] | null>(null);
+  const path = photo?.path;
+  useEffect(() => {
+    if (!open || !path) return;
+    let live = true;
+    setList(null);
+    // Saves still waiting may add a state.
+    void flushSaves().then(() => sidecarHistory(path)).then((h) => { if (live) setList(h); }, () => { if (live) setList([]); });
+    return () => { live = false; };
+  }, [open, path]);
+  if (!photo) return null;
+  if (!open) return <button type="button" className="menu-item" role="menuitem" onClick={() => setOpen(true)}>Earlier edits…</button>;
+  const current = JSON.stringify(photo.recipe);
+  const states = (list ?? []).flatMap((e) => {
+    const raw = photo.copyId ? e.copies?.find((c) => c.id === photo.copyId) : { recipe: e.recipe };
+    if (!raw) return [];
+    const recipe = normalizeRecipe(raw.recipe);
+    return [{ when: whenSaved(e.updated), recipe, same: JSON.stringify(recipe) === current }];
+  });
+  return <div className="earlier-edits" role="group" aria-label="Earlier edits">
+    <div className="earlier-head">Earlier edits{photo.copyId ? ` of ${photo.copyName}` : ''}</div>
+    {list === null && <p className="earlier-note">Reading…</p>}
+    {list !== null && !states.length && <p className="earlier-note">None yet. Emulsion keeps the edit you had when you reset, paste or edit several photos, and when you come back to a photo later.</p>}
+    {states.map((st, i) => {
+      const n = editCount(st.recipe);
+      const what = !st.recipe ? 'Original' : `${st.recipe.lookEnabled ? lookName(st.recipe.pack, st.recipe.stock) : 'No look'} · ${n} ${n === 1 ? 'edit' : 'edits'}`;
+      return <button key={i} type="button" className="menu-item earlier-item" role="menuitem" disabled={st.same} title={st.same ? 'The same as now' : undefined}
+        onClick={() => {
+          close();
+          editRecipes([photoId(photo)], () => st.recipe, 'Restore earlier edit', undefined, { checkpoint: true });
+          showToast(`Restored the edit from ${st.when}`);
+        }}>
+        <span>{st.when}</span><span className="earlier-what">{what}</span>
+      </button>;
+    })}
+  </div>;
+}
+
 /** The ⋯ menu at the end of the action bar. */
 function OverflowMenu({ children }: { children: (close: () => void) => ReactNode }) {
   const [open, setOpen] = useState(false);
@@ -279,6 +354,17 @@ function OverflowMenu({ children }: { children: (close: () => void) => ReactNode
     {open && <div className="overflow-menu" role="menu">{children(() => setOpen(false))}</div>}
   </div>;
 }
+
+const setSlider = (key: SliderDef['key'], v: number, grouping?: Grouping) => editActive((r) => ({ ...(r ?? defaultRecipe()), [key]: v }), undefined, grouping);
+
+/**
+ * A tab's sections stay mounted while another tab shows (keeping their state), but a hidden slot
+ * skips re-rendering: every edit re-renders the panel, and slider drags would otherwise redo all
+ * the tabs at once. It catches up when it shows again.
+ */
+const SectionSlot = memo(function SectionSlot({ hidden, children }: { hidden: boolean; children: ReactNode }) {
+  return <div className="control-section-slot" hidden={hidden}>{children}</div>;
+}, (a, b) => a.hidden && b.hidden);
 
 export function Panel() {
   useProfileVersion();
@@ -302,7 +388,6 @@ export function Panel() {
     if (editing) editActive(change, 'Look scanner finish');
     else editRecipes(targets().map(photoId), change, choice === 'look' ? 'Use look scanner finish' : 'Scanner finish');
   };
-  const setSlider = (key: SliderDef['key'], v: number, grouping?: Grouping) => editActive((r) => ({ ...(r ?? defaultRecipe()), [key]: v }), undefined, grouping);
 
   /** A section's Reset, offered only when the section differs from its defaults. */
   const resetFor = (section: SectionId, title: string) =>
@@ -342,19 +427,19 @@ export function Panel() {
     crop: !grouped && <Section id="crop" title="Crop" summary={cropSummary(recipe?.crop ?? null)} onReset={resetFor('crop', 'Crop')}><CropControls recipe={recipe} /></Section>,
   };
   const classic = view === 'develop' ? ['profile', 'stock', 'presets', 'lens', 'crop', 'transform', 'adjust', 'curve', 'color', 'grading', 'masks', 'detail', 'optics', 'grain'] : ['profile', 'stock', 'presets'];
-  const visible: readonly string[] = editing ? ['look-editor', 'look-tone', 'curve', 'grading', 'scanner'] : grouped ? CONTROL_GROUPS.find(g => g.id === workspace.group)!.sections : classic;
+  const visible: readonly string[] = editing ? ['look-editor', 'look-tone', 'curve', 'color', 'grading', 'scanner'] : grouped ? CONTROL_GROUPS.find(g => g.id === workspace.group)!.sections : classic;
   // Group configuration owns both membership and ordering. Keep other sections mounted so
   // switching tabs preserves each colour module's local view state.
   if (editing) {
-    sections['look-editor'] = <LookEditorHeader />;
+    sections['look-editor'] = <LookLutSummary recipe={base} />;
     sections['look-tone'] = <Section defaultOpen id="look-tone" title="Colour and tone">{rows(['contrast', 'vibrance', 'saturation', 'shadows'])}</Section>;
   }
   const ordered = [...visible, ...Object.keys(sections).filter(id => !visible.includes(id))];
 
   return (
-    <aside className={`panel${grouped ? ' panel-workflow' : ''}`} aria-label={grouped ? 'Controls' : 'Lab order'}>
-      {view === 'develop' && <Histogram compact={grouped} />}
-      {!grouped && <PhotoInfo />}
+    <aside className={`panel${grouped ? ' panel-workflow' : ''}${editing ? ' panel-look' : ''}`} aria-label={grouped ? 'Controls' : 'Lab order'}>
+      {view === 'develop' && !editing && <Histogram compact={grouped} />}
+      {!grouped && !editing && <PhotoInfo />}
 
       {grouped && !editing && <>
         <nav className="control-stages" aria-label="Control stages">
@@ -363,7 +448,7 @@ export function Panel() {
       </>}
 
       <div className={grouped ? 'grouped-controls-body' : 'classic-controls-body'} ref={controlsBody}>
-        {ordered.map(id => <div className="control-section-slot" key={id} hidden={!visible.includes(id)}>{sections[id]}</div>)}
+        {ordered.map(id => <SectionSlot key={id} hidden={!visible.includes(id)}>{sections[id]}</SectionSlot>)}
         {view !== 'develop' && <p className="hint panel-note">Open Develop to fine-tune exposure, colour, halation and grain.</p>}
       </div>
 
@@ -385,6 +470,7 @@ export function Panel() {
               editRecipes(useApp.getState().photos.map(photoId), (t) => withSettingsFrom(r, t), `Apply to all ${total} photos`);
               showToast(`Applied to all ${total} frames`);
             }} />
+          {!multi && <EarlierEdits close={close} />}
         </>}</OverflowMenu>
         <span className="action-count">{editCount(recipe)} {editCount(recipe) === 1 ? 'edit' : 'edits'}</span>
       </div>}
@@ -426,6 +512,7 @@ export function Panel() {
             showToast(`Applied to all ${total} frames`);
           }}
         />
+        {!multi && <OverflowMenu>{(close) => <EarlierEdits close={close} />}</OverflowMenu>}
       </div>}
     </aside>
   );

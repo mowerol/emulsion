@@ -5,6 +5,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { listen } from '@tauri-apps/api/event';
 import { isTauri, startupOptions } from './backend/api';
 import { flushSaves, onSaveError } from './library/sidecars';
+import { settingsMenuAction } from './library/backups';
 import { markForKey } from './library/marks';
 import { lastFolder } from './library/folders';
 import {
@@ -18,6 +19,7 @@ import { ExportDialog } from './ui/ExportDialog';
 import { Library, gridColumns } from './ui/Library';
 import { Panel } from './ui/Panel';
 import { TopBar, chooseFolder } from './ui/TopBar';
+import { LookCreatorHeader, LookLutColumn, LookPreviewFooter } from './ui/LookCreator';
 
 const typingIn = (t: EventTarget | null) => {
   const el = t as HTMLElement | null;
@@ -34,6 +36,7 @@ const MENU_OWNS_EDIT_KEYS = isTauri() && navigator.platform.startsWith('Mac');
 
 /** Undo, redo or select all from the app menu: on a focused text field, its own; otherwise Emulsion's. */
 function menuAction(id: string) {
+  if (settingsMenuAction(id)) return;
   const el = document.activeElement as HTMLElement | null;
   if (typingIn(el)) {
     document.execCommand(id === 'select-all' ? 'selectAll' : id);
@@ -166,12 +169,17 @@ export default function App() {
 
   return (
     <div className={`app${editingLook ? ' app-look-editor' : ''}`}>
-      {!editingLook && <TopBar />}
+      {editingLook ? <LookCreatorHeader /> : <TopBar />}
+      {editingLook ? <div className="workspace workspace-look">
+        <LookLutColumn />
+        <div className="main look-preview"><Develop /><LookPreviewFooter /></div>
+        <Panel key="controls" />
+      </div> :
       <div className={`workspace${workflow ? ' workspace-workflow' : view !== 'develop' || !hasFolder ? ' workspace-library' : ''}`}>
         {workflow && <Images key="images" />}
         <div className="main" key="main">{view === 'develop' && hasFolder ? <Develop /> : <Library />}</div>
         {view === 'develop' && hasFolder && <Panel key="controls" />}
-      </div>
+      </div>}
       <ExportDialog />
       {dropping && (
         <div className="drop">

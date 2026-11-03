@@ -48,6 +48,8 @@ export interface ReachSetup {
   dehazeCount?: number;
   /** Colour on. */
   color?: boolean;
+  /** Colour equalizer instances in a row (a look's, then the photo's). */
+  colorCount?: number;
   /** Sharpening's radius at this scale, when on. */
   usmSigma?: number | null;
   /** Scanner sharpness on. */
@@ -89,7 +91,7 @@ export function regionReach(s: ReachSetup): number {
     const { w1, w2 } = windows(s.dehaze);
     r += (s.dehazeCount ?? 1) * (2 * w1 + 3 * w2);
   }
-  if (s.color) r += 16 + 4;
+  if (s.color) r += (s.colorCount ?? 1) * (16 + 4);
   if (s.usmSigma) r += (usmKernel(s.usmSigma).length - 1) / 2 + (gaussian1d(2).length - 1) / 2 + 1;
   // Scanner sharpness: a half-size copy blurred by one 9-tap pass each way, read bilinearly.
   if (s.scannerSharpen) r += 2 * 5 + 2;

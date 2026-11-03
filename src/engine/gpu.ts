@@ -151,12 +151,14 @@ export class Gpu {
    * A render target; `precise` asks for 32-bit floats (only with `float32`), and
    * `single` for one channel (red), for large working images read with texelFetch.
    */
-  target(w: number, h: number, hdr: boolean, precise = false, single = false): Target {
+  /** `single`: one channel (true) or two ('rg'), for float targets. */
+  target(w: number, h: number, hdr: boolean, precise = false, single: boolean | 'rg' = false): Target {
     const gl = this.gl;
     const tex = gl.createTexture()!;
     this.scratch();
     gl.bindTexture(gl.TEXTURE_2D, tex);
-    if (hdr && single) gl.texImage2D(gl.TEXTURE_2D, 0, precise ? gl.R32F : gl.R16F, w, h, 0, gl.RED, precise ? gl.FLOAT : gl.HALF_FLOAT, null);
+    if (hdr && single === 'rg') gl.texImage2D(gl.TEXTURE_2D, 0, precise ? gl.RG32F : gl.RG16F, w, h, 0, gl.RG, precise ? gl.FLOAT : gl.HALF_FLOAT, null);
+    else if (hdr && single) gl.texImage2D(gl.TEXTURE_2D, 0, precise ? gl.R32F : gl.R16F, w, h, 0, gl.RED, precise ? gl.FLOAT : gl.HALF_FLOAT, null);
     else if (hdr && precise) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, w, h, 0, gl.RGBA, gl.FLOAT, null);
     else if (hdr) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
     else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);

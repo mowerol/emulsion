@@ -31,7 +31,7 @@ import { GLOW_SIGMA, HALATION_SIGMA, blurPlan, pyramidFor, type Pyramid } from '
 import { MASK_SIGMA } from './toneequalizer';
 import { ANALYSIS_MAX, SQRT_EPS, ambientLight, minTransmission, windows } from './dehaze';
 import { GAMMAS, levelSize, numLevels } from './locallaplacian';
-import { scales, regionFineScales, isRegionCoarse } from './equalizer';
+import { amountScales, scales, regionFineScales, isRegionCoarse } from './equalizer';
 import { usmKernel, usmParams, type UsmParams } from './usm';
 import { DEFAULTS as CE, SAT_SHIFT, WHITE, colorEqLuts, pixelUvl, type ColorEqLuts, type ColorEqParams } from './colorequal';
 import { BRIGHT_RANGE, HUE_DEGREES, HUE_MAX, SAT_RANGE, type ColorAdjust } from '../film/recipe';
@@ -39,7 +39,7 @@ import { autoContrast, borderFor, gaussian1d, iterationsFor, kernelFor, TILE } f
 import { columnMajor } from './color';
 import type { Mat3 } from '../film/stocks';
 import { CURVE_RES } from '../film/curve';
-import { composedCurveTable } from '../film/creative';
+import { composedCurveTable, lookColorFor } from '../film/creative';
 import { profileSettingsFor } from '../film/looks';
 import type { Xy } from './whitebalance';
 import { SHADERS, SHADER_FILES } from './shaders';
@@ -196,6 +196,7 @@ const MASK_UNIFORMS = uniformsOf('stages/masks.glsl').filter((n) => n !== 'uMask
 const BEFORE_MASKS = ['stages/input.glsl', 'stages/dehaze.glsl', 'stages/exposure.glsl'].flatMap(uniformsOf).concat('uSharp', 'uStore', 'uDehazeKey', ...MASK_UNIFORMS);
 const BEFORE_TEXTURE = ['stages/input.glsl', 'stages/dehaze.glsl', 'stages/exposure.glsl', 'stages/toneequalizer.glsl'].flatMap(uniformsOf).concat('uSharp', 'uStore', 'uDehazeKey', ...MASK_UNIFORMS);
 const TEXTURE_STAGE = uniformsOf('stages/texture.glsl').concat('uTextureMix');
+const TEXTURE_INPUT = TEXTURE_STAGE.filter(k => k !== 'uTextureMix');
 const COLOR_STAGE = uniformsOf('stages/colorequal.glsl');
 const BEFORE_CLARITY = ['stages/colorbalance.glsl', 'stages/lens.glsl', 'stages/tone.glsl', 'stages/lut.glsl', 'stages/dcp.glsl'].flatMap(uniformsOf).concat('uHal', 'uHalCol', 'uGlow', 'uLutId');
 const CLARITY_STAGE = uniformsOf('stages/clarity.glsl').concat('uLl');
@@ -268,6 +269,9 @@ class Lane {
   /** The texture map's ping-pong targets for the latest source size, and what it was made from. */
   eq: { w: number; h: number; a: Target; b: Target; d: Target[]; coarse?: { a: Target; b: Target; pa: Target; pb: Target } } | null = null;
   eqMade: { tex: WebGLTexture; key: string; out: Target; coarse: boolean } | null = null;
+  /** The photo's own Texture decomposition (eq target a or b), the same for every amount: a
+   *  Texture drag only folds it again. Dropped when a masked instance reuses those targets. */
+  eqPhoto: { tex: WebGLTexture; key: string; out: Target; coarse: boolean } | null = null;
   /** Sharpening's ping-pong targets for the latest source size, and what its map was made from. */
   usm: { w: number; h: number; a: Target; b: Target } | null = null;
   usmMade: { tex: WebGLTexture; key: string; out: Target } | null = null;
@@ -276,6 +280,8 @@ class Lane {
   /** Mode 2's scene-only analysis stays in ce.t[3] across colour slider changes. */
   ceScene: { tex: WebGLTexture; key: string } | null = null;
   ceMade: { tex: WebGLTexture; key: string; out: Target } | null = null;
+  /** A look's colour equalizer instance (before the photo's): its output, in ce.t[5], and what it was made from. */
+  ceLookMade: { tex: WebGLTexture; key: string } | null = null;
   noiseMade: { input: WebGLTexture; amount: number; out: Target } | null = null;
   lensMade: { input: WebGLTexture; key: string; out: Target } | null = null;
   /** The retouched source: made from `input` at 1/k for `spots`; `src` is the source it stands for. */
@@ -325,6 +331,8 @@ export class Engine {
    * build (`moving`): render again once the view settles to show the full resolution.
    */
   stoodIn = false;
+  /** While a draft screen render runs: the smaller target it draws into instead of the canvas. */
+  private draftTarget: Target | null = null;
   private develop: Program;
   private dehazeP: Program;
   private dcpPass: Program;
@@ -349,7 +357,8 @@ export class Engine {
   private csP: Program;
   private usmP: Program;
   private ceP: Program;
-  private ceLuts: { key: string; luts: ColorEqLuts } | null = null;
+  /** The equalizer's LUTs for the latest few settings (a look's and the photo's instances alternate). */
+  private ceLuts = new Map<string, ColorEqLuts>();
   private outs: Lru<Target>;
   private store: number;
   private noiseP: Program;
@@ -418,6 +427,22 @@ export class Engine {
     return true;
   }
 
+  /**
+   * Draw the finished frame onto the canvas and fence it for `idle`, or, inside a draft render,
+   * into the draft's smaller target, which the draft then scales onto the canvas.
+   */
+  private toScreen(program: Program, w: number, h: number) {
+    const g = this.gpu;
+    if (this.draftTarget) {
+      g.draw(program, this.draftTarget, w, h, false);
+      return;
+    }
+    g.draw(program, null, w, h, true);
+    if (this.fence) g.gl.deleteSync(this.fence);
+    this.fence = g.gl.fenceSync(g.gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+    g.gl.flush();
+  }
+
   /** Upload decoded half-float pixels. */
   sourceFromHalf(img: HalfImage): Source {
     const gl = this.gpu.gl;
@@ -444,6 +469,19 @@ export class Engine {
     gl.generateMipmap(gl.TEXTURE_2D);
     this.gpu.params(true);
     return { tex, w, h, mode: InputMode.DisplayEncoded, white, fullW: w, fullH: h };
+  }
+
+  /**
+   * Ahead of a Dehaze drag on `src`: measure haze removal's ambient light, which depends on the
+   * source and not on the strength (dehazeAmbient keeps it per source). The first drag paid this
+   * (a read back from the GPU, 20–90 ms) in its first frame. A products render with no filter that
+   * needs the dehazed photo measures only that, as a region render's whole-photo products do.
+   */
+  measureAhead(src: Source, recipe: Recipe) {
+    if (!this.gpu.hdr || !this.gpu.float32) return;
+    const t = this.gpu.target(16, 16, false);
+    const r: Recipe = { ...recipe, dehaze: recipe.dehaze || 10, texture: 0, clarity: 0, masks: [] };
+    try { this.render(src, r, { target: t, width: src.w, height: src.h, seed: 1, products: {} }); } finally { this.gpu.free(t); }
   }
 
   release(src: Source | null | undefined) {
@@ -503,7 +541,7 @@ export class Engine {
     L.noiseMade = L.lensMade = L.retouchMade = L.eq = L.usm = L.ce = null;
     L.csOut = null;
     L.profileEarly.early = null;
-    L.csMade = L.eqMade = L.usmMade = L.ceMade = L.ceScene = L.llMade = L.refineMade = null;
+    L.csMade = L.eqMade = L.eqPhoto = L.usmMade = L.ceMade = L.ceScene = L.ceLookMade = L.llMade = L.refineMade = null;
   }
 
   private freeDehazeTargets(d: DehazeTargets) {
@@ -535,7 +573,7 @@ export class Engine {
     const g = this.gpu;
     // Every input unit is bound, unused ones to black: a target left bound would be a feedback loop.
     (['I', 'A', 'B', 'C', 'D'] as const).forEach((k, unit) => g.bind(unit, tex[k] ?? g.blackTexture));
-    this.dehazeGfP.set({ uI: 0, uA: 1, uB: 2, uC: 3, uD: 4, uDir: [1, 0], uMin: 0, uEps: SQRT_EPS * SQRT_EPS, uPrevOn: 0, uWeighted: 0, ...extra, uMode: mode });
+    this.dehazeGfP.set({ uI: 0, uA: 1, uB: 2, uC: 3, uD: 4, uDir: [1, 0], uMin: 0, uEps: SQRT_EPS * SQRT_EPS, uPrevOn: 0, uWeighted: 0, uGfScale: 1, ...extra, uMode: mode });
     g.draw(this.dehazeGfP, to, w, h);
   }
 
@@ -580,14 +618,19 @@ export class Engine {
 
   /**
    * An instance's transmission, from its input in d.I: the guide's means when `guideKey`
-   * changes, then darktable's transition map and guided filter when A0 or the strength change.
-   * Leaves the filter's mean a (rgb) and b in d.s1.
+   * changes, then darktable's transition map and guided filter when A0 or the strength's sign
+   * change. Leaves the filter's mean a (rgb) and b in d.s1, for a strength of ±1: the fold (mode
+   * 7, uGfScale) scales them to the instance's strength, so dragging Dehaze redoes one pass, not
+   * ten. That is exact: with s = σk (σ the sign, k ≥ 0), 1 - s·m = (1 - k) + k(1 - σm), the box
+   * maximum and minimum commute with that increasing map, and the guided filter is linear in its
+   * input and keeps constants, so its output is (1 - k) + k times its output for strength σ.
    */
   private dehazeTransmission(d: DehazeTargets, src: Source, A0: number[], strength: number, guideKey: string) {
     const { w, h } = d;
     const { w1, w2 } = windows(pxScale(src));
+    const sign = Math.sign(strength);
     const step = (mode: number, to: Target, tex: Partial<Record<'I' | 'A' | 'B' | 'C' | 'D', WebGLTexture>>, extra: Uniforms = {}) =>
-      this.dehazeStep(w, h, mode, to, tex, { uW: w2, uA0: A0, uStrength: strength, ...extra });
+      this.dehazeStep(w, h, mode, to, tex, { uW: w2, uA0: A0, uStrength: sign, ...extra });
     if (d.guideKey !== guideKey) {
       // The guide's means: along rows, then columns.
       step(3, d.split, { I: d.I.tex });
@@ -595,7 +638,7 @@ export class Engine {
       d.guideKey = guideKey;
       d.abKey = '';
     }
-    const abKey = JSON.stringify([A0, strength]);
+    const abKey = JSON.stringify([A0, sign]);
     if (d.abKey === abKey) return;
     // The transition map, its box maximum then box minimum (radius w1).
     step(1, d.r1, { I: d.I.tex }, { uW: w1 });
@@ -645,7 +688,7 @@ export class Engine {
       const tMin = minTransmission(distance, distanceMax);
       chain += `|${JSON.stringify([A0, strength, tMin])}`;
       if (d0.foldKey !== chain) {
-        this.dehazeStep(w, h, 7, d0.F, { I: d0.I.tex, B: d0.s1.tex }, { uA0: A0, uTmin: tMin });
+        this.dehazeStep(w, h, 7, d0.F, { I: d0.I.tex, B: d0.s1.tex }, { uA0: A0, uTmin: tMin, uGfScale: Math.abs(strength) });
         d0.foldKey = chain;
       }
       prev = d0.F;
@@ -667,7 +710,7 @@ export class Engine {
       const tMin = minTransmission(distance, distanceMax);
       // The mask's value at this input, into r1 (free once the filter is done).
       maskTap(m.slot, prev, d.r1);
-      this.dehazeStep(w, h, 7, d.F, { I: d.I.tex, A: prev?.tex, B: d.s1.tex, C: d.r1.tex }, { uA0: A0, uTmin: tMin, uPrevOn: prev ? 1 : 0, uWeighted: 1 });
+      this.dehazeStep(w, h, 7, d.F, { I: d.I.tex, A: prev?.tex, B: d.s1.tex, C: d.r1.tex }, { uA0: A0, uTmin: tMin, uPrevOn: prev ? 1 : 0, uWeighted: 1, uGfScale: Math.abs(m.strength) });
       d.input = src.tex;
       d.foldKey = chain;
       prev = d.F;
@@ -792,7 +835,8 @@ export class Engine {
       lens: lens ? { spline: lens, W: src.w, H: src.h } : null,
       dehaze: !compare && dehazeCount > 0 ? scale : null,
       dehazeCount,
-      color: !compare && !!recipe.color,
+      color: !compare && (!!recipe.color || !!lookColorFor(recipe)),
+      colorCount: Number(!!recipe.color) + Number(!!lookColorFor(recipe)),
       usmSigma: !compare && usm.amount > 0 ? usm.radius * scale : null,
       scannerSharpen: true,
       clarity: !compare && (recipe.clarity !== 0 || recipe.masks.some(m => maskActive(m) && m.clarity !== 0)),
@@ -864,7 +908,7 @@ export class Engine {
   private invalidateRegionMaps() {
     const L = this.region;
     for (const d of [L.dh, ...L.dhMasked]) if (d) d.input = null;
-    L.ceScene = L.ceMade = L.usmMade = L.eqMade = L.llMade = L.refineMade = null;
+    L.ceScene = L.ceMade = L.ceLookMade = L.usmMade = L.eqMade = L.eqPhoto = L.llMade = L.refineMade = null;
   }
 
   /** The region `rect` of `src` (and of its denoised pixels and clip mask), copied out once per region. */
@@ -983,7 +1027,7 @@ export class Engine {
       if (c) { this.gpu.freePair(c.pa); this.gpu.freePair(c.pb); this.gpu.free(c.a); this.gpu.free(c.b); }
       [this.L.eq.a, this.L.eq.b, ...this.L.eq.d].forEach((t) => this.gpu.free(t));
       this.L.eq = null;
-      this.L.eqMade = null;
+      this.L.eqMade = null; this.L.eqPhoto = null;
     }
     // Sharpening's and the colour equalizer's 32-bit targets: 112 bytes per source pixel together.
     if (this.L.usm && this.L.usm.w === w && this.L.usm.h === h) {
@@ -996,7 +1040,7 @@ export class Engine {
       this.gpu.freePair(this.L.ce.pair);
       this.L.ce.t.forEach((t) => this.gpu.free(t));
       this.L.ce = null;
-      this.L.ceScene = null;
+      this.L.ceScene = null; this.L.ceLookMade = null;
       this.L.ceMade = null;
     }
     if (this.L.noiseMade?.out.w === w && this.L.noiseMade.out.h === h) { this.gpu.free(this.L.noiseMade.out); this.L.noiseMade = null; }
@@ -1174,7 +1218,7 @@ export class Engine {
       const precise = this.gpu.float32;
       const one = () => this.gpu.target(w, h, true, precise, true);
       this.L.eq = { w, h, a: this.gpu.target(w, h, true, precise), b: this.gpu.target(w, h, true, precise), d: [one(), one()] };
-      this.L.eqMade = null;
+      this.L.eqMade = null; this.L.eqPhoto = null;
     }
     return this.L.eq;
   }
@@ -1226,10 +1270,25 @@ export class Engine {
       const t = Array.from({ length: 5 }, () => this.gpu.target(w, h, true, true));
       // Steps 0 and 4 write targets 1 and 2 together.
       this.L.ce = { w, h, t, pair: this.gpu.pair(t[1], t[2]) };
-      this.L.ceScene = null;
+      this.L.ceScene = null; this.L.ceLookMade = null;
       this.L.ceMade = null;
     }
     return this.L.ce.t;
+  }
+
+  /** The target holding a look's colour equalizer output, the photo's instance's input (made on first use). */
+  private ceLookTarget(w: number, h: number): Target {
+    const t = this.ceTargets(w, h);
+    if (!t[5]) t[5] = this.gpu.target(w, h, true, true);
+    return t[5];
+  }
+
+  /** darktable's second colour equalizer instance reads the first's output: analyse `from` (scene colour) into `to`. */
+  private ceAnalyseFrom(from: Target, to: Target) {
+    const g = this.gpu;
+    for (let i = 0; i < 4; i++) g.bind(i, i === 0 ? from.tex : g.blackTexture);
+    this.ceP.set({ ...colorBalanceUniforms(), uA: 0, uB: 1, uC: 2, uD: 3, uMode: 7 });
+    g.draw(this.ceP, to, to.w, to.h);
   }
 
   /**
@@ -1241,12 +1300,16 @@ export class Engine {
    * never overwrite t3: this saves three draws without changing the port's maths
    * or allocating any additional textures. Without a key (the probe), rebuild it.
    */
-  private colorEqMap(w: number, h: number, roi: number, color: ColorAdjust, u: Uniforms, drawInput: (t: Target) => void, scene?: { tex: WebGLTexture; key: string }): Target {
+  private colorEqMap(w: number, h: number, roi: number, color: ColorAdjust, u: Uniforms, drawInput: (t: Target) => void, scene?: { tex: WebGLTexture; key: string } | null, into?: Target): Target {
     const g = this.gpu;
     const [t0, t1, t2, t3, t4] = this.ceTargets(w, h);
     const key = JSON.stringify(color);
-    if (this.ceLuts?.key !== key) this.ceLuts = { key, luts: colorEqLuts(colorEqParams(color)) };
-    const luts = this.ceLuts.luts;
+    let luts = this.ceLuts.get(key);
+    if (!luts) {
+      luts = colorEqLuts(colorEqParams(color));
+      this.ceLuts.set(key, luts);
+      while (this.ceLuts.size > 4) this.ceLuts.delete(this.ceLuts.keys().next().value!);
+    }
     const k = (sigma: number) => {
       const kern = sigma < 0.05 ? [1] : gaussian1d(sigma);
       return { v: [...kern, ...new Array(7 - kern.length).fill(0)], half: (kern.length - 1) / 2 };
@@ -1278,8 +1341,9 @@ export class Engine {
     }
     step(3, t4, t3);
     step(4, both, t3, t4);
-    step(6, t0, t3, t4, t1, t2);
-    return t0;
+    const out = into ?? t0;
+    step(6, out, t3, t4, t1, t2);
+    return out;
   }
 
   /** The colour equalizer alone on scene-linear Rec.2020 pixels, for the probe: the finished colour per pixel. */
@@ -1287,6 +1351,7 @@ export class Engine {
     const gl = this.gpu.gl;
     this.L.ceMade = null;
     const u = developUniforms(null, { width: w, height: h, seed: 0, inputMode: InputMode.SceneLinear, store: 1 });
+    this.L.ceLookMade = null;
     const out = this.colorEqMap(w, h, roi, color, u, (t) => {
       // ceAnalyse on the CPU reference's terms: upload U, V, L*, saturation.
       const data = new Float32Array(w * h * 4);
@@ -1301,6 +1366,35 @@ export class Engine {
     const px = new Float32Array(w * h * 4);
     gl.bindFramebuffer(gl.FRAMEBUFFER, out.fbo);
     gl.readPixels(0, 0, w, h, gl.RGBA, gl.FLOAT, px);
+    return Float32Array.from({ length: w * h * 3 }, (_, k) => px[4 * Math.floor(k / 3) + (k % 3)]);
+  }
+
+  /**
+   * Two colour equalizer instances in a row, for the probe: `first` (a look's) on scene-linear
+   * Rec.2020 pixels, then `second` (the photo's) on its output, through the render's own path.
+   */
+  probeColorEqPair(rgb: Float32Array, w: number, h: number, first: ColorAdjust, second: ColorAdjust, roi = 1): Float32Array {
+    const gl = this.gpu.gl;
+    this.L.ceMade = null;
+    this.L.ceScene = null;
+    this.L.ceLookMade = null;
+    const u = developUniforms(null, { width: w, height: h, seed: 0, inputMode: InputMode.SceneLinear, store: 1 });
+    const lookOut = this.ceLookTarget(w, h);
+    this.colorEqMap(w, h, roi, first, u, (t) => {
+      const data = new Float32Array(w * h * 4);
+      for (let k = 0; k < w * h; k++) {
+        const q = pixelUvl([rgb[3 * k], rgb[3 * k + 1], rgb[3 * k + 2]]);
+        data.set([q.u, q.v, q.L, q.sat], 4 * k);
+      }
+      this.gpu.scratch();
+      gl.bindTexture(gl.TEXTURE_2D, t.tex);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, w, h, gl.RGBA, gl.FLOAT, data);
+    }, null, lookOut);
+    const out = this.colorEqMap(w, h, roi, second, u, (t) => this.ceAnalyseFrom(lookOut, t));
+    const px = new Float32Array(w * h * 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, out.fbo);
+    gl.readPixels(0, 0, w, h, gl.RGBA, gl.FLOAT, px);
+    this.L.ceScene = null;
     return Float32Array.from({ length: w * h * 3 }, (_, k) => px[4 * Math.floor(k / 3) + (k % 3)]);
   }
 
@@ -1322,17 +1416,18 @@ export class Engine {
   }
 
   /**
-   * darktable's contrast equalizer over the whole photo, on the scene's L*:
-   * returns the target holding residue, boosted detail and the starting
-   * lightness. `drawInput` renders the lightness into a target.
+   * darktable's contrast equalizer over the whole photo, on the scene's L*: returns the target
+   * holding the residue and the detail split by power of the amount (.g by mix, .b by mix²,
+   * equalizer.ts equalizeParts), the same for every amount; the fold takes the instance's.
+   * `drawInput` renders the lightness into a target.
    */
-  private textureMap(src: Source, mix: number, drawInput: (t: Target) => void, captureCoarse = false, slot = -1): Target {
+  private textureMap(src: Source, drawInput: (t: Target) => void, captureCoarse = false, slot = -1): Target {
     const g = this.gpu;
     const { a, b } = this.eqTargets(src.w, src.h);
-    const all = scales(...wholeSize(src), src.fullW, src.fullH, mix);
+    const all = amountScales(...wholeSize(src), src.fullW, src.fullH);
     const sc = src.roi && this.inject?.texture?.has(slot) ? regionFineScales(all) : all;
     if (captureCoarse && !this.L.eq!.coarse) {
-      const ca = g.target(src.w, src.h, true, true, true), cb = g.target(src.w, src.h, true, true, true);
+      const ca = g.target(src.w, src.h, true, true, 'rg'), cb = g.target(src.w, src.h, true, true, 'rg');
       this.L.eq!.coarse = { a: ca, b: cb, pa: g.pair(a, ca), pb: g.pair(b, cb) };
     }
     drawInput(a);
@@ -1342,7 +1437,7 @@ export class Engine {
     sc.forEach((s, i) => {
       g.bind(0, from.tex);
       g.bind(1, coarseFrom?.tex ?? g.blackTexture);
-      this.eqP.set({ uIn: 0, uCoarse: 1, uMult: s.mult, uBoost: s.boost, uSharpen: s.sharpen, uFirst: i === 0 ? 1 : 0, uCoarseCapture: captureCoarse ? 1 : 0, uCoarseBoost: isRegionCoarse(s, pxScale(src)) ? s.boost - 1 : 0 });
+      this.eqP.set({ uIn: 0, uCoarse: 1, uMult: s.mult, uA: s.a, uC: s.c, uSharpen: s.sharpen, uFirst: i === 0 ? 1 : 0, uCoarseCapture: captureCoarse ? 1 : 0, uCoarseOn: isRegionCoarse(s, pxScale(src)) ? 1 : 0 });
       const c = this.L.eq!.coarse;
       const target = captureCoarse ? (to === a ? c!.pa : c!.pb) : to;
       g.draw(this.eqP, target, to.w, to.h);
@@ -1352,7 +1447,7 @@ export class Engine {
     if (captureCoarse && coarseFrom) {
       let boundary = this.L.textureBoundaries.get(slot);
       if (boundary && (boundary.target.w !== src.w || boundary.target.h !== src.h)) { g.free(boundary.target); boundary = undefined; }
-      if (!boundary) boundary = { target: g.target(src.w, src.h, true, true, true), source: src };
+      if (!boundary) boundary = { target: g.target(src.w, src.h, true, true, 'rg'), source: src };
       const gl = g.gl;
       gl.bindFramebuffer(gl.READ_FRAMEBUFFER, (coarseFrom as Target).fbo); gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, boundary.target.fbo);
       gl.blitFramebuffer(0, 0, src.w, src.h, 0, 0, src.w, src.h, gl.COLOR_BUFFER_BIT, gl.NEAREST); gl.bindFramebuffer(gl.FRAMEBUFFER, null);
@@ -1367,7 +1462,7 @@ export class Engine {
    * lightness: `acc` (the sum so far, or none) plus the instance's change in `nw`, times its
    * mask when `weighted` (Texture's in nw.a, Clarity's in mask.a). Draws into `to`.
    */
-  private fold(to: Target, acc: Target | null, nw: Target, kind: 0 | 1, weighted: boolean, mask: Target | null = null, source?: Source, slot = -1) {
+  private fold(to: Target, acc: Target | null, nw: Target, kind: 0 | 1, weighted: boolean, mask: Target | null = null, source?: Source, slot = -1, mix = 1) {
     const g = this.gpu;
     g.bind(0, acc?.tex ?? g.blackTexture);
     g.bind(1, nw.tex);
@@ -1375,7 +1470,7 @@ export class Engine {
     const coarse = kind === 0 && source?.roi ? this.inject?.texture?.get(slot) : null;
     g.bind(3, coarse?.target.tex ?? g.blackTexture);
     const roi = source?.roi;
-    this.foldP.set({ uPrev: 0, uNew: 1, uMask: 2, uPrevOn: acc ? 1 : 0, uWeighted: weighted ? 1 : 0, uKind: kind, uCoarse: 3, uCoarseOn: coarse ? 1 : 0, uCoarseRoi: roi ? [roi.x, roi.y, roi.w, roi.h] : [0, 0, 1, 1] });
+    this.foldP.set({ uPrev: 0, uNew: 1, uMask: 2, uPrevOn: acc ? 1 : 0, uWeighted: weighted ? 1 : 0, uKind: kind, uCoarse: 3, uCoarseOn: coarse ? 1 : 0, uCoarseRoi: roi ? [roi.x, roi.y, roi.w, roi.h] : [0, 0, 1, 1], uMix: mix });
     g.draw(this.foldP, to, to.w, to.h);
   }
 
@@ -1386,20 +1481,35 @@ export class Engine {
    * `drawInput(t, slot, acc)` taps the develop pass into t: the photo's input (slot -1), or mask
    * `slot`'s input and value, with the sum so far (`acc`) applied.
    */
-  private textureDelta(src: Source, photoMix: number | null, masked: Masked[], drawInput: (t: Target, slot: number, acc: Target | null) => void, collectCoarse = true): Target {
+  private textureDelta(src: Source, photoMix: number | null, masked: Masked[], drawInput: (t: Target, slot: number, acc: Target | null) => void, collectCoarse = true, photoKey = ''): Target {
     if (!src.roi) {
       const active = new Set([...(photoMix !== null ? [-1] : []), ...masked.map(m => m.slot)]);
       for (const [slot, b] of this.L.textureBoundaries) if (!active.has(slot)) { this.gpu.free(b.target); this.L.textureBoundaries.delete(slot); }
     }
     const { d } = this.eqTargets(src.w, src.h);
     let acc: Target | null = null;
-    const add = (out: Target, weighted: boolean, slot = -1) => {
+    const add = (out: Target, weighted: boolean, mix: number, slot = -1) => {
       const to = acc === d[0] ? d[1] : d[0];
-      this.fold(to, acc, out, 0, weighted, null, src, slot);
+      this.fold(to, acc, out, 0, weighted, null, src, slot, mix);
       acc = to;
     };
-    if (photoMix !== null) add(this.textureMap(src, photoMix, (t) => drawInput(t, -1, null), !src.roi && collectCoarse), false);
-    for (const m of masked) add(this.textureMap(src, m.value / 100, (t) => drawInput(t, m.slot, acc), !src.roi && collectCoarse, m.slot), true, m.slot);
+    const coarse = !src.roi && collectCoarse;
+    if (photoMix !== null) {
+      // The photo's decomposition doesn't depend on its amount (equalizer.ts amountScales), so a
+      // Texture drag reuses it and only folds again.
+      const made = this.L.eqPhoto;
+      let out: Target;
+      if (made && made.tex === src.tex && made.key === photoKey && (!coarse || made.coarse)) out = made.out;
+      else {
+        out = this.textureMap(src, (t) => drawInput(t, -1, null), coarse);
+        this.L.eqPhoto = { tex: src.tex, key: photoKey, out, coarse };
+      }
+      add(out, false, photoMix);
+    }
+    // A masked instance's input carries the sum so far, so it is made again; it reuses the
+    // targets the photo's decomposition is kept in.
+    if (masked.length) this.L.eqPhoto = null;
+    for (const m of masked) add(this.textureMap(src, (t) => drawInput(t, m.slot, acc), coarse, m.slot), true, m.value / 100, m.slot);
     return acc!;
   }
 
@@ -1453,8 +1563,8 @@ export class Engine {
   probeEqualizer(L: Float32Array, w: number, h: number, fullW: number, fullH: number, mix: number): Float32Array {
     const gl = this.gpu.gl;
     const src = { w, h, fullW, fullH } as Source;
-    this.L.eqMade = null;
-    const out = this.textureMap(src, mix, (t) => {
+    this.L.eqMade = null; this.L.eqPhoto = null;
+    const out = this.textureMap(src, (t) => {
       const rgba = new Float32Array(w * h * 4);
       L.forEach((v, k) => (rgba[4 * k] = v));
       this.gpu.scratch();
@@ -1464,7 +1574,7 @@ export class Engine {
     const px = new Float32Array(w * h * 4);
     gl.bindFramebuffer(gl.FRAMEBUFFER, out.fbo);
     gl.readPixels(0, 0, w, h, gl.RGBA, gl.FLOAT, px);
-    return Float32Array.from({ length: w * h }, (_, k) => px[4 * k] + px[4 * k + 1] - px[4 * k + 2]);
+    return Float32Array.from({ length: w * h }, (_, k) => mix * px[4 * k + 1] + mix * mix * px[4 * k + 2]);
   }
 
   /** The clarity filter alone on a lightness plane, for the probe: the change in lightness per pixel. */
@@ -1513,13 +1623,13 @@ export class Engine {
   /** Keep the previous frame until its base profile and optional creative LUT are ready. */
   waiting(recipe: Recipe | null, camera?: import('../film/profiles').CameraMetadata | null, compare = false): boolean {
     const file = compare ? null : recipeLookFile(recipe);
-    return (!!file && lutPending(file)) || profilePending(recipe?.profile ?? 'auto', camera);
+    return (!!file && lutPending(file)) || profilePending(recipe?.profile ?? 'auto', camera, recipe?.autoProfile);
   }
 
   /** Wait for the base profile and optional creative LUT before export or thumbnails. */
   async prepare(recipe: Recipe | null, camera?: import('../film/profiles').CameraMetadata | null) {
     const file = recipeLookFile(recipe);
-    await prepareProfile(recipe?.profile ?? 'auto', camera);
+    await prepareProfile(recipe?.profile ?? 'auto', camera, recipe?.autoProfile);
     if (file) await loadLut(file);
   }
 
@@ -1574,7 +1684,7 @@ export class Engine {
     this.gpu.params(true);
     this.L.lensMade = { input: src.tex, key, out };
     // The target's content changed; downstream maps must not reuse its old pixels.
-    this.L.eqMade = null; this.L.llMade = null; this.L.usmMade = null; this.L.ceMade = null; this.L.ceScene = null;
+    this.L.eqMade = null; this.L.eqPhoto = null; this.L.llMade = null; this.L.usmMade = null; this.L.ceMade = null; this.L.ceScene = null; this.L.ceLookMade = null;
     return { ...src, tex: out.tex };
   }
 
@@ -1651,7 +1761,7 @@ export class Engine {
     gl.generateMipmap(gl.TEXTURE_2D);
     g.params(true);
     this.L.retouchMade = { input: src.tex, spots, k, out, src };
-    this.L.eqMade = null; this.L.llMade = null; this.L.usmMade = null; this.L.ceMade = null; this.L.ceScene = null;
+    this.L.eqMade = null; this.L.eqPhoto = null; this.L.llMade = null; this.L.usmMade = null; this.L.ceMade = null; this.L.ceScene = null; this.L.ceLookMade = null;
     return out;
   }
 
@@ -1739,9 +1849,31 @@ export class Engine {
        * darktable's darkroom shows its preview pipe until the full pipe has caught up.
        */
       moving?: boolean;
+      /**
+       * Draw on the canvas at this fraction of its size (a draft while a slider or brush is
+       * dragged, as Lightroom does), scaled up to fill it. Everything else is chosen as for the
+       * full size, so the next full-size render reuses what the draft made.
+       */
+      draft?: number;
+      /** Internal: the canvas size a draft stands in for, which the choices above are made for. */
+      shown?: [number, number];
     },
   ): void {
     const g = this.gpu;
+    if (opts.target === 'screen' && opts.draft !== undefined && opts.draft < 1 && !this.draftTarget) {
+      const w = Math.max(1, Math.round(opts.width * opts.draft)), h = Math.max(1, Math.round(opts.height * opts.draft));
+      const t = this.outs.get(`draft:${w}x${h}`, () => g.target(w, h, false));
+      this.draftTarget = t;
+      try {
+        this.render(src, recipe, { ...opts, width: w, height: h, draft: undefined, shown: [opts.width, opts.height] });
+      } finally {
+        this.draftTarget = null;
+      }
+      g.bind(0, t.tex); g.bind(1, t.tex);
+      this.noiseP.set({ uOriginal: 0, uDenoised: 1, uAmount: 1, uSplit: -1 });
+      this.toScreen(this.noiseP, opts.width, opts.height);
+      return;
+    }
     // Before/after must compare different RAW inputs when noise reduction is on.
     // Composite two finished frames; no extra texture units in the develop pass.
     if (opts.split !== undefined && opts.split >= 0 && !opts.compare && noiseEnabled(recipe) && src.denoised) {
@@ -1752,11 +1884,8 @@ export class Engine {
       this.render(src, recipe, { ...opts, split: undefined, compare: true, target: before });
       g.bind(0, before.tex); g.bind(1, after.tex);
       this.noiseP.set({ uOriginal: 0, uDenoised: 1, uAmount: 1, uSplit: opts.split });
-      g.draw(this.noiseP, opts.target === 'screen' ? null : opts.target, opts.width, opts.height, opts.target === 'screen');
-      if (opts.target === 'screen') {
-        if (this.fence) g.gl.deleteSync(this.fence);
-        this.fence = g.gl.fenceSync(g.gl.SYNC_GPU_COMMANDS_COMPLETE, 0); g.gl.flush();
-      }
+      if (opts.target === 'screen') this.toScreen(this.noiseP, opts.width, opts.height);
+      else g.draw(this.noiseP, opts.target, opts.width, opts.height, false);
       return;
     }
     if (opts.whole && !src.roi && !opts.products && this.L === this.whole) {
@@ -1776,7 +1905,8 @@ export class Engine {
       // Wavelet retouch and its scale viewer need the whole source, so they keep the old limit.
       const view = opts.view ?? FULL_VIEW;
       const frame = opts.frame ?? recipe?.crop ?? FULL;
-      const shown = Math.max(opts.width / view.w / frame.w, opts.height / view.h / frame.h);
+      const [sw, sh] = opts.shown ?? [opts.width, opts.height];
+      const shown = Math.max(sw / view.w / frame.w, sh / view.h / frame.h);
       const wholeOnly = (recipe?.retouchScales?.scales ?? 0) > 0 && (this.retouchShow || !!recipe?.retouch.some(s => s.opacity > 0));
       if (shown <= Math.max(opts.whole.w, opts.whole.h) * (wholeOnly ? 1.05 : 1.5)) return this.render(opts.whole, recipe, { ...opts, whole: undefined });
     }
@@ -1824,7 +1954,7 @@ export class Engine {
       this.L.refiner.release();
       this.L.refineMade = null;
     }
-    const profile = this.profiles.resolve(recipe?.profile ?? 'auto', src.mode === InputMode.SceneLinear ? src.camera : null);
+    const profile = this.profiles.resolve(recipe?.profile ?? 'auto', src.mode === InputMode.SceneLinear ? src.camera : null, undefined, recipe?.autoProfile);
     if (profile) {
       if (!g.hdr) throw Error('Camera profiles require floating-point WebGL render targets');
       const input = src.tex;
@@ -1842,7 +1972,8 @@ export class Engine {
     // showing the photo at half its working size or less retouches at that scale (1/k), as
     // darktable's darkroom runs at the zoom's scale; an export or a 1:1 view at full size.
     if (!opts.compare) {
-      const shown = Math.max(opts.width / view.w / frame.w, opts.height / view.h / frame.h) / Math.max(src.w, src.h);
+      const [sw, sh] = opts.shown ?? [opts.width, opts.height];
+      const shown = Math.max(sw / view.w / frame.w, sh / view.h / frame.h) / Math.max(src.w, src.h);
       src = this.retouched(src, recipe, shown < 0.5 ? Math.min(8, Math.floor(1 / shown)) : 1);
     }
     // Retouch's source can be far from the view. Copy its complete input before scissoring
@@ -1946,7 +2077,9 @@ export class Engine {
     const usmKern = usmKernel(usmP.radius * pxScale(src));
     const usmOn = !picking && passes.usm && g.hdr && g.float32 && usmKern.length > 1;
     if (usmOn) this.usmTargets(src.w, src.h);
-    const ceOn = !picking && passes.colorEq && g.hdr && g.float32 && !!recipe?.color;
+    // A look's HSL is darktable's colour equalizer instance before the photo's own.
+    const lookColor = recipe ? lookColorFor(recipe) : null;
+    const ceOn = !picking && passes.colorEq && g.hdr && g.float32 && (!!recipe?.color || !!lookColor);
     if (ceOn) this.ceTargets(src.w, src.h);
     const highlights = passes.highlights && !picking;
     // A region takes halation and glow from the whole photo.
@@ -2046,9 +2179,12 @@ export class Engine {
     // A cached screen render also serves histogram reads; only a missing handoff needs a refresh.
     const collectCoarse = !src.roi && (!!opts.products || opts.target === 'screen');
     const textureKey = `${src.w}x${src.h}|${pick(u, BEFORE_TEXTURE)}|${pick(u, TEXTURE_STAGE)}|${JSON.stringify(maskTexture)}`;
+    // The photo's own decomposition: everything its input depends on, but not its amount.
+    const photoTextureKey = `${src.w}x${src.h}|${pick(u, BEFORE_TEXTURE)}|${pick(u, TEXTURE_INPUT)}`;
     // The prefilter's Gaussian kernels depend on the source/full-resolution ratio.
     const ceSceneKey = `${textureKey}|${pxScale(src)}`;
-    const ceKey = `${ceSceneKey}|${pick(u, COLOR_STAGE)}|${JSON.stringify(recipe?.color ?? null)}`;
+    const lookKey = lookColor ? JSON.stringify(lookColor) : '';
+    const ceKey = `${ceSceneKey}|${pick(u, COLOR_STAGE)}|${JSON.stringify(recipe?.color ?? null)}|${lookKey}`;
     // The vignette reads the frame's aspect.
     const aspect = ((u.uOut as number[])[0] / (u.uOut as number[])[1]).toFixed(6);
     const llKey = `${ceKey}|${pick(u, BEFORE_CLARITY)}|${aspect}|${pick(u, CLARITY_STAGE)}|${JSON.stringify(maskClarity)}`;
@@ -2069,7 +2205,7 @@ export class Engine {
           g.bind(8, acc?.tex ?? g.blackTexture);
           tap(t, 7, { uTextureOn: acc ? 1 : 0, uClarityOn: 0, uTapMask: slot });
         }
-      }, collectCoarse);
+      }, collectCoarse, photoTextureKey);
       this.L.eqMade = { tex: src.tex, key: textureKey, out, coarse: collectCoarse };
       texture = out.tex;
     }
@@ -2080,10 +2216,23 @@ export class Engine {
     if (ceOn && this.L.ceMade?.tex === src.tex && this.L.ceMade.key === ceKey) ceTex = this.L.ceMade.out.tex;
     else if (ceOn) {
       // The equalizer's input: the scene after texture, analysed, at every source pixel.
-      const out = this.colorEqMap(src.w, src.h, pxScale(src), recipe!.color!, u, (t) => {
+      const analyseScene = (t: Target) => {
         bindDevelop(g.blackTexture);
         tap(t, 4, { uTextureOn: eqOn ? 1 : 0, uClarityOn: 0, uCeOn: 0 });
-      }, { tex: src.tex, key: ceSceneKey });
+      };
+      let out: Target;
+      if (lookColor) {
+        // The look's instance first, kept in its own target while the photo's own HSL changes.
+        const lookOut = this.ceLookTarget(src.w, src.h);
+        const made = `${ceSceneKey}|${pick(u, COLOR_STAGE)}|${lookKey}`;
+        if (this.L.ceLookMade?.tex !== src.tex || this.L.ceLookMade.key !== made) {
+          this.colorEqMap(src.w, src.h, pxScale(src), lookColor, u, analyseScene, null, lookOut);
+          this.L.ceLookMade = { tex: src.tex, key: made };
+        }
+        out = recipe!.color
+          ? this.colorEqMap(src.w, src.h, pxScale(src), recipe!.color, u, (t) => this.ceAnalyseFrom(lookOut, t), { tex: src.tex, key: `${ceSceneKey}|look:${made}` })
+          : lookOut;
+      } else out = this.colorEqMap(src.w, src.h, pxScale(src), recipe!.color!, u, analyseScene, { tex: src.tex, key: ceSceneKey });
       this.L.ceMade = { tex: src.tex, key: ceKey, out };
       ceTex = out.tex;
     }
@@ -2123,10 +2272,7 @@ export class Engine {
     });
     if (opts.target === 'screen') {
       g.bindArray(MASK_UNIT, maskTex);
-      g.draw(this.develop, null, opts.width, opts.height, true);
-      if (this.fence) g.gl.deleteSync(this.fence);
-      this.fence = g.gl.fenceSync(g.gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
-      g.gl.flush();
+      this.toScreen(this.develop, opts.width, opts.height);
     }
     else {
       g.bindArray(MASK_UNIT, maskTex);

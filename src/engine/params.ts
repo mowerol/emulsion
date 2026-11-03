@@ -21,7 +21,7 @@ import {
   workingGamut,
 } from './colorbalance';
 import { isIdentity } from '../film/curve';
-import { scaledColorBalance } from '../film/creative';
+import { lookColorFor, scaledColorBalance } from '../film/creative';
 import { profileSettingsFor } from '../film/looks';
 import { D65_XY, clampWhiteBalance, temperatureTint, whiteBalanceMatrix, whiteXy, type Xy } from './whitebalance';
 import { packRanges, packShapes } from './masks';
@@ -155,7 +155,7 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uTextureOn: recipe.texture !== 0 ? 1 : 0,
     uTextureMix: recipe.texture / 100,
     uUsmOn: recipe.sharpen > 0 ? 1 : 0,
-    uCeOn: recipe.color ? 1 : 0,
+    uCeOn: recipe.color || lookColorFor(recipe) ? 1 : 0,
     uLl: llParams(recipe.clarity),
     uTeqF0: teq.slice(0, 4),
     uTeqF1: teq.slice(4, 8),

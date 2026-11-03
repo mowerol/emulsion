@@ -23,5 +23,5 @@ it('serializes family writes and flush waits for an already-started save', async
   finish();
   await flushing;
   expect(writeSidecar).toHaveBeenCalledTimes(2);
-  expect(writeSidecar).toHaveBeenLastCalledWith('/a.jpg', expect.objectContaining({ copies: [expect.objectContaining({ rating: 3 })] }));
+  expect(writeSidecar).toHaveBeenLastCalledWith('/a.jpg', expect.objectContaining({ copies: [expect.objectContaining({ rating: 3 })] }), false);
 });

@@ -34,6 +34,10 @@ CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
 
 Results are the JSON in `<pre id="result">`. Swap `--dump-dom` for `--screenshot=out.png --window-size=W,H` to look at the UI it mounts.
 
+### Timing the real app
+
+Headless Chrome understates what Oli feels: the app runs in WKWebView on his Retina screen. `node tools/perf/inapp.mjs <photo,...> [sliders,again,combo,zoom,zoom100,clicks|all]` starts a second dev app on port 1430 (beside his on 1420) on scratch copies of the photos, `src/dev/perfrun.ts` drives real slider drags and clicks in it, and it prints per-drag fps, GPU ms per frame, latency, the worst screen freeze, the passes per frame, and PASS/FAIL against 45 fps and 100 ms. A window opens on Oli's screen for ~30 s (it must stay visible). Each run records its scratch folder as an import in the library catalog.
+
 ## Running
 
 `source ~/.cargo/env` before cargo or `npm run tauri dev` (Rust is installed with rustup). The dev app relaunches itself when Rust changes (the open folder has to be reopened) and hot-reloads the interface; after engine or shader changes, Oli presses Cmd+R in the window.
@@ -43,5 +47,6 @@ Results are the JSON in `<pre id="result">`. Swap `--dump-dom` for `--screenshot
 - **Texture units:** creating or uploading a WebGL texture binds it into the active unit and can replace a shader's input. Make textures after `Gpu.scratch()` (unit 7), and bind each pass's inputs just before its draw. All 16 units are in use: the develop pass samples 0-6 and 8-15 (12-15 are the camera profile's, some 3D), and unit 7 holds the mask stack (a `sampler2DArray`: brushes, refined masks, AI objects) only during masked draws. Two samplers of different types on one unit make the draw fail with INVALID_OPERATION, silently unless you check `gl.getError()`.
 - **macOS menu:** Tauri's default Edit menu takes Cmd+Z, Cmd+Shift+Z and Cmd+A before the webview sees them. The app defines its own menu in `src-tauri/src/lib.rs` that forwards them as `menu` events.
 - **GLSL:** `shared` is reserved. JSX attribute strings don't process escapes; use `{'...'}`.
+- **`isnan`/`isinf` in GLSL:** on ANGLE's Metal backend a single `isnan` in the develop shader made the whole pass ~2.7× slower (28 → 10.5 ms at 1800 × 1200). Avoid them in per-pixel shaders; prevent the NaN instead. `tools/browser-tests/develop-cost.ts` (`only`, `combo`, `stub` queries) times shader variants.
 - **Float precision:** `pow(1 - k, n)` for tiny k loses precision in 32-bit floats; use a series for ln(1 - k).
 - **DNGs from DxO PureRAW 6** are JPEG XL compressed, which LibRaw can't decode; the app says so and edits the embedded preview.

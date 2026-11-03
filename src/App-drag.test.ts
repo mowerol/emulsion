@@ -30,6 +30,7 @@ import { useApp, type Photo } from './library/store';
 import { setTargetCollection, useCatalog } from './library/catalog';
 import { NO_FILTER } from './library/filter';
 import { StageMenu } from './ui/StageMenu';
+import { getSetting } from './library/appsettings';
 
 let root: Root;
 let host: HTMLDivElement;
@@ -175,7 +176,7 @@ it('sets a target in the collection header and marks it in the sidebar', async (
   await act(async () => button.click());
   expect(useCatalog.getState().targetCollectionId).toBe('picks');
   expect(host.querySelector('[title="Picks"] [aria-label="Target collection"]')).not.toBeNull();
-  expect(JSON.parse(localStorage.getItem('emulsion.libraryCatalog')!).targetCollectionId).toBe('picks');
+  expect((getSetting('emulsion.libraryCatalog') as { targetCollectionId: string | null }).targetCollectionId).toBe('picks');
 });
 
 it('sets the target from a collection right-click without navigating or changing the photo selection', async () => {
@@ -221,7 +222,7 @@ it.each(['header', 'context menu'])('clears the target from its %s without remov
   expect(action.textContent).toContain('Clear target collection');
   await act(async () => action.click());
   expect(useCatalog.getState().targetCollectionId).toBeNull();
-  expect(JSON.parse(localStorage.getItem('emulsion.libraryCatalog')!).targetCollectionId).toBeNull();
+  expect((getSetting('emulsion.libraryCatalog') as { targetCollectionId: string | null }).targetCollectionId).toBeNull();
   expect(host.querySelector('[title="Picks"] [aria-label="Target collection"]')).toBeNull();
   expect(useCatalog.getState().collections[0]).toMatchObject({ id: 'picks', photoIds: [photo.path] });
   expect(useApp.getState().source).toEqual({ type: 'collection', id: 'picks' });

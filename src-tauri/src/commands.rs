@@ -125,11 +125,77 @@ pub async fn white_points(paths: Vec<String>) -> Result<Vec<Option<[f32; 2]>>, S
 }
 
 #[tauri::command]
-pub async fn write_sidecar(path: String, saved: sidecar::Saved) -> Result<(), String> {
+pub async fn write_sidecar(path: String, saved: sidecar::Saved, checkpoint: Option<bool>) -> Result<(), String> {
     blocking(move || {
-        sidecar::write(Path::new(&path), &saved).map_err(|e| format!("Could not save edits for {path}: {e}"))
+        sidecar::write(Path::new(&path), &saved, checkpoint.unwrap_or(false)).map_err(|e| format!("Could not save edits for {path}: {e}"))
     })
     .await
+}
+
+/// Earlier states of a photo's edits, newest first.
+#[tauri::command]
+pub async fn sidecar_history(path: String) -> Result<Vec<sidecar::Earlier>, String> {
+    blocking(move || Ok(sidecar::history(Path::new(&path)))).await
+}
+
+fn data_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    use tauri::Manager;
+    app.path().app_data_dir().map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn read_app_settings(app: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let root = data_root(&app)?;
+    blocking(move || Ok(crate::app_data::read_settings(&root))).await
+}
+
+#[tauri::command]
+pub async fn write_app_settings(app: tauri::AppHandle, settings: serde_json::Value) -> Result<(), String> {
+    let root = data_root(&app)?;
+    blocking(move || crate::app_data::write_settings(&root, &settings)).await
+}
+
+#[tauri::command]
+pub async fn app_backups(app: tauri::AppHandle) -> Result<Vec<crate::app_data::Snapshot>, String> {
+    let root = data_root(&app)?;
+    blocking(move || Ok(crate::app_data::list(&root))).await
+}
+
+/// Merge a snapshot folder (one of `app_backups`, or any folder laid out like one) back in.
+#[tauri::command]
+pub async fn restore_app_backup(app: tauri::AppHandle, path: String) -> Result<crate::app_data::Restored, String> {
+    let root = data_root(&app)?;
+    blocking(move || crate::app_data::restore(&root, Path::new(&path))).await
+}
+
+#[tauri::command]
+pub async fn export_app_settings(app: tauri::AppHandle, path: String) -> Result<usize, String> {
+    let root = data_root(&app)?;
+    let version = app.package_info().version.to_string();
+    blocking(move || crate::app_data::export(&root, Path::new(&path), &version)).await
+}
+
+#[tauri::command]
+pub async fn import_app_settings(app: tauri::AppHandle, path: String) -> Result<crate::app_data::Restored, String> {
+    use tauri::Manager;
+    let root = data_root(&app)?;
+    let scratch = app.path().app_cache_dir().map_err(|e| e.to_string())?.join("settings-import");
+    blocking(move || {
+        let _ = std::fs::remove_dir_all(&scratch);
+        std::fs::create_dir_all(&scratch).map_err(|e| e.to_string())?;
+        let result = crate::app_data::unpack(Path::new(&path), &scratch).and_then(|_| crate::app_data::restore(&root, &scratch));
+        let _ = std::fs::remove_dir_all(&scratch);
+        result
+    })
+    .await
+}
+
+#[tauri::command]
+pub async fn show_app_backups(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let dir = crate::app_data::backups_dir(&data_root(&app)?);
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    app.opener().open_path(dir.to_string_lossy(), None::<&str>).map_err(|e| e.to_string())
 }
 
 fn header(request: &Request<'_>, name: &str) -> Result<String, String> {

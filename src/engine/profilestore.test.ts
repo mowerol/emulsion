@@ -60,7 +60,8 @@ describe('camera profile library', () => {
     p.setDefaultProfile(camera, id);
     await p.prepareProfile('auto', camera);
     expect(p.profileFor('auto', camera)?.id).toBe(id);
-    expect(JSON.parse(localStorage.getItem('emulsion.cameraProfiles')!).testcamera).toBe(id);
+    const { getSetting } = await import('../library/appsettings');
+    expect((getSetting('emulsion.cameraProfiles') as Record<string, string>).testcamera).toBe(id);
     expect(
       mocks.invoke.mock.calls.find(([cmd]) => cmd === 'install_camera_profile')?.[2].headers[
         'x-emulsion-profile-camera'
@@ -107,5 +108,35 @@ describe('camera profile library', () => {
     await p.prepareProfile('auto', camera);
     expect(p.profileFor('auto', camera)?.id).toBe(id);
     expect(p.profileFor(`dcp:${id}`, null)).toBeNull();
+  });
+  it('records what Auto chose, and uses it where the camera has no default', async () => {
+    const other = { ...entry, id: 'b'.repeat(64), name: 'Camera Vivid' };
+    installed = [entry, other];
+    const p = await import('./profilestore');
+    const { normalizeRecipe, defaultRecipe } = await import('../film/recipe');
+    await p.refreshProfiles();
+    const frame = (recipe: ReturnType<typeof defaultRecipe> | null) => ({ recipe, camera });
+    // Here: Auto picks the camera's default (Vivid), and the sidecar records it.
+    p.setDefaultProfile(camera, other.id);
+    const saved = p.withAutoProfile(frame(defaultRecipe())).recipe!;
+    expect(saved.autoProfile).toBe(other.id);
+    // Read back on a computer without that default: Auto renders with Vivid, not the standard.
+    const read = normalizeRecipe(JSON.parse(JSON.stringify(saved)))!;
+    expect(read.autoProfile).toBe(other.id);
+    p.setDefaultProfile(camera, 'none');
+    await p.prepareProfile('auto', camera, read.autoProfile);
+    expect(p.profileFor('auto', camera, read.autoProfile)?.id).toBe(other.id);
+    await p.prepareProfile('auto', camera);
+    expect(p.profileFor('auto', camera)?.id).toBe(id);
+    // A default set here still wins, so changing it updates the photo.
+    p.setDefaultProfile(camera, id);
+    expect(p.profileFor('auto', camera, read.autoProfile)?.id).toBe(id);
+    // Nothing installed for it here: the record is kept, not replaced. Other choices drop it.
+    installed = [];
+    await p.refreshProfiles();
+    expect(p.withAutoProfile(frame(read)).recipe!.autoProfile).toBe(other.id);
+    expect(p.withAutoProfile(frame({ ...read, profile: 'standard' })).recipe!.autoProfile).toBeUndefined();
+    expect(p.withAutoProfile(frame(null)).recipe).toBeNull();
+    expect(normalizeRecipe({ ...read, autoProfile: '../x' })!.autoProfile).toBeUndefined();
   });
 });

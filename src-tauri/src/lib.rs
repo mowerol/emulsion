@@ -3,6 +3,7 @@
 //! Image processing itself runs on the GPU in the webview (see src/engine).
 
 mod ai_masks;
+mod app_data;
 mod camera_profiles;
 mod capture;
 mod commands;
@@ -41,6 +42,11 @@ fn app_menu(app: &tauri::AppHandle) -> tauri::Result<Menu<tauri::Wry>> {
         true,
         &[
             &PredefinedMenuItem::about(app, None, None)?,
+            &sep()?,
+            &MenuItem::with_id(app, "settings-export", "Export Settings…", true, None::<&str>)?,
+            &MenuItem::with_id(app, "settings-import", "Import Settings…", true, None::<&str>)?,
+            &MenuItem::with_id(app, "settings-restore", "Restore Settings from Backup…", true, None::<&str>)?,
+            &MenuItem::with_id(app, "settings-show-backups", "Show Backups in Finder", true, None::<&str>)?,
             &sep()?,
             &PredefinedMenuItem::hide(app, None)?,
             &PredefinedMenuItem::hide_others(app, None)?,
@@ -88,12 +94,22 @@ pub fn run() {
             std::fs::create_dir_all(&cache_dir)?;
             app.manage(AppPaths { cache_dir });
             app.set_menu(app_menu(app.handle())?)?;
+            // darktable-style snapshots of looks, presets, profiles and settings: one a day, and
+            // one before a version upgrade. Off the main thread; a failure only loses a snapshot.
+            if let Ok(data) = app.path().app_data_dir() {
+                let version = app.package_info().version.to_string();
+                std::thread::spawn(move || match app_data::launch_snapshots(&data, &version, &app_data::today()) {
+                    Ok(made) if !made.is_empty() => eprintln!("[backups] made {}", made.join(", ")),
+                    Err(e) => eprintln!("[backups] snapshot failed: {e}"),
+                    _ => {}
+                });
+            }
             Ok(())
         })
         .on_menu_event(|app, event| {
             // Undo, redo and select all are Emulsion's own, handled in the webview.
             let id = event.id().as_ref();
-            if matches!(id, "undo" | "redo" | "select-all") {
+            if matches!(id, "undo" | "redo" | "select-all") || id.starts_with("settings-") {
                 let _ = app.emit("menu", id);
             }
         })
@@ -123,6 +139,14 @@ pub fn run() {
             commands::white_points,
             commands::capture_info,
             commands::write_sidecar,
+            commands::sidecar_history,
+            commands::read_app_settings,
+            commands::write_app_settings,
+            commands::app_backups,
+            commands::restore_app_backup,
+            commands::export_app_settings,
+            commands::import_app_settings,
+            commands::show_app_backups,
             commands::write_export,
             commands::startup_options,
             commands::log_message,

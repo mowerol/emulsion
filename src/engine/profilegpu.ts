@@ -53,8 +53,8 @@ export class ProfileGpu {
     this.textures.push(tex);
     return tex;
   }
-  resolve(choice: CameraProfileId, camera?: CameraMetadata | null, temperature?: number): DcpState | null {
-    const selected = profileFor(choice, camera);
+  resolve(choice: CameraProfileId, camera?: CameraMetadata | null, temperature?: number, auto?: string): DcpState | null {
+    const selected = profileFor(choice, camera, auto);
     if (!selected || !camera) return null;
     const key = `${selected.id}|${JSON.stringify(camera)}|${temperature ?? ''}`;
     if (this.state?.key === key) return this.state;

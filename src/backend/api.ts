@@ -150,7 +150,13 @@ export interface Saved {
   heart: boolean;
 }
 
-export const writeSidecar = (path: string, saved: Saved) => invoke<void>('write_sidecar', { path, saved });
+/** Save a photo's sidecar; `checkpoint` keeps the edits it replaces in the sidecar's history. */
+export const writeSidecar = (path: string, saved: Saved, checkpoint = false) => invoke<void>('write_sidecar', { path, saved, checkpoint });
+
+/** An earlier state of a photo's edits (src-tauri/src/sidecar.rs `Earlier`). */
+export interface EarlierEdit { updated: number; replaced: number; recipe: unknown | null; copies?: SavedCopy[] }
+/** Earlier states of a photo's edits, newest first. */
+export const sidecarHistory = (path: string) => isTauri() ? invoke<EarlierEdit[]>('sidecar_history', { path }) : Promise.resolve([]);
 
 export function writeExport(dir: string, stem: string, rgba: Uint8Array, width: number, height: number, quality: number) {
   return invoke<string>('write_export', rgba, {

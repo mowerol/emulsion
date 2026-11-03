@@ -89,13 +89,15 @@ pub fn install(
     };
     fs::create_dir_all(root).map_err(|e| e.to_string())?;
     // Identical imports reuse their content identity. Metadata can refine the display name/camera.
-    fs::write(root.join(format!("{id}.dcp")), bytes).map_err(|e| e.to_string())?;
-    fs::write(
-        root.join(format!("{id}.json")),
-        serde_json::to_vec(&entry).map_err(|e| e.to_string())?,
-    )
-    .map_err(|e| e.to_string())?;
+    // Replaced by rename, never rewritten in place: backups hard-link these files.
+    write_atomic(&root.join(format!("{id}.dcp")), bytes)?;
+    write_atomic(&root.join(format!("{id}.json")), &serde_json::to_vec(&entry).map_err(|e| e.to_string())?)?;
     Ok(entry)
+}
+fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), String> {
+    let tmp = path.with_extension("tmp");
+    fs::write(&tmp, bytes).map_err(|e| e.to_string())?;
+    fs::rename(&tmp, path).map_err(|e| e.to_string())
 }
 pub fn file(root: &Path, id: &str) -> Result<PathBuf, String> {
     checked_id(id)?;

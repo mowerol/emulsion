@@ -91,6 +91,33 @@ async function main() {
     engine.render(full, recipe, { target: 'screen', width: 307, height: 205, seed: 0, view: { x: .4, y: .4, w: .13, h: .13 }, whole: preview });
     assert(whole.eqMade === eq && whole.llMade === ll, 'Zoom invalidated preview detail handoff after histogram');
     results.histogramCacheReused = true;
+    // A draft (Develop's 1× render while a slider or brush is dragged) zoomed in must reuse the
+    // region and every map the full-size render made, draw what a render at its size draws, and
+    // leave the lanes as they were for the full-size render that follows.
+    {
+      const view = { x: .4, y: .4, w: .13, h: .13 };
+      const opts = { target: 'screen' as const, width: 614, height: 410, seed: 0, view, whole: preview };
+      engine.render(full, recipe, opts);
+      const lane = (engine as any).region;
+      const maps = () => [(engine as any).regionMade, whole.eqMade, whole.llMade, lane.eqMade, lane.llMade, lane.ceMade, lane.usmMade, lane.dh, ...lane.dhMasked];
+      const before = maps();
+      engine.render(full, recipe, { ...opts, draft: 0.5 });
+      const same = (why: string) => maps().forEach((m, i) => assert(m === before[i], `${why} (map ${i})`));
+      same('Draft rebuilt region work');
+      const gl = engine.gpu.gl;
+      const t = (engine as any).outs.get('draft:307x205', () => { throw Error('no draft target'); });
+      const draft = new Uint8Array(307 * 205 * 4);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo); gl.readPixels(0, 0, 307, 205, gl.RGBA, gl.UNSIGNED_BYTE, draft);
+      const reference = engine.readPixels(full, recipe, 307, 205, 0, false, view, undefined, preview);
+      let worst = 0;
+      for (let i = 0; i < draft.length; i++) worst = Math.max(worst, Math.abs(draft[i] - reference[i]));
+      same('Rendering at the draft size rebuilt region work');
+      engine.render(full, recipe, opts);
+      same('Full size after a draft rebuilt region work');
+      assert(gl.getError() === gl.NO_ERROR, 'Draft: WebGL error');
+      results.draft = { worst };
+      if (worst > 1) failures.push(`draft differs from a render at its size by ${worst}/255`);
+    }
   } finally { engine.release(full); engine.release(preview); engine.dispose(); }
   assert(!failures.length, `${failures.join('; ')}; ${JSON.stringify(results)}`);
   document.body.dataset.result = `PASS: ${JSON.stringify(results)}`;

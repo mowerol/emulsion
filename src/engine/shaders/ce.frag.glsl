@@ -15,12 +15,14 @@
 //  3 from uA (step 2): the hue, saturation and brightness corrections and the raw saturation gradient
 //  4 the guided filter's a (4), from uA (step 2) and uB (step 3); and its b (2) with the blurred hue correction
 //  6 from uA (step 2), uB (step 3), uC (a), uD (b): the finished scene-linear Rec.2020 colour
+//  7 from uA (scene-linear Rec.2020): ceAnalyse(), a later instance's input
 precision highp float;
 precision highp int;
 in vec2 vUv;
 layout(location = 0) out vec4 outColor;
 layout(location = 1) out vec4 outColor2;
 #include "stages/colorbalance.glsl"
+#include "stages/colorequal.glsl"
 
 uniform int uMode;
 uniform sampler2D uA;
@@ -104,6 +106,12 @@ vec3 hsbToJch(vec3 h) {
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
   gMax = textureSize(uA, 0) - 1;
+  if (uMode == 7) {
+    // A second instance's input: ceAnalyse() of the first instance's finished colour (darktable
+    // runs each instance on the previous one's output).
+    outColor = ceAnalyse(texelFetch(uA, p, 0).rgb);
+    return;
+  }
   if (uMode == 0) {
     // Gaussian moments of the guide UV: mean, and second moments.
     vec2 m = vec2(0.0);

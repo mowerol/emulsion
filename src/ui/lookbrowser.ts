@@ -2,6 +2,7 @@
 import { create } from 'zustand';
 import { PACK, PACKS, lookName, stocksForPack, type PackId } from '../film/looks';
 import type { StockId } from '../film/stocks';
+import { getSetting, setSetting } from '../library/appsettings';
 export interface LookChoice { key: string; pack: PackId; stock: StockId; name: string; bw: boolean; custom: boolean }
 export const choiceKey = (pack: PackId, stock: StockId) => `${pack}:${stock}`;
 const monochrome = /b&w|black\s*(?:&|and)?\s*white|monochrome|\bmono\b|tri-x|hp5|acros|ilford/i;
@@ -18,17 +19,15 @@ export function lookChoices(): LookChoice[] {
   }));
 }
 interface BrowserPreferences { favourites: string[]; view: 'list' | 'grid' }
-const KEY = 'emulsion.lookBrowser';
+const KEY = 'emulsion.lookBrowser' as const;
 function read(): BrowserPreferences {
-  try {
-    const p = JSON.parse(localStorage.getItem(KEY) ?? 'null');
-    return { favourites: Array.isArray(p?.favourites) ? p.favourites.filter((k: unknown): k is string => typeof k === 'string') : [], view: p?.view === 'grid' ? 'grid' : 'list' };
-  } catch { return { favourites: [], view: 'list' }; }
+  const p = getSetting(KEY) as { favourites?: unknown; view?: unknown } | null | undefined;
+  return { favourites: Array.isArray(p?.favourites) ? p.favourites.filter((k: unknown): k is string => typeof k === 'string') : [], view: p?.view === 'grid' ? 'grid' : 'list' };
 }
 export const useLookBrowser = create<BrowserPreferences>(() => read());
 function save(next: BrowserPreferences) {
   useLookBrowser.setState(next);
-  try { localStorage.setItem(KEY, JSON.stringify(next)); } catch { /* preferences remain usable in this session */ }
+  setSetting(KEY, next);
 }
 export function toggleLookFavourite(key: string) {
   const p = useLookBrowser.getState();

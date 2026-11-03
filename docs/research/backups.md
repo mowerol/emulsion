@@ -1,5 +1,7 @@
 # Backups
 
+**Status (2026-11-02): built.** Oli's choices: sidecar history inside the sidecar, 15 daily snapshots, and the resolved profile recorded as a fallback. Items 1–5 below are implemented; see docs/ARCHITECTURE.md (Sidecars, App data and backups).
+
 Researched 2026-11-02. What Emulsion keeps where, what an ordinary photo backup already covers, how darktable and Lightroom Classic handle backups, and what we could build.
 
 ## Where Emulsion's data lives today

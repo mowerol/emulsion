@@ -13,7 +13,7 @@ import { exportStem, expandCopies, photoId, savedFrames } from './copies';
 import { flushSaves } from './sidecars';
 import {
   activePhoto, closeFolder, copySettings, createVirtualCopies, editActive, editRecipes,
-  endLookEdit, finishCrop, importFolderPhotos, markPhotos, openFolder, pasteSettings,
+  endLookEdit, finishCrop, importFolderPhotos, lookEditDirty, renameLookEdit, markPhotos, openFolder, pasteSettings,
   redo, removeVirtualCopies, renameVirtualCopy, selectAll, setActive, setCropDraft, setPhotoWhite,
   setFoldJpegs, setIncludeSubfolders, startCrop, startLookEdit, undo, useApp, type Photo,
 } from './store';
@@ -204,6 +204,20 @@ it('validates saved versions and gives same-name copies distinct safe export ste
   expect(exportStem(frames[1])).not.toContain('/');
   expect(new TextEncoder().encode(`${exportStem({ ...frames[1], name: '旅'.repeat(80) + '.jpg', copyName: '暖'.repeat(120), copyId: 'a'.repeat(80) })}.jpg`).length).toBeLessThanOrEqual(255);
   expect(savedFrames(frames).copies).toHaveLength(2);
+});
+
+it('marks a look draft unsaved only while it differs from where it started', () => {
+  startLookEdit(photoId(activePhoto()!), 'draft', 'Draft', defaultRecipe());
+  expect(lookEditDirty(useApp.getState())).toBe(false);
+  editActive(r => ({ ...r!, contrast: 30 }));
+  expect(lookEditDirty(useApp.getState())).toBe(true);
+  undo();
+  expect(lookEditDirty(useApp.getState())).toBe(false);
+  renameLookEdit('Warm');
+  expect(lookEditDirty(useApp.getState())).toBe(true);
+  renameLookEdit('Draft');
+  expect(lookEditDirty(useApp.getState())).toBe(false);
+  endLookEdit();
 });
 
 it('undoes and redoes a look draft locally without persisting or consuming photo history', async () => {

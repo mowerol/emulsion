@@ -7,6 +7,7 @@ import { lookName } from '../film/looks';
 import { profileLabel } from '../engine/profilestore';
 import { normalizeRecipe } from '../film/recipe';
 import { normalizeMarks, type Label } from './marks';
+import { getSetting, setSetting } from './appsettings';
 
 export interface ImportSession {
   id: string;
@@ -33,12 +34,14 @@ interface Catalog {
   folders: Record<string, Photo[]>;
   targetCollectionId: string | null;
 }
-const KEY = 'emulsion.libraryCatalog';
+// Imports and collections are the user's work: kept in the app's settings file. The folder index
+// is a cache and stays in localStorage.
+const KEY = 'emulsion.libraryCatalog' as const;
 const INDEX_KEY = 'emulsion.libraryIndex';
 const empty = (): Catalog => ({ imports: [], collections: [], folders: {}, targetCollectionId: null });
 function read(): Catalog {
   try {
-    const value = JSON.parse(localStorage.getItem(KEY) ?? 'null');
+    const value = getSetting(KEY) as Record<string, any> | null | undefined;
     if (!value || !Array.isArray(value.imports) || !Array.isArray(value.collections)) return empty();
     let index = value.folders;
     if (!index) {
@@ -55,12 +58,12 @@ export const useCatalog = create<Catalog>(() => read());
 let saveTimer: ReturnType<typeof setTimeout>;
 function persist(state: Catalog) {
   // Keep source definitions independent of the larger, replaceable metadata cache.
-  try { localStorage.setItem(KEY, JSON.stringify({ imports: state.imports, collections: state.collections, roots: Object.keys(state.folders), targetCollectionId: state.targetCollectionId })); } catch { /* session only */ }
+  setSetting(KEY, { imports: state.imports, collections: state.collections, roots: Object.keys(state.folders), targetCollectionId: state.targetCollectionId });
   try { localStorage.setItem(INDEX_KEY, JSON.stringify(state.folders)); } catch { /* index rebuilds from folders */ }
 }
 useCatalog.subscribe((state, previous) => {
   if (state.imports !== previous.imports || state.collections !== previous.collections || state.targetCollectionId !== previous.targetCollectionId || Object.keys(state.folders).length !== Object.keys(previous.folders).length) {
-    try { localStorage.setItem(KEY, JSON.stringify({ imports: state.imports, collections: state.collections, roots: Object.keys(state.folders), targetCollectionId: state.targetCollectionId })); } catch { /* session only */ }
+    setSetting(KEY, { imports: state.imports, collections: state.collections, roots: Object.keys(state.folders), targetCollectionId: state.targetCollectionId });
   }
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {

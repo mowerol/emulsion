@@ -3,6 +3,8 @@
 // (release 5.6.2). Translated from C to GLSL; the per-channel log-logistic curve, plus an exact
 // inverse of it and sRGB encoding of the output. Mirrors src/engine/tone.ts, which computes the
 // curve constants.
+// Deviation (same values): darktable's isnan check on the curve's result is replaced by holding
+// the film term below float overflow, the only way that NaN arises (see sigmoid below).
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Tone: scene-linear light to a display-encoded print.
@@ -18,10 +20,13 @@ uniform float uSigMag;
 float srgbEotf1(float v) { return v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4); }
 float srgbOetf1(float l) { l = max(l, 0.0); return l <= 0.0031308 ? l * 12.92 : 1.055 * pow(l, 1.0 / 2.4) - 0.055; }
 
+// darktable replaces a NaN result with the magnitude ("very large floats": film overflows, and
+// inf / inf is NaN). Here film is held below the overflow instead, which gives the same values:
+// at 1e30 film / (paper exposure + film) is already 1 in floats. isnan is not used because, on
+// ANGLE's Metal backend, one isnan in the develop shader made the whole pass ~2.7× slower.
 float sigmoid(float x, vec4 c, float magnitude) {
-  float film = pow(c.y + max(x, 0.0), c.z);
-  float paper = magnitude * pow(film / (c.x + film), c.w);
-  return isnan(paper) ? magnitude : paper;
+  float film = min(pow(c.y + max(x, 0.0), c.z), 1e30);
+  return magnitude * pow(film / (c.x + film), c.w);
 }
 
 float sigmoidInverse(float y, vec4 c, float magnitude) {

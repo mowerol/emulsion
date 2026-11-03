@@ -56,7 +56,7 @@ const mask = () => { const [w, h] = encodeSize; const m = new Uint8Array(w * h);
 (window as any).__TAURI_INTERNALS__ = { transformCallback: () => 1, invoke: async (command: string, args: any, opts: any) => {
   calls[command] = (calls[command] ?? 0) + 1;
   if (command === 'thumbnail') throw Error('No camera preview');
-  if (command === 'load_image') return args.maxEdge === 2560 ? payload(2560, 1707) : payload(FW, FH);
+  if (command === 'load_image') return args.maxEdge <= 2560 ? payload(args.maxEdge, Math.round(args.maxEdge * FH / FW)) : payload(FW, FH);
   if (command === 'plugin:event|listen') return 1;
   if (command === 'camera_profiles') return [];
   if (command === 'ai_mask_status') return { supported: true, installed: true, download: 0 };

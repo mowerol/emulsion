@@ -29,12 +29,11 @@ import { FIT, imagePoint, label, layout, pan, step, zoomAt, type Layout, type Zo
 import { MaskOverlay } from './MaskOverlay';
 import { setMaskUi, updateMask, useMaskUi } from './maskui';
 import { ENCODE_EDGE, setObjectRenderer } from './objectselect';
+import { fitEdgeBound, previewEdge, previewStale, PREVIEW_MAX } from './previewsize';
 
 /** What an unedited photo is developed with. */
 const UNEDITED = defaultRecipe();
 
-/** Long edge of the interactive preview. Zooming past it loads the full resolution. */
-const PREVIEW_EDGE = 2560;
 /** Long edge of the small render the histogram is counted from. */
 const HISTOGRAM_EDGE = 384;
 /** Wait this long after the last change before counting, so dragging stays smooth. */
@@ -44,12 +43,27 @@ const HISTOGRAM_DELAY_MS = 120;
  * now needs; until then the preview stands in, so the gesture keeps up.
  */
 const VIEW_SETTLE_MS = 180;
+/**
+ * While a pointer is held (a slider drag, a brush stroke, any drag), a frame that takes longer
+ * than this to develop at full resolution makes the rest of the drag a draft: drawn smaller and
+ * scaled up, just small enough to fit a display frame (FRAME_MS), after SLOW_FRAMES of them, and never below 1× on Retina.
+ * Full resolution follows once nothing has changed for VIEW_SETTLE_MS. A drag whose frames keep up
+ * stays sharp. A mask brush stroke is always a draft at 1× (Oli's choice): it is the slowest drag.
+ */
+const SLOW_FRAME_MS = 25;
+/** How many slow full-size frames in a row make a draft: one late frame is not a slow drag. */
+const SLOW_FRAMES = 3;
+const FRAME_MS = 16;
+const draftScale = (ms: number) => Math.max(Math.min(1, 1 / dpr()), Math.min(0.9, Math.sqrt(FRAME_MS / ms)));
 /** A pointer that moves less than this many CSS pixels is a click, not a drag. */
 const CLICK_SLOP = 4;
 /** Clear space round the photo while cropping, in CSS pixels, on top of the stage's padding. */
 const CROP_MARGIN = 24;
 
 const sourceKey = (path: string, res: string, noise = false) => `${path}:${res}:${noise}`;
+/** The long edge each preview was asked for (a photo smaller than that decodes smaller). */
+const previewAsked = new WeakMap<Source, number>();
+const askedEdge = (s: Source) => previewAsked.get(s) ?? Math.max(s.w, s.h);
 
 type Res = 'thumb' | 'preview' | 'full';
 
@@ -65,12 +79,36 @@ const rgb = (hex: string): [number, number, number] => [1, 3, 5].map((i) => pars
 
 export function Develop() {
   const editingLook = useApp(s => !!s.lookEdit);
-  const workflow = useWorkspace(s => s.layout === 'workflow');
+  // The Look Creator has its own layout around the preview, whichever layout the editor uses.
+  const workflow = useWorkspace(s => s.layout === 'workflow') && !editingLook;
   // Masks are edited on the photo while their controls are open (always, in Classic).
   const masksOpen = useWorkspace(s => s.layout !== 'workflow' || s.group === 'masks');
   const boxRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<Engine | null>(null);
+  // Whether a pointer is held down anywhere in the window (see SLOW_FRAME_MS).
+  const heldRef = useRef(false);
+  // The last screen render: when it was submitted, whether it was full size, whether a frame had
+  // to wait for it; and the draft scale this drag has settled on (1 = full resolution).
+  const paceRef = useRef({ submitted: 0, full: false, waited: false, scale: 1, slow: 0, fastest: Infinity });
+  useEffect(() => {
+    const down = (e: PointerEvent) => {
+      heldRef.current = true;
+      const brush = useMaskUi.getState().tool?.kind === 'brush' && e.target instanceof Element && !!e.target.closest('svg.mask-overlay');
+      Object.assign(paceRef.current, { scale: brush ? Math.min(1, 1 / dpr()) : 1, slow: 0, fastest: Infinity });
+    };
+    const up = () => { heldRef.current = false; };
+    window.addEventListener('pointerdown', down, true);
+    window.addEventListener('pointerup', up, true);
+    window.addEventListener('pointercancel', up, true);
+    window.addEventListener('blur', up);
+    return () => {
+      window.removeEventListener('pointerdown', down, true);
+      window.removeEventListener('pointerup', up, true);
+      window.removeEventListener('pointercancel', up, true);
+      window.removeEventListener('blur', up);
+    };
+  }, []);
   const loadedRef = useRef<Loaded | null>(null);
   const sourceCacheRef = useRef(new Map<string, Source>());
   const [error, setError] = useState<string | null>(null);
@@ -148,6 +186,12 @@ export function Develop() {
     const engine = engineRef.current!;
     const key = sourceKey(p, res, !!source.denoised);
     const old = loadedRef.current;
+    // A preview decoded again at another size replaces the one cached under its key.
+    const replaced = sourceCacheRef.current.get(key);
+    if (replaced && replaced !== source) {
+      sourceCacheRef.current.delete(key);
+      if (replaced !== old?.source) engine.release(replaced);
+    }
     if (old && !sourceCacheRef.current.has(sourceKey(old.path, old.res, !!old.source.denoised))) engine.release(old.source);
     if (res !== 'thumb') {
       sourceCacheRef.current.set(key, source);
@@ -215,16 +259,22 @@ export function Develop() {
         /* fall through to the decode */
       }
       try {
+        // Until the photo's size is known, the most it can be shown at when it fits the stage.
+        const r = boxRef.current?.getBoundingClientRect();
+        const crop = useApp.getState().photos.find((p) => p.path === path)?.recipe?.crop;
+        const edge = previewEdge(r && r.width > 2 ? fitEdgeBound(r.width, r.height, dpr(), crop?.w, crop?.h) : Infinity, engine.maxTextureSize);
         const cached = cachedSource(sourceKey(path, 'preview', wantsNoise));
-        if (cached) {
+        if (cached && !previewStale(askedEdge(cached), edge)) {
           swap(cached, 'preview');
           return;
         }
-        const img = await loadCachedImage(path, Math.min(PREVIEW_EDGE, engine.maxTextureSize), wantsNoise);
+        const img = await loadCachedImage(path, edge, wantsNoise);
         if (img.white) setPhotoWhite(path, img.white);
         setPhotoLens(path, img.lens ?? null);
         setPhotoCamera(path, img.camera ?? null);
-        swap({ ...engine.sourceFromHalf(img), origin: path }, 'preview');
+        const source: Source = { ...engine.sourceFromHalf(img), origin: path };
+        previewAsked.set(source, edge);
+        swap(source, 'preview');
       } catch (err) {
         if (cancelled) return;
         // When only the decode failed, the preview stays on screen and edits apply
@@ -314,6 +364,65 @@ export function Develop() {
     }
   });
 
+  // Each photo's haze removal ambient light, measured while idle (Engine.measureAhead).
+  const preparedRef = useRef<WebGLTexture | null>(null);
+  useEffect(() => {
+    const engine = engineRef.current;
+    const l = loadedRef.current;
+    if (!engine || !sizeKnown || !l || l.path !== path) return;
+    const whole = wholeOf(l) ?? l.source;
+    if (preparedRef.current === whole.tex) return;
+    const timer = setTimeout(() => {
+      if (engineRef.current !== engine || loadedRef.current !== l) return;
+      preparedRef.current = whole.tex;
+      try { engine.measureAhead(whole, photo?.recipe ?? UNEDITED); } catch (err) { logToTerminal('warn', `Prepare: ${String(err)}`); }
+    }, 900);
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sizeKnown, loadedVersion, path]);
+
+  // The preview follows the size the photo is shown at (previewsize.ts): when a zoom, crop or
+  // layout change leaves it too small or far larger than needed, decode it again at the new size
+  // once the view has stayed put for a moment. With the full resolution showing, only the cached
+  // preview (the whole photo's products, the histogram) is replaced, and it follows the size the
+  // whole photo fits at, not the zoom: zoomed in, every slider frame rebuilds the whole photo's
+  // maps (Texture, Clarity, haze removal) from it as well as the region's, so a 2560 px preview
+  // made Texture at 100% cost 65 ms a frame against 46 at fit size. Lightcraft's loupe likewise
+  // renders the whole frame at canvas size under its zoomed window. While the full resolution
+  // loads, the preview is what is shown, so it grows with the zoom as before.
+  const shownEdge = current && src && sizeKnown ? current.scale * Math.max(src.fullW, src.fullH) : 0;
+  const fullShowing = loaded?.res === 'full';
+  const fitCrop = photo?.recipe?.crop;
+  const previewFor = fullShowing && box.w > 2 ? Math.min(shownEdge, fitEdgeBound(box.w, box.h, dpr(), fitCrop?.w, fitCrop?.h)) : shownEdge;
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine || !path || !shownEdge || decodeFailed === path) return;
+    const wanted = previewEdge(previewFor, engine.maxTextureSize);
+    const key = sourceKey(path, 'preview', wantsNoise);
+    const have = sourceCacheRef.current.get(key);
+    if (!have || !previewStale(askedEdge(have), wanted)) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      loadCachedImage(path, wanted, wantsNoise).then((img) => {
+        const l = loadedRef.current;
+        if (cancelled || engineRef.current !== engine || l?.path !== path || sourceCacheRef.current.get(key) !== have) return;
+        const next: Source = { ...engine.sourceFromHalf(img), origin: path };
+        previewAsked.set(next, wanted);
+        if (l.res === 'preview') swapSource(path, next, 'preview');
+        else {
+          sourceCacheRef.current.set(key, next);
+          engine.release(have);
+          setLoadedVersion((v) => v + 1);
+        }
+      }).catch((err) => logToTerminal('warn', `Preview at ${wanted} px: ${String(err)}`));
+    }, VIEW_SETTLE_MS * 2);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewEdge(previewFor || 1), path, wantsNoise, loadedVersion]);
+
   // Zoomed past what the preview holds: load the full resolution once. The decode is not tied to
   // this effect's lifetime: zooming again while it runs must not cancel it, or the view stays on
   // the upscaled preview. It is dropped only when the photo (or its noise reduction) changes,
@@ -321,7 +430,11 @@ export function Develop() {
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine || !path || !src || !current || loaded?.res === 'full') return;
+    // Up to what the largest preview holds, a preview decoded at the shown size serves (above),
+    // unless the preview came back smaller than asked: then only the full decode holds more.
     if (current.scale <= (src.w / src.fullW) * 1.05) return;
+    const short = Math.max(src.w, src.h) < askedEdge(src) * 0.95;
+    if (!short && current.scale <= (Math.min(PREVIEW_MAX, engine.maxTextureSize) / Math.max(src.fullW, src.fullH)) * 1.05) return;
     const key = sourceKey(path, 'full', wantsNoise);
     if (fullLoadRef.current === key) return;
     const cached = cachedSource(key);
@@ -359,23 +472,41 @@ export function Develop() {
     shownViewRef.current = viewKey;
     let settle = 0;
     // Wait for the GPU to finish the previous frame, then draw the latest state: while dragging,
-    // frames are skipped rather than queued, so the photo keeps up with the slider.
+    // frames are skipped rather than queued, so the photo keeps up with the slider. A draft
+    // (pointer held) or a stand-in is followed by a full render once nothing changes for a moment.
     let id = 0;
-    const tick = (moving: boolean) => {
+    const tick = (moving: boolean, settled = false) => {
       const engine = engineRef.current;
       const l = loadedRef.current;
       const canvas = canvasRef.current;
       if (!engine || !l || !canvas || l.path !== path || !canvas.width || !current) return;
       // Compare also needs the base camera profile, but never the creative LUT.
       if (engine.waiting(recipe, l.source.camera, compare)) return;
+      const pace = paceRef.current;
       if (!engine.idle()) {
-        id = requestAnimationFrame(() => tick(moving));
+        pace.waited = true;
+        id = requestAnimationFrame(() => tick(moving, settled));
         return;
       }
+      // A full-size frame during this drag that a new frame had to wait for, and that missed the
+      // display's pace: draft from here on, at the size that would have fitted.
+      if (heldRef.current && pace.full) {
+        const ms = performance.now() - pace.submitted;
+        if (pace.waited && ms > SLOW_FRAME_MS) {
+          pace.slow++;
+          pace.fastest = Math.min(pace.fastest, ms);
+          if (pace.slow >= SLOW_FRAMES) pace.scale = Math.min(pace.scale, draftScale(pace.fastest));
+        } else {
+          pace.slow = 0;
+          pace.fastest = Infinity;
+        }
+      }
+      const draft = !settled && heldRef.current && pace.scale < 1 ? pace.scale : undefined;
       try {
         engine.retouchShow = healing ? showScale : 0;
-        engine.render(l.source, recipe, { target: 'screen', width: canvas.width, height: canvas.height, seed, compare, view: current.view, clipping, split, frame, outside: rgb(stage.hex), sharpenMask, maskShow: compare ? null : maskShow, whole: wholeOf(l) ?? undefined, moving });
-        if (moving && engine.stoodIn) settle = window.setTimeout(() => { id = requestAnimationFrame(() => tick(false)); }, VIEW_SETTLE_MS);
+        engine.render(l.source, recipe, { target: 'screen', width: canvas.width, height: canvas.height, seed, compare, view: current.view, clipping, split, frame, outside: rgb(stage.hex), sharpenMask, maskShow: compare ? null : maskShow, whole: wholeOf(l) ?? undefined, moving, draft });
+        Object.assign(pace, { submitted: performance.now(), full: !draft, waited: false });
+        if ((moving && engine.stoodIn) || draft) settle = window.setTimeout(() => { id = requestAnimationFrame(() => tick(false, true)); }, VIEW_SETTLE_MS);
       } catch (err) {
         setError(`Rendering failed. ${String(err)}`);
       }

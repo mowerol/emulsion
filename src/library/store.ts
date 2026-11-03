@@ -13,6 +13,7 @@ import { FULL, isFull, type Crop } from '../film/crop';
 import { NO_FILTER, normalizeFilter, passes, rangeWithin, shownIndices, stepWithin, type Filter } from './filter';
 import { seedFor } from '../engine/engine';
 import { flushSaves, savePhoto } from './sidecars';
+import { withAutoProfile } from '../engine/profilestore';
 import { findPairs, foldPairs } from './pairs';
 import { cleanCopyName, expandCopies, photoId, savedFrames } from './copies';
 import { applyMark, describeMark, hasMark, normalizeMarks, type Label, type MarkKey, type Marks } from './marks';
@@ -96,7 +97,7 @@ interface State {
    * sliders, as a draft kept in memory only (no sidecar write, no undo step). `original` is the
    * photo's saved recipe, which comes back when editing ends.
    */
-  lookEdit: { id: string; name: string; path: string; original: Recipe | null; past: (Recipe | null)[]; future: (Recipe | null)[] } | null;
+  lookEdit: { id: string; name: string; path: string; original: Recipe | null; past: (Recipe | null)[]; future: (Recipe | null)[]; start: { name: string; draft: Recipe } } | null;
   /** The crop being edited, for the photo at `path` of size W × H; it is saved when cropping ends. */
   cropEdit: { path: string; draft: Crop; W: number; H: number } | null;
   /** Size of the photo open in the develop view. */
@@ -589,16 +590,20 @@ const history = new History();
 
 const historyState = () => ({ history: { undo: history.undoLabel, redo: history.redoLabel } });
 
-/** Persist one complete source family, so edits to two copies cannot overwrite each other. */
-function persistSources(ids: string[]) {
+/**
+ * Persist one complete source family, so edits to two copies cannot overwrite each other.
+ * `checkpoint` keeps the edits being replaced in the sidecar's history (sidecar.rs).
+ */
+function persistSources(ids: string[], checkpoint = false) {
   const paths = new Set(ids.map(id => id.split('\0')[0]));
   for (const path of paths) {
     const editing = get().lookEdit;
     const family = [...get().photos, ...get().hidden].filter(p => p.path === path)
       .map(p => editing?.path === photoId(p) ? { ...p, recipe: editing.original } : p);
     if (!family.some(p => !p.copyId)) continue;
-    savePhoto({ path, ...savedFrames(family) });
+    savePhoto({ path, ...savedFrames(family.map(withAutoProfile)) }, checkpoint);
     // Import management must retain versions created or removed since the last scan.
+    if (!get().candidates.some(p => p.path === path)) continue;
     let inserted = false;
     const candidates = get().candidates.flatMap(p => {
       if (p.path !== path) return [p];
@@ -682,7 +687,7 @@ export function removeVirtualCopies() {
   history.record(copies.length === 1 ? 'Remove virtual copy' : `Remove ${copies.length} virtual copies`, changes, performance.now(), `remove:${[...removing].join('|')}`);
   replaceFamilies(families);
   set(historyState());
-  persistSources([...families.keys()]);
+  persistSources([...families.keys()], true);
   showToast(copies.length === 1 ? 'Removed virtual copy' : `Removed ${copies.length} virtual copies`, { label: 'Undo', run: undo });
 }
 
@@ -704,7 +709,7 @@ export function renameVirtualCopy(id: string, name: string) {
  * Change the recipes of `paths`. Every change is an undoable step, named by
  * `label`, or after what changed.
  */
-export function editRecipes(paths: string[], change: (r: Recipe | null, p: Photo) => Recipe | null, label?: string, grouping?: { key: string; continuous: boolean }) {
+export function editRecipes(paths: string[], change: (r: Recipe | null, p: Photo) => Recipe | null, label?: string, grouping?: { key: string; continuous: boolean }, options: { checkpoint?: boolean } = {}) {
   // While a look is being edited, edits change only its draft on that photo.
   const editing = get().lookEdit;
   if (editing) {
@@ -729,7 +734,8 @@ export function editRecipes(paths: string[], change: (r: Recipe | null, p: Photo
     history.record(changes.length > 1 && !label ? `${name} on ${changes.length} photos` : name, changes, performance.now(), grouping?.key, grouping?.continuous);
   }
   set({ photos, ...historyState() });
-  persistSources(changes.map(c => c.path));
+  // Resets and edits of several photos at once are kept in the sidecars' history.
+  persistSources(changes.map(c => c.path), options.checkpoint || changes.length > 1 || changes.some(c => c.after === null));
 }
 
 export const editActive = (change: (r: Recipe | null, p: Photo) => Recipe | null, label?: string, grouping?: { key: string; continuous: boolean }) => {
@@ -779,7 +785,7 @@ function applyStep(step: Step, side: 'before' | 'after', verb: string) {
     return c.marks ? { ...p, ...c[side] } : { ...p, recipe: c[side] };
   });
   set({ photos, ...historyState() });
-  persistSources(step.changes.map(c => c.path));
+  persistSources(step.changes.map(c => c.path), step.changes.length > 1);
   const only = step.changes.length === 1 ? photos.find((p) => photoId(p) === step.changes[0].path) : null;
   const active = activePhoto();
   const where = only && (!active || photoId(only) !== photoId(active)) ? ` on ${only.name}` : '';
@@ -819,7 +825,7 @@ export function pasteSettings() {
     return;
   }
   const t = targets();
-  editRecipes(t.map(photoId), (r) => withSettingsFrom(clip, r), t.length === 1 ? 'Paste settings' : `Paste settings to ${t.length} photos`);
+  editRecipes(t.map(photoId), (r) => withSettingsFrom(clip, r), t.length === 1 ? 'Paste settings' : `Paste settings to ${t.length} photos`, undefined, { checkpoint: true });
   showToast(t.length === 1 ? `Pasted onto ${t[0].name}` : `Pasted onto ${t.length} frames`);
 }
 
@@ -899,7 +905,7 @@ export function startLookEdit(path: string, id: string, name: string, draft: Rec
   const p = get().photos.find((x) => photoId(x) === path);
   if (!p || get().lookEdit) return;
   set({
-    lookEdit: { id, name, path, original: p.recipe, past: [], future: [] }, picking: false, compare: false,
+    lookEdit: { id, name, path, original: p.recipe, past: [], future: [], start: { name, draft } }, picking: false, compare: false,
     photos: get().photos.map((x) => (photoId(x) === path ? { ...x, recipe: draft } : x)),
   });
 }
@@ -908,6 +914,14 @@ export function startLookEdit(path: string, id: string, name: string, draft: Rec
 export function renameLookEdit(name: string) {
   const e = get().lookEdit;
   if (e) set({ lookEdit: { ...e, name } });
+}
+
+/** Whether the look draft differs from where its editing started (its name or its settings). */
+export function lookEditDirty(s: Pick<State, 'lookEdit' | 'photos'>): boolean {
+  const e = s.lookEdit;
+  if (!e) return false;
+  const draft = s.photos.find((x) => photoId(x) === e.path)?.recipe ?? null;
+  return e.name !== e.start.name || JSON.stringify(draft) !== JSON.stringify(e.start.draft);
 }
 
 /** Stop editing a look: the photo gets its saved recipe back. Returns the draft it had. */

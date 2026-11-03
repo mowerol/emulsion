@@ -5,11 +5,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // One scale of the contrast equalizer's edge-avoiding à-trous wavelet on
-// lightness (L*): uIn holds .r the image at this scale, .g the boosted detail
-// so far and .b the starting lightness. Writes the next coarser image, the
-// detail with this scale's boost added, and carries the start along. With
-// uFirst, uIn is the lightness itself in .r, and a masked instance's mask in .g,
-// which .a then carries through every scale (for the fold, maskfold.frag).
+// lightness (L*): uIn holds .r the image at this scale and the detail so far
+// boosted by power of the Texture amount (equalizer.ts amountScales): .g by a
+// (the mix's term), .b by c (the mix²'s). Writes the next coarser image and adds
+// this scale's detail to both, so the change in L* is mix·.g + mix²·.b for every
+// amount. With uFirst, uIn is the lightness itself in .r, and a masked
+// instance's mask in .g, which .a then carries through every scale (for the
+// fold, maskfold.frag).
 precision highp float;
 precision highp int;
 in vec2 vUv;
@@ -18,12 +20,13 @@ layout(location = 1) out vec4 outCoarse;
 
 uniform sampler2D uIn;
 uniform int uMult;
-uniform float uBoost;
+uniform float uA;
+uniform float uC;
 uniform float uSharpen;
 uniform float uFirst;
-// A second render attachment captures each preview instance's coarse change; .a keeps its mask.
+// A second render attachment captures each preview instance's coarse change, split as .g and .b.
 uniform float uCoarseCapture;
-uniform float uCoarseBoost;
+uniform float uCoarseOn;
 uniform sampler2D uCoarse;
 
 void main() {
@@ -42,9 +45,10 @@ void main() {
       wgt += w;
     }
   float coarse = sum / wgt;
-  float accum = uFirst > 0.5 ? 0.0 : here.g;
-  float start = uFirst > 0.5 ? c : here.b;
+  float d = c - coarse;
+  vec2 accum = uFirst > 0.5 ? vec2(0.0) : here.gb;
   float mask = uFirst > 0.5 ? here.g : here.a;
-  outColor = vec4(coarse, accum + uBoost * (c - coarse), start, mask);
-  outCoarse = vec4(uCoarseCapture > 0.5 ? (uFirst > 0.5 ? 0.0 : texelFetch(uCoarse, p, 0).r) + uCoarseBoost * (c - coarse) : 0.0, 0.0, 0.0, 1.0);
+  outColor = vec4(coarse, accum + vec2(uA, uC) * d, mask);
+  vec2 coarseSum = uFirst > 0.5 ? vec2(0.0) : texelFetch(uCoarse, p, 0).rg;
+  outCoarse = uCoarseCapture > 0.5 ? vec4(coarseSum + uCoarseOn * vec2(uA, uC) * d, 0.0, 1.0) : vec4(0.0, 0.0, 0.0, 1.0);
 }

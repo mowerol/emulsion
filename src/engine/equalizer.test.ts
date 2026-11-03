@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
-import { FLAT, SHARPEN_PRESET, applyMix, curveValue, equalize, scales } from './equalizer';
+import { FLAT, SHARPEN_PRESET, amountScales, applyMix, curveValue, equalize, equalizeParts, scales } from './equalizer';
 
 const plane = (w: number, h: number, f: (i: number, j: number) => number) => {
   const p = new Float64Array(w * h);
@@ -70,5 +70,37 @@ describe('contrast equalizer', () => {
     const base = spread(tex, w, h);
     expect(spread(equalize(tex, w, h, scales(w, h, w, h, 1)), w, h)).toBeGreaterThan(base * 1.3);
     expect(spread(equalize(tex, w, h, scales(w, h, w, h, -1)), w, h)).toBeLessThan(base * 0.8);
+  });
+});
+
+describe('contrast equalizer by amount', () => {
+  const sizes: [number, number, number, number][] = [[5184, 3888, 5184, 3888], [1664, 1111, 6246, 4170], [160, 120, 640, 480]];
+  const mixes = [-1, -0.63, -0.2, 0, 0.05, 0.4, 0.77, 1];
+
+  it("gives every band's boost as 1 + a·mix + c·mix², with edge weights that do not depend on the amount", () => {
+    for (const [w, h, W, H] of sizes) {
+      const parts = amountScales(w, h, W, H);
+      for (const mix of mixes) {
+        const sc = scales(w, h, W, H, mix);
+        expect(sc.length).toBe(parts.length);
+        sc.forEach((s, i) => {
+          expect(s.mult).toBe(parts[i].mult);
+          expect(s.sharpen).toBe(parts[i].sharpen);
+          expect(1 + parts[i].a * mix + parts[i].c * mix * mix).toBeCloseTo(s.boost, 12);
+        });
+      }
+    }
+  });
+
+  it('changes lightness by mix·A + mix²·B, A and B made once for every amount', () => {
+    const w = 96, h = 72;
+    const L = plane(w, h, (i, j) => 40 + 25 * (i / w) + 3 * Math.sin(i * 1.7) * Math.sin(j * 1.3) + (j > h / 2 ? 12 : 0));
+    const { A, B } = equalizeParts(L, w, h, amountScales(w, h, w * 4, h * 4));
+    for (const mix of mixes) {
+      const ref = equalize(L, w, h, scales(w, h, w * 4, h * 4, mix));
+      let worst = 0;
+      for (let k = 0; k < w * h; k++) worst = Math.max(worst, Math.abs(mix * A[k] + mix * mix * B[k] - (ref[k] - L[k])));
+      expect(worst).toBeLessThan(1e-9);
+    }
   });
 });

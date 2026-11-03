@@ -47,12 +47,37 @@ describe('undo in the store', () => {
     expect(useApp.getState().photos.map((p) => p.rating)).toEqual([4, 4]);
     expect(useApp.getState().history.undo).toBe('4 stars on 2 photos');
     await vi.runAllTimersAsync();
-    expect(writeSidecar).toHaveBeenLastCalledWith('b', { recipe: null, rating: 4, label: null, heart: false });
-    expect(writeSidecar).toHaveBeenCalledWith('a', expect.objectContaining({ rating: 4, recipe: expect.objectContaining({ stock: 'portra400' }) }));
+    expect(writeSidecar).toHaveBeenLastCalledWith('b', { recipe: null, rating: 4, label: null, heart: false }, false);
+    expect(writeSidecar).toHaveBeenCalledWith('a', expect.objectContaining({ rating: 4, recipe: expect.objectContaining({ stock: 'portra400' }) }), false);
     undo();
     expect(useApp.getState().photos.map((p) => p.rating)).toEqual([0, 0]);
     // The look made before the rating stays.
     expect(useApp.getState().photos[0].recipe?.stock).toBe('portra400');
+    vi.useRealTimers();
+  });
+
+  it('keeps the edits a reset, a paste or an edit of several photos replace in the sidecar history', async () => {
+    vi.useFakeTimers();
+    const { pasteSettings, copySettings } = await import('./store');
+    // Earlier tests leave saves waiting on timers they no longer run.
+    await (await import('./sidecars')).flushSaves();
+    const lastFor = (path: string) => vi.mocked(writeSidecar).mock.calls.filter(c => c[0] === path).slice(-1)[0];
+    editRecipes(['a'], () => defaultRecipe('portra400'));
+    await vi.runAllTimersAsync();
+    expect(lastFor('a')?.[2]).toBe(false);
+    // A slider move straight after a reset still writes it as a checkpoint.
+    editRecipes(['a'], () => null);
+    editRecipes(['a'], () => defaultRecipe('gold200'));
+    await vi.runAllTimersAsync();
+    expect(lastFor('a')?.[2]).toBe(true);
+    copySettings();
+    useApp.setState({ active: 1, selected: new Set(['b']) });
+    pasteSettings();
+    await vi.runAllTimersAsync();
+    expect(lastFor('b')?.[2]).toBe(true);
+    editRecipes(['a', 'b'], () => defaultRecipe('trix400'));
+    await vi.runAllTimersAsync();
+    expect([lastFor('a')?.[2], lastFor('b')?.[2]]).toEqual([true, true]);
     vi.useRealTimers();
   });
 

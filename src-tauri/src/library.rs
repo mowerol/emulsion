@@ -277,7 +277,7 @@ mod tests {
         touch(&img);
         let look = sidecar::Saved { recipe: Some(serde_json::json!({ "stock": "portra400" })), rating: 3, label: None, heart: false,
             copies: vec![sidecar::VirtualCopy { id: "one".into(), name: "Warm".into(), recipe: None, rating: 5, label: None, heart: false }] };
-        sidecar::write(&img, &look).unwrap();
+        sidecar::write(&img, &look, false).unwrap();
         let res = scan(dir.path(), true).unwrap();
         assert_eq!(res.entries.len(), 1, "sidecar must not appear as a photo");
         assert_eq!(res.entries[0].recipe.as_ref().unwrap()["stock"], "portra400");

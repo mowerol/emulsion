@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Runs a browser test in real time on the real GPU (Metal), for timings: virtual time, which
 // treatment-filters.mjs uses, fast-forwards timers and so makes performance.now() meaningless.
-// Usage: node tools/browser-tests/realtime.mjs <page> [timeout seconds] [query]
+// Usage: [DPR=2] node tools/browser-tests/realtime.mjs <page> [timeout seconds] [query]
 import { createServer } from 'vite';
 import { spawn } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -20,7 +20,7 @@ try {
   await server.listen();
   const port = server.httpServer.address().port;
   child = spawn(browser, ['--headless=new', '--no-first-run', '--no-default-browser-check', `--user-data-dir=${profile}`,
-    '--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist', `--remote-debugging-port=${debugPort}`, '--window-size=1200,800',
+    '--use-angle=metal', '--enable-gpu', '--ignore-gpu-blocklist', `--remote-debugging-port=${debugPort}`, `--window-size=${process.env.WINDOW ?? '1200,800'}`, ...(process.env.DPR ? [`--force-device-scale-factor=${process.env.DPR}`] : []),
     `http://127.0.0.1:${port}/tools/browser-tests/${page}.html${query ? `?${query}` : ''}`], { stdio: 'ignore' });
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   let target;
@@ -35,12 +35,18 @@ try {
   const pending = new Map();
   ws.addEventListener('message', (e) => { const m = JSON.parse(e.data); pending.get(m.id)?.(m); });
   const evaluate = (expression) => new Promise((r) => { const n = ++id; pending.set(n, r); ws.send(JSON.stringify({ id: n, method: 'Runtime.evaluate', params: { expression, returnByValue: true } })); });
+  if (process.env.PROFILE) { await new Promise((r) => { const n = ++id; pending.set(n, r); ws.send(JSON.stringify({ id: n, method: 'Profiler.enable' })); }); await new Promise((r) => { const n = ++id; pending.set(n, r); ws.send(JSON.stringify({ id: n, method: 'Profiler.start' })); }); }
   const t0 = Date.now();
   let result;
   while (Date.now() - t0 < limit) {
     await sleep(500);
     result = (await evaluate('document.body?.dataset.result ?? null')).result?.result?.value;
     if (result) break;
+  }
+  if (process.env.PROFILE) {
+    const m = await new Promise((r) => { const n = ++id; pending.set(n, r); ws.send(JSON.stringify({ id: n, method: 'Profiler.stop' })); });
+    const { writeFile } = await import('node:fs/promises');
+    await writeFile(process.env.PROFILE, JSON.stringify(m.result.profile));
   }
   ws.close();
   console.log(result ?? 'FAIL: timed out');

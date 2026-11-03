@@ -24,7 +24,7 @@ function payload(W: number, H: number) {
 }
 (window as any).__TAURI_INTERNALS__ = { transformCallback: () => 1, invoke: async (command: string, args: any) => {
   if (command === 'thumbnail') throw Error('No camera preview');
-  if (command === 'load_image') return args.maxEdge === 2560 ? payload(2560, 1707) : payload(FW, FH);
+  if (command === 'load_image') return args.maxEdge <= 2560 ? payload(args.maxEdge, Math.round(args.maxEdge * FH / FW)) : payload(FW, FH);
   if (command === 'plugin:event|listen') return 1;
   if (command === 'camera_profiles') return [];
 } };

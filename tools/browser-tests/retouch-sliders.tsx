@@ -30,7 +30,7 @@ window.createImageBitmap = (async () => Object.assign(document.createElement('ca
   if (command === 'thumbnail') throw Error('No camera preview');
   if (command === 'load_image') {
     loads.push(args.maxEdge);
-    return args.maxEdge === 2560 ? payload(2560, 1707) : payload(...full as [number, number]);
+    return args.maxEdge <= 2560 ? payload(args.maxEdge, Math.round(args.maxEdge * full[1] / full[0])) : payload(...full as [number, number]);
   }
   if (command === 'plugin:event|listen') return 1;
   if (command === 'camera_profiles') return [];
@@ -99,7 +99,7 @@ async function main() {
   document.body.dataset.measurements = JSON.stringify(result);
   assert(opened.medianMs <= Math.max(before.medianMs * 1.5, before.medianMs + 15), `Opening empty retouch slows sliders: ${JSON.stringify(result)}`);
   assert(closed.medianMs <= Math.max(before.medianMs * 1.5, before.medianMs + 15), `Closing retouch leaves sliders slow: ${JSON.stringify(result)}`);
-  assert(loads.every(edge => edge === 2560), `Empty retouch triggered a full decode: ${JSON.stringify(result)}`);
+  assert(loads.every(edge => edge <= 2560), `Empty retouch triggered a full decode: ${JSON.stringify(result)}`);
   document.body.dataset.result = `PASS: ${JSON.stringify(result)}`;
 }
 main().catch(error => { document.body.dataset.result = `FAIL: ${String(error)}`; });

@@ -4,7 +4,9 @@ import { useSyncExternalStore } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { isTauri } from '../backend/api';
 import { cameraKey, type CameraMetadata, type CameraProfileId } from '../film/profiles';
+import type { Recipe } from '../film/recipe';
 import { parseDcp, type DcpProfile } from './dcp';
+import { getSetting, setSetting } from '../library/appsettings';
 
 export interface ProfileEntry {
   id: string;
@@ -41,7 +43,7 @@ export const sameCamera = (a: string, b: string) => normalized(a) === normalized
 const DEFAULTS = 'emulsion.cameraProfiles';
 function defaults(): Record<string, string> {
   try {
-    const value: unknown = JSON.parse(localStorage.getItem(DEFAULTS) ?? '{}');
+    const value: unknown = getSetting(DEFAULTS) ?? {};
     return value && typeof value === 'object' && !Array.isArray(value)
       ? Object.fromEntries(Object.entries(value).filter(([, id]) => typeof id === 'string'))
       : {};
@@ -52,11 +54,7 @@ function defaults(): Record<string, string> {
 export function setDefaultProfile(camera: CameraMetadata, id: string) {
   const d = defaults();
   d[normalized(cameraKey(camera))] = id;
-  try {
-    localStorage.setItem(DEFAULTS, JSON.stringify(d));
-  } catch {
-    /* session still usable */
-  }
+  setSetting(DEFAULTS, d);
   changed();
 }
 export async function refreshProfiles() {
@@ -77,16 +75,39 @@ export async function refreshProfiles() {
   });
   return initializing;
 }
-function selectedId(choice: CameraProfileId, camera?: CameraMetadata | null): string | null {
+/**
+ * The profile a choice renders with. Auto takes the camera's default, then `auto` (the profile
+ * Auto chose where the photo was saved, for computers without that default), then the camera's
+ * standard profile.
+ */
+function selectedId(choice: CameraProfileId, camera?: CameraMetadata | null, auto?: string): string | null {
   if (!camera || choice === 'standard') return null;
   if (choice.startsWith('dcp:')) return choice.slice(4);
   const available = entries.filter((p) => sameCamera(p.camera, cameraKey(camera))),
     preferred = defaults()[normalized(cameraKey(camera))];
   return (
     available.find((p) => p.id === preferred)?.id ??
+    available.find((p) => p.id === auto)?.id ??
     available.find((p) => /standard|neutral|linear/i.test(p.name))?.id ??
     null
   );
+}
+
+/**
+ * The frame with `recipe.autoProfile` set to what Auto renders it with here, before saving its
+ * sidecar. Kept as it was when Auto finds nothing here (profiles not listed yet, or not installed),
+ * and dropped for other choices.
+ */
+export function withAutoProfile<P extends { recipe: Recipe | null; camera?: CameraMetadata | null }>(p: P): P {
+  const r = p.recipe;
+  if (!r) return p;
+  if (r.profile !== 'auto') {
+    if (r.autoProfile === undefined) return p;
+    const { autoProfile: _, ...rest } = r;
+    return { ...p, recipe: rest };
+  }
+  const id = initialized && p.camera ? selectedId('auto', p.camera, r.autoProfile) : null;
+  return id && id !== r.autoProfile ? { ...p, recipe: { ...r, autoProfile: id } } : p;
 }
 async function load(id: string): Promise<DcpProfile> {
   if (profiles.has(id)) return profiles.get(id)!;
@@ -110,10 +131,10 @@ async function load(id: string): Promise<DcpProfile> {
   pending.set(id, job);
   return job;
 }
-export async function prepareProfile(choice: CameraProfileId, camera?: CameraMetadata | null) {
+export async function prepareProfile(choice: CameraProfileId, camera?: CameraMetadata | null, auto?: string) {
   if (!camera || choice === 'standard') return;
   if (!initialized) await refreshProfiles();
-  const id = selectedId(choice, camera);
+  const id = selectedId(choice, camera, auto);
   if (!id) return;
   const entry = entries.find((p) => p.id === id);
   if (!entry) throw Error('The selected camera profile is not installed');
@@ -123,6 +144,7 @@ export async function prepareProfile(choice: CameraProfileId, camera?: CameraMet
 export function profileFor(
   choice: CameraProfileId,
   camera?: CameraMetadata | null,
+  auto?: string,
 ): { id: string; profile: DcpProfile } | null {
   if (!camera || choice === 'standard') return null;
   if (!initialized) {
@@ -130,7 +152,7 @@ export function profileFor(
     void refreshProfiles().catch(() => {});
     return null;
   }
-  const id = selectedId(choice, camera);
+  const id = selectedId(choice, camera, auto);
   if (!id) return null;
   const entry = entries.find((p) => p.id === id);
   if (!entry) throw Error('The selected camera profile is not installed');
@@ -143,14 +165,14 @@ export function profileFor(
   }
   return { id, profile };
 }
-export function profilePending(choice: CameraProfileId, camera?: CameraMetadata | null) {
+export function profilePending(choice: CameraProfileId, camera?: CameraMetadata | null, auto?: string) {
   if (!camera || choice === 'standard') return false;
   if (!initialized) {
     if (initializationError) return false;
     void refreshProfiles().catch(() => {});
     return true;
   }
-  const id = selectedId(choice, camera);
+  const id = selectedId(choice, camera, auto);
   if (!id || errors.has(id)) return false;
   if (!entries.some((e) => e.id === id)) return false;
   if (!profiles.has(id)) {
