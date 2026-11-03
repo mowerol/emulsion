@@ -218,6 +218,10 @@ interface Products {
   mask?: WebGLTexture;
   texture?: Map<number, { target: Target; source: Source }>;
   clarity?: Map<number, ClarityBoundary>;
+  /** The preview's finished maps of Texture's and Clarity's change (every instance folded, Clarity's
+   *  times `scale`), which a live region render shows in place of remaking its own. */
+  textureMap?: WebGLTexture;
+  clarityMap?: { tex: WebGLTexture; scale: number };
   teq?: WebGLTexture;
   hal?: WebGLTexture;
   glow?: WebGLTexture;
@@ -370,8 +374,11 @@ export class Engine {
   /** A live render scaled the region's Clarity map made at another amount (clarityScale): exact for
    *  the whole photo, not for a region, whose boundary adds a change at any amount. */
   private regionClarityScaled = false;
+  /** A live render showed the preview's Texture or Clarity map in the region instead of remaking
+   *  the region's own: everything from Texture on must be made again at the settle. */
+  private regionFromPreview = false;
   /** Whether the last screen render was live and narrowed a map, so an exact one is owed. */
-  get inexact() { return this.regionLive || this.regionClarityScaled; }
+  get inexact() { return this.regionLive || this.regionClarityScaled || this.regionFromPreview; }
   /**
    * Whether the last screen render showed the preview in place of a region it would have had to
    * build (`moving`): render again once the view settles to show the full resolution.
@@ -968,6 +975,11 @@ export class Engine {
       this.region.llMade = this.region.usmMade = this.region.printMade = null;
       this.regionClarityScaled = false;
     }
+    if (!opts.live && this.regionFromPreview) {
+      const L = this.region;
+      L.eqMade = L.llMade = L.usmMade = L.printMade = L.ceMade = L.ceScene = L.ceLookMade = null;
+      this.regionFromPreview = false;
+    }
     this.liveClip = opts.live ? clipNeed(plan, 0) : null;
     this.L = this.region;
     this.inject = products;
@@ -997,6 +1009,7 @@ export class Engine {
     this.regionBuilt.clear();
     this.regionLive = false;
     this.regionClarityScaled = false;
+    this.regionFromPreview = false;
     for (const d of [L.dh, ...L.dhMasked]) if (d) d.input = null;
     L.ceScene = L.ceMade = L.ceLookMade = L.usmMade = L.eqMade = L.eqPhoto = L.llMade = L.refineMade = L.printMade = null;
   }
@@ -1605,6 +1618,23 @@ export class Engine {
    * lightness: `acc` (the sum so far, or none) plus the instance's change in `nw`, times its
    * mask when `weighted` (Texture's in nw.a, Clarity's in mask.a). Draws into `to`.
    */
+  /**
+   * A live drag's stand-in for a region map: the preview's finished map `map` (Texture's or
+   * Clarity's change, every instance folded) read at the region's place, times `scale`, into `to`.
+   * Coarser than the region's own (the preview has fewer pixels, so none of the finest detail),
+   * which the settle render makes exactly (`regionFromPreview`).
+   */
+  private mapFromPreview(to: Target, map: WebGLTexture, roi: NonNullable<Source['roi']>, scale = 1) {
+    const g = this.gpu;
+    g.bind(0, g.blackTexture);
+    g.bind(1, map);
+    g.bind(2, g.blackTexture);
+    g.bind(3, g.blackTexture);
+    this.foldP.set({ uPrev: 0, uNew: 1, uMask: 2, uPrevOn: 0, uWeighted: 0, uKind: 2, uCoarse: 3, uCoarseOn: 0, uCoarseRoi: [roi.x, roi.y, roi.w, roi.h], uMix: scale });
+    g.draw(this.foldP, to, to.w, to.h);
+    this.regionFromPreview = true;
+  }
+
   private fold(to: Target, acc: Target | null, nw: Target, kind: 0 | 1, weighted: boolean, mask: Target | null = null, source?: Source, slot = -1, mix = 1) {
     const g = this.gpu;
     g.bind(0, acc?.tex ?? g.blackTexture);
@@ -2379,8 +2409,20 @@ export class Engine {
       tap(opts.target, 5, { uView: u.uView, uGeoU: u.uGeoU, uGeoV: u.uGeoV, uGeoW: u.uGeoW, uTextureOn: 0, uClarityOn: 0, uCeOn: 0 });
       return;
     }
+    // A live drag at full resolution that would remake the region's decomposition (an edit before
+    // Texture, or a masked instance) shows the preview's map instead; a Texture drag only folds.
+    const preview = src.roi && this.inject && this.liveClip ? this.inject : null;
+    const photoTexture = this.L.eqPhoto;
+    const textureFolds = passes.texture && !maskTexture.length && photoTexture?.tex === src.tex && photoTexture.key === photoTextureKey;
     if (eqOn && this.L.eqMade?.tex === src.tex && this.L.eqMade.key === textureKey && (!collectCoarse || this.L.eqMade.coarse)) texture = this.L.eqMade.out.tex;
-    else if (eqOn) {
+    else if (eqOn && preview?.textureMap && !textureFolds) {
+      if (clips) this.gpu.clip = { ...clips.texture, tw: src.w, th: src.h };
+      const to = this.eqTargets(src.w, src.h).d[0];
+      this.mapFromPreview(to, preview.textureMap, src.roi!);
+      // d[0] no longer holds the map eqMade names.
+      this.L.eqMade = null;
+      texture = to.tex;
+    } else if (eqOn) {
       clipTo('texture');
       const out = this.textureDelta(src, passes.texture ? (u.uTextureMix as number) : null, maskTexture, (t, slot, acc) => {
         bindDevelop(g.blackTexture);
@@ -2394,7 +2436,10 @@ export class Engine {
       texture = out.tex;
     }
     if (opts.products) {
-      if (eqOn) opts.products.texture = this.L.textureBoundaries;
+      if (eqOn) {
+        opts.products.texture = this.L.textureBoundaries;
+        opts.products.textureMap = texture;
+      }
       if (!passes.clarity && !maskClarity.length) return;
     }
     if (ceOn && this.L.ceMade?.tex === src.tex && this.L.ceMade.key === ceKey) ceTex = this.L.ceMade.out.tex;
@@ -2433,6 +2478,14 @@ export class Engine {
       clarity = made.out.tex;
       u.uClarityScale = scale;
       if (region && scale !== 1) this.regionClarityScaled = true;
+    } else if (ll && preview?.clarityMap) {
+      if (clips) this.gpu.clip = { ...clips.clarity, tw: src.w, th: src.h };
+      const to = ll.D[0];
+      this.mapFromPreview(to, preview.clarityMap.tex, src.roi!, preview.clarityMap.scale);
+      // D[0] no longer holds the map llMade names, and no tap kept the print for Sharpening (tap 11).
+      this.L.llMade = this.L.printMade = null;
+      clarity = to.tex;
+      u.uClarityScale = 1;
     } else if (ll) {
       clipTo('clarity');
       // The filter's input: the print's lightness at every source pixel, uncropped (and for a
@@ -2457,7 +2510,10 @@ export class Engine {
       u.uClarityScale = buildAmount === photoClarity ? 1 : clarityScale(photoClarity, buildAmount)!;
     }
     if (opts.products) {
-      if (ll) opts.products.clarity = this.L.clarityBoundaries;
+      if (ll) {
+        opts.products.clarity = this.L.clarityBoundaries;
+        opts.products.clarityMap = { tex: clarity, scale: u.uClarityScale as number };
+      }
       return;
     }
     if (usmOn && this.L.usmMade?.tex === src.tex && this.L.usmMade.key === usmKey) usm = this.L.usmMade.out.tex;

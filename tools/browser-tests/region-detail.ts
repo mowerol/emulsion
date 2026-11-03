@@ -25,7 +25,7 @@ async function main() {
     const out = g.target(5, 3, true, true), program = g.program(SHADERS.vertex, SHADERS.llboundary);
     const step = Math.sqrt(8), origin: [number, number] = [1.25, 2.5];
     g.bind(0, targets[1].tex); g.bind(1, targets[2].tex); g.bind(2, g.blackTexture);
-    program.set({ uLow: 0, uHigh: 1, uBase: 2, uBoundary: [...origin, step, step], uLevels: [1, 2, .5], uModes: [0, 0] });
+    program.set({ uLow: 0, uHigh: 1, uBase: 2, uBoundary: [...origin, step, step], uLevels: [1, 2, .5], uModes: [0, 0], uScale: 1 });
     g.draw(program, out, out.w, out.h);
     const px = new Float32Array(out.w * out.h * 4); gl.bindFramebuffer(gl.FRAMEBUFFER, out.fbo); gl.readPixels(0, 0, out.w, out.h, gl.RGBA, gl.FLOAT, px);
     const ref = clarityBoundary(levels, out.w, out.h, origin, step);
@@ -124,6 +124,7 @@ async function main() {
     }
     // Live renders (a drag at 100%): maps already made here are remade over the view only, so
     // only pixels near the view's edges may differ, and the next exact render is exact again.
+    // Without Texture and Clarity: a live render that would remake theirs shows the preview's (below).
     {
       const view = { x: .35, y: .27, w: .3, h: .45 };
       const W2 = 690, H2 = 690;
@@ -131,7 +132,7 @@ async function main() {
       const t = engine.gpu.target(W2, H2, false);
       const read = () => { const px = new Uint8Array(W2 * H2 * 4); gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo); gl.readPixels(0, 0, W2, H2, gl.RGBA, gl.UNSIGNED_BYTE, px); return px; };
       const draw = (r: Recipe, live: boolean) => { engine.render(full, r, { target: t, width: W2, height: H2, seed: 0, view, whole: preview, live }); return read(); };
-      const r0 = { ...base, texture: 30, clarity: 30, sharpen: 40 };
+      const r0 = { ...base, dehaze: 20, sharpen: 40 };
       draw(r0, false);
       let edgeWorst = 0, innerWorst = 0, innerFrom = 0;
       const perPx = (view.w * W) / W2;
@@ -165,6 +166,83 @@ async function main() {
       if (exactWorst > 0) failures.push(`exact render after live differs from a fresh one by ${exactWorst}/255`);
       engine.gpu.free(t);
       assert(gl.getError() === gl.NO_ERROR, 'Live: WebGL error');
+    }
+    // A live render that would remake the region's Texture or Clarity map (an edit before them,
+    // or a masked instance) shows the preview's finished map at the region's place instead: the
+    // region's map must equal the preview's, bilinearly sampled there (and Clarity's scaled), and
+    // the settle render must be exact.
+    for (const order of ['darktable', 'log'] as const) for (const [kind, r0, drag] of [
+      ['exposure', { ...base, texture: 30, clarity: 30, sharpen: 40 }, (r: Recipe, v: number) => ({ ...r, exposure: v })],
+      ['dehaze', { ...base, texture: 30, clarity: -30, dehaze: 10 }, (r: Recipe, v: number) => ({ ...r, dehaze: 10 + 50 * v })],
+      ['masked', { ...base, texture: 30, clarity: 30, masks: [{ ...newMask(newGradient(), 0), texture: 25, clarity: 20 }] }, (r: Recipe, v: number) => ({ ...r, exposure: v })],
+    ] as [string, Recipe, (r: Recipe, v: number) => Recipe][]) {
+      // A masked instance adds its reach, so its region needs a smaller view.
+      const view = kind === 'masked' ? { x: .4, y: .4, w: .15, h: .15 } : { x: .35, y: .27, w: .3, h: .45 };
+      const W2 = kind === 'masked' ? 345 : 690, H2 = W2;
+      const e = engine as any, gl = engine.gpu.gl;
+      engine.detailOrder = order;
+      const name = `${order}:${kind}`;
+      const t = engine.gpu.target(W2, H2, false);
+      const read = () => { const px = new Uint8Array(W2 * H2 * 4); gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo); gl.readPixels(0, 0, W2, H2, gl.RGBA, gl.UNSIGNED_BYTE, px); return px; };
+      const draw = (r: Recipe, live: boolean) => { engine.render(full, r, { target: t, width: W2, height: H2, seed: 0, view, whole: preview, live }); return read(); };
+      const readTex = (tex: WebGLTexture, w: number, h: number) => {
+        const fbo = gl.createFramebuffer()!, px = new Float32Array(w * h * 4);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+        gl.readPixels(0, 0, w, h, gl.RGBA, gl.FLOAT, px); gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.deleteFramebuffer(fbo);
+        return px;
+      };
+      // Each stand-in drawn: what it read, where, and what it wrote, checked against a bilinear read.
+      const calls: number[] = [];
+      const original = e.mapFromPreview;
+      e.mapFromPreview = function (to: any, map: WebGLTexture, roi: any, scale = 1) {
+        original.call(this, to, map, roi, scale);
+        const c = engine.gpu.clip!, got = readTex(to.tex, to.w, to.h), src = readTex(map, preview.w, preview.h);
+        const at = (x: number, y: number) => src[4 * (Math.min(preview.h - 1, Math.max(0, y)) * preview.w + Math.min(preview.w - 1, Math.max(0, x)))];
+        let worst = 0, peak = 0;
+        for (let y = c.y; y < c.y + c.h; y += 7) for (let x = c.x; x < c.x + c.w; x += 7) {
+          const u = (roi.x + ((x + .5) / to.w) * roi.w) * preview.w - .5, v = (roi.y + ((y + .5) / to.h) * roi.h) * preview.h - .5;
+          const x0 = Math.floor(u), y0 = Math.floor(v), fx = u - x0, fy = v - y0;
+          const want = scale * ((1 - fy) * ((1 - fx) * at(x0, y0) + fx * at(x0 + 1, y0)) + fy * ((1 - fx) * at(x0, y0 + 1) + fx * at(x0 + 1, y0 + 1)));
+          worst = Math.max(worst, Math.abs(got[4 * (y * to.w + x)] - want));
+          peak = Math.max(peak, Math.abs(want));
+        }
+        calls.push(worst / Math.max(peak, 1e-6));
+      };
+      try {
+        draw(r0, false);
+        let liveWorst = 0;
+        for (const v of [.1, .2, .3]) {
+          const r = drag(r0, v);
+          calls.length = 0;
+          const live = draw(r, true);
+          // Measured before Exposure (log), the photo's own maps don't depend on it: nothing to stand in for.
+          const want = order === 'log' && kind === 'exposure' ? 0 : 2;
+          assert(calls.length === want, `Preview maps ${name}: ${calls.length} stand-ins drawn, not ${want}`);
+          if (want) assert(e.inexact, `Preview maps ${name}: a live render from the preview must owe an exact one`);
+          const exact = draw(r, false);
+          assert(!e.inexact, `Preview maps ${name}: the settle should be exact`);
+          for (let i = 0; i < live.length; i++) liveWorst = Math.max(liveWorst, Math.abs(live[i] - exact[i]));
+          const placed = Math.max(...calls);
+          // Clarity's map is half float (rounding ~5e-4 of the value); a one-pixel misplacement is ~0.15.
+          if (placed > 2e-3) failures.push(`preview maps ${name}: the region's map differs from the preview's at its place by ${placed} of its peak`);
+        }
+        const last = drag(r0, .3);
+        const afterLive = draw(last, false);
+        e.invalidateRegionMaps();
+        const fresh = draw(last, false);
+        let exactWorst = 0;
+        for (let i = 0; i < fresh.length; i++) exactWorst = Math.max(exactWorst, Math.abs(afterLive[i] - fresh[i]));
+        results[`previewMaps_${name}`] = { liveVsExact: liveWorst, exactAfterLive: exactWorst };
+        if (exactWorst > 0) failures.push(`preview maps ${name}: the settle differs from a fresh build by ${exactWorst}/255`);
+        // A Texture drag at 100% only folds the region's own decomposition: no stand-in.
+        if (kind === 'exposure') {
+          calls.length = 0;
+          draw({ ...last, texture: 40 }, true);
+          assert(calls.length === 1, `A Texture drag at 100% should fold its own map and take only Clarity's from the preview (${calls.length})`);
+          draw({ ...last, texture: 40 }, false);
+        }
+      } finally { e.mapFromPreview = original; engine.gpu.free(t); engine.detailOrder = undefined; }
+      assert(gl.getError() === gl.NO_ERROR, `Preview maps ${name}: WebGL error`);
     }
     // A draft (Develop's 1× render while a slider or brush is dragged) zoomed in must reuse the
     // region and every map the full-size render made, draw what a render at its size draws, and

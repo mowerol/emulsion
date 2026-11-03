@@ -30,6 +30,29 @@ let hooked = false;
 /** When on, every draw is bracketed by gl.finish() and its GPU time summed here (by program@size). */
 let passTiming = false;
 let passMs: Record<string, number> = {};
+let passN: Record<string, number> = {};
+/** The draws of one frame in order, with ms (`seq` is filled while recording is on). */
+let seq: string[] | null = null;
+// Bytes of the 2D textures made since this module loaded and still alive (GPU memory in use).
+const texBytes = new Map<WebGLTexture, number>();
+// Textures (and their bytes) made since the last reset: allocation churn during a drag.
+let made = { n: 0, bytes: 0 };
+{
+  const proto = WebGL2RenderingContext.prototype;
+  const bpp: Record<number, number> = { 0x8814: 16, 0x881A: 8, 0x8230: 8, 0x822F: 4, 0x822E: 4, 0x822D: 2, 0x8058: 4, 0x8229: 1 };
+  const image = proto.texImage2D as (...a: unknown[]) => void, del = proto.deleteTexture;
+  proto.texImage2D = function (this: WebGL2RenderingContext, ...a: unknown[]) {
+    image.apply(this, a);
+    if (a.length >= 9 && a[1] === 0 && a[0] === this.TEXTURE_2D) {
+      const tex = this.getParameter(this.TEXTURE_BINDING_2D) as WebGLTexture;
+      const bytes = (a[3] as number) * (a[4] as number) * (bpp[a[2] as number] ?? 4);
+      texBytes.set(tex, bytes);
+      made.n++; made.bytes += bytes;
+    }
+  } as typeof proto.texImage2D;
+  proto.deleteTexture = function (this: WebGL2RenderingContext, t: WebGLTexture | null) { if (t) texBytes.delete(t); del.call(this, t); };
+}
+const texMB = () => Math.round([...texBytes.values()].reduce((a, b) => a + b, 0) / 2 ** 20);
 /** The width of the source the last screen frame was developed from (preview or full). */
 let lastSrcW = 0;
 /** The sources of the last screen frame: what it developed, and the preview beside a full size. */
@@ -61,14 +84,40 @@ function hookDraws(engine: Engine) {
         if (type === gl.FLOAT) gl.readPixels(0, 0, 1, 1, fmt, gl.FLOAT, fpx); else gl.readPixels(0, 0, 1, 1, fmt, type, px);
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       };
+      // Time the flush before the draw apart: GPU work queued outside draw and blit shows up here.
+      const w0 = performance.now();
       sync();
       const t0 = performance.now();
+      passMs[`wait>${n}`] = (passMs[`wait>${n}`] ?? 0) + t0 - w0;
       const r = orig(p, t, ...rest);
       sync();
-      passMs[n] = (passMs[n] ?? 0) + performance.now() - t0;
+      const ms = performance.now() - t0;
+      passMs[n] = (passMs[n] ?? 0) + ms;
+      passN[n] = (passN[n] ?? 0) + 1;
+      seq?.push(`${n} ${ms.toFixed(1)}`);
       return r;
     };
   }
+  // Blits too (boundary copies): GPU work outside draw would otherwise be billed to the next draw.
+  const gl = engine.gpu.gl;
+  const blit = gl.blitFramebuffer.bind(gl);
+  gl.blitFramebuffer = (...a: Parameters<WebGL2RenderingContext['blitFramebuffer']>) => {
+    const n = `blit@${a[6] - a[4]}x${a[7] - a[5]}`;
+    draws[n] = (draws[n] ?? 0) + 1;
+    if (!passTiming) return blit(...a);
+    const read = gl.getParameter(gl.READ_FRAMEBUFFER_BINDING), drawn = gl.getParameter(gl.DRAW_FRAMEBUFFER_BINDING);
+    const sync = () => {
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, drawn);
+      const type = gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_TYPE), fmt = gl.getParameter(gl.IMPLEMENTATION_COLOR_READ_FORMAT);
+      if (type === gl.FLOAT) gl.readPixels(0, 0, 1, 1, fmt, gl.FLOAT, new Float32Array(4)); else gl.readPixels(0, 0, 1, 1, fmt, type, new Uint8Array(4));
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, read);
+    };
+    sync();
+    const t0 = performance.now();
+    blit(...a);
+    sync();
+    passMs[n] = (passMs[n] ?? 0) + performance.now() - t0;
+  };
 }
 const render = Engine.prototype.render;
 Engine.prototype.render = function (this: Engine, ...a: Parameters<Engine['render']>) {
@@ -344,13 +393,23 @@ export async function run(which: string) {
       setSliders({ texture: 40, dehaze: 30, clarity: 30 });
       await settle(800, 30000);
       for (const [name, slider, group] of [['exposure', 'exposure', 'develop'], ['texture', 'texture', 'refine'], ['clarity', 'clarity', 'refine'], ['dehaze', 'dehaze', 'refine']] as const) {
-        passTiming = true; passMs = {};
+        passTiming = true; passMs = {}; passN = {}; made = { n: 0, bytes: 0 };
+        let frameSeq: string[] = [];
+        const before = frames; // gesture() starts a new list
+        const grab = setInterval(() => {
+          // Record the draws of the 10th frame of the drag (steady state, not the first).
+          if (frames === before) return;
+          if (seq === null && frames.length === 10 && !frameSeq.length) seq = [];
+          else if (seq && frames.length >= 11) { frameSeq = seq; seq = null; clearInterval(grab); }
+        }, 1);
         const r = await sliderDrag(slider, group, 300);
+        clearInterval(grab); seq = null;
         passTiming = false;
         const n = Math.max(1, frames.length);
         const total = Object.values(passMs).reduce((a, b) => a + b, 0) / n;
-        out[`passes_${name}`] = { frames: frames.length, totalMs: +total.toFixed(1),
-          byPass: Object.entries(passMs).sort((x, y) => y[1] - x[1]).slice(0, 16).map(([k, v]) => `${k} ${(v / n).toFixed(1)}`).join(', '), perFrame: r.perFrame };
+        out[`passes_${name}`] = { frames: frames.length, totalMs: +total.toFixed(1), texMB: texMB(),
+          madePerFrame: +(made.n / n).toFixed(1), madeMBPerFrame: +(made.bytes / n / 2 ** 20).toFixed(1),
+          byPass: Object.entries(passMs).sort((x, y) => y[1] - x[1]).slice(0, 16).map(([k, v]) => `${k} ${(v / n).toFixed(1)}${passN[k] ? ` (×${(passN[k] / n).toFixed(1)})` : ''}`).join(', '), perFrame: r.perFrame, frameSeq: frameSeq.join(' | ') };
       }
       setSliders({ texture: 0, dehaze: 0, clarity: 0 });
       out.zoomOut = await click(key('z'));
