@@ -46,3 +46,8 @@ export const GROUP_SHORT: Record<PresetGroup, string> = {
 export const GROUP_LABEL = (g: PresetGroup) => (g === 'Treatment' ? 'Look' : g === 'Film options' ? 'Scanner finish' : g);
 export const presetScope = (p: Pick<Preset, 'groups'>) =>
   (Object.keys(PRESET_GROUPS) as PresetGroup[]).filter(g => p.groups.includes(g)).map(g => GROUP_SHORT[g]).join(' · ');
+/** The same names, cut to fit a narrow row: the first few, then how many more. */
+export const presetScopeShort = (p: Pick<Preset, 'groups'>, max = 3) => {
+  const names = (Object.keys(PRESET_GROUPS) as PresetGroup[]).filter(g => p.groups.includes(g)).map(g => GROUP_SHORT[g]);
+  return names.length > max ? `${names.slice(0, max).join(' · ')} · ${names.length - max} more` : names.join(' · ');
+};

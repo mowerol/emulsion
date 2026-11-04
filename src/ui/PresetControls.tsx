@@ -5,7 +5,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { ArrowLeft, Check, ChevronRight, Ellipsis, Plus, Star } from 'lucide-react';
-import { PRESET_GROUPS, DEFAULT_PRESET_GROUPS, GROUP_LABEL, applyPreset, presetScope, type Preset, type PresetGroup } from '../film/presets';
+import { PRESET_GROUPS, DEFAULT_PRESET_GROUPS, GROUP_LABEL, applyPreset, presetScope, presetScopeShort, type Preset, type PresetGroup } from '../film/presets';
 import { defaultRecipe, formatEv, type Recipe } from '../film/recipe';
 import { captureLook, lookName } from '../film/looks';
 import { SCANNER } from '../film/scanners';
@@ -172,10 +172,10 @@ export function PresetControls() {
           const fav = prefs.favourites.includes(p.id);
           return <div key={`${title}:${p.id}`}>
             <div className="preset-row">
-              <button type="button" className="preset-row-apply" title={`Apply ${p.name}`} onClick={() => apply(p)}
+              <button type="button" className="preset-row-apply" title={`Apply ${p.name} — ${presetScope(p)}`} onClick={() => apply(p)}
                 onMouseEnter={() => photo && setPreview({ name: p.name, apply: r => applyPreset(p, r) })}
                 onFocus={() => photo && setPreview({ name: p.name, apply: r => applyPreset(p, r) })} onBlur={() => setPreview(null)}>
-                <strong>{p.name}</strong><span className="preset-scope">{presetScope(p)}</span>
+                <strong>{p.name}</strong><span className="preset-scope">{presetScopeShort(p)}</span>
               </button>
               <button type="button" className={`icon-btn${fav ? ' star-on' : ''}`} aria-pressed={fav} aria-label={`${fav ? 'Remove' : 'Add'} ${p.name} ${fav ? 'from' : 'to'} favourites`} onClick={() => togglePresetFavourite(p.id)}>
                 <Star size={14} fill={fav ? 'currentColor' : 'none'} aria-hidden="true" />

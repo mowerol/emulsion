@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { expect, it } from 'vitest';
-import { applyPreset, DEFAULT_PRESET_GROUPS, PRESET_EXCLUDED, PRESET_GROUPS, normalizePreset, presetScope, type Preset } from './presets';
+import { applyPreset, DEFAULT_PRESET_GROUPS, PRESET_EXCLUDED, PRESET_GROUPS, normalizePreset, presetScope, presetScopeShort, type Preset } from './presets';
 import { defaultRecipe, normalizeRecipe } from './recipe';
 import { captureLook, customLookId, legacyLooks, PACK, profileSettingsFor, recipeLookFile, registerCustomLook, unregisterCustomLook } from './looks';
 const id = 'e0000000-0000-4000-8000-000000000000';
@@ -49,4 +49,6 @@ it('keeps a collection name, trimmed, and leaves presets without one uncollected
   expect(normalizePreset({ ...preset(['Tone']), collection: '   ' })).not.toHaveProperty('collection');
   expect(normalizePreset({ ...preset(['Tone']), collection: 7 })).not.toHaveProperty('collection');
   expect(presetScope({ groups: ['Tone', 'Treatment', 'White balance'] })).toBe('Look · WB · Tone');
+  expect(presetScopeShort({ groups: ['Tone', 'Treatment'] })).toBe('Look · Tone');
+  expect(presetScopeShort({ groups: ['Treatment', 'Tone', 'Curve', 'Colour', 'Effects'] })).toBe('Look · Tone · Curve · 2 more');
 });
