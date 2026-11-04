@@ -1,0 +1,3 @@
+# Remove patches live in a rebuildable cache, not in the sidecar
+
+A Remove spot's sidecar entry holds only its stroke and the model's id. The generated patch is cached in app data, keyed by everything that went into it, and generated again when missing. Patches are about a second of inference each, so storing them in the sidecar would have made sidecars large and binary, and storing them beside the photo would have cluttered the photo's folder. The cost: on another Mac, or after the cache is cleared, each Remove spot runs inference again the first time it's shown, and a different model build or provider may produce a slightly different patch.

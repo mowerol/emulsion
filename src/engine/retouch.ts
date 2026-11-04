@@ -32,6 +32,8 @@
 // - Emulsion decomposes only the spots' region plus the wavelets' reach, which gives the same
 //   pixels there as decomposing the whole image (tested); darktable decomposes its whole ROI.
 // Shapes are in source coordinates, so there are no distortions to transform them through.
+// Remove spots (Emulsion's own tool, not darktable's) take an AI inpainting model's patch from
+// RetouchSetup.remove's patches; the crop, key and colour encode are engine/remove.ts (from IOPaint).
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { RetouchEllipse, RetouchShape, RetouchSpot } from '../film/retouch';
@@ -42,6 +44,7 @@ import { gaussianBlur } from './maskrefine';
 import { BilateralGrid } from './bilateral';
 import { REC2020_XYZ_D50, XYZ_REC2020_D50 } from './dcp';
 import { dwtDecompose, dwtReach, type DwtParams } from './dwt';
+import { PATCH_SIZE, axisWeights, decodePatch, encodeModelInput, fullMask, modelMask, patchKey, patchSource, removeCrop, resample, type Patch, type PatchRequest } from './remove';
 
 /** darktable's dt_iop_roi_t without the scale: a rectangle of pixels. */
 export interface Roi {
@@ -365,7 +368,11 @@ export function retouch(img: Float32Array, roiIn: Roi, W: number, H: number, sca
     if (s > p.scales + 1) return;
     // With fewer scales than asked for (the image is too small), the residual keeps its number.
     if (p.scales < numScales && p.returnLayer === 0 && s === p.scales + 1) s = numScales + 1;
-    for (const spot of spots) if (spot.scale === s) retouchSpot(layer, roiIn, W, H, scale, spot, maxIter, cache, coverage);
+    spots.forEach((spot, i) => {
+      if (spot.scale !== s) return;
+      if (spot.tool === 'remove') removeSpot(layer, roiIn, W, H, scale, spots, i, setup, coverage);
+      else retouchSpot(layer, roiIn, W, H, scale, spot, maxIter, cache, coverage);
+    });
   });
   if (p.returnLayer > 0) {
     // One scale shown: a detail scale with darktable's auto levels; the whole region changes.
@@ -379,6 +386,34 @@ export interface RetouchSetup {
   scales: number;
   mergeFrom: number;
   show: number;
+  /** What Remove spots need; without it they leave the photo as it is. */
+  remove?: RemoveSetup;
+}
+
+/**
+ * What Remove spots need beyond their own settings (engine/remove.ts). Plain data, so it can be
+ * posted to the retouch worker with the rest of the setup; the worker posts `requests` back.
+ */
+export interface RemoveSetup {
+  /**
+   * Each spot's latest patch, by spot id. A patch made for another key (an older version of the
+   * spot) is shown as a stand-in while the spot's own is made.
+   */
+  patches: ReadonlyMap<string, Patch>;
+  /**
+   * Filled by the step: a request for every spot whose patch is missing or was made for another
+   * key, on every run until it arrives (so the caller starts each key's inference once). Give a
+   * fresh array per run.
+   */
+  requests: PatchRequest[];
+  /** preRetouchKey: the source and the edits before the step. */
+  base: string;
+  /** The installed model's hash. */
+  model: string;
+  /** The preview's size over the full size (1 when there is no smaller preview). */
+  previewScale: number;
+  /** The photo's whole spot list, when the step is given only some of them (a region): patch keys are made from it. */
+  spots?: RetouchSpot[];
 }
 export const NO_SCALES: RetouchSetup = { scales: 0, mergeFrom: 0, show: 0 };
 
@@ -476,6 +511,76 @@ function retouchSpot(img: Float32Array, roiIn: Roi, W: number, H: number, scale:
       coverage[c] = Math.max(coverage[c], maskOut[y * roi.w + x] * spot.opacity);
     }
   }
+}
+
+const decoded = new WeakMap<Uint8Array, Float32Array>();
+
+/**
+ * A Remove spot (engine/remove.ts): its patch, resampled to this scale and blended in by the
+ * spot's mask × opacity (colour channels; alpha kept), only where the pixel's centre is inside
+ * the patch's crop. Without its own patch it is requested, with the model's input when this run
+ * can make it, and the pixels stay as they are (or show the stand-in).
+ */
+function removeSpot(img: Float32Array, roiIn: Roi, W: number, H: number, scale: number, spots: RetouchSpot[], i: number, setup: RetouchSetup, coverage?: Float32Array) {
+  const r = setup.remove;
+  const spot = spots[i];
+  if (!r || spot.opacity <= 0) return;
+  const crop = removeCrop(spot.shape, W, H);
+  if (!crop) return;
+  const all = r.spots ?? spots;
+  const at = all.findIndex((s) => s.id === spot.id);
+  const key = at >= 0 ? patchKey(r.base, r.model, all, at, crop, W, H, setup) : patchKey(r.base, r.model, spots, i, crop, W, H, setup);
+  const patch = r.patches.get(spot.id);
+  if (patch?.key !== key) {
+    const source = patchSource(crop, r.previewScale);
+    r.requests.push({ key, spot: spot.id, crop, source, input: modelInput(img, roiIn, W, H, scale, spot, crop, source, r.previewScale) });
+  }
+  if (!patch) return;
+  // spotMask's rectangle is spotArea.
+  const { roi: roiMask, mask } = fullMask(spot.shape, W, H);
+  const r0 = { x: int(roiMask.x * scale), y: int(roiMask.y * scale), w: int(f(roiMask.w * scale) + 0.5), h: int(f(roiMask.h * scale) + 0.5) };
+  const roi = intersect(r0, roiIn, 0, 0, 0);
+  if (roi.w <= 2 || roi.h <= 2) return;
+  const scaled = scaledMask(mask, roiMask, roiIn, scale, 0, 0, 0)!;
+  const m = scaled.roi, pc = patch.crop, P = PATCH_SIZE;
+  let px = decoded.get(patch.pixels);
+  if (!px) { px = decodePatch(patch.pixels); decoded.set(patch.pixels, px); }
+  // Pixel x's centre is at (x + 0.5) / scale in full-size pixels.
+  const xs = axisWeights(m.w, (j) => ((m.x + j + 0.5) / scale - pc.x) * P / pc.w - 0.5, P / (pc.w * scale), 0, P - 1);
+  const ys = axisWeights(m.h, (j) => ((m.y + j + 0.5) / scale - pc.y) * P / pc.h - 0.5, P / (pc.h * scale), 0, P - 1);
+  const fill = resample(px, P, 0, 0, xs, ys);
+  for (let yy = 0; yy < m.h; yy++) {
+    const fy = (m.y + yy + 0.5) / scale;
+    if (fy < pc.y || fy >= pc.y + pc.h) continue;
+    const d = 4 * ((yy + m.y - roiIn.y) * roiIn.w + m.x - roiIn.x);
+    for (let xx = 0; xx < m.w; xx++) {
+      const fx = (m.x + xx + 0.5) / scale;
+      if (fx < pc.x || fx >= pc.x + pc.w) continue;
+      const k = f(scaled.mask[yy * m.w + xx] * spot.opacity);
+      if (k <= 0) continue;
+      const s = 4 * (yy * m.w + xx);
+      for (let c = 0; c < 3; c++) img[d + 4 * xx + c] = f(img[d + 4 * xx + c] * f(1 - k) + f(fill[s + c] * k));
+      if (coverage) {
+        const ci = (yy + m.y - roiIn.y) * roiIn.w + m.x + xx - roiIn.x;
+        coverage[ci] = Math.max(coverage[ci], k);
+      }
+    }
+  }
+}
+
+/**
+ * The model's input for a Remove spot, if this run can make it: running on the source that feeds
+ * the model, at its own scale, with the whole crop in `roiIn`. The crop's pixels at this scale
+ * are resampled to PATCH_SIZE² and encoded.
+ */
+function modelInput(img: Float32Array, roiIn: Roi, W: number, H: number, scale: number, spot: RetouchSpot, crop: Roi, source: 'preview' | 'full', previewScale: number): { image: Uint8Array; mask: Uint8Array } | undefined {
+  if (scale !== (source === 'full' ? 1 : f(previewScale))) return undefined;
+  const x0 = int(crop.x * scale), y0 = int(crop.y * scale), x1 = int((crop.x + crop.w) * scale), y1 = int((crop.y + crop.h) * scale);
+  if (x1 <= x0 || y1 <= y0 || x0 < roiIn.x || y0 < roiIn.y || x1 > roiIn.x + roiIn.w || y1 > roiIn.y + roiIn.h) return undefined;
+  const P = PATCH_SIZE;
+  const xs = axisWeights(P, (j) => (crop.x + (j + 0.5) * crop.w / P) * scale - 0.5, crop.w * scale / P, x0, x1 - 1);
+  const ys = axisWeights(P, (j) => (crop.y + (j + 0.5) * crop.h / P) * scale - 0.5, crop.h * scale / P, y0, y1 - 1);
+  return { image: encodeModelInput(resample(img, roiIn.w, roiIn.x, roiIn.y, xs, ys)), mask: modelMask(spot.shape, crop, W, H) };
 }
 
 /**

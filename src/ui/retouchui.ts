@@ -155,7 +155,7 @@ export function addSpot(shape: RetouchShape, spots: RetouchSpot[]) {
   setRetouchUi({ selected: spot.id });
 }
 
-export const TOOL_NAMES: Record<RetouchSpot['tool'], string> = { heal: 'Heal', clone: 'Clone', blur: 'Blur', fill: 'Fill' };
+export const TOOL_NAMES: Record<RetouchSpot['tool'], string> = { heal: 'Heal', clone: 'Clone', blur: 'Blur', fill: 'Fill', remove: 'Remove' };
 
 export function removeSpot(id: string) {
   if (useRetouchUi.getState().draft?.spot.id === id) { clearTimeout(commitTimer); setRetouchUi({ draft: null }); }

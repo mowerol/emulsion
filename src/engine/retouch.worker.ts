@@ -11,5 +11,6 @@ const cache = new RetouchCache();
 self.onmessage = (e: MessageEvent<RetouchJob>) => {
   const { id, px, region, W, H, scale, spots, k, setup } = e.data;
   retouchReduced(px, region, W, H, scale, spots, k, cache, setup);
-  (self as unknown as Worker).postMessage({ id, px }, [px.buffer]);
+  // Remove spots' patch requests (RemoveSetup.requests) go back with the pixels.
+  (self as unknown as Worker).postMessage({ id, px, requests: setup.remove?.requests ?? [] }, [px.buffer]);
 };

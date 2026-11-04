@@ -12,8 +12,14 @@
 
 import { BRUSH_DEFAULTS, newId, type BrushNode } from './masks';
 
-/** darktable's DT_IOP_RETOUCH_CLONE, _HEAL, _BLUR and _FILL; heal is the module's default. */
-export type RetouchTool = 'clone' | 'heal' | 'blur' | 'fill';
+/**
+ * darktable's DT_IOP_RETOUCH_CLONE, _HEAL, _BLUR and _FILL; heal is the module's default. Remove
+ * is Emulsion's own: an AI inpainting model's patch (engine/remove.ts), on the photo itself only.
+ */
+export type RetouchTool = 'clone' | 'heal' | 'blur' | 'fill' | 'remove';
+
+/** The inpainting model a Remove spot's patch comes from: big-lama, Carve's ONNX export (lama_fp32.onnx). */
+export const REMOVE_MODEL = 'lama-fp32';
 
 /** darktable's circle (dt_masks_point_circle_t): radius and feather in units of the shorter side. */
 export interface RetouchCircle {
@@ -68,6 +74,8 @@ export interface RetouchSpot {
   fillMode: FillMode;
   fillColor: [number, number, number];
   fillBrightness: number;
+  /** Remove: the model its patch comes from (REMOVE_MODEL). Only the id is stored, never the patch (ADR 0001). */
+  model?: string;
 }
 
 /** The settings a new spot takes from the module (darktable copies p->blur_type etc. into the form data). */
@@ -112,7 +120,7 @@ export function moveShape(s: RetouchShape, to: [number, number]): RetouchShape {
   return { ...s, nodes: s.nodes.map((n) => ({ ...n, x: n.x + to[0] - x0, y: n.y + to[1] - y0 })) };
 }
 
-/** Whether the algorithm reads a source (clone and heal); blur and fill work in place. */
+/** Whether the algorithm reads a source (clone and heal); blur, fill and remove work in place. */
 export const usesSource = (tool: RetouchTool) => tool === 'clone' || tool === 'heal';
 
 /**
@@ -137,7 +145,8 @@ export function initialSource(shape: RetouchShape): [number, number] {
 }
 
 export function newSpot(shape: RetouchShape, settings: Partial<SpotSettings> = {}, source?: [number, number]): RetouchSpot {
-  return { id: newId(), ...SPOT_DEFAULTS, ...settings, fillColor: [...(settings.fillColor ?? SPOT_DEFAULTS.fillColor)] as [number, number, number], shape, source: source ?? initialSource(shape), opacity: 1 };
+  const spot: RetouchSpot = { id: newId(), ...SPOT_DEFAULTS, ...settings, fillColor: [...(settings.fillColor ?? SPOT_DEFAULTS.fillColor)] as [number, number, number], shape, source: source ?? initialSource(shape), opacity: 1 };
+  return spot.tool === 'remove' ? { ...spot, scale: 0, model: REMOVE_MODEL } : spot;
 }
 
 export function newCircleSpot(center: [number, number], tool: RetouchTool = 'heal', radius = CIRCLE_DEFAULTS.radius, border = CIRCLE_DEFAULTS.border, source?: [number, number]): RetouchSpot {
@@ -175,7 +184,7 @@ function normalizeShape(input: unknown): RetouchShape | null {
   return null;
 }
 
-const TOOLS: RetouchTool[] = ['clone', 'heal', 'blur', 'fill'];
+const TOOLS: RetouchTool[] = ['clone', 'heal', 'blur', 'fill', 'remove'];
 
 /** Spots read from a sidecar: invalid ones dropped, values clamped, at most MAX_SPOTS. Older spots take darktable's defaults for the newer settings. */
 export function normalizeRetouch(input: unknown): RetouchSpot[] {
@@ -189,16 +198,18 @@ export function normalizeRetouch(input: unknown): RetouchSpot[] {
     if (!shape || !source) continue;
     const color = Array.isArray(o.fillColor) && o.fillColor.length === 3 && o.fillColor.every((c) => typeof c === 'number' && Number.isFinite(c))
       ? (o.fillColor.map((c: number) => clamp(c, -10, 1000)) as [number, number, number]) : [...SPOT_DEFAULTS.fillColor] as [number, number, number];
+    const tool = TOOLS.includes(o.tool as RetouchTool) ? (o.tool as RetouchTool) : 'heal';
     out.push({
       id: typeof o.id === 'string' && o.id.length > 0 && o.id.length < 80 ? o.id : newId(),
-      tool: TOOLS.includes(o.tool as RetouchTool) ? (o.tool as RetouchTool) : 'heal',
+      tool,
       shape, source, opacity: num(o.opacity, 1, 0, 1),
-      scale: Math.round(num(o.scale, 0, 0, MAX_SCALES + 1)),
+      scale: tool === 'remove' ? 0 : Math.round(num(o.scale, 0, 0, MAX_SCALES + 1)),
       blurType: o.blurType === 'bilateral' ? 'bilateral' : 'gaussian',
       blurRadius: num(o.blurRadius, SPOT_DEFAULTS.blurRadius, 0.1, 200),
       fillMode: o.fillMode === 'color' ? 'color' : 'erase',
       fillColor: color,
       fillBrightness: num(o.fillBrightness, 0, -1, 1),
+      ...(tool === 'remove' ? { model: typeof o.model === 'string' && o.model.length > 0 && o.model.length < 80 ? o.model : REMOVE_MODEL } : {}),
     });
   }
   return out;
