@@ -26,7 +26,14 @@ const FPS = Number(process.env.PERF_FPS ?? 55), FREEZE = Number(process.env.PERF
 function report(r) {
   console.log(JSON.stringify(r, null, 1));
   if (r.error) return 1;
-  let bad = 0;
+  // Cold Z → sharp frame budget, independent of the slider throughput checks.
+  const sharpBudget = Number(process.env.PERF_SHARP_MS ?? 1000);
+  const detail = r.zoomDetail;
+  if (detail) {
+    const ok = detail.sharpMs != null && detail.sharpMs <= sharpBudget;
+    console.log(`${ok ? 'PASS' : 'FAIL'} zoomDetail: ${detail.sharpMs ?? 'timed out'} ms to sharp detail (budget ${sharpBudget} ms)`);
+  }
+  let bad = detail && (detail.sharpMs == null || detail.sharpMs > sharpBudget) ? 1 : 0;
   for (const [k, v] of Object.entries(r)) {
     if (!v || typeof v !== 'object' || !('fps' in v)) continue;
     const ok = v.fps >= FPS && v.screenGapMax <= FREEZE;

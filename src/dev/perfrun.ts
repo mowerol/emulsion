@@ -20,7 +20,7 @@ const median = (v: number[]) => v.length ? +v.slice().sort((a, b) => a - b)[Math
 const p90 = (v: number[]) => v.length ? +v.slice().sort((a, b) => a - b)[Math.floor(v.length * 0.9)].toFixed(1) : null;
 
 // ---- Frames: every render to the screen, when the GPU finished it, and which input it showed.
-type Frame = { start: number; done: number; cpu: number; tag: number };
+type Frame = { start: number; done: number; cpu: number; tag: number; srcW: number; detail: boolean };
 let frames: Frame[] = [];
 let tagOf: (r: Recipe | null) => number = () => -1;
 let depth = 0;
@@ -119,6 +119,14 @@ function hookDraws(engine: Engine) {
     passMs[n] = (passMs[n] ?? 0) + performance.now() - t0;
   };
 }
+let uploads: { width: number; cpuMs: number }[] = [];
+const sourceFromHalf = Engine.prototype.sourceFromHalf;
+Engine.prototype.sourceFromHalf = function (...a: Parameters<Engine['sourceFromHalf']>) {
+  const started = performance.now();
+  const source = sourceFromHalf.apply(this, a);
+  uploads.push({ width: a[0].width, cpuMs: performance.now() - started });
+  return source;
+};
 const render = Engine.prototype.render;
 Engine.prototype.render = function (this: Engine, ...a: Parameters<Engine['render']>) {
   if (!hooked) hookDraws(this);
@@ -129,7 +137,7 @@ Engine.prototype.render = function (this: Engine, ...a: Parameters<Engine['rende
   try { return render.apply(this, a); } finally {
     depth--;
     if (outer) {
-      const f: Frame = { start: t0, done: 0, cpu: performance.now() - t0, tag: tagOf(a[1] as Recipe | null) };
+      const f: Frame = { start: t0, done: 0, cpu: performance.now() - t0, tag: tagOf(a[1] as Recipe | null), srcW: a[0].w, detail: !this.stoodIn && !a[2]?.draft };
       frames.push(f);
       const gl = this.gpu.gl;
       const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)!;
@@ -321,6 +329,29 @@ export async function run(which: string) {
       await wait(3000);
       out.fitTextureAfterZoom = await sliderDrag('texture', 'refine', 120);
       setSliders({ texture: 0 });
+    }
+    if (want('zoomdetail') || only.includes('zoomprepared')) {
+      // Time Z through the first GPU-complete full-resolution frame, without slider work.
+      // A source swap alone is insufficient: the first regional render must finish too.
+      setSliders({ texture: 0, dehaze: 0, clarity: 0 });
+      await settle(500, 30000);
+      const viewingPauseMs = only.includes('zoomprepared') ? 6000 : 0;
+      if (viewingPauseMs) await wait(viewingPauseMs);
+      const fullW = useApp.getState().developSize!.W;
+      frames = []; uploads = [];
+      rafLoop();
+      const z0 = performance.now();
+      key('z')();
+      let sharp: Frame | undefined;
+      while (!(sharp = frames.find(f => f.srcW === fullW && f.detail && f.done >= z0)) && performance.now() - z0 < 60000) await wait(10);
+      const painted = await nextPaint();
+      const gaps = rafStop();
+      out.zoomDetail = { viewingPauseMs, sharpMs: sharp ? Math.round(Math.max(sharp.done, painted) - z0) : null,
+        firstRenderMs: sharp ? Math.round(sharp.start - z0) : null,
+        firstRenderCpuMs: sharp ? Math.round(sharp.cpu) : null,
+        firstFrameMs: sharp ? Math.round(sharp.done - sharp.start) : null,
+        uploadCpuMs: uploads.find(u => u.width === fullW)?.cpuMs ?? null,
+        screenGapMax: gaps.length ? Math.round(Math.max(...gaps)) : null };
     }
     if (want('zoom100')) {
       // Every kind of slider at 100%, against the same drags at fit (Oli, 2026-11-03: sliders

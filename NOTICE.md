@@ -149,6 +149,12 @@ Implemented from the papers, not from code.
 - Changes: none. Only the library sources (`src`, `libraw`, `internal`) are included; samples, build files and RawSpeed/DNG SDK integrations are left out. It is compiled into Emulsion by `src-tauri/build.rs`
 - The OM-3 colour matrix in `src-tauri/src/raw.rs` is LibRaw's OM-1 entry from `src/tables/colordata.cpp`
 
+### LLVM OpenMP runtime (macOS parallel RAW builds)
+- Upstream: https://github.com/llvm/llvm-project/tree/main/openmp
+- Licence: Apache-2.0 WITH LLVM-exception; full text in `src-tauri/vendor/openmp/LICENSE.TXT`
+- Location: linked statically from the builder's `libomp` installation when available (tested with LLVM 23.1.4). No runtime binary is checked into this repository
+- Changes: none. Enables LibRaw's existing OpenMP loops; the shim caps each decode at four threads. The RAW demosaic algorithm and quality settings are unchanged
+
 ### Local Fuji LUT conversion utility
 - Input encoding specification: [FUJIFILM F-Log2 Data Sheet v1.1](https://dl.fujifilm-x.com/technical-data/F-Log2_DataSheet_E_Ver.1.1.pdf), section 2-3; F-Gamut primaries in section 3. The [GFX ETERNA White Paper v1.01](https://dl.fujifilm-x.com/support/lut/GFX_ETERNA_WhitePaper_260206_v101.pdf), page 13, recommends BT.709 / D65 / gamma 2.2 **monitor settings**; revision 1 incorrectly treated monitor gamma as the signal transfer. Revision 2 uses the standard Gamma Rec709 RGB profile for this photo adaptation.
 - In: `tools/luts/bake-fuji.mjs` and `tools/luts/fuji-transform.ts`, a local conversion experiment, using the already credited darktable sigmoid inverse/tetrahedral references unchanged. Rec.709 decode translated from `src/common/colorspaces.c`, `_colorspaces_create_gamma_rec709_rgb_profile`, at darktable commit `20891f6c6fa7be995e5bf9dff9d1ee5062051773`, Copyright (C) 2010-2026 darktable developers, GPL-3.0-or-later; the profile’s piecewise parametric tone curve is evaluated directly, verified against native LittleCMS. No Fujifilm source code copied; the published encoding equation is implemented directly.

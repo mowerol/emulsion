@@ -29,7 +29,44 @@ fn build_libraw() {
         build.define("USE_ZLIB", None);
         println!("cargo:rustc-link-lib=z");
     }
-    build.compile("libraw");
+    // Apple Clang can compile LibRaw's existing OpenMP loops, but needs LLVM's
+    // runtime and headers. Link the runtime statically so installed apps do not
+    // depend on Homebrew. Other platforms keep their existing build for now.
+    println!("cargo:rerun-if-env-changed=LIBOMP_PREFIX");
+    println!("cargo:rerun-if-env-changed=EMULSION_LIBRAW_SERIAL");
+    if std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("macos")
+        && std::env::var_os("EMULSION_LIBRAW_SERIAL").is_none()
+    {
+        let explicit = std::env::var_os("LIBOMP_PREFIX");
+        let prefix = explicit.as_ref().map(std::path::PathBuf::from).unwrap_or_else(|| {
+            if std::env::var("CARGO_CFG_TARGET_ARCH").as_deref() == Ok("aarch64") {
+                "/opt/homebrew/opt/libomp".into()
+            } else {
+                "/usr/local/opt/libomp".into()
+            }
+        });
+        let header = prefix.join("include/omp.h");
+        let archive = prefix.join("lib/libomp.a");
+        println!("cargo:rerun-if-changed={}", header.display());
+        println!("cargo:rerun-if-changed={}", archive.display());
+        if header.is_file() && archive.is_file() {
+            build.flag("-Xpreprocessor").flag("-fopenmp")
+                .include(prefix.join("include"))
+                .define("LIBRAW_FORCE_OPENMP", None);
+            // Emit the runtime after libraw so the static archive's references resolve.
+            build.compile("libraw");
+            println!("cargo:rustc-link-search=native={}", prefix.join("lib").display());
+            println!("cargo:rustc-link-lib=static=omp");
+        } else if explicit.is_some() {
+            panic!("LIBOMP_PREFIX must contain include/omp.h and lib/libomp.a");
+        } else {
+            println!("cargo:warning=LibRaw is single-threaded; install libomp (brew install libomp) for parallel RAW decoding");
+            build.compile("libraw");
+        }
+    } else {
+        build.compile("libraw");
+    }
+
 
     println!("cargo:rerun-if-changed=native/raw_shim.cpp");
     println!("cargo:rerun-if-changed=vendor/libraw");

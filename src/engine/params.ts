@@ -108,6 +108,7 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uOut: [ctx.width, ctx.height],
     // The whole source; a region render sets its own (docs/plans/roi.md).
     uRoi: [0, 0, 1, 1],
+    uCeRoi: [0, 0, 1, 1],
     uStore: ctx.store,
     uSeed: ctx.seed,
     uHalThreshold: HALATION_THRESHOLD,

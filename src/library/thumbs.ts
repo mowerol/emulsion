@@ -27,6 +27,14 @@ export function loadCachedImage(path: string, maxEdge: number, noiseReduction = 
   return decodedImages.get(`${path}\0noise:${noiseReduction}`, maxEdge, () => loadImage(path, maxEdge, noiseReduction));
 }
 
+/** Prepare only a bounded ordinary decode, never speculative noise-reduction work.
+ * The decoded payload shares the existing 512 MiB cache and foreground requests. */
+export function prepareFullImage(path: string, width: number, height: number, maxEdge: number): () => void {
+  const scale = Math.min(1, maxEdge / Math.max(width, height));
+  if (Math.round(width * scale) * Math.round(height * scale) * 8 > IMAGE_CACHE_BYTES / 2) return () => {};
+  return decodedImages.prepare(`${path}\0noise:false`, maxEdge, () => loadImage(path, maxEdge, false));
+}
+
 let engine: Engine | null | undefined;
 /** A shared offscreen engine for thumbnails, stock previews and export. */
 export function offscreenEngine(): Engine | null {

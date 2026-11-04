@@ -6,7 +6,8 @@ import { defaultRecipe, type Recipe } from '../../src/film/recipe';
 import { newCircleSpot } from '../../src/film/retouch';
 import { newGradient, newMask, type Mask } from '../../src/film/masks';
 import { trackTextures } from '../performance/gpu-memory';
-import { SHADERS } from '../../src/engine/shaders';
+import { SHADERS, SHADER_FILES } from '../../src/engine/shaders';
+import { assemble } from '../../src/engine/glsl';
 import { clarityBoundary } from '../../src/engine/locallaplacian';
 
 const assert = (ok: unknown, why: string) => { if (!ok) throw Error(why); };
@@ -436,8 +437,10 @@ async function main() {
               if (ownAt.has(i) || (clipGrew && i >= fields.length)) return;
               if (after[i] !== m) failures.push(`warm ${name}: ${fields[i % fields.length]} (${i < fields.length ? 'whole' : 'region'}) changed`);
             });
-            const ownLane = region ? fields.length : 0;
-            if (!own.some(f => after[ownLane + fields.indexOf(f)] && after[ownLane + fields.indexOf(f)] !== before[ownLane + fields.indexOf(f)])) failures.push(`warm ${name}: its own map was not made`);
+            // Live regional colour borrows the preview, so hover warms that lane only.
+            const ownLane = region && stage !== 'color' ? fields.length : 0;
+            const colorWarmed = region && stage === 'color' && e.whole.ceDraft?.ceScene;
+            if (!colorWarmed && !own.some(f => after[ownLane + fields.indexOf(f)] && after[ownLane + fields.indexOf(f)] !== before[ownLane + fields.indexOf(f)])) failures.push(`warm ${name}: its own map was not made`);
             draws = 0;
             const live = draw(click, true);
             const hot = draws;
@@ -597,7 +600,7 @@ async function retinaTiming() {
     const w = Math.min(1, canvas.width / z / W), h = Math.min(1, canvas.height / z / H);
     return { x: (1 - w) / 2, y: (1 - h) / 2, w, h };
   };
-  const steps: Array<Record<string, unknown>> = [];
+  const steps: Array<ReturnType<typeof draw> & { zoom: number; region: unknown }> = [];
   let kept: unknown = null;
   try {
     for (const z of [.25, .5, 1, 2, 4]) {
@@ -678,8 +681,7 @@ async function gesture() {
   document.body.dataset.result = `PASS: ${JSON.stringify(out)}`;
 }
 
-// An HSL drag at 100% with Clarity on: the whole photo's products (developed first on each frame)
-// must not remake the colour map when Clarity's map is held, since nothing else in them reads it.
+// An HSL drag with Clarity on updates the preview's colour change, while the region borrows it.
 async function hslDrag() {
   const engine = new Engine(document.createElement('canvas'));
   const W = 2301, H = 1533;
@@ -718,8 +720,9 @@ async function hslDrag() {
       for (const k of Object.keys(counts)) delete counts[k];
       engine.render(full, { ...base, color: sat(40) }, { ...opts, live: true });
       const previewCe = counts['ceP@384x256'] ?? 0;
+      const regionCe = Object.entries(counts).filter(([k]) => k.startsWith('ceP@') && k !== 'ceP@384x256').reduce((sum, [, n]) => sum + n, 0);
       out[order] = { ...counts };
-      if (previewCe) failures.push(`${order}: a live HSL frame remade the preview's colour map (${previewCe} ceP passes)`);
+      if (regionCe || !previewCe) failures.push(`${order}: a live HSL frame made ${regionCe} regional and ${previewCe} preview colour passes`);
       // The settle is still exact: equal to a render from nothing.
       const t = engine.gpu.target(345, 345, false);
       const read = () => { const px = new Uint8Array(345 * 345 * 4); gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo); gl.readPixels(0, 0, 345, 345, gl.RGBA, gl.UNSIGNED_BYTE, px); return px; };
@@ -738,5 +741,160 @@ async function hslDrag() {
   } finally { engine.gpu.draw = draw0; engine.release(full); engine.release(preview); engine.dispose(); }
   document.body.dataset.result = `${failures.length ? 'FAIL' : 'PASS'}: ${JSON.stringify({ failures, out })}`;
 }
+// Live colour work belongs on the preview lane at every regional zoom. Check the real draw
+// graph, responsiveness, and the exact render after releasing, including masked upstream edits.
+async function colorPreview() {
+  const engine = new Engine(document.createElement('canvas'));
+  const W = 2048, H = 1536;
+  const upload = (w: number, h: number) => {
+    const data = new Uint16Array(w * h * 4);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const X = Math.floor(x * W / w), Y = Math.floor(y * H / h);
+      const detail = (((X >> 2) ^ (Y >> 2)) & 1) * 384;
+      data.set([0x3000 + Math.round(512 * x / w) + detail, 0x3000 + Math.round(512 * y / h) + detail, 0x2c00 + detail, 0x3c00], 4 * (y * w + x));
+    }
+    return engine.sourceFromHalf({ width: w, height: h, fullWidth: W, fullHeight: H, mode: InputMode.SceneLinear, white: null, data });
+  };
+  const full = upload(W, H), preview = upload(384, 288);
+  const color = (v: number) => ({ hue: [v / 2, 0, 0, 0, 0, 0, 0, 0], sat: [v, 0, 0, 0, 0, 0, 0, 0], bright: [v / 3, 0, 0, 0, 0, 0, 0, 0] });
+  const base = { ...defaultRecipe('neutral', 'straight'), captureSharpening: 0, grain: 0, sharpen: 0 };
+  const e = engine as any, gl = engine.gpu.gl;
+  let regionCe = 0, previewCe = 0;
+  const original = engine.gpu.draw;
+  engine.gpu.draw = function (...args: Parameters<typeof original>) {
+    if (args[0] === e.ceP) { if (e.L === e.region) regionCe++; else previewCe++; }
+    return original.apply(this, args);
+  };
+  const out: Record<string, unknown> = {}, failures: string[] = [];
+  try {
+    // Independent CPU check of the shared stage: add a spatially varying, signed preview
+    // change at the region's whole-photo coordinates while retaining alternating fine detail.
+    const g = engine.gpu;
+    const map = g.target(4, 4, true, true), dst = g.target(9, 7, true, true);
+    const data = Float32Array.from({ length: 64 }, (_, i) => Math.floor(i / 4) * .002 + (i % 4) * .01 - .04);
+    g.scratch(); gl.bindTexture(gl.TEXTURE_2D, map.tex); gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 4, 4, gl.RGBA, gl.FLOAT, data);
+    const program = g.program(SHADERS.vertex, assemble(`#version 300 es
+precision highp float;
+in vec2 vUv;
+out vec4 outColor;
+#include "stages/colorbalance.glsl"
+#include "stages/colorequal.glsl"
+void main() {
+  vec3 rgb = vec3(.25 + mod(floor(gl_FragCoord.x), 2.0) * .0625);
+  outColor = vec4(stageColorEqual(rgb, vUv), 1.0);
+}`, SHADER_FILES));
+    let samplingWorst = 0;
+    try {
+      for (const mode of [0, 1, 2]) for (const roi of [[0, 0, 1, 1], [.21, .31, .34, .44], [.9, .9, .1, .1]]) {
+        g.bind(0, map.tex); program.set({ uCeTex: 0, uCeOn: mode, uCeRoi: roi }); g.draw(program, dst, dst.w, dst.h);
+        const pixels = new Float32Array(dst.w * dst.h * 4);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, dst.fbo); gl.readPixels(0, 0, dst.w, dst.h, gl.RGBA, gl.FLOAT, pixels);
+        for (let y = 0; y < dst.h; y++) for (let x = 0; x < dst.w; x++) for (let c = 0; c < 3; c++) {
+          const u = ((mode === 2 ? roi[0] : 0) + (x + .5) / dst.w * (mode === 2 ? roi[2] : 1)) * 4 - .5;
+          const v = ((mode === 2 ? roi[1] : 0) + (y + .5) / dst.h * (mode === 2 ? roi[3] : 1)) * 4 - .5;
+          const x0 = Math.floor(u), y0 = Math.floor(v), fx = u - x0, fy = v - y0;
+          const at = (a: number, b: number) => data[4 * (Math.max(0, Math.min(3, b)) * 4 + Math.max(0, Math.min(3, a))) + c];
+          const sample = (1 - fy) * ((1 - fx) * at(x0, y0) + fx * at(x0 + 1, y0)) + fy * ((1 - fx) * at(x0, y0 + 1) + fx * at(x0 + 1, y0 + 1));
+          const rgb = .25 + (x % 2) * .0625;
+          const want = mode === 0 ? rgb : mode === 1 ? sample : rgb + sample;
+          samplingWorst = Math.max(samplingWorst, Math.abs(pixels[4 * (y * dst.w + x) + c] - want));
+        }
+      }
+      assert(samplingWorst < 2e-4, `Colour preview sampling/detail: ${samplingWorst}`);
+      out.samplingWorst = samplingWorst;
+    } finally { gl.deleteProgram(program.handle); g.free(map); g.free(dst); }
+    // A Retina preview must not turn every upstream edit into five preview-sized colour
+    // passes. Only the live effect is bounded; the regional source stays at full resolution.
+    const largePreview = upload(1536, 1152);
+    const largeTarget = g.target(345, 230, false);
+    try {
+      const recipe = { ...base, color: color(40) };
+      const opts = { target: largeTarget, width: 345, height: 230, seed: 0, whole: largePreview, view: { x: .4, y: .4, w: .15, h: .15 } };
+      const read = () => { const px = new Uint8Array(345 * 230 * 4); gl.bindFramebuffer(gl.FRAMEBUFFER, largeTarget.fbo); gl.readPixels(0, 0, 345, 230, gl.RGBA, gl.UNSIGNED_BYTE, px); return px; };
+      engine.render(full, recipe, { ...opts, live: true });
+      const live = read();
+      const colorCache = e.whole.ceDraft ?? e.whole;
+      const liveTargets = colorCache.ce;
+      assert(liveTargets.w <= 1024 && e.whole.ceDelta.w <= 1024, 'Live colour analysis exceeded its 1024px effect budget');
+      assert(e.regionMade.source.w / e.regionMade.source.roi.w === full.w, 'Live colour reduced the regional source');
+      out.boundedPreview = { input: largePreview.w, colour: liveTargets.w, delta: e.whole.ceDelta.w };
+      // A histogram/settled preview and the next drag must keep their working targets, rather
+      // than reallocating the five float images every time the colour-analysis size changes.
+      engine.render(largePreview, recipe, { target: largeTarget, width: 345, height: 230, seed: 0 });
+      const exactTargets = e.whole.ce;
+      engine.render(full, recipe, { ...opts, live: true });
+      assert((e.whole.ceDraft ?? e.whole).ce === liveTargets, 'Live/settled colour rendering reallocated the live targets');
+      assert(e.whole.ce === exactTargets, 'Live colour rendering replaced the exact preview targets');
+      engine.render(full, recipe, opts);
+      const settled = read();
+      e.invalidateRegionMaps(); e.freeLaneTargets();
+      assert(liveTargets.t.every((t: { tex: WebGLTexture }) => !gl.isTexture(t.tex)) && !gl.isFramebuffer(liveTargets.pair.fbo), 'Freeing the lane retained live colour working buffers');
+      assert(exactTargets.t.every((t: { tex: WebGLTexture }) => !gl.isTexture(t.tex)), 'Freeing the lane retained exact colour working buffers');
+      engine.render(full, recipe, opts);
+      const fresh = read();
+      let liveWorst = 0;
+      for (let i = 0; i < fresh.length; i++) {
+        assert(fresh[i] === settled[i], `Bounded colour: settle differs from fresh at ${i}`);
+        liveWorst = Math.max(liveWorst, Math.abs(live[i] - settled[i]));
+      }
+      assert(liveWorst <= 12, `Bounded colour: live difference ${liveWorst}/255`);
+      (out.boundedPreview as Record<string, unknown>).liveVsExact = liveWorst;
+    } finally { e.freeRegion(); e.freeLaneTargets(); engine.release(largePreview); g.free(largeTarget); }
+    for (const order of ['darktable', 'log'] as const) for (const zoom of [50, 100, 200]) for (const kind of ['cold', 'hsl', 'exposure', 'masked', 'look', 'pan'] as const) {
+      engine.detailOrder = order;
+      const name = `${order}:${zoom}:${kind}`;
+      document.body.dataset.progress = name;
+      e.freeRegion(); e.freeLaneTargets();
+      const span = (kind === 'masked' ? .05 : .15) * 100 / zoom;
+      const view = { x: .37, y: .31, w: span, h: span };
+      const t = engine.gpu.target(345, 230, false);
+      const opts = { target: t, width: t.w, height: t.h, seed: 0, view, whole: preview };
+      const mask = { ...newMask(newGradient(), 0), exposure: .3, texture: 10, clarity: 10 };
+      const r0: Recipe = { ...base, texture: kind === 'masked' ? 10 : 0, clarity: kind === 'masked' ? 10 : 0,
+        color: kind === 'cold' ? null : color(20), masks: kind === 'masked' ? [mask] : [],
+        ...(kind === 'look' ? { lookEnabled: true, lookSnapshot: { id: 'test-color', name: 'Test colour', revision: 1, settings: { color: color(-15), colorBalance: null, curve: null, lut: null } } } : {}),
+      };
+      const draw = (r: Recipe, live: boolean) => {
+        engine.render(full, r, { ...opts, live });
+        const px = new Uint8Array(t.w * t.h * 4);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo); gl.readPixels(0, 0, t.w, t.h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+        return px;
+      };
+      try {
+        assert(e.regionPlan(full, r0, opts), `${name}: not a regional view`);
+        draw(r0, false);
+        const regionSource = e.regionMade.source.tex;
+        if (kind === 'pan') { view.x += .07; view.y -= .06; }
+        const r1 = { ...r0, color: color(40), ...(kind === 'exposure' ? { exposure: .2 } : {}), ...(kind === 'masked' ? { masks: [{ ...mask, exposure: .5 }] } : {}) };
+        regionCe = previewCe = 0;
+        const live = draw(r1, true);
+        if (regionCe) failures.push(`${name}: ${regionCe} regional colour passes during a live drag`);
+        if (kind === 'cold') assert(!e.region.ce, `${name}: cold drag allocated regional colour targets`);
+        if (kind === 'cold') assert(e.regionMade.source.tex === regionSource, `${name}: enabling HSL replaced the region during the drag`);
+        assert(previewCe > 0, `${name}: no live preview colour update`);
+        assert(engine.inexact, `${name}: preview stand-in must owe an exact render`);
+        // The colour adjustment must follow the pointer, rather than holding the old map.
+        regionCe = previewCe = 0;
+        const r2 = { ...r1, color: color(-40) };
+        const changed = draw(r2, true);
+        assert(live.some((v, i) => v !== changed[i]), `${name}: live colour adjustment did not change the image`);
+        if (regionCe) failures.push(`${name}: ${regionCe} regional colour passes on the next live frame`);
+        const settled = draw(r2, false);
+        assert(!engine.inexact, `${name}: settle is still inexact`);
+        // Keep the copied source rectangle fixed: rebuilding it can choose a tighter pan
+        // margin, whose mipmap rounding is a separate whole-vs-region tolerance (1/255).
+        e.invalidateRegionMaps(); e.freeLaneTargets();
+        const fresh = draw(r2, false);
+        let worst = 0, liveWorst = 0;
+        for (let i = 0; i < fresh.length; i++) { worst = Math.max(worst, Math.abs(fresh[i] - settled[i])); liveWorst = Math.max(liveWorst, Math.abs(changed[i] - settled[i])); }
+        if (worst) failures.push(`${name}: settle differs from fresh by ${worst}/255`);
+        if (liveWorst > 12) failures.push(`${name}: live approximation differs by ${liveWorst}/255`);
+        assert(gl.getError() === gl.NO_ERROR, `${name}: WebGL error`);
+        out[name] = { settleVsFresh: worst, liveVsExact: liveWorst };
+      } finally { engine.gpu.free(t); }
+    }
+  } finally { engine.gpu.draw = original; engine.release(full); engine.release(preview); engine.dispose(); }
+  document.body.dataset.result = `${failures.length ? 'FAIL' : 'PASS'}: ${JSON.stringify({ failures, out })}`;
+}
 const mode = new URLSearchParams(location.search);
-(mode.has('hsl') ? hslDrag() : mode.has('gesture') ? gesture() : mode.has('timing') ? timing() : main()).catch(error => { document.body.dataset.result = `FAIL: ${document.body.dataset.progress ?? ''}: ${String(error)} ${error?.stack ?? ''}`; });
+(mode.has('colorpreview') ? colorPreview() : mode.has('hsl') ? hslDrag() : mode.has('gesture') ? gesture() : mode.has('timing') ? timing() : main()).catch(error => { document.body.dataset.result = `FAIL: ${document.body.dataset.progress ?? ''}: ${String(error)} ${error?.stack ?? ''}`; });

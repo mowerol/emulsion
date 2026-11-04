@@ -225,6 +225,8 @@ interface Products {
   clarityMap?: { tex: WebGLTexture; scale: number };
   /** The preview's haze removal map (every instance folded) and its uDehazeKey, likewise. */
   dehazeMap?: { tex: WebGLTexture; key: number };
+  /** Live colour's scene-linear RGB change, added to the sharp regional input. */
+  colorDelta?: WebGLTexture;
   teq?: WebGLTexture;
   hal?: WebGLTexture;
   glow?: WebGLTexture;
@@ -261,6 +263,8 @@ interface LanePrograms {
   object: Program;
   refine: Program;
 }
+
+type ColorCache = Pick<Lane, 'ce' | 'ceScene' | 'ceMade' | 'ceLookMade'>;
 
 /**
  * Everything the engine keeps per source between renders: the maps and their keys, the mask
@@ -305,8 +309,13 @@ class Lane {
   /** Mode 2's scene-only analysis stays in ce.t[3] across colour slider changes. */
   ceScene: { tex: WebGLTexture; key: string } | null = null;
   ceMade: { tex: WebGLTexture; key: string; out: Target } | null = null;
+  /** Preview-only live colour change; the finished RGB map itself would blur a zoomed image. */
+  ceDelta: Target | null = null;
+  ceDeltaMade: Lane['ceMade'] = null;
   /** A look's colour equalizer instance (before the photo's): its output, in ce.t[5], and what it was made from. */
   ceLookMade: { tex: WebGLTexture; key: string } | null = null;
+  /** Bounded live colour keeps its working images when the exact preview is rendered. */
+  ceDraft: ColorCache | null = null;
   noiseMade: { input: WebGLTexture; amount: number; out: Target } | null = null;
   lensMade: { input: WebGLTexture; key: string; out: Target } | null = null;
   /** The retouched source: made from `input` at 1/k for `spots`; `src` is the source it stands for. */
@@ -382,6 +391,8 @@ export class Engine {
   /** A live render showed the preview's Texture or Clarity map in the region instead of remaking
    *  the region's own: everything from Texture on must be made again at the settle. */
   private regionFromPreview = false;
+  /** Only the colour cache is swapped while making bounded preview products. */
+  private inColorDraft = false;
   /** A live screen render held a detail map made before the drag (Texture's, Clarity's or
    *  Sharpening's, whose own settings were unchanged though an edit before it moved): the settle
    *  remakes it, as its key no longer matches. */
@@ -628,6 +639,10 @@ export class Engine {
     if (L.printGroup) g.freePair(L.printGroup.t);
     L.printGroup = L.printMade = null;
     if (L.ce) { g.freePair(L.ce.pair); L.ce.t.forEach((t) => g.free(t)); }
+    if (L.ceDraft?.ce) { g.freePair(L.ceDraft.ce.pair); L.ceDraft.ce.t.forEach((t) => g.free(t)); }
+    L.ceDraft = null;
+    if (L.ceDelta) g.free(L.ceDelta);
+    L.ceDelta = L.ceDeltaMade = null;
     L.lls.clear();
     L.refiner.release();
     L.stack.release();
@@ -939,7 +954,7 @@ export class Engine {
    * develop the whole source: when a stage this recipe uses cannot work on a region yet, or the
    * region would hold most of the source anyway.
    */
-  private regionPlan(src: Source, recipe: Recipe | null, opts: { target: Target | 'screen'; view?: View; frame?: Rect & { angle: number; orient?: Orientation }; split?: number; pick?: number; compare?: boolean }): RegionPlan | null {
+  private regionPlan(src: Source, recipe: Recipe | null, opts: { target: Target | 'screen'; view?: View; frame?: Rect & { angle: number; orient?: Orientation }; split?: number; pick?: number; compare?: boolean; live?: boolean; whole?: Source }): RegionPlan | null {
     const g = this.gpu;
     if (!recipe || !g.hdr || (opts.split !== undefined && opts.split >= 0) || opts.pick !== undefined) return null;
     // Wavelet retouch and its scale viewer still require the whole source.
@@ -958,7 +973,9 @@ export class Engine {
       lens: lens ? { spline: lens, W: src.w, H: src.h } : null,
       dehaze: !compare && dehazeCount > 0 ? scale : null,
       dehazeCount,
-      color: !compare && (!!recipe.color || !!lookColorFor(recipe)),
+      // Live colour samples a whole-photo change, so turning HSL on need not widen the region
+      // and throw away all the other maps on the first click. The settle restores its reach.
+      color: !compare && !(opts.live && opts.whole && g.float32) && (!!recipe.color || !!lookColorFor(recipe)),
       colorCount: Number(!!recipe.color) + Number(!!lookColorFor(recipe)),
       usmSigma: !compare && usm.amount > 0 ? usm.radius * scale : null,
       scannerSharpen: true,
@@ -2101,8 +2118,30 @@ export class Engine {
     },
   ): void {
     const g = this.gpu;
+    // Live colour uses a small, persistent set of float targets. Swapping just these fields
+    // keeps all the other preview maps and the exact colour targets in their existing lane.
+    if (opts.products && (opts.live || opts.warm === 'color') && !this.inColorDraft) {
+      const L = this.L;
+      const exact: ColorCache = { ce: L.ce, ceScene: L.ceScene, ceMade: L.ceMade, ceLookMade: L.ceLookMade };
+      Object.assign(L, L.ceDraft ?? { ce: null, ceScene: null, ceMade: null, ceLookMade: null });
+      this.inColorDraft = true;
+      try {
+        return this.render(src, recipe, opts);
+      } finally {
+        L.ceDraft = { ce: L.ce, ceScene: L.ceScene, ceMade: L.ceMade, ceLookMade: L.ceLookMade };
+        Object.assign(L, exact);
+        this.inColorDraft = false;
+      }
+    }
     // An exact render remakes any map a live one held (its key no longer matches).
     if (!opts.live && !opts.warm) this.mapsHeld = false;
+    // Live preview colour may have read held Texture maps. Its recipe key already matches the
+    // released settings, so a key comparison alone cannot certify that analysis as exact.
+    if (!opts.live && !opts.warm && this.L.ceDeltaMade) {
+      this.L.ceScene = this.L.ceMade = this.L.ceLookMade = this.L.ceDeltaMade = null;
+      const draft = this.L.ceDraft;
+      if (draft) draft.ceScene = draft.ceMade = draft.ceLookMade = null;
+    }
     if (opts.target === 'screen' && opts.draft !== undefined && opts.draft < 1 && !this.draftTarget) {
       const w = Math.max(1, Math.round(opts.width * opts.draft)), h = Math.max(1, Math.round(opts.height * opts.draft));
       const t = this.outs.get(`draft:${w}x${h}`, () => g.target(w, h, false));
@@ -2354,7 +2393,13 @@ export class Engine {
     // A look's HSL is darktable's colour equalizer instance before the photo's own.
     const lookColor = recipe ? lookColorFor(recipe) : null;
     const ceOn = !picking && passes.colorEq && g.hdr && g.float32 && (!!recipe?.color || !!lookColor);
-    if (ceOn) this.ceTargets(src.w, src.h);
+    const previewColor = opts.live && src.roi ? this.inject?.colorDelta : null;
+    // Bound the expensive live effect, not the sharp source or the other preview products.
+    // Colour hover warming uses the same size, so the first click can reuse its analysis.
+    const colorDraft = ceOn && !!opts.products && (!!opts.live || opts.warm === 'color');
+    const colorRatio = colorDraft ? Math.min(1, 1024 / Math.max(src.w, src.h)) : 1;
+    const colorW = Math.max(1, Math.round(src.w * colorRatio)), colorH = Math.max(1, Math.round(src.h * colorRatio));
+    const colorScale = colorDraft ? pxScale(src) * colorW / src.w : pxScale(src);
     const highlights = passes.highlights && !picking;
     // A region takes halation and glow from the whole photo.
     const ownHighlights = highlights && !this.inject;
@@ -2418,11 +2463,12 @@ export class Engine {
     if (opts.products) {
       Object.assign(opts.products, { teq: teqLocal ? teq : undefined, hal, glow, mask: maskTex, ambient: photoDehaze ? this.dehazeAmbient(src, u) : null });
       opts.products.maskedAmbient = new Map(dehazeMasked.flatMap((m, i) => this.L.dhMasked[i]?.ambient ? [[m.slot, this.L.dhMasked[i].ambient!] as const] : []));
-      if (!passes.clarity && !passes.texture && !maskClarity.length && !maskTexture.length) return;
+      if (!passes.clarity && !passes.texture && !maskClarity.length && !maskTexture.length && !colorDraft) return;
     }
 
     let usm: WebGLTexture = g.blackTexture;
     let ceTex: WebGLTexture = g.blackTexture;
+    let ceMode = ceOn ? 1 : 0;
     const bindDevelop = (clarity: WebGLTexture) => {
       g.bind(0, src.tex);
       g.bind(1, sharp);
@@ -2442,7 +2488,7 @@ export class Engine {
     const tap = (t: Target, uTap: number, extra: Uniforms) => {
       this.develop.set({
         ...u, ...teqU, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3, uClarityTex: 6, uTextureTex: 8, uUsmTex: 9,
-        uDehazeTex: DEHAZE_UNIT, uView: [0, 0, 1, 1], ...tapGeo, uSplit: -1, uClipShow: 0, uUsmOn: 0, uUsmShowMask: 0, uCeTex: 10, uCeOn: ceOn ? 1 : 0, uTap, ...extra,
+        uDehazeTex: DEHAZE_UNIT, uView: [0, 0, 1, 1], ...tapGeo, uSplit: -1, uClipShow: 0, uUsmOn: 0, uUsmShowMask: 0, uCeTex: 10, uCeOn: ceMode, uTap, ...extra,
       });
       g.bindArray(MASK_UNIT, maskTex);
       g.draw(this.develop, t, t.w, t.h);
@@ -2461,7 +2507,7 @@ export class Engine {
     // The photo's own decomposition: everything its input depends on, but not its amount.
     const photoTextureKey = `${src.w}x${src.h}|${pick(u, textureLog ? BEFORE_TEXTURE_LOG : BEFORE_TEXTURE)}|${pick(u, TEXTURE_INPUT)}`;
     // The prefilter's Gaussian kernels depend on the source/full-resolution ratio.
-    const ceSceneKey = `${sceneKey}|${pxScale(src)}`;
+    const ceSceneKey = `${sceneKey}|${colorScale}|${colorW}x${colorH}`;
     const lookKey = lookColor ? JSON.stringify(lookColor) : '';
     const ceKey = `${ceSceneKey}|${pick(u, COLOR_STAGE)}|${JSON.stringify(recipe?.color ?? null)}|${lookKey}`;
     // The vignette reads the frame's aspect.
@@ -2536,7 +2582,7 @@ export class Engine {
         opts.products.texture = this.L.textureBoundaries;
         opts.products.textureMap = texture;
       }
-      if (!passes.clarity && !maskClarity.length) return;
+      if (!passes.clarity && !maskClarity.length && !colorDraft) return;
     }
     if (opts.warm === 'texture') return;
     // Whether Clarity's map is reused (held or scaled) rather than made: decided before the colour
@@ -2549,12 +2595,16 @@ export class Engine {
     const buildAmount = scalable && !region ? 100 * Math.sign(photoClarity) : photoClarity;
     const scale = made && made.amount !== photoClarity ? clarityScale(photoClarity, made.amount) : 1;
     const clarityReused = !!made && scale !== null && (!region || scale === 1 || !!this.liveClip);
-    // The whole photo's products, developed before each region frame, end at Clarity's: when that
-    // map is reused, nothing in them reads the colour map (an HSL drag at 100% would remake it on
-    // the preview every frame for nothing).
-    const ceNeeded = ceOn && !(opts.products && clarityReused);
+    // Live regional colour comes from the preview too, even when Clarity is held or absent.
+    // Exact products still skip colour when nothing reads it.
+    const ceNeeded = ceOn && !(opts.products && clarityReused && !colorDraft);
     if (ceNeeded && this.L.ceMade?.tex === src.tex && this.L.ceMade.key === ceKey) ceTex = this.L.ceMade.out.tex;
-    else if (ceNeeded) {
+    else if (ceNeeded && previewColor) {
+      ceTex = previewColor;
+      ceMode = 2;
+      u.uCeRoi = [roi.x, roi.y, roi.w, roi.h];
+      this.regionFromPreview = true;
+    } else if (ceNeeded) {
       clipTo('color');
       // The equalizer's input: the scene after texture, analysed, at every source pixel.
       const analyseScene = (t: Target) => {
@@ -2564,18 +2614,32 @@ export class Engine {
       let out: Target;
       if (lookColor) {
         // The look's instance first, kept in its own target while the photo's own HSL changes.
-        const lookOut = this.ceLookTarget(src.w, src.h);
+        const lookOut = this.ceLookTarget(colorW, colorH);
         const made = `${ceSceneKey}|${pick(u, COLOR_STAGE)}|${lookKey}`;
         if (this.L.ceLookMade?.tex !== src.tex || this.L.ceLookMade.key !== made) {
-          this.colorEqMap(src.w, src.h, pxScale(src), lookColor, u, analyseScene, null, lookOut);
+          this.colorEqMap(colorW, colorH, colorScale, lookColor, u, analyseScene, null, lookOut);
           this.L.ceLookMade = { tex: src.tex, key: made };
         }
         out = recipe!.color
-          ? this.colorEqMap(src.w, src.h, pxScale(src), recipe!.color, u, (t) => this.ceAnalyseFrom(lookOut, t), { tex: src.tex, key: `${ceSceneKey}|look:${made}` })
+          ? this.colorEqMap(colorW, colorH, colorScale, recipe!.color, u, (t) => this.ceAnalyseFrom(lookOut, t), { tex: src.tex, key: `${ceSceneKey}|look:${made}` })
           : lookOut;
-      } else out = this.colorEqMap(src.w, src.h, pxScale(src), recipe!.color!, u, analyseScene, { tex: src.tex, key: ceSceneKey });
+      } else out = this.colorEqMap(colorW, colorH, colorScale, recipe!.color!, u, analyseScene, { tex: src.tex, key: ceSceneKey });
       this.L.ceMade = { tex: src.tex, key: ceKey, out };
       ceTex = out.tex;
+    }
+    if (opts.products && colorDraft) {
+      const L = this.L;
+      if (!L.ceDelta || L.ceDelta.w !== colorW || L.ceDelta.h !== colorH) {
+        if (L.ceDelta) g.free(L.ceDelta);
+        L.ceDelta = g.target(colorW, colorH, true, true);
+        L.ceDeltaMade = null;
+      }
+      if (L.ceDeltaMade !== L.ceMade) {
+        bindDevelop(g.blackTexture);
+        tap(L.ceDelta, 14, { uTextureOn: eqOn ? 1 : 0, uClarityOn: 0 });
+        L.ceDeltaMade = L.ceMade;
+      }
+      opts.products.colorDelta = L.ceDelta.tex;
     }
     if (opts.warm === 'color') return;
     let clarity: WebGLTexture = g.blackTexture;
@@ -2640,7 +2704,7 @@ export class Engine {
     g.clip = null;
     bindDevelop(clarity);
     this.develop.set({
-      ...u, ...teqU, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3, uClarityTex: 6, uTextureTex: 8, uUsmTex: 9, uCeTex: 10, uDehazeTex: DEHAZE_UNIT, uCeOn: ceOn ? 1 : 0, uTap: 0, uClarityOn: ll ? 1 : 0, uTextureOn: eqOn ? 1 : 0,
+      ...u, ...teqU, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3, uClarityTex: 6, uTextureTex: 8, uUsmTex: 9, uCeTex: 10, uDehazeTex: DEHAZE_UNIT, uCeOn: ceMode, uTap: 0, uClarityOn: ll ? 1 : 0, uTextureOn: eqOn ? 1 : 0,
       uUsmOn: usmOn ? 1 : 0, uUsmShowMask: usmOn && opts.sharpenMask ? 1 : 0,
     });
     if (opts.target === 'screen') {
@@ -2728,14 +2792,16 @@ export class Engine {
   /**
    * Build, ahead of the click that turns it on, the part of `stage`'s map that doesn't depend on
    * its value (warm.ts), for the render `opts` would make: the same source, view and products as
-   * the screen render, so the whole lane at fit and the preview and region at 100%. Draws nothing
-   * and leaves every other map as it was. False when there was nothing to warm.
+   * the screen render, so the whole lane at fit and the preview and region when zoomed. Colour
+   * warms only the preview, whose change a live region borrows. Draws nothing and leaves every
+   * other map as it was. False when there was nothing to warm.
    */
   warm(src: Source, recipe: Recipe | null, stage: WarmStage, opts: Omit<Parameters<Engine['render']>[2], 'target' | 'warm' | 'draft' | 'live' | 'moving' | 'products'>): boolean {
     // A split view composites two finished frames: nothing to stop early in.
     const warmed = opts.compare || (opts.split !== undefined && opts.split >= 0) ? null : warmRecipe(recipe, stage);
     if (!warmed) return false;
-    this.render(src, warmed, { ...opts, target: 'screen', warm: stage });
+    const colorPreview = stage === 'color' && opts.whole;
+    this.render(colorPreview || src, warmed, { ...opts, whole: colorPreview ? undefined : opts.whole, products: colorPreview ? {} : undefined, target: 'screen', warm: stage });
     return true;
   }
 

@@ -64,5 +64,10 @@ strip = true
 [profile.dev.package.emulsion]
 opt-level = 2
 
+# Image resize/conversion runs while a zoom decode is in flight. Leaving this
+# dependency unoptimized makes small previews spend seconds on CPU in tauri dev.
+[profile.dev.package.image]
+opt-level = 3
+
 [dev-dependencies]
 tempfile = "3.27.0"

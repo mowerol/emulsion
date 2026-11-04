@@ -1,0 +1,836 @@
+{
+  "date": "2026-11-03",
+  "photo": "1OKK6432.RAF",
+  "dimensions": [
+    6246,
+    4170
+  ],
+  "environment": "M2, real Tauri dev WKWebView, visible window, 1552x1036 canvas at DPR 2",
+  "command": "node tools/perf/inapp.mjs /Users/oli/Pictures/1OKK6432.RAF zoomdetail",
+  "baselineCommit": "1c5439670b16b85f14104634eea1183215eec00d",
+  "note": "Fresh process and scratch photo per run; OS file cache not cold. GPU fence plus two animation frames approximates display; not photon timing. firstRenderGpuMs in captured runs includes CPU submission and queued GPU work. One second is a provisional diagnostic threshold; it remains unmet. Instrumented stage probes were removed after capture. Runs are sequential, one sample per configuration plus a serial repetition; no p95 claim.",
+  "referencePayload": {
+    "blake3": "7f7052afbdeef8c94b9f8dd0a6834cb18e91c8223f294cbf2a6bef3364483f7f",
+    "bytes": 208367856,
+    "serialAndParallelMatch": true
+  },
+  "runs": [
+    {
+      "label": "serial",
+      "result": {
+        "which": "zoomdetail",
+        "detailOrder": "darktable",
+        "dpr": 2,
+        "ua": "WebKit 605.1.15",
+        "canvas": "1552x1036",
+        "window": "1440x779",
+        "photo": {
+          "W": 6246,
+          "H": 4170
+        },
+        "zoomDetail": {
+          "sharpMs": 12741,
+          "firstRenderMs": 11648,
+          "firstRenderCpuMs": 58,
+          "firstRenderGpuMs": 744,
+          "screenGapMax": 753
+        }
+      },
+      "stages": [
+        {
+          "stage": "decode",
+          "edge": 1664,
+          "packMs": 2515.403583,
+          "rawMs": 846.466917
+        },
+        {
+          "stage": "native",
+          "bytes": 14790928,
+          "edge": 1664,
+          "queueMs": 0.007042,
+          "totalMs": 3361.925625
+        },
+        {
+          "stage": "frontend",
+          "edge": 1664,
+          "invokeMs": 3368,
+          "parseMs": 0,
+          "bytes": 14790928
+        },
+        {
+          "stage": "upload",
+          "width": 1664,
+          "height": 1111,
+          "cpuMs": 1
+        },
+        {
+          "stage": "upload",
+          "width": 1664,
+          "height": 1111,
+          "cpuMs": 2
+        },
+        {
+          "stage": "decode",
+          "edge": 512,
+          "packMs": 1549.3425410000002,
+          "rawMs": 839.0625
+        },
+        {
+          "stage": "native",
+          "bytes": 1402128,
+          "edge": 512,
+          "queueMs": 0.013791999999999999,
+          "totalMs": 2388.4507089999997
+        },
+        {
+          "stage": "frontend",
+          "edge": 512,
+          "invokeMs": 2390,
+          "parseMs": 0,
+          "bytes": 1402128
+        },
+        {
+          "stage": "upload",
+          "width": 512,
+          "height": 342,
+          "cpuMs": 0
+        },
+        {
+          "stage": "decode",
+          "edge": 2560,
+          "packMs": 3784.662042,
+          "rawMs": 872.3034170000001
+        },
+        {
+          "stage": "native",
+          "bytes": 35001616,
+          "edge": 2560,
+          "queueMs": 0.007958000000000002,
+          "totalMs": 4657.010708
+        },
+        {
+          "stage": "frontend",
+          "edge": 2560,
+          "invokeMs": 4669.000000000002,
+          "parseMs": 0,
+          "bytes": 35001616
+        },
+        {
+          "stage": "upload",
+          "width": 2560,
+          "height": 1709,
+          "cpuMs": 1.999999999998181
+        },
+        {
+          "stage": "decode",
+          "edge": 16384,
+          "packMs": 571.807459,
+          "rawMs": 10940.697416
+        },
+        {
+          "stage": "native",
+          "bytes": 208367856,
+          "edge": 16384,
+          "queueMs": 0.025542,
+          "totalMs": 11512.569542
+        },
+        {
+          "stage": "frontend",
+          "edge": 16384,
+          "invokeMs": 11583,
+          "parseMs": 0,
+          "bytes": 208367856
+        },
+        {
+          "stage": "upload",
+          "width": 6246,
+          "height": 4170,
+          "cpuMs": 39
+        },
+        {
+          "stage": "upload",
+          "width": 1664,
+          "height": 1111,
+          "cpuMs": 4.000000000003638
+        }
+      ]
+    },
+    {
+      "label": "serial-repeat",
+      "result": {
+        "which": "zoomdetail",
+        "detailOrder": "darktable",
+        "dpr": 2,
+        "ua": "WebKit 605.1.15",
+        "canvas": "1552x1036",
+        "window": "1440x779",
+        "photo": {
+          "W": 6246,
+          "H": 4170
+        },
+        "zoomDetail": {
+          "sharpMs": 12805,
+          "firstRenderMs": 11653,
+          "firstRenderCpuMs": 49,
+          "firstRenderGpuMs": 749,
+          "screenGapMax": 758
+        }
+      },
+      "stages": [
+        {
+          "stage": "raw",
+          "colourMs": 8.182833,
+          "half": true,
+          "librawMs": 858.249
+        },
+        {
+          "stage": "decode",
+          "edge": 1664,
+          "packMs": 2567.2673339999997,
+          "rawMs": 866.495083
+        },
+        {
+          "stage": "native",
+          "bytes": 14790928,
+          "edge": 1664,
+          "queueMs": 0.007709000000000001,
+          "totalMs": 3433.821959
+        },
+        {
+          "stage": "frontend",
+          "edge": 1664,
+          "invokeMs": 3439,
+          "parseMs": 1,
+          "bytes": 14790928
+        },
+        {
+          "stage": "upload",
+          "width": 1664,
+          "height": 1111,
+          "cpuMs": 2
+        },
+        {
+          "stage": "upload",
+          "width": 1664,
+          "height": 1111,
+          "cpuMs": 1
+        },
+        {
+          "stage": "raw",
+          "colourMs": 6.586917000000001,
+          "half": true,
+          "librawMs": 832.874125
+        },
+        {
+          "stage": "raw",
+          "colourMs": 8.471375,
+          "half": true,
+          "librawMs": 864.368334
+        },
+        {
+          "stage": "decode",
+          "edge": 512,
+          "packMs": 1544.236625,
+          "rawMs": 839.5062089999999
+        },
+        {
+          "stage": "native",
+          "bytes": 1402128,
+          "edge": 512,
+          "queueMs": 0.014042,
+          "totalMs": 2383.801875
+        },
+        {
+          "stage": "frontend",
+          "edge": 512,
+          "invokeMs": 2386,
+          "parseMs": 0,
+          "bytes": 1402128
+        },
+        {
+          "stage": "upload",
+          "width": 512,
+          "height": 342,
+          "cpuMs": 0
+        },
+        {
+          "stage": "decode",
+          "edge": 2560,
+          "packMs": 3776.531584,
+          "rawMs": 872.876958
+        },
+        {
+          "stage": "native",
+          "bytes": 35001616,
+          "edge": 2560,
+          "queueMs": 0.007958000000000002,
+          "totalMs": 4649.463208
+        },
+        {
+          "stage": "frontend",
+          "edge": 2560,
+          "invokeMs": 4664,
+          "parseMs": 0,
+          "bytes": 35001616
+        },
+        {
+          "stage": "upload",
+          "width": 2560,
+          "height": 1709,
+          "cpuMs": 3
+        },
+        {
+          "stage": "raw",
+          "colourMs": 27.574749999999998,
+          "half": false,
+          "librawMs": 10924.790792
+        },
+        {
+          "stage": "decode",
+          "edge": 16384,
+          "packMs": 549.669459,
+          "rawMs": 10952.425958
+        },
+        {
+          "stage": "native",
+          "bytes": 208367856,
+          "edge": 16384,
+          "queueMs": 0.030667000000000003,
+          "totalMs": 11502.156834000001
+        },
+        {
+          "stage": "frontend",
+          "edge": 16384,
+          "invokeMs": 11561,
+          "parseMs": 0,
+          "bytes": 208367856
+        },
+        {
+          "stage": "upload",
+          "width": 6246,
+          "height": 4170,
+          "cpuMs": 15
+        },
+        {
+          "stage": "upload",
+          "width": 1664,
+          "height": 1111,
+          "cpuMs": 3
+        }
+      ]
+    },
+    {
+      "label": "parallel",
+      "result": {
+        "which": "zoomdetail",
+        "detailOrder": "darktable",
+        "dpr": 2,
+        "ua": "WebKit 605.1.15",
+        "canvas": "1552x1036",
+        "window": "1440x779",
+        "photo": {
+          "W": 6246,
+          "H": 4170
+        },
+        "zoomDetail": {
+          "sharpMs": 6961,
+          "firstRenderMs": 5525,
+          "firstRenderCpuMs": 42,
+          "firstRenderGpuMs": 1145,
+          "screenGapMax": 941
+        }
+      },
+      "stages": [
+        {
+          "stage": "raw",
+          "colourMs": 8.667124999999999,
+          "half": true,
+          "librawMs": 401.897625
+        },
+        {
+          "stage": "decode",
+          "edge": 1664,
+          "packMs": 2561.2187080000003,
+          "rawMs": 410.593875
+        },
+        {
+          "stage": "native",
+          "bytes": 14790928,
+          "edge": 1664,
+          "queueMs": 0.008375,
+          "totalMs": 2971.875333
+        },
+        {
+          "stage": "frontend",
+          "edge": 1664,
+          "invokeMs": 2979,
+          "parseMs": 0,
+          "bytes": 14790928
+        },
+        {
+          "stage": "upload",
+          "width": 1664,
+          "height": 1111,
+          "cpuMs": 2
+        },
+        {
+          "stage": "upload",
+          "width": 1664,
+          "height": 1111,
+          "cpuMs": 2
+        },
+        {
+          "stage": "raw",
+          "colourMs": 6.363625000000001,
+          "half": true,
+          "librawMs": 425.515917
+        },
+        {
+          "stage": "raw",
+          "colourMs": 8.4505,
+          "half": true,
+          "librawMs": 478.594375
+        },
+        {
+          "stage": "decode",
+          "edge": 512,
+          "packMs": 1929.365333,
+          "rawMs": 431.9255
+        },
+        {
+          "stage": "native",
+          "bytes": 1402128,
+          "edge": 512,
+          "queueMs": 0.013415999999999999,
+          "totalMs": 2361.345291
+        },
+        {
+          "stage": "frontend",
+          "edge": 512,
+          "invokeMs": 2364,
+          "parseMs": 0,
+          "bytes": 1402128
+        },
+        {
+          "stage": "upload",
+          "width": 512,
+          "height": 342,
+          "cpuMs": 1
+        },
+        {
+          "stage": "raw",
+          "colourMs": 29.078583000000002,
+          "half": false,
+          "librawMs": 4687.657459
+        },
+        {
+          "stage": "decode",
+          "edge": 2560,
+          "packMs": 4383.674583,
+          "rawMs": 487.073625
+        },
+        {
+          "stage": "native",
+          "bytes": 35001616,
+          "edge": 2560,
+          "queueMs": 0.008167,
+          "totalMs": 4870.798917
+        },
+        {
+          "stage": "frontend",
+          "edge": 2560,
+          "invokeMs": 4888,
+          "parseMs": 0,
+          "bytes": 35001616
+        },
+        {
+          "stage": "upload",
+          "width": 2560,
+          "height": 1709,
+          "cpuMs": 4
+        },
+        {
+          "stage": "decode",
+          "edge": 16384,
+          "packMs": 608.618458,
+          "rawMs": 4716.773125
+        },
+        {
+          "stage": "native",
+          "bytes": 208367856,
+          "edge": 16384,
+          "queueMs": 0.012459000000000001,
+          "totalMs": 5325.442834
+        },
+        {
+          "stage": "frontend",
+          "edge": 16384,
+          "invokeMs": 5416,
+          "parseMs": 0,
+          "bytes": 208367856
+        },
+        {
+          "stage": "upload",
+          "width": 6246,
+          "height": 4170,
+          "cpuMs": 27.00000000000182
+        },
+        {
+          "stage": "upload",
+          "width": 1664,
+          "height": 1111,
+          "cpuMs": 1.999999999998181
+        }
+      ]
+    },
+    {
+      "label": "parallel-image-optimized",
+      "result": {
+        "which": "zoomdetail",
+        "detailOrder": "darktable",
+        "dpr": 2,
+        "ua": "WebKit 605.1.15",
+        "canvas": "1552x1036",
+        "window": "1440x779",
+        "photo": {
+          "W": 6246,
+          "H": 4170
+        },
+        "zoomDetail": {
+          "sharpMs": 6341,
+          "firstRenderMs": 5299,
+          "firstRenderCpuMs": 76,
+          "firstRenderGpuMs": 704,
+          "screenGapMax": 716
+        }
+      },
+      "stages": [
+        {
+          "stage": "raw",
+          "colourMs": 7.406166,
+          "half": true,
+          "librawMs": 371.91425
+        },
+        {
+          "stage": "decode",
+          "edge": 1664,
+          "packMs": 92.19429199999999,
+          "rawMs": 379.364583
+        },
+        {
+          "stage": "native",
+          "bytes": 14790928,
+          "edge": 1664,
+          "queueMs": 0.009375,
+          "totalMs": 471.625958
+        },
+        {
+          "stage": "frontend",
+          "edge": 1664,
+          "invokeMs": 478,
+          "parseMs": 1,
+          "bytes": 14790928
+        },
+        {
+          "stage": "upload",
+          "width": 1664,
+          "height": 1111,
+          "cpuMs": 2
+        },
+        {
+          "stage": "upload",
+          "width": 1664,
+          "height": 1111,
+          "cpuMs": 1
+        },
+        {
+          "stage": "raw",
+          "colourMs": 5.813375,
+          "half": true,
+          "librawMs": 427.93545900000004
+        },
+        {
+          "stage": "decode",
+          "edge": 512,
+          "packMs": 96.111666,
+          "rawMs": 433.776584
+        },
+        {
+          "stage": "native",
+          "bytes": 1402128,
+          "edge": 512,
+          "queueMs": 0.015083,
+          "totalMs": 529.934208
+        },
+        {
+          "stage": "frontend",
+          "edge": 512,
+          "invokeMs": 531,
+          "parseMs": 0,
+          "bytes": 1402128
+        },
+        {
+          "stage": "upload",
+          "width": 512,
+          "height": 342,
+          "cpuMs": 0
+        },
+        {
+          "stage": "raw",
+          "colourMs": 10.623541,
+          "half": true,
+          "librawMs": 582.735709
+        },
+        {
+          "stage": "decode",
+          "edge": 2560,
+          "packMs": 181.81145800000002,
+          "rawMs": 593.392875
+        },
+        {
+          "stage": "native",
+          "bytes": 35001616,
+          "edge": 2560,
+          "queueMs": 0.007417,
+          "totalMs": 775.2602079999999
+        },
+        {
+          "stage": "frontend",
+          "edge": 2560,
+          "invokeMs": 790,
+          "parseMs": 0,
+          "bytes": 35001616
+        },
+        {
+          "stage": "upload",
+          "width": 2560,
+          "height": 1709,
+          "cpuMs": 3.0000000000009095
+        },
+        {
+          "stage": "raw",
+          "colourMs": 26.499542,
+          "half": false,
+          "librawMs": 4925.653792
+        },
+        {
+          "stage": "decode",
+          "edge": 16384,
+          "packMs": 145.79541700000001,
+          "rawMs": 4952.21075
+        },
+        {
+          "stage": "native",
+          "bytes": 208367856,
+          "edge": 16384,
+          "queueMs": 0.012875,
+          "totalMs": 5098.057458
+        },
+        {
+          "stage": "frontend",
+          "edge": 16384,
+          "invokeMs": 5225,
+          "parseMs": 0,
+          "bytes": 208367856
+        },
+        {
+          "stage": "upload",
+          "width": 6246,
+          "height": 4170,
+          "cpuMs": 54.99999999999818
+        },
+        {
+          "stage": "upload",
+          "width": 1664,
+          "height": 1111,
+          "cpuMs": 1
+        }
+      ]
+    },
+    {
+      "label": "final-probes-removed",
+      "result": {
+        "which": "zoomdetail",
+        "detailOrder": "darktable",
+        "dpr": 2,
+        "ua": "WebKit 605.1.15",
+        "canvas": "1552x1036",
+        "window": "1440x779",
+        "photo": {
+          "W": 6246,
+          "H": 4170
+        },
+        "zoomDetail": {
+          "sharpMs": 5897,
+          "firstRenderMs": 4814,
+          "firstRenderCpuMs": 71,
+          "firstFrameMs": 756,
+          "uploadCpuMs": 35,
+          "screenGapMax": 764
+        }
+      }
+    },
+    {
+      "label": "prepared-initial-source-only",
+      "result": {
+        "which": "zoomprepared",
+        "detailOrder": "darktable",
+        "dpr": 2,
+        "ua": "WebKit 605.1.15",
+        "canvas": "1552x1036",
+        "window": "1440x779",
+        "photo": {
+          "W": 6246,
+          "H": 4170
+        },
+        "zoomDetail": {
+          "viewingPauseMs": 6000,
+          "sharpMs": 950,
+          "firstRenderMs": 49,
+          "firstRenderCpuMs": 58,
+          "firstFrameMs": 105,
+          "uploadCpuMs": 40,
+          "screenGapMax": 774
+        }
+      },
+      "note": "Discarded as an exact-detail measurement: counted a full source even when the preview stood in during the gesture."
+    },
+    {
+      "label": "prepared-exact",
+      "result": {
+        "which": "zoomprepared",
+        "detailOrder": "darktable",
+        "dpr": 2,
+        "ua": "WebKit 605.1.15",
+        "canvas": "1552x1036",
+        "window": "1440x779",
+        "photo": {
+          "W": 6246,
+          "H": 4170
+        },
+        "zoomDetail": {
+          "viewingPauseMs": 6000,
+          "sharpMs": 1260,
+          "firstRenderMs": 161,
+          "firstRenderCpuMs": 37,
+          "firstFrameMs": 789,
+          "uploadCpuMs": 43,
+          "screenGapMax": 803
+        }
+      },
+      "note": "Strict check excludes engine.stoodIn and draft frames. Final application behavior; no histogram changes retained."
+    },
+    {
+      "label": "prepared-idle-readback-trial",
+      "result": {
+        "which": "zoomprepared",
+        "detailOrder": "darktable",
+        "dpr": 2,
+        "ua": "WebKit 605.1.15",
+        "canvas": "1552x1036",
+        "window": "1440x779",
+        "photo": {
+          "W": 6246,
+          "H": 4170
+        },
+        "zoomDetail": {
+          "viewingPauseMs": 6000,
+          "sharpMs": 1337,
+          "firstRenderMs": 187,
+          "firstRenderCpuMs": 38,
+          "firstFrameMs": 832,
+          "uploadCpuMs": 44,
+          "screenGapMax": 846
+        }
+      },
+      "note": "Rejected: deferring histogram until engine.idle did not improve the result; code removed."
+    },
+    {
+      "label": "prefetch-immediate",
+      "result": {
+        "which": "zoomdetail",
+        "detailOrder": "darktable",
+        "dpr": 2,
+        "ua": "WebKit 605.1.15",
+        "canvas": "1552x1036",
+        "window": "1440x779",
+        "photo": {
+          "W": 6246,
+          "H": 4170
+        },
+        "zoomDetail": {
+          "viewingPauseMs": 0,
+          "sharpMs": 5697,
+          "firstRenderMs": 4640,
+          "firstRenderCpuMs": 38,
+          "firstFrameMs": 705,
+          "uploadCpuMs": 77,
+          "screenGapMax": 721
+        }
+      },
+      "note": "Strict check, no added viewing pause; still fails one-second target."
+    },
+    {
+      "label": "prepared-histogram-identity-trial",
+      "result": {
+        "which": "zoomprepared",
+        "detailOrder": "darktable",
+        "dpr": 2,
+        "ua": "WebKit 605.1.15",
+        "canvas": "1552x1036",
+        "window": "1440x779",
+        "photo": {
+          "W": 6246,
+          "H": 4170
+        },
+        "zoomDetail": {
+          "viewingPauseMs": 6000,
+          "sharpMs": 1312,
+          "firstRenderMs": 186,
+          "firstRenderCpuMs": 41,
+          "firstFrameMs": 751,
+          "uploadCpuMs": 66,
+          "screenGapMax": 758
+        }
+      },
+      "note": "Rejected: histogram dependency change did not improve the result; code removed."
+    }
+  ],
+  "validation": {
+    "check": "npm run check",
+    "frontend": 541,
+    "rust": 70,
+    "rustIgnored": 9,
+    "referencePayloadTest": "PASS after OpenMP and image optimization",
+    "runtimeLinkage": "otool -L shows no libomp dylib dependency",
+    "diagnosticLatencyBar": "FAIL: prepared 1260 ms and immediate 5697 ms exceed provisional 1000 ms",
+    "browserZoomFullRes": "PASS: in-flight zoom lifetime, thumbnail size, background Fit/badge behavior and prepared result reuse",
+    "browserTypecheck": "PASS",
+    "cacheRegressionTests": 8
+  },
+  "finalSourceHashes": {
+    "src-tauri/build.rs": "ce1f5e9d099fc8dc0a8841baaaaba247e5eaa6893921089b64ebed5bd2a32898",
+    "src-tauri/native/raw_shim.cpp": "0a4150dc5a84ca1662c2b9983884000197f34e4c96825d331447043d94115987",
+    "src-tauri/Cargo.toml": "e061bebf7355035a3b58a9f91f7b0cdf8040884883d2612f519197d4e617bc2b",
+    "src-tauri/src/decode.rs": "0bf892b2555f51f496d0230d6828736f39601e40f562c4ef8fae4392fa6c0695",
+    "src/dev/perfrun.ts": "da4fedb53c4ef0f5037c0d6f3cefbb8df456b1a9941acfdeaeb3bef70162f077",
+    "tools/perf/inapp.mjs": "51ab483aed4a1524dd9209a19320dc2c14a57761caa40ef122c243544ba86092",
+    "src/library/imagecache.ts": "0f6a4b18774e1da48764ac1d0e065ae636c5401d11700d559a8097676682f2f5",
+    "src/library/thumbs.ts": "e6ce170ff98fa8d7d055467d1f7a67a0f3181e46922e4b590b2e6eb8f2756720",
+    "src/ui/Develop.tsx": "13c6b74d14c2a8daf4dcd1a12de7543fe6236714df126f3e88659c855e29ed56",
+    "src/library/imagecache.test.ts": "726be18c069f7df87812c399ea7db8adcd4b723d35b4a751dad32a4d61232471",
+    "tools/browser-tests/zoom-full-res.tsx": "d641f8ff8de18b7b1e7074dddbe4e3b2d60b8686349418586f3956029131365f"
+  },
+  "preparation": {
+    "decision": "Oli delegated the choice; prepare the exact RAW after the photo rests, preserving demosaic fidelity.",
+    "quietMs": 750,
+    "maxBackgroundDecodes": 1,
+    "pendingPolicy": "latest photo only; cancel on navigation/edit/unmount",
+    "cacheBudgetMiB": 512,
+    "maxSpeculativePayloadMiB": 256,
+    "extraGpuSourcesWhileFitted": 0,
+    "noiseReduction": "Never initiated speculatively",
+    "runningCancellation": "A running LibRaw call completes; foreground gets share the same key and bypass unrelated preparation.",
+    "strictDetailSignal": "GPU-complete full-resolution source frame, excluding stoodIn previews and draft frames, plus two animation frames."
+  }
+}

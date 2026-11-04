@@ -32,6 +32,6 @@ The first Dehaze drag on each photo freezes once for 90–190 ms; the first Text
 
 ## Next candidates (from the 2026-11-03 sliders-at-100% session)
 
-- **Full resolution takes 11–18 s to appear after Z** (`fullResMs` in the `zoom100` loop). Time it by stage first: LibRaw's X-Trans decode, the half-float transfer over IPC (~200 MB for 26 MP), the upload. Likely what Oli feels most at 100% now.
+- **Full resolution after Z:** diagnosed 2026-11-03; serial `zoomdetail` 12.8 s → **5.9 s** with existing LibRaw OpenMP (four threads, static runtime) and optimized development image resizing. Exact payload preserved. Oli delegated the next mechanism; bounded background preparation is implemented: early zoom **5.7 s**, after six seconds viewing **1.26 s**. Still FAILS the provisional one-second bar; first regional work remains. See [stage report](../research/zoom-detail.md) and HANDOFF.md. Historical `fullResMs` in `zoom100` was 11–18 s (17.7 s reproduced this session).
 - **Clarity at 100% (42 ms):** options A/B/C in HANDOFF.md (top section); B (darktable's bilateral-grid local contrast mode) needs side-by-sides and Oli's approval of the look.
 

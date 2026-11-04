@@ -215,6 +215,20 @@ mod tests {
         v
     }
 
+    /// Byte-for-byte check of a real full-resolution decode across native build changes.
+    /// Supply a read-only RAW and the BLAKE3 payload hash captured with the reference build.
+    #[test]
+    #[ignore = "requires EMULSION_RAW_SAMPLE and EMULSION_RAW_PAYLOAD_HASH"]
+    fn full_resolution_payload_matches_reference() {
+        let path = std::env::var("EMULSION_RAW_SAMPLE").expect("set EMULSION_RAW_SAMPLE");
+        let expected = std::env::var("EMULSION_RAW_PAYLOAD_HASH").expect("set EMULSION_RAW_PAYLOAD_HASH");
+        let started = std::time::Instant::now();
+        let bytes = load_for_engine(Path::new(&path), None).unwrap();
+        let hash = blake3::hash(&bytes).to_hex().to_string();
+        eprintln!("full-resolution payload: {hash}, {} bytes, {:?}", bytes.len(), started.elapsed());
+        assert_eq!(hash, expected, "decoded pixels or metadata changed");
+    }
+
     #[test]
     fn raw_payload_preserves_signed_working_values_for_camera_channel_reconstruction() {
         let image=DynamicImage::ImageRgb32F(ImageBuffer::<Rgb<f32>, _>::from_raw(1,1,vec![-0.25,0.2,0.7]).unwrap());

@@ -25,7 +25,7 @@ import { STAGE_COLORS, activePhoto, editActive, finishCrop, setCropDraft, setPho
 import { StageMenu } from './StageMenu';
 import { FULL, bounds, framePixels, orientedSize, rotateFrame } from '../film/crop';
 import { CropOverlay } from './CropOverlay';
-import { ensureCapture, loadCachedImage, sourceFromBlob, thumbs } from '../library/thumbs';
+import { ensureCapture, loadCachedImage, prepareFullImage, sourceFromBlob, thumbs } from '../library/thumbs';
 import { Filmstrip } from './Filmstrip';
 import { FIT, imagePoint, label, layout, pan, step, zoomAt, type Layout, type Zoom } from './zoom';
 import { MaskOverlay } from './MaskOverlay';
@@ -472,6 +472,18 @@ export function Develop() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewEdge(previewFor || 1), path, wantsNoise, loadedVersion]);
+
+  // While the fitted photo rests, prepare its exact full decode in the bounded
+  // payload cache. Do not upload it or change the preview: zoom joins this request.
+  // Navigation cancels pending work, and the cache admits only one background decode.
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!engine || !path || !src || !sizeKnown || loaded?.res !== 'preview' || wantsNoise || decodeFailed === path) return;
+    if (Math.max(src.w, src.h) >= Math.max(src.fullW, src.fullH)) return;
+    return prepareFullImage(path, src.fullW, src.fullH, engine.maxTextureSize);
+    // Recipe changes restart the quiet period before preparation begins.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [path, wantsNoise, sizeKnown, loadedVersion, recipe, decodeFailed]);
 
   // Zoomed past what the preview holds: load the full resolution once. The decode is not tied to
   // this effect's lifetime: zooming again while it runs must not cancel it, or the view stays on

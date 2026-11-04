@@ -9,8 +9,11 @@
 // stages/colorbalance.glsl (the darktable UCS helpers).
 
 // 1 replaces the colour with uCeTex (.rgb: scene-linear Rec.2020 after the equalizer).
+// 2 adds the preview's RGB change during a live regional drag, preserving the source's detail.
+// This engine approximation ends at the settle; the equalizer's port above is unchanged.
 uniform float uCeOn;
 uniform sampler2D uCeTex;
+uniform vec4 uCeRoi;
 
 /** STEP 1 of process(): darktable UCS U and V, lightness L* and RGB saturation. */
 vec4 ceAnalyse(vec3 rgb) {
@@ -24,5 +27,6 @@ vec4 ceAnalyse(vec3 rgb) {
 
 vec3 stageColorEqual(vec3 rgb, vec2 uv) {
   if (uCeOn < 0.5) return rgb;
+  if (uCeOn > 1.5) return rgb + texture(uCeTex, uCeRoi.xy + uv * uCeRoi.zw).rgb;
   return texture(uCeTex, uv).rgb;
 }

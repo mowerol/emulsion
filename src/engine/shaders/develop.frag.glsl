@@ -52,7 +52,8 @@ uniform vec3 uOutside;
 // the print tap 1 wrote to outPrint, bound as uSrc (the same operations on the same values, so
 // Sharpening's input costs one clarity step instead of a develop pass). With detail before
 // Exposure (uTextureLog): 12, Clarity's input, the log lightness after Texture's change; 13, a
-// masked Clarity instance's, after the instances before it, with the mask's value in .g.
+// masked Clarity instance's, after the instances before it, with the mask's value in .g;
+// 14, the colour equalizer's RGB change for a live regional stand-in.
 uniform float uTap;
 // Tap 1 also writes the print it measured (Clarity's input) here, when a second target is bound.
 layout(location = 1) out vec4 outPrint;
@@ -133,7 +134,7 @@ void main() {
     outColor = vec4(labL(x), 0.0, 0.0, 1.0);
     return;
   }
-  if (uTap > 12.5) {
+  if (uTap > 12.5 && uTap < 13.5) {
     float du = uTextureOn > 0.5 ? texture(uTextureTex, ruv).r : 0.0;
     float acc = uClarityOn > 0.5 ? texture(uClarityTex, ruv).r : 0.0;
     outColor = vec4(clamp(clarityLogInput(preExposure, du) + acc, LL_LOG_RANGE.x, LL_LOG_RANGE.y), gMaskFinal[int(uTapMask + 0.5)], 0.0, 1.0);
@@ -152,6 +153,11 @@ void main() {
   }
   if (uTap > 3.5 && uTap < 4.5) {
     outColor = ceAnalyse(x);
+    return;
+  }
+  if (uTap > 13.5) {
+    // Live colour stand-in: the effect's change, not the preview's finished pixels.
+    outColor = vec4(stageColorEqual(x, ruv) - x, 1.0);
     return;
   }
   x = stageColorEqual(x, ruv);

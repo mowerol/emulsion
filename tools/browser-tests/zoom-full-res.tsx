@@ -63,7 +63,7 @@ async function main() {
   const photo = { path: '/test.ORF', name: 'test.ORF', rel: 'test.ORF', size: 1, modified: 0, recipe, seed: 1, white: null, rating: 0, label: null, heart: false, raw: true, pair: null };
   useApp.setState({ photos: [photo], active: 0, view: 'develop', selected: new Set([photo.path]) });
   createRoot(document.getElementById('root')!).render(<Develop />);
-  for (let i = 0; i < 40 && !document.querySelector('.zoom-level'); i++) await wait(50);
+  for (let i = 0; i < 40 && !(document.querySelector('.tool-zoom-value') && useApp.getState().developSize?.path === photo.path); i++) await wait(10);
   assert(!fullLoads.length, 'Fit asked for the full resolution');
   // 100% needs more than the 300 px preview, so the decode starts.
   key('z'); await wait(100);
@@ -96,6 +96,22 @@ async function main() {
   assert(size?.path === slow.path && size.W === FULL_W && size.H === FULL_H, `Photo size after decode: ${JSON.stringify(size)}`);
   key('z'); await wait(100);
   assert(document.querySelector('.tool-zoom-value span')?.textContent === '100%', 'Zoom did not work after the preview decoded');
-  document.body.dataset.result = 'PASS: zooming during the full-resolution decode keeps it; it is swapped in once and the badge clears; zoom and crop wait for the photo size while the camera thumbnail shows';
+  // Resting on a new photo prepares exact detail without changing Fit or showing a
+  // loading badge. The later zoom consumes that same decoded payload.
+  const prepared = { ...photo, path: '/prepared.ORF', name: 'prepared.ORF' };
+  const beforePreparation = fullLoads.length;
+  useApp.setState({ photos: [photo, slow, prepared], active: 2, selected: new Set([prepared.path]) });
+  for (let i = 0; i < 300 && fullLoads.length === beforePreparation; i++) await wait(10);
+  assert(fullLoads.length === beforePreparation + 1, 'Resting at Fit did not prepare full detail');
+  assert(document.querySelector('.tool-zoom-value span')?.textContent === 'Fit', 'Preparation changed the displayed zoom');
+  assert(!badge(), 'Background preparation showed a loading badge');
+  await wait(1800); // the 1500 ms full decode has completed, but Fit must stay fitted
+  assert(document.querySelector('.tool-zoom-value span')?.textContent === 'Fit', 'Preparation swapped the full source into Fit');
+  key('z'); await wait(100);
+  for (let i = 0; i < 30 && badge(); i++) await wait(10);
+  assert(!badge(), 'Zoom decoded a prepared photo again');
+  assert(fullLoads.length === beforePreparation + 1, 'Zoom did not reuse the background full decode');
+  assert(document.querySelector('.tool-zoom-value span')?.textContent === '100%', 'Prepared zoom did not reach 100%');
+  document.body.dataset.result = 'PASS: zoom changes preserve in-flight detail; thumbnail dimensions do not control zoom; background preparation keeps Fit and the badge unchanged, then zoom reuses its exact decode';
 }
 main().catch(error => { document.body.dataset.result = `FAIL: ${String(error)} | calls: ${calls.join(' ; ')}`; });

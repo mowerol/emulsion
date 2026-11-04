@@ -44,6 +44,13 @@ npm run tauri dev          # run in development
 npm run tauri build        # build an installable app
 ```
 
+On macOS, install LLVM's OpenMP runtime with `brew install libomp` to enable
+parallel RAW decoding (up to four threads per decode). It is linked statically;
+people using the built app do not need Homebrew. The build finds the standard
+Apple Silicon/Intel Homebrew prefix, or accepts `LIBOMP_PREFIX` containing
+`include/omp.h` and `lib/libomp.a`. Without it the build warns and uses the serial
+decoder. Set `EMULSION_LIBRAW_SERIAL=1` to compare against that reference build.
+
 To open a folder on launch, set `EMULSION_OPEN_FOLDER`:
 
 ```sh

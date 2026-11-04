@@ -91,6 +91,17 @@ static void fill_colour_info(LibRaw *raw, EmuRawInfo *info) {
 // On success `*out` holds an image for emu_raw_free and its pixels start at `*pixels`.
 int emu_raw_decode(const char *path, int half, EmuRawInfo *info, void **out, const unsigned short **pixels,
                    char *err, size_t errlen) {
+#ifdef LIBRAW_USE_OPENMP
+  // Keep headroom for the webview and other native work. This setting belongs
+  // to the current blocking worker; LibRaw's teams inherit it for this decode.
+  struct DecodeThreads {
+    int previous;
+    DecodeThreads() : previous(omp_get_max_threads()) {
+      omp_set_num_threads(previous > 4 ? 4 : previous);
+    }
+    ~DecodeThreads() { omp_set_num_threads(previous); }
+  } threads;
+#endif
   LibRaw *raw = new (std::nothrow) LibRaw(0);
   if (!raw) return LIBRAW_UNSUFFICIENT_MEMORY;
   libraw_output_params_t &p = raw->imgdata.params;
