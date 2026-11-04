@@ -12,6 +12,7 @@ import type { WarmStage } from '../engine/warm';
 import type { Histogram } from '../engine/histogram';
 import { profileSnapshot, profileVersion } from '../engine/profilestore';
 import { loadedLuts, lutVersion } from '../engine/lutstore';
+import { userLookSnapshot, userLookVersion } from '../film/looks';
 import { InputMode } from '../engine/params';
 
 export type { SourceRef } from '../engine/developloop';
@@ -57,6 +58,7 @@ export class DevelopClient {
   private requestIds = 0;
   private sentProfiles = -1;
   private sentLuts = -1;
+  private sentLooks = -1;
   private sentLutFiles = new Set<string>();
   /** Clock offset: the worker's performance.now() plus this is this thread's. */
   private offset = 0;
@@ -206,7 +208,7 @@ export class DevelopClient {
     return seq;
   }
 
-  /** Send camera profiles and LUTs this thread has loaded that the worker's stores lack. */
+  /** Send camera profiles, LUTs and user looks this thread has loaded that the worker's stores lack. */
   private syncAssets() {
     if (!this.worker) return;
     const pv = profileVersion();
@@ -218,7 +220,13 @@ export class DevelopClient {
       luts = loadedLuts().filter(([f]) => !this.sentLutFiles.has(f));
       for (const [f] of luts) this.sentLutFiles.add(f);
     }
-    if (profiles || luts?.length) this.send({ type: 'assets', profiles: profiles ?? undefined, luts });
+    // Looks registered on this thread (a new custom look or imported LUT): the worker's PACK and STOCK lack them.
+    let looks: ReturnType<typeof userLookSnapshot> | undefined;
+    if (userLookVersion() !== this.sentLooks) {
+      this.sentLooks = userLookVersion();
+      looks = userLookSnapshot();
+    }
+    if (profiles || luts?.length || looks?.length) this.send({ type: 'assets', profiles: profiles ?? undefined, luts, looks });
   }
 
   pointer(held: boolean, brush = false) {

@@ -149,8 +149,25 @@ export const customLookOf = (stock: unknown): string | null =>
 export const customLookId = (id: string) => `lut:custom:${id}` as StockId;
 export const fileLutId = (hash: string) => `lut:file:${hash}` as StockId;
 
-function put(pack: 'custom' | 'files', id: StockId, look: PackLook) {
+type UserPack = 'custom' | 'files';
+let userLooksVersion = 0;
+
+/** Counts changes to the user's looks, so the develop worker's copy can be kept up to date. */
+export const userLookVersion = () => userLooksVersion;
+
+/** The user's looks and LUT files, for the develop worker, which has its own PACK and STOCK (adoptUserLooks). */
+export const userLookSnapshot = (): [StockId, UserPack, PackLook][] =>
+  (['custom', 'files'] as const).flatMap((pack) =>
+    Object.entries(PACK[pack].looks).map(([id, look]) => [id as StockId, pack, look!] as [StockId, UserPack, PackLook]));
+
+/** Register the looks another thread has (userLookSnapshot). */
+export function adoptUserLooks(looks: [StockId, UserPack, PackLook][]) {
+  for (const [id, pack, look] of looks) put(pack, id, look);
+}
+
+function put(pack: UserPack, id: StockId, look: PackLook) {
   PACK[pack].looks[id] = look;
+  userLooksVersion++;
   const name = look.name ?? 'Look';
   registerStock({
     id, name, maker: PACK[pack].name, edge: name.toUpperCase(), bw: false,

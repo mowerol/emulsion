@@ -124,7 +124,9 @@ export function lutFor(file: string): LoadedLut | null {
 /** Whether a LUT is still on its way (a view should wait rather than draw without it). */
 export const lutPending = (file: string) => {
   const have = luts.get(file);
-  return have === undefined || have === 'loading';
+  // Asking starts the load (on the main thread; the worker's copy waits for provideLut).
+  if (have === undefined) void loadLut(file);
+  return luts.get(file) === undefined || luts.get(file) === 'loading';
 };
 
 /** Changes whenever a LUT arrives: a dependency for views that must redraw with it. */

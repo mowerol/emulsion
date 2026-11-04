@@ -6,8 +6,8 @@
 import { useSyncExternalStore } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { isTauri } from '../backend/api';
-import { lutFormat, readLut } from '../engine/lutstore';
-import { PACK, customLookId, customLookOf, lookName, registerCustomLook, registerFileLut, unregisterCustomLook, type PackId, legacyLooks, profileSettingsFor } from '../film/looks';
+import { lutFormat, provideLut, readLut } from '../engine/lutstore';
+import { PACK, USER_LOOKS_DIR, customLookId, customLookOf, lookName, registerCustomLook, registerFileLut, unregisterCustomLook, type PackId, legacyLooks, profileSettingsFor } from '../film/looks';
 import { hasSettings, normalizeSettings, type LutSource, type ProfileSettings } from '../film/creative';
 import type { Recipe } from '../film/recipe';
 import type { StockId } from '../film/stocks';
@@ -74,13 +74,17 @@ export async function importLutFile(path: string): Promise<string> {
   const bytes = await invoke<ArrayBuffer>('read_lut_file', { path });
   const blob = new Blob([bytes]);
   const ext = await lutFormat(blob);
+  let lut: Awaited<ReturnType<typeof readLut>>;
   try {
-    await readLut(`look.${ext}`, blob);
+    lut = await readLut(`look.${ext}`, blob);
   } catch (e) {
     throw new Error(`This file is not a LUT Emulsion can read (${e instanceof Error ? e.message : String(e)})`);
   }
   const hash = await invoke<string>('store_look_lut', new Uint8Array(bytes), { headers: { 'x-emulsion-lut-ext': ext } });
+  // Parsed already: keep it, so the view needn't read the file back before it can draw.
+  provideLut(`${USER_LOOKS_DIR}${hash}`, lut);
   registerFileLut(hash, lookNameFromPath(path));
+  changed();
   return hash;
 }
 

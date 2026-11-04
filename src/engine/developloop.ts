@@ -21,6 +21,7 @@ import { framePixels } from '../film/crop';
 import type { WarmStage } from './warm';
 import { adoptProfileSnapshot, type ProfileSnapshot } from './profilestore';
 import { provideLut, type LoadedLut } from './lutstore';
+import { adoptUserLooks } from '../film/looks';
 import { trackTextures } from '../dev/gpumemory';
 
 /** How long the view must stay still before a zoom or pan builds the full-resolution region it needs. */
@@ -99,7 +100,7 @@ export type ToLoop =
   | { type: 'pointer'; held: boolean; brush: boolean; dpr: number }
   | { type: 'motion' }
   | { type: 'warm'; stage: WarmStage }
-  | { type: 'assets'; profiles?: ProfileSnapshot; luts?: [string, LoadedLut][] }
+  | { type: 'assets'; profiles?: ProfileSnapshot; luts?: [string, LoadedLut][]; looks?: Parameters<typeof adoptUserLooks>[0] }
   | { type: 'request'; id: number; call: 'sampleScene'; key: number; u: number; v: number; recipe: Recipe | null }
   | { type: 'request'; id: number; call: 'sampleMaskInput'; key: number; recipe: Recipe; mask: number; box: View }
   | { type: 'request'; id: number; call: 'readPixels'; key: number; recipe: Recipe | null; w: number; h: number; seed: number }
@@ -216,6 +217,7 @@ export class DevelopLoop {
         case 'assets':
           if (m.profiles) adoptProfileSnapshot(m.profiles);
           for (const [file, lut] of m.luts ?? []) provideLut(file, lut);
+          if (m.looks) adoptUserLooks(m.looks);
           this.restart();
           break;
         case 'request': this.request(m); break;
