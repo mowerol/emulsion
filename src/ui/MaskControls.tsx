@@ -3,7 +3,8 @@
 // Shapes are drawn and moved on the photo (MaskOverlay); this panel picks the tool and holds
 // the values that have no handle.
 
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { Ellipsis } from 'lucide-react';
 import { BRUSH_DEFAULTS, MASK_MODES, MASK_SLIDERS, REFINE_SLIDERS, type EllipseShape, type GradientShape, type Mask, type MaskMode, type MaskShape, type MaskSliderDef, type ObjectShape } from '../film/masks';
 import { installObjectModel, newObjectSession, prepareObjectSelect, useObjectSelect } from './objectselect';
 import { formatEv, formatSigned } from '../film/recipe';
@@ -40,20 +41,22 @@ const fmtFor = (d: MaskSliderDef) => (d.key === 'exposure' ? formatEv : formatSi
 function ToolButtons({ mode, label }: { mode: MaskTool['mode']; label?: string }) {
   const tool = useMaskUi((s) => s.tool);
   return (
-    <div className="mask-tools" role="group" aria-label={label ?? 'New mask'}>
-      {label && <span className="mask-tools-label">{label}</span>}
-      {TOOLS.map((t) => {
-        const on = tool?.kind === t.kind && tool.mode === mode;
-        return (
-          <button key={t.kind} type="button" className={`btn mask-tool ${t.kind}`} aria-pressed={on} title={t.hint} aria-label={label ? `${label} ${t.label.toLowerCase()}` : undefined}
-            onClick={() => {
-              setMaskUi({ tool: on ? null : { kind: t.kind, mode }, pick: null });
-              if (t.kind === 'object' && !on) { newObjectSession(); void prepareObjectSelect(); }
-            }}>
-            <span className="mask-tool-icon" aria-hidden="true" />{label ? t.short : t.label}
-          </button>
-        );
-      })}
+    <div className={`mask-tools${label ? ' labelled' : ''}`} role="group" aria-label={label ?? 'New mask'}>
+      <span className="mask-tools-label">{label ?? 'New mask'}</span>
+      <div className="mask-tool-grid">
+        {TOOLS.map((t) => {
+          const on = tool?.kind === t.kind && tool.mode === mode;
+          return (
+            <button key={t.kind} type="button" className={`btn mask-tool ${t.kind}`} aria-pressed={on} title={t.hint} aria-label={label ? `${label} ${t.label.toLowerCase()}` : undefined}
+              onClick={() => {
+                setMaskUi({ tool: on ? null : { kind: t.kind, mode }, pick: null });
+                if (t.kind === 'object' && !on) { newObjectSession(); void prepareObjectSelect(); }
+              }}>
+              <span className="mask-tool-icon" aria-hidden="true" /><span className="mask-tool-name">{label ? t.short : t.label}</span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -193,6 +196,35 @@ function MaskRefineControls({ mask }: { mask: Mask }) {
   );
 }
 
+/** The mask's own actions, kept beside its name so deleting never means scrolling to the end. */
+function MaskActions({ mask }: { mask: Mask }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const outside = (e: PointerEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); } };
+    document.addEventListener('pointerdown', outside);
+    window.addEventListener('keydown', esc, true);
+    return () => { document.removeEventListener('pointerdown', outside); window.removeEventListener('keydown', esc, true); };
+  }, [open]);
+  const reset = () => updateMask(mask.id, (m) => ({ ...m, ...Object.fromEntries(MASK_SLIDERS.map((d) => [d.key, 0])) }), 'Reset mask');
+  return (
+    <div className="overflow mask-actions-menu" ref={ref}>
+      <button type="button" className="icon-btn" aria-label="Mask actions" aria-haspopup="menu" aria-expanded={open} data-tip="Mask actions" onClick={() => setOpen(!open)}>
+        <Ellipsis size={16} aria-hidden="true" />
+      </button>
+      {open && (
+        <div className="overflow-menu" role="menu">
+          <button type="button" className="menu-item" role="menuitem" onClick={() => { setOpen(false); duplicateMask(mask.id); }}>Duplicate mask</button>
+          <button type="button" className="menu-item" role="menuitem" onClick={() => { setOpen(false); reset(); }}>Reset sliders</button>
+          <button type="button" className="menu-item danger" role="menuitem" onClick={() => { setOpen(false); deleteMask(mask.id); }}>Delete mask</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function MaskEditor({ mask }: { mask: Mask }) {
   const overlay = useMaskUi((s) => s.overlay);
   const set = (d: MaskSliderDef, v: number, drag: boolean) =>
@@ -203,25 +235,24 @@ function MaskEditor({ mask }: { mask: Mask }) {
         <input className="mask-name" aria-label="Mask name" value={mask.name} maxLength={60}
           onChange={(e) => updateMask(mask.id, (m) => ({ ...m, name: e.target.value || m.name }), 'Rename mask', { key: `rename-${mask.id}`, continuous: true })} />
         <label className="mask-check" title="Show the mask over the photo (O)"><input type="checkbox" checked={overlay} onChange={(e) => setMaskUi({ overlay: e.target.checked })} /> Overlay</label>
+        <MaskActions mask={mask} />
       </div>
       <ol className="mask-shapes">{mask.shapes.map((s, i) => <ShapeRow key={s.id} mask={mask} shape={s} index={i} />)}</ol>
       <ToolButtons mode="add" label="Add" />
       <ToolButtons mode="subtract" label="Subtract" />
       <MaskRanges mask={mask} />
       <MaskRefineControls mask={mask} />
-      <div className="sliders">
-        <Slider id={`mask-opacity-${mask.id}`} label="Amount" value={mask.opacity} min={0} max={100} step={1} format={(v) => `${v}%`}
-          onChange={(v) => updateMask(mask.id, (m) => ({ ...m, opacity: v }), 'Mask amount', { key: `mask-${mask.id}-opacity`, continuous: false })}
-          onReset={() => updateMask(mask.id, (m) => ({ ...m, opacity: 100 }), 'Mask amount')} />
-        {MASK_SLIDERS.map((d) => (
-          <Slider key={d.key} id={`mask-${d.key}`} label={d.label} value={mask[d.key]} min={d.min} max={d.max} step={d.step} format={fmtFor(d)}
-            onChange={(v) => set(d, v, true)} onReset={() => set(d, 0, false)} />
-        ))}
-      </div>
-      <div className="mask-actions">
-        <button type="button" className="btn" onClick={() => duplicateMask(mask.id)}>Duplicate</button>
-        <button type="button" className="btn" onClick={() => updateMask(mask.id, (m) => ({ ...m, ...Object.fromEntries(MASK_SLIDERS.map((d) => [d.key, 0])) }), 'Reset mask')}>Reset sliders</button>
-        <button type="button" className="btn danger" onClick={() => deleteMask(mask.id)}>Delete mask</button>
+      <div className="mask-effect">
+        <span className="mask-tools-label">Effect</span>
+        <div className="sliders">
+          <Slider id={`mask-opacity-${mask.id}`} label="Amount" value={mask.opacity} min={0} max={100} step={1} format={(v) => `${v}%`}
+            onChange={(v) => updateMask(mask.id, (m) => ({ ...m, opacity: v }), 'Mask amount', { key: `mask-${mask.id}-opacity`, continuous: false })}
+            onReset={() => updateMask(mask.id, (m) => ({ ...m, opacity: 100 }), 'Mask amount')} />
+          {MASK_SLIDERS.map((d) => (
+            <Slider key={d.key} id={`mask-${d.key}`} label={d.label} value={mask[d.key]} min={d.min} max={d.max} step={d.step} format={fmtFor(d)}
+              onChange={(v) => set(d, v, true)} onReset={() => set(d, 0, false)} />
+          ))}
+        </div>
       </div>
     </div>
   );

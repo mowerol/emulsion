@@ -586,13 +586,18 @@ input[type='range']:disabled { opacity: 0.35; cursor: default; }
 
 /* Masks: the list and editor in the panel, and the shapes over the photo. */
 .mask-controls { display:flex; flex-direction:column; gap:12px; }
-.mask-tools { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
+.mask-tools { display:flex; flex-direction:column; gap:4px; min-width:0; }
 .mask-tools-label { width:62px; font-size:11px; color:var(--muted); }
-/* Add and Subtract: four short buttons fit beside the label. */
-.mask-tools:has(.mask-tools-label) { gap:4px; flex-wrap:nowrap; }
-.mask-tools:has(.mask-tools-label) .mask-tools-label { width:52px; flex-shrink:0; }
-.mask-tools:has(.mask-tools-label) .mask-tool { padding:5px 6px; gap:4px; }
-.mask-tool { display:flex; align-items:center; gap:6px; font-size:11px; padding:5px 9px; }
+.mask-tool-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; min-width:0; }
+/* Add and Subtract: the four shapes sit as icons beside their label. */
+.mask-tools.labelled { display:grid; grid-template-columns:52px minmax(0,1fr); align-items:start; gap:0 6px; }
+.mask-tools.labelled .mask-tools-label { width:auto; padding-top:9px; }
+.mask-tools.labelled .mask-tool-grid { grid-template-columns:repeat(4,minmax(0,1fr)); gap:3px; }
+.mask-tools.labelled .mask-tool { flex-direction:column; justify-content:center; gap:3px; padding:4px 2px; }
+.mask-tools.labelled .mask-tool-name { display:block; font-size:10px; color:var(--muted); }
+.mask-tools.labelled .mask-tool[aria-pressed=true] .mask-tool-name { color:inherit; }
+.mask-tool { display:flex; align-items:center; justify-content:flex-start; gap:6px; min-width:0; font-size:11px; padding:5px 8px; }
+.mask-tool-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .mask-tool[aria-pressed=true] { background:var(--accent); border-color:var(--accent); color:var(--accent-ink); }
 .mask-tool-icon, .mask-shape-icon { width:14px; height:10px; border-radius:2px; flex-shrink:0; }
 .mask-tool.gradient .mask-tool-icon, .mask-shape-icon.gradient { background:linear-gradient(to bottom, currentColor, transparent); }
@@ -604,9 +609,13 @@ input[type='range']:disabled { opacity: 0.35; cursor: default; }
 .mask-item input { accent-color:var(--accent); margin:0; }
 .mask-item-name { background:none; border:0; padding:2px 0; text-align:left; font-size:12px; font-weight:600; cursor:pointer; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .mask-item-count { font-size:10px; color:var(--faint); }
-.mask-editor { display:flex; flex-direction:column; gap:12px; padding-top:10px; border-top:1px solid var(--line); }
-.mask-editor-head { display:flex; align-items:center; gap:10px; }
+.mask-editor { display:flex; flex-direction:column; gap:10px; padding-top:10px; border-top:1px solid var(--line); }
+.mask-editor-head { display:flex; align-items:center; gap:8px; }
 .mask-name { flex:1; min-width:0; background:var(--raise); border:1px solid var(--line); border-radius:5px; padding:4px 8px; font-size:12px; font-weight:600; }
+.mask-actions-menu { flex:none; }
+.mask-actions-menu .icon-btn { width:24px; height:24px; }
+.mask-actions-menu .overflow-menu { top:calc(100% + 4px); right:0; left:auto; bottom:auto; min-width:160px; }
+.mask-actions-menu [data-tip]:hover::after, .mask-actions-menu [data-tip]:focus-visible::after { left:auto; right:0; transform:none; }
 .mask-check { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--muted); white-space:nowrap; }
 .mask-check input { accent-color:var(--accent); margin:0; }
 .mask-shapes { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:4px; }
@@ -618,8 +627,7 @@ input[type='range']:disabled { opacity: 0.35; cursor: default; }
 .mask-x { background:none; border:0; color:var(--faint); font-size:15px; line-height:1; padding:2px 6px; cursor:pointer; border-radius:4px; }
 .mask-x:hover { color:var(--danger); }
 .mask-shape-body { display:flex; flex-direction:column; gap:10px; padding:8px 10px 10px; border-top:1px solid var(--line); }
-.mask-actions { display:flex; flex-wrap:wrap; gap:6px; }
-.mask-actions .btn { font-size:11px; padding:4px 8px; }
+.mask-effect { display:flex; flex-direction:column; gap:4px; }
 
 .mask-overlay { position:absolute; inset:0; overflow:hidden; pointer-events:none; }
 .mask-overlay.drawing { cursor:crosshair; }
