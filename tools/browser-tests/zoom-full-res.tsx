@@ -64,10 +64,12 @@ async function main() {
   useApp.setState({ photos: [photo], active: 0, view: 'develop', selected: new Set([photo.path]) });
   createRoot(document.getElementById('root')!).render(<Develop />);
   for (let i = 0; i < 40 && !(document.querySelector('.tool-zoom-value') && useApp.getState().developSize?.path === photo.path); i++) await wait(10);
-  assert(!fullLoads.length, 'Fit asked for the full resolution');
-  // 100% needs more than the 300 px preview, so the decode starts.
+  assert(document.querySelector('.tool-zoom-value span')?.textContent === 'Fit', 'Preview did not stay at Fit');
+  assert(!badge(), 'Background full-resolution preparation showed a loading badge');
+  // Preparation starts immediately after the preview. 100% shares that decode if
+  // it has already started, or starts it before the background turn gets there.
   key('z'); await wait(350); // the shared status deliberately waits 280 ms before appearing
-  assert(fullLoads.length === 1, 'Full-resolution decode did not start at 100%');
+  assert(fullLoads.length === 1, '100% did not share one full-resolution decode');
   assert(badge(), 'No loading badge while decoding');
   // Zoom around while it runs: fit, then 100% again.
   key('z'); await wait(100);

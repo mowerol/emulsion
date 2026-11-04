@@ -56,12 +56,22 @@ async function main() {
         for (let i = 0; i < flags.length; i += 4) { if (flags[i] > .5) stopped++; else active++; }
       }
     };
-    const before = memory().bytes;
     const preparation = engine.prepareCapture(full, recipe);
+    for (let i = 0; i < 14; i++) preparation.next();
+    const partialOut = internal.fullCapture.csOut;
+    const generation = engine.captureCacheStat.generation;
+    assert(partialOut && engine.captureCacheStat.preparing && !engine.captureCacheStat.ready, 'Partial result was published');
+    engine.validateCaptureCache({ ...recipe, exposure: 2 });
+    assert(internal.fullCapture.csOut === partialOut, 'Viewport/downstream validation discarded partial capture');
+    // Both foreground paths must leave the suspended generator's targets alone.
+    engine.readPixels(full, recipe, 208, 146, 0, false, { x: .7, y: .6, w: .13, h: .13 }, undefined, preview);
+    engine.readPixels(full, recipe, 96, 64, 0);
+    assert(internal.fullCapture.csOut === partialOut && !engine.captureCacheStat.ready, 'Foreground render replaced or exposed partial capture');
     while (!preparation.next().done) peak = Math.max(peak, memory().bytes);
+    assert(engine.captureCacheStat.generation === generation, 'Resuming capture restarted the build');
     program.set = set; engine.gpu.draw = draw;
     assert(stopped > 0 && active > 0, `Early-stop fixture has ${stopped} stopped and ${active} active tiles`);
-    const retained = memory().bytes - before;
+    const retained = engine.captureCacheStat.retainedMiB * 2 ** 20;
     const cached = internal.fullCapture.csOut;
     assert(cached, 'No retained full-photo capture result');
     const red = reference.probeCapture(exact, iterationsFor(recipe.captureSharpening)).red;
@@ -96,8 +106,10 @@ async function main() {
     engine.clearCaptureCache();
     const partial = engine.prepareCapture(full, recipe);
     for (let i = 0; i < 14; i++) partial.next();
+    const partialBytes = memory().bytes;
     partial.return(undefined);
-    assert(!internal.fullCapture.csOut, 'Cancelled preparation retained partial result');
+    assert(!internal.fullCapture.csOut && !internal.fullCapture.noiseMade && !internal.captureOwner, 'Cancelled preparation retained partial result or ownership');
+    assert(memory().bytes < partialBytes, 'Cancelled preparation did not release scratch/output');
     finish(engine.prepareCapture(full, recipe));
     engine.release(full);
     assert(!internal.fullCapture.csOut, 'Released photo retained capture');
@@ -106,7 +118,16 @@ async function main() {
       attach(engine, noisy); attach(reference, fresh);
       const r: Recipe = { ...recipe, captureSharpening: 5, noiseReduction: { enabled: true, amount, model: 'rawnind-linear-v1' } };
       try {
-        finish(engine.prepareCapture(noisy, r));
+        const abandoned = engine.prepareCapture(noisy, r);
+        for (let i = 0; i < 14; i++) abandoned.next();
+        abandoned.return(undefined);
+        assert(!internal.fullCapture.csOut && !internal.fullCapture.noiseMade, 'Noise cancellation retained mixed input/scratch');
+        const pending = engine.prepareCapture(noisy, r);
+        for (let i = 0; i < 14; i++) pending.next();
+        const pendingOut = internal.fullCapture.csOut;
+        engine.validateCaptureCache({ ...r, exposure: 1 });
+        assert(internal.fullCapture.csOut === pendingOut, 'Noise input lost partial capture on downstream edit');
+        finish(pending);
         const view = { x: .4, y: .3, w: .13, h: .13 };
         const got = engine.readPixels(noisy, r, 208, 146, 0, false, view, undefined, preview);
         const expected = reference.readPixels(fresh, r, 208, 146, 0, false, view);
@@ -117,7 +138,7 @@ async function main() {
       } finally { engine.release(noisy); reference.release(fresh); }
     }
     assert(engine.gpu.gl.getError() === engine.gpu.gl.NO_ERROR, 'Capture cache: WebGL error');
-    document.body.dataset.result = `PASS: exact full-source pixels, regional edges/tiles, preview ownership, edits, noise, cancellation and release; ${JSON.stringify({ retainedMiB: retained / 2 ** 20, peakMiB: peak / 2 ** 20 })}`;
+    document.body.dataset.result = `PASS: exact full-source pixels, regional edges/tiles, preview ownership, suspended foreground/validation, edits, noise, cancellation and release; ${JSON.stringify({ retainedMiB: retained / 2 ** 20, peakMiB: peak / 2 ** 20 })}`;
   } finally { engine.release(preview); reference.release(exact); engine.dispose(); reference.dispose(); }
 }
 main().catch(error => { document.body.dataset.result = `FAIL: ${String(error)} ${error?.stack ?? ''}`; });

@@ -503,7 +503,13 @@ export async function run(which: string) {
       internal.whole.csOut = internal.whole.csMade = null;
       eng.cacheCapture = true;
       const steps = eng.prepareCapture(src, recipe);
+      for (let i = 0; i < 24; i++) { steps.next(); while (!eng.idle()) await wait(1); }
+      const partial = internal.fullCapture.csOut, generation = eng.captureCacheStat.generation;
+      eng.validateCaptureCache({ ...recipe, exposure: 1 });
+      eng.readPixels(src, recipe, 208, 146, 0, false, { x: .4, y: .35, w: .13, h: .13 }, undefined, preview);
+      if (internal.fullCapture.csOut !== partial || eng.captureCacheStat.ready) throw Error('RAW foreground discarded or exposed partial capture');
       while (!steps.next().done) { while (!eng.idle()) await wait(1); }
+      if (eng.captureCacheStat.generation !== generation) throw Error('RAW capture restarted instead of resuming');
       const cached = internal.fullCapture.csOut;
       if (!cached) throw Error('Full RAW cache was not prepared');
       const gl = eng.gpu.gl;
@@ -716,6 +722,21 @@ export async function run(which: string) {
         }
       }
       out.zoomStops = results;
+      if (import.meta.env.VITE_PERF_WAIT_CAPTURE) {
+        const started = performance.now();
+        while (true) {
+          const state = await perfClient!.captureState();
+          if (state.cache.ready) {
+            out.captureAfterZoom = state;
+            out.captureResumeWaitMs = Math.round(performance.now() - started);
+            const before = out.captureBeforeZoom as typeof state;
+            if (state.cache.generation !== before.cache.generation) throw Error('Zoom restarted whole-source capture preparation');
+            break;
+          }
+          if (performance.now() - started > 30000) throw Error('Capture did not resume after zoom');
+          await wait(20);
+        }
+      }
       if (import.meta.env.VITE_PERF_CAPTURE_CHANGE) {
         const waitReady = async () => {
           const started = performance.now();

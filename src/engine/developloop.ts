@@ -149,16 +149,18 @@ export class DevelopLoop {
   private prepareCancel: () => void = () => {};
   private captureCancel: () => void = () => {};
   private captureSource: number | null = null;
+  private captureJobKey: ReturnType<Engine['captureKey']> = null;
+  private captureJobFinished = false;
   private lastPrepare: string | null = null;
   private lastHistogram: string | null = null;
   /** The perf driver's frame stats (VITE_PERF): set by the host. */
   stats = false;
   private busyShown = false;
   private sharpeningShown = false;
-  /** Message tasks yield to input without nested timers' minimum delay between GPU passes. */
+  /** Independently cancellable message tasks yield to input without a timer delay per GPU pass. */
   private workChannel: MessageChannel;
   private workId = 0;
-  private work: { id: number; run: () => void } | null = null;
+  private work = new Map<number, () => void>();
   private memory: ReturnType<typeof trackTextures> | null = null;
 
   constructor(private canvas: HTMLCanvasElement | OffscreenCanvas, private post: (m: FromLoop, transfer?: Transferable[]) => void, retouchWorker?: Worker, stats = false) {
@@ -167,10 +169,9 @@ export class DevelopLoop {
     this.engine.cacheCapture = (import.meta as { env?: Record<string, string> }).env?.VITE_CAPTURE_CACHE !== '0';
     this.workChannel = new MessageChannel();
     this.workChannel.port1.onmessage = ({ data }: MessageEvent<number>) => {
-      const work = this.work;
-      if (work?.id !== data) return;
-      this.work = null;
-      work.run();
+      const run = this.work.get(data);
+      this.work.delete(data);
+      run?.();
     };
     if (retouchWorker) this.engine.useRetouchWorker(retouchWorker, () => this.restart());
     post({ type: 'ready', maxTextureSize: this.engine.maxTextureSize, timeOrigin: performance.timeOrigin });
@@ -178,9 +179,9 @@ export class DevelopLoop {
 
   private queueWork(run: () => void): () => void {
     const id = ++this.workId;
-    this.work = { id, run };
+    this.work.set(id, run);
     this.workChannel.port2.postMessage(id);
-    return () => { if (this.work?.id === id) this.work = null; };
+    return () => { this.work.delete(id); };
   }
 
   handle(m: ToLoop) {
@@ -200,7 +201,11 @@ export class DevelopLoop {
         }
         case 'capture': {
           const s = this.sources.get(m.key);
-          if (s) { this.engine.attachCapture(s, m.radius, m.toCam, m.mask); this.restart(); }
+          if (s) {
+            if (this.captureSource === m.key) this.captureCancel();
+            this.engine.attachCapture(s, m.radius, m.toCam, m.mask);
+            this.restart();
+          }
           break;
         }
         case 'prepareCapture': this.captureSource = m.key; this.prepareCaptureIdle(); break;
@@ -271,14 +276,13 @@ export class DevelopLoop {
 
   private setState(next: FrameState, again = false) {
     const prev = this.state;
-    this.captureCancel();
     this.cancel();
     if (prev && prev.histogramFor !== next.histogramFor) {
+      this.captureCancel();
       this.captureSource = null;
       this.engine.clearCaptureCache();
     }
     this.state = next;
-    this.engine.validateCaptureCache(next.saved);
     if (next.full) this.captureSource = next.source;
     // The main thread can't size a canvas it handed over: the loop does (only on a change, which clears it).
     if (next.width && (this.canvas.width !== next.width || this.canvas.height !== next.height)) {
@@ -296,14 +300,21 @@ export class DevelopLoop {
     if (again || next.histogram !== this.lastHistogram) { this.lastHistogram = next.histogram; this.countHistogram(next); }
     if (next.prepare !== this.lastPrepare) { this.lastPrepare = next.prepare; this.prepareIdle(next); }
     this.prepareCaptureIdle();
+    this.engine.validateCaptureCache(next.saved);
   }
 
   /** Idle GPU work uses the foreground's bounded batches and yields to any new input. */
   private prepareCaptureIdle() {
-    this.captureCancel();
     const st = this.state, source = this.captureSource === null ? null : this.sources.get(this.captureSource);
     const active = st && this.sources.get(st.source);
-    if (!this.engine.cacheCapture || !st || !source?.capture || !st.saved.captureSharpening || !active || source.origin !== active.origin) return;
+    const key = this.engine.cacheCapture && st && source && active && source.origin === active.origin
+      ? this.engine.captureKey(source, st.saved) : null;
+    if (key && st && source && this.captureJobKey && key.every((v, i) => v === this.captureJobKey![i]) &&
+      (!this.captureJobFinished || this.engine.captureReady(source, st.saved))) return;
+    this.captureCancel();
+    if (!key || !st || !source) return;
+    this.captureJobKey = key;
+    this.captureJobFinished = false;
     let timer = 0, cancelled = false, cancelWork = () => {};
     const steps = this.engine.prepareCapture(source, st.saved);
     const next = () => {
@@ -315,17 +326,21 @@ export class DevelopLoop {
       try {
         const started = performance.now();
         for (let n = 0; n < PREPARE_BATCH_PASSES; n++) {
-          if (steps.next().done) return;
+          if (steps.next().done) { this.captureJobFinished = true; return; }
           if (performance.now() - started >= PREPARE_BATCH_MS) break;
         }
         cancelWork = this.queueWork(next);
       } catch (err) {
-        steps.return(undefined);
+        this.captureCancel();
         this.post({ type: 'warn', message: `Capture preparation: ${String(err)}` });
       }
     };
     timer = setTimeout(next, 50) as unknown as number;
-    this.captureCancel = () => { cancelled = true; clearTimeout(timer); cancelWork(); steps.return(undefined); };
+    // Keep the key after completion too: a viewport change must not start the job again.
+    this.captureCancel = () => {
+      cancelled = true; clearTimeout(timer); cancelWork(); steps.return(undefined);
+      this.captureJobKey = null;
+    };
   }
 
   /** The render effect of ui/Develop.tsx, for one state. */
@@ -550,7 +565,7 @@ export class DevelopLoop {
   dispose() {
     this.captureCancel();
     this.cancel();
-    this.work = null;
+    this.work.clear();
     this.workChannel.port1.close();
     this.workChannel.port2.close();
     this.histogramCancel();

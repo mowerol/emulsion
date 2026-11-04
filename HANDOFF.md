@@ -1,40 +1,46 @@
 # Handoff
 
-## Next session: preserve unfinished capture preparation across zoom and pan
+## Capture preparation survives zoom and pan (2026-11-04)
 
-Oli asked why the very first zoom is still slow, then requested this handoff and a
-commit. **The next fix is recorded here, not implemented.** Controls work remains paused.
+The next task from the previous handoff is implemented. `DevelopLoop` retains one capture
+preparation generator keyed by the full source, capture metadata, noise input/amount and
+capture iterations. Viewport changes and downstream edits pause it for foreground work or
+interaction, then resume the same passes. Actual input changes, disabling capture, navigation,
+source release and disposal cancel it and free scratch. Foreground regional and whole-source
+fallbacks never consume or replace its partial output. The MessageChannel scheduler now keeps
+independently cancellable continuations for foreground and background work. Completed jobs are
+reused while their result is valid, and can restart if foreground work replaced that result.
+No filter maths, source density or GPU batch/submission limits changed. Controls remain paused.
 
-The current `DevelopLoop.setState` calls `captureCancel()` on every view state, and
-`prepareCaptureIdle` cancels again before creating a new generator. Cancellation calls
-`return()` on the generator and frees its unfinished sharpening result and scratch.
-Consequently, zoom or pan can discard background deconvolution even though its full-source
-pixels and capture settings have not changed. The foreground then sharpens its visible
-region separately; idle whole-photo preparation starts again afterwards.
+Read [zoom-detail.md, Preserving unfinished capture preparation](docs/research/zoom-detail.md#preserving-unfinished-capture-preparation-2026-11-04)
+and `captureJobPreservation20261104` in its raw JSON for commands and measurements.
 
-Keep one preparation job keyed by the full source, capture metadata, noise input/amount
-and capture iterations. Preserve its generator across viewport-only changes. Pause it while
-foreground rendering or interaction needs the GPU, then resume the same passes. Cancel
-and free it when its inputs change, capture is disabled, the photo changes, the source is
-released or the loop is disposed. Keep foreground regional fallback available while it is
-unfinished, and never expose a partly built result. Inspect the single-slot `queueWork`
-scheduler when giving a preserved background job and foreground rendering separate lifetimes.
+- **Lifecycle verified in the real app:** early 50% pinch retained generation 1, with progress
+  26 → 66 passes at sharp detail → 95 ready. It became ready 117 ms after the harness's
+  post-gesture settling period. Changing capture 100 → 25 invalidated immediately and built
+  generation 2 (1836 ms until ready in this sample).
+- **First zoom is still slow:** early pinch 1399 ms versus 1300 ms before this change; both
+  exceed 1000 ms. Preserving background progress does not accelerate the foreground regional
+  fallback. Confirmed-ready 50% pinch was 768 ms and Z was 391 ms. Individual samples, not p95;
+  one ready-pinch run lost focus and is discarded.
+- **Memory trade-off:** early pinch logical texture peak 1832 → 2595 MiB because unfinished
+  full-source output/scratch remain allocated alongside the foreground region. Ready Z peaked
+  at 1664 MiB; ready pinch/settings later reached 3731 MiB including other buffers/spares.
+  The completed capture result remains 264.9 MiB. CPU/driver/RSS are excluded.
+- **Checks:** `npm run check` passes (597 frontend, 70 Rust, ten ignored); 21 loop tests cover
+  preservation, foreground priority, interaction/GPU waits, independent queued continuations,
+  completed-result replacement and cancellation. GPU capture-cache also covers suspended work
+  interleaved with foreground renders, validation, exact pixels, noise and scratch release.
+  The resumed 26 MP RAW whole result and nine regional copies at three scales/positions
+  match the whole-source reference with zero differing RGBA float values. GPU region-detail
+  (full, capture, fidelity), real-time zoom-full-res and both browser-test typechecks pass.
+  Zoom-full-res now allows the already-removed preparation delay: Fit stays stable while
+  preparation starts immediately, and foreground zoom must share that in-flight decode.
 
-Verify progress survives zoom/pan, actual input changes still cancel and release scratch,
-and completed cached pixels still match the exact whole-source reference, including tile
-boundaries. Compare an early first Z/pinch against a confirmed-ready cache in the real app;
-keep GPU correctness separate from timing, and report memory as well as latency. Preserve
-filter maths, settled source density and short GPU submissions.
-
-Other first-use costs remain: full RAW decode/upload if not ready, capture's full-photo
-contrast analysis (~270–305 ms in recorded runs), and regional working-image allocations.
-The previous early pinch interrupted deconvolution and took 1384 ms; confirmed-ready Z took
-392 ms versus 1164 ms without capture caching. These are different scenarios, not a measured
-saving from the proposed job-preservation fix. Removing the 750 ms delay was checked with
-the ten focused image-cache tests only; first-zoom timings after that removal are unmeasured.
-
-The current scheduling/cache/status work is included in this commit at Oli's request.
-No push was requested. Local `.codex/` and `.scratch/` files are outside this commit.
+Remaining performance work: full decode/upload when not ready, full-source contrast readback
+(330–515 ms in these samples), foreground regional capture and working-image allocation.
+Broader texture memory and real trackpad feel with normal edits remain open. Oli requested
+committing and pushing this follow-up; local `.codex/` and `.scratch/` files remain outside it.
 
 ## One "Loading full resolution" status for the whole wait (2026-11-04)
 

@@ -6,7 +6,7 @@ import { FULL } from '../film/crop';
 
 const engine = vi.hoisted(() => ({
   passes: 0, finished: 0, cancelled: 0, idle: true, passMs: 0,
-  capturePasses: 0, captureFinished: 0, captureCancelled: 0,
+  capturePasses: 0, captureFinished: 0, captureCancelled: 0, captureStarted: 0, captureReady: false,
   render: vi.fn(),
 }));
 vi.mock('./engine', () => ({
@@ -19,13 +19,18 @@ vi.mock('./engine', () => ({
     waiting() { return false; }
     render = engine.render;
     validateCaptureCache() {}
-    clearCaptureCache() {}
-    attachCapture(src: { capture?: boolean }) { src.capture = true; }
+    clearCaptureCache() { engine.captureReady = false; }
+    captureReady() { return engine.captureReady; }
+    captureKey(src: { capture?: object }, recipe: typeof state.saved) {
+      return src.capture && recipe.captureSharpening ? [src, src.capture, recipe.captureSharpening, recipe.noiseReduction?.enabled, recipe.noiseReduction?.amount] : null;
+    }
+    attachCapture(src: { capture?: object }) { src.capture = {}; }
     *prepareCapture() {
+      engine.captureStarted++;
       let complete = false;
       try {
         for (let i = 0; i < 20; i++) { engine.capturePasses++; yield; }
-        complete = true; engine.captureFinished++;
+        complete = true; engine.captureFinished++; engine.captureReady = true;
       } finally { if (!complete) engine.captureCancelled++; }
     }
     *prepareFrame() {
@@ -79,7 +84,7 @@ beforeEach(() => {
   vi.stubGlobal('OffscreenCanvas', class { constructor(public width: number, public height: number) {} });
   tasks = [];
   Object.assign(engine, { passes: 0, finished: 0, cancelled: 0, idle: true, passMs: 0 });
-  Object.assign(engine, { capturePasses: 0, captureFinished: 0, captureCancelled: 0 });
+  Object.assign(engine, { capturePasses: 0, captureFinished: 0, captureCancelled: 0, captureStarted: 0, captureReady: false });
   engine.render.mockClear();
   posted = [];
   loop = new DevelopLoop(new OffscreenCanvas(100, 100), (m) => { posted.push(m); });
@@ -127,6 +132,104 @@ describe('exact detail preparation', () => {
     expect(engine.capturePasses).toBe(passes);
     expect(engine.captureFinished).toBe(0);
   });
+
+  function startCapture() {
+    loop.handle({ type: 'state', state });
+    vi.advanceTimersByTime(16); drain();
+    loop.handle({ type: 'capture', key: 1, radius: .7, toCam: [], mask: new Uint8Array() });
+    vi.advanceTimersByTime(16); drain();
+    vi.advanceTimersByTime(50);
+    expect(engine.capturePasses).toBe(4);
+  }
+
+  it('preserves partial capture across zoom, pan and downstream edits, then resumes the same passes', () => {
+    startCapture();
+    loop.handle({ type: 'state', state: { ...state, seq: 2, viewKey: 'zoom' } });
+    turn(); // background yields to the pending foreground
+    expect(engine.capturePasses).toBe(4);
+    expect(engine.captureCancelled).toBe(0);
+    loop.handle({ type: 'state', state: { ...state, seq: 3, viewKey: 'pan', saved: { ...recipe, exposure: 2 } } });
+    vi.advanceTimersByTime(500); drain();
+    vi.advanceTimersByTime(16); drain();
+    expect(engine.render).toHaveBeenCalled();
+    expect(engine.captureFinished).toBe(1);
+    expect(engine.captureStarted).toBe(1);
+    expect(engine.capturePasses).toBe(20);
+    loop.handle({ type: 'state', state: { ...state, seq: 4, full: false } });
+    vi.advanceTimersByTime(100); drain();
+    expect(engine.captureStarted).toBe(1);
+  });
+
+  it('prepares again if foreground work replaced a completed result', () => {
+    startCapture(); drain();
+    loop.engine.clearCaptureCache();
+    loop.handle({ type: 'state', state: { ...state, seq: 2 } });
+    vi.advanceTimersByTime(16); drain();
+    vi.advanceTimersByTime(50); drain();
+    expect(engine.captureStarted).toBe(2);
+    expect(engine.captureFinished).toBe(2);
+  });
+
+  it('retains full-source preparation while switching to the same photo preview and back', () => {
+    startCapture();
+    loop.handle({ type: 'upload', key: 2, img: { width: 1000, height: 750, fullWidth: 4000, fullHeight: 3000, mode: 0, white: null, data: new Uint16Array() } });
+    loop.handle({ type: 'state', state: { ...state, seq: 2, source: 2, full: false } });
+    turn();
+    expect(engine.captureCancelled).toBe(0);
+    loop.handle({ type: 'state', state: { ...state, seq: 3 } });
+    vi.advanceTimersByTime(16); drain();
+    vi.advanceTimersByTime(16); drain();
+    expect(engine.captureStarted).toBe(1);
+    expect(engine.captureFinished).toBe(1);
+  });
+
+  it('pauses capture during interaction and GPU work without freeing its progress', () => {
+    startCapture();
+    loop.handle({ type: 'pointer', held: true, brush: false, dpr: 2 });
+    turn(); vi.advanceTimersByTime(100); drain();
+    expect(engine.capturePasses).toBe(4);
+    loop.handle({ type: 'pointer', held: false, brush: false, dpr: 2 });
+    engine.idle = false;
+    vi.advanceTimersByTime(100); drain();
+    expect(engine.capturePasses).toBe(4);
+    engine.idle = true;
+    vi.advanceTimersByTime(16); drain();
+    expect(engine.captureFinished).toBe(1);
+    expect(engine.captureCancelled).toBe(0);
+  });
+
+  it('keeps independently queued foreground and background continuations alive', () => {
+    startCapture(); // a background message is queued
+    loop.handle({ type: 'state', state: { ...state, seq: 2 } });
+    vi.advanceTimersByTime(16); // a foreground message is queued too
+    drain();
+    vi.advanceTimersByTime(16); drain();
+    expect(engine.render).toHaveBeenCalledTimes(3);
+    expect(engine.captureFinished).toBe(1);
+    expect(engine.captureStarted).toBe(1);
+  });
+
+  it.each(['iterations', 'noise', 'disabled', 'metadata', 'source', 'release', 'dispose'] as const)(
+    'cancels partial capture and rejects its queued passes on %s', (change) => {
+      startCapture();
+      if (change === 'metadata') loop.handle({ type: 'capture', key: 1, radius: 1.3, toCam: [], mask: new Uint8Array() });
+      else if (change === 'source') {
+        loop.handle({ type: 'upload', key: 2, img: { width: 4000, height: 3000, fullWidth: 4000, fullHeight: 3000, mode: 0, white: null, data: new Uint16Array() } });
+        loop.handle({ type: 'state', state: { ...state, seq: 2, source: 2 } });
+      }
+      else if (change === 'release') loop.handle({ type: 'release', key: 1 });
+      else if (change === 'dispose') loop.dispose();
+      else {
+        const saved = { ...recipe, ...(change === 'noise' ? { noiseReduction: { enabled: true, amount: 50, model: 'rawnind-linear-v1' as const } }
+          : { captureSharpening: change === 'disabled' ? 0 : 25 }) };
+        loop.handle({ type: 'state', state: { ...state, seq: 2, saved } });
+      }
+      drain();
+      expect(engine.captureCancelled).toBe(1);
+      expect(engine.capturePasses).toBe(4);
+      expect(engine.captureFinished).toBe(0);
+    },
+  );
 
   it('advances idle GPU passes on event-loop turns without a timer delay per pass', () => {
     loop.handle({ type: 'state', state });

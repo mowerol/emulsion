@@ -350,3 +350,82 @@ warm/settings run passed after these changes.
 
 Controls work remains paused. Effect-heavy latency, cold RAW opening and trackpad feel with
 Oli's usual edits remain to check. No commits or pushes.
+
+
+## Preserving unfinished capture preparation (2026-11-04)
+
+The previous cache retained only completed work across view changes. `setState` cancelled
+its generator on every zoom/pan input, and `validateCaptureCache` treated incomplete capture
+as a mismatch. The single-slot MessageChannel queue could also overwrite a continuation when
+foreground and background work had separate lifetimes. The loop regression reproduced the
+cancellation before the fix (`npx vitest run src/engine/developloop.test.ts`).
+
+The loop now retains one generator by the engine's capture input key: source texture and size,
+capture metadata identity, noise texture/amount and capture iterations. View-only and downstream
+changes preserve it. Held interaction, pending foreground work and GPU fences pause its advances.
+Changed inputs, disabling capture, navigation, source release and disposal cancel before freeing
+its resources. Cache validation checks the same input key even before output is ready. A
+foreground whole-source render uses its own lane while the background generator is suspended;
+regional fallback remains available. Neither consumes partial output. Each queued continuation
+has its own cancellation token. A completed job is reused while its result remains valid and
+can start again if foreground work replaced that result. Shader maths, source density, four-pass /
+4 ms preparation batches and short per-draw submissions are unchanged.
+
+Sequential WKWebView worker measurements, same 26 MP RAF / 1552×1036 / DPR 2, capture on and
+Texture/Clarity/Dehaze off, warm OS caches. GPU correctness ran separately. Raw observations are
+under `captureJobPreservation20261104` in [zoom-detail.json](app-performance/zoom-detail.json).
+
+| Scenario | Sharp detail | Capture lifecycle | Logical texture peak |
+| --- | ---: | --- | ---: |
+| Before: early 50% pinch | 1300 ms | partial cache discarded | 1832 MiB |
+| After: early 50% pinch | 1399 ms | generation 1, pass 26 → 66 → 95 ready | 2595 MiB |
+| After: confirmed-ready 50% pinch | 768 ms | generation 1 retained | 1941 MiB at sharp frame |
+| After: confirmed-ready Z | 391 ms | generation 1 retained | 1664 MiB |
+
+This fixes discarded progress, **not first-zoom latency**: the early foreground region still
+performs its own capture work and exceeds 1000 ms. The paused full-source job retained its
+198.7 MiB partial output plus scratch at the sharp frame, then completed the same 95-pass build.
+The readiness poll returned 117 ms after the harness's post-gesture settling period; this is
+not 117 ms from the last input or first sharp frame. Its 4424 ms build time includes time paused
+for the gesture and foreground work. The warm examples are different readiness scenarios,
+not savings attributable to this fix. One ready-pinch sample lost focus and is discarded.
+
+Preserving scratch increases memory while foreground regional work is in flight. The final
+capture result remains 264.9 MiB including mipmaps. Other buffers/spares took the ready-pinch
+run to 3110 MiB after its sharp frame and 3731 MiB after a capture-settings change. Capture
+100 → 25 invalidated generation 1 immediately; generation 2 became ready after 1836 ms
+(including foreground settling, 892 ms of background build). Texture tracking includes mipmaps
+and allocation peaks, excludes CPU/driver/RSS, and does not resolve the broader memory budget.
+Full-source contrast readback was 330–515 ms in these new runs; decode/upload, regional capture
+and region allocation remain first-use costs. Individual timing samples do not establish p95.
+
+```sh
+# Timing, sequentially; an early run still fails the 1000 ms latency bar:
+VITE_PERF_WAIT_CAPTURE=building VITE_PERF_VIEWING_MS=0 VITE_PERF_STOPS=.5 node tools/perf/inapp.mjs ~/Pictures/1OKK6432.RAF zoomsettle
+VITE_PERF_WAIT_CAPTURE=ready VITE_PERF_STOPS=.5 VITE_PERF_CAPTURE_CHANGE=1 node tools/perf/inapp.mjs ~/Pictures/1OKK6432.RAF zoomsettle
+VITE_PERF_WAIT_CAPTURE=ready node tools/perf/inapp.mjs ~/Pictures/1OKK6432.RAF zoomprepared
+# Correctness, separately from timing:
+node tools/browser-tests/realtime.mjs capture-cache 120
+VITE_CAPTURE_CACHE=0 VITE_ENGINE=main node tools/perf/inapp.mjs ~/Pictures/1OKK6432.RAF capturecompare 240
+```
+
+`zoomsettle` now waits for the background result after its final stop and asserts that its
+build generation did not change across the gesture. Loop tests cover zoom/pan/downstream
+progress, preview/full source switches, interaction and GPU pauses, simultaneous continuations,
+completed-result replacement and cancellation for every input/lifecycle change. The GPU fixture
+suspends a real generator, interleaves regional and whole-source foreground work and downstream
+validation, resumes it and checks exact output including early-stop tiles and edges. Noise
+cancellation must also release its mixed input. `npm run check` passes (597 frontend, 70 Rust,
+ten ignored), as does the standalone browser-test typecheck.
+
+The resumed real 26 MP RAW cache also matches an independent exact whole-source reference:
+zero differing RGBA float values in the whole output and nine regional copies at 50%, 63.7%
+and 100%, including centre/corner/edge positions. This check interrupts the real generator
+after 24 passes, validates a downstream edit and renders a foreground region before resuming.
+
+The existing GPU `region-detail` cases (full, `capture`, `fidelity`) and real-time
+`zoom-full-res` pass. The latter still asserted that Fit had not requested full detail before
+its first zoom, which became stale when the previous session removed the 750 ms preparation
+delay. It now asserts stable Fit/no loading badge and exactly one decode shared by preparation
+and foreground zoom; its subsequent decode-lifetime, source-swap and release/settle checks remain.
+Both changed browser tests pass standalone TypeScript checks.

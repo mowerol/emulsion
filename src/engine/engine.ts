@@ -386,8 +386,9 @@ export class Engine {
   cacheCapture = true;
   private fullCapture: Pick<Lane, 'csOut' | 'csMade' | 'noiseMade'> = { csOut: null, csMade: null, noiseMade: null };
   private captureOwner: Source | null = null;
-  private captureNoise: WebGLTexture | undefined;
-  private captureAmount = 0;
+  private captureInputs: ReturnType<Engine['captureKey']> = null;
+  private captureBuilding = false;
+  private captureGeneration = 0;
   private captureBuildMs = 0;
   private capturePasses = 0;
 
@@ -400,7 +401,7 @@ export class Engine {
     }
     const noise = this.fullCapture.noiseMade?.out;
     if (noise) bytes += noise.w * noise.h * 8;
-    return { ready: !!this.fullCapture.csMade, preparing: !!out && !this.fullCapture.csMade, steps: this.capturePasses, buildMs: this.captureBuildMs, retainedMiB: bytes / 2 ** 20 };
+    return { generation: this.captureGeneration, ready: !!this.fullCapture.csMade, preparing: !!out && !this.fullCapture.csMade, steps: this.capturePasses, buildMs: this.captureBuildMs, retainedMiB: bytes / 2 ** 20 };
   }
   /** The lane for the whole photo, the lane for a region shown at full resolution, and the one in use. */
   private whole: Lane;
@@ -1131,7 +1132,7 @@ export class Engine {
     if (c.noiseMade) this.gpu.free(c.noiseMade.out);
     c.csOut = c.csMade = c.noiseMade = null;
     this.captureOwner = null;
-    this.captureNoise = undefined;
+    this.captureInputs = null;
     this.captureBuildMs = 0;
     this.capturePasses = 0;
   }
@@ -1142,38 +1143,58 @@ export class Engine {
       ? iterationsFor(recipe?.captureSharpening ?? 0) : 0;
   }
 
-  private captureMatches(src: Source, recipe: Recipe | null) {
+  /** Inputs shared by unfinished preparation and its completed result; viewport/creative edits are irrelevant. */
+  captureKey(src: Source, recipe: Recipe | null) {
+    const iterations = this.captureIterations(src, recipe);
+    if (!iterations) return null;
     const amount = noiseEnabled(recipe) && src.denoised ? recipe!.noiseReduction!.amount / 100 : 0;
-    const input = amount === 1 ? src.denoised : amount === 0 ? src.tex : this.fullCapture.noiseMade?.out.tex;
-    return this.captureOwner?.tex === src.tex && this.fullCapture.csMade?.capture === src.capture &&
-      this.captureNoise === src.denoised && this.captureAmount === amount &&
-      this.fullCapture.csMade?.tex === input && this.fullCapture.csOut?.w === src.w && this.fullCapture.csOut.h === src.h &&
-      this.fullCapture.csMade?.iterations === this.captureIterations(src, recipe);
+    return [src.tex, src.capture, src.denoised, amount, iterations, src.w, src.h] as const;
+  }
+
+  private captureInputsMatch(src: Source, recipe: Recipe | null) {
+    const key = this.captureKey(src, recipe);
+    return !!key && !!this.captureInputs && key.every((v, i) => v === this.captureInputs![i]);
+  }
+
+  /** Only a completed matching result can supply foreground pixels. */
+  captureReady(src: Source, recipe: Recipe | null) {
+    return this.captureInputsMatch(src, recipe) && !!this.fullCapture.csMade;
   }
 
   /** Settings can change while the fitted preview is showing; invalidate immediately. */
   validateCaptureCache(recipe: Recipe) {
-    if (this.captureOwner && !this.captureMatches(this.captureOwner, recipe)) this.clearCaptureCache();
+    if (this.captureOwner && !this.captureInputsMatch(this.captureOwner, recipe)) this.clearCaptureCache();
   }
 
   private *cachedCaptureSteps(src: Source, recipe: Recipe | null): Generator<void, Source> {
+    // A foreground whole-source render uses its own lane while idle preparation is paused.
+    // It must neither restart that generator nor publish its partly built output.
+    if (this.captureBuilding) return src;
     const iterations = this.captureIterations(src, recipe);
     if (!iterations) {
       if (this.captureOwner?.tex === src.tex) this.clearCaptureCache();
       return src;
     }
-    const building = !this.captureMatches(src, recipe);
+    const building = !this.captureReady(src, recipe);
     if (building) {
       this.clearCaptureCache();
       this.captureOwner = src;
-      this.captureNoise = src.denoised;
-      this.captureAmount = noiseEnabled(recipe) && src.denoised ? recipe!.noiseReduction!.amount / 100 : 0;
+      this.captureInputs = this.captureKey(src, recipe);
+      this.captureGeneration++;
     }
     const started = performance.now();
-    const input = this.noiseReduced(src, recipe, this.fullCapture);
-    const tex = yield* this.captureSteps(input, iterations, this.fullCapture);
-    if (building) this.captureBuildMs = performance.now() - started;
-    return { ...src, tex, denoised: undefined, captureApplied: true };
+    let complete = false;
+    this.captureBuilding = true;
+    try {
+      const input = this.noiseReduced(src, recipe, this.fullCapture);
+      const tex = yield* this.captureSteps(input, iterations, this.fullCapture);
+      if (building) this.captureBuildMs = performance.now() - started;
+      complete = true;
+      return { ...src, tex, denoised: undefined, captureApplied: true };
+    } finally {
+      this.captureBuilding = false;
+      if (!complete) this.clearCaptureCache();
+    }
   }
 
   /** Idle preparation uses the same cancellable passes and exact pixels as a foreground render. */
@@ -1281,7 +1302,7 @@ export class Engine {
     const iterations = recipe && !opts.compare && src.capture && this.gpu.float32 ? iterationsFor(recipe.captureSharpening) : 0;
     // An early zoom must not wait for a cold whole-photo build. Use the regional path
     // until idle preparation has completed; a ready result supplies exact source pixels.
-    if (!opts.compare && this.captureMatches(src, recipe) && this.fullCapture.csOut) src = yield* this.cachedCaptureSteps(src, recipe);
+    if (!opts.compare && this.captureReady(src, recipe) && this.fullCapture.csOut) src = yield* this.cachedCaptureSteps(src, recipe);
     if (iterations > 0 && src.capture!.threshold === undefined) this.measureCaptureThreshold(src);
     const region = (yield* this.regionSteps(src, rect));
     if (this.regionProductsSource !== opts.whole!.tex) {
@@ -1328,7 +1349,7 @@ export class Engine {
    */
   private regionHolds(src: Source, whole: Source, plan: RegionPlan, recipe: Recipe | null): boolean {
     const made = this.regionMade;
-    const input = this.captureMatches(src, recipe) ? this.fullCapture.csOut?.tex : src.tex;
+    const input = this.captureReady(src, recipe) ? this.fullCapture.csOut?.tex : src.tex;
     return !!made && made.input === input && made.rect === plan.rect && this.regionProductsSource === whole.tex && clipsCover(this.regionClip, plan);
   }
 
