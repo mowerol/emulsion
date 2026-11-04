@@ -24,7 +24,7 @@ export interface ObjectRender {
   w: number;
   h: number;
   /** RGBA8, top row first: rendered only when the photo needs encoding. */
-  pixels: () => Uint8Array;
+  pixels: () => Uint8Array | Promise<Uint8Array>;
 }
 
 type Phase = 'idle' | 'checking' | 'missing' | 'unsupported' | 'downloading' | 'encoding' | 'ready' | 'working' | 'error';
@@ -92,7 +92,7 @@ async function encode(): Promise<{ key: string; w: number; h: number } | null> {
     return have;
   }
   set({ phase: 'encoding', encoded: null });
-  await segmentEncode(r.key, r.pixels(), r.w, r.h);
+  await segmentEncode(r.key, await r.pixels(), r.w, r.h);
   const encoded = { key: r.key, w: r.w, h: r.h };
   set({ phase: 'ready', encoded });
   return encoded;

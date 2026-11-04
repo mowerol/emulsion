@@ -130,7 +130,7 @@ export function stageReach(s: ReachSetup): StageReach {
  * is not much larger than this view needs (so zooming in reuses its maps without keeping a lane
  * built at a broader zoom).
  */
-export function chooseRegion(visible: PixelRect, reach: number, margin: number, W: number, H: number, prev: PixelRect | null = null): PixelRect {
+export function chooseRegion(visible: PixelRect, reach: number, margin: number, W: number, H: number, prev: PixelRect | null = null, share = REGION_SHARE): PixelRect {
   const need = { x: visible.x - reach, y: visible.y - reach, w: visible.w + 2 * reach, h: visible.h + 2 * reach };
   const w = Math.min(W, Math.ceil((need.w + 2 * margin + TILE) / TILE) * TILE);
   const h = Math.min(H, Math.ceil((need.h + 2 * margin + TILE) / TILE) * TILE);
@@ -143,7 +143,7 @@ export function chooseRegion(visible: PixelRect, reach: number, margin: number, 
   // is one much larger than this view needs: the lane still processes and holds its whole area,
   // so a region kept from a wider zoom would make every later render and edit pay for it. The
   // floor keeps a modest region through the last zoom steps, where the tight region is tiny.
-  if (prev && covers(prev) && prev.w * prev.h < REGION_SHARE * W * H && prev.w * prev.h <= Math.max(3 * w * h, 6_000_000)) return prev;
+  if (prev && covers(prev) && prev.w * prev.h < share * W * H && prev.w * prev.h <= Math.max(3 * w * h, 6_000_000)) return prev;
   const place = (start: number, size: number, total: number) => {
     if (size >= total) return 0;
     const aligned = Math.floor(Math.max(0, start) / TILE) * TILE;
@@ -174,7 +174,7 @@ export function chooseRegionWithin(visible: PixelRect, reach: number, margin: nu
   const keep = prev && within(prev) ? prev : null;
   const margins = [...new Set([margin, Math.round(margin / 2), 0])];
   for (const m of margins) {
-    const r = chooseRegion(visible, reach, m, W, H, keep);
+    const r = chooseRegion(visible, reach, m, W, H, keep, share);
     if (within(r)) return r;
   }
   return chooseRegion(visible, reach, 0, W, H, null);

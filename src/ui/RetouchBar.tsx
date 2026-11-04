@@ -13,6 +13,7 @@ import { REC2020_TO_SRGB, SRGB_TO_REC2020, mulVec } from '../engine/color';
 import type { BlurType, FillMode, RetouchSpot, RetouchTool, ShapeKind, SpotSettings } from '../film/retouch';
 import type { Vec3 } from '../film/stocks';
 import { TOOL_NAMES, commitDraft, commitSoon, draftSpot, editRetouch, removeSpot, setCurrentScale, setRetouchUi, setScales, setSetting, useRetouchUi, withDraft } from './retouchui';
+import { LiveRange } from './LiveRange';
 
 const TOOLS: { id: RetouchTool; tip: string }[] = [
   { id: 'heal', tip: 'Copies the source and blends it into its surroundings' },
@@ -86,26 +87,26 @@ export function RetouchBar() {
       <span className="crop-sep" aria-hidden="true" />
       <label className="retouch-field" data-tip={kind === 'brush' ? "The brush's radius, as a share of the photo's shorter side (scroll over the photo)" : "Radius, as a share of the photo's shorter side (scroll over the photo)"}>
         <span>Size</span>
-        <input type="range" min={0.002} max={0.25} step={0.001} value={size} onChange={(e) => setShapeValue('size', Number(e.target.value))} />
+        <LiveRange min={0.002} max={0.25} step={0.001} value={size} onChange={(v) => setShapeValue('size', v)} />
         <output>{pct(size)}</output>
       </label>
       {kind === 'brush' ? (
         <label className="retouch-field" data-tip="How much of the brush's radius is solid before it fades (⇧ scroll over the photo)">
           <span>Hardness</span>
-          <input type="range" min={0.0005} max={1} step={0.01} value={feather} onChange={(e) => setShapeValue('feather', Number(e.target.value))} />
+          <LiveRange min={0.0005} max={1} step={0.01} value={feather} onChange={(v) => setShapeValue('feather', v)} />
           <output>{`${Math.round(feather * 100)}%`}</output>
         </label>
       ) : (
         <label className="retouch-field" data-tip="Soft edge beyond the radius (⇧ scroll over the photo)">
           <span>Feather</span>
-          <input type="range" min={0.0005} max={0.1} step={0.0005} value={Math.min(0.1, feather)} onChange={(e) => setShapeValue('feather', Number(e.target.value))} />
+          <LiveRange min={0.0005} max={0.1} step={0.0005} value={Math.min(0.1, feather)} onChange={(v) => setShapeValue('feather', v)} />
           <output>{pct(feather)}</output>
         </label>
       )}
       <label className="retouch-field" data-tip="How much of the spot's change shows">
         <span>Opacity</span>
-        <input type="range" min={0} max={1} step={0.01} value={spot?.opacity ?? 1} disabled={!spot}
-          onChange={(e) => { if (spot) { draftSpot({ ...spot, opacity: Number(e.target.value) }, 'Spot opacity'); commitSoon(); } }} />
+        <LiveRange min={0} max={1} step={0.01} value={spot?.opacity ?? 1} disabled={!spot}
+          onChange={(v) => { if (spot) { draftSpot({ ...spot, opacity: v }, 'Spot opacity'); commitSoon(); } }} />
         <output>{spot ? `${Math.round(spot.opacity * 100)}%` : '–'}</output>
       </label>
       {settings.tool === 'blur' && <>
@@ -118,7 +119,7 @@ export function RetouchBar() {
         </div>
         <label className="retouch-field" data-tip="Blur radius, in pixels of the full-size photo">
           <span>Radius</span>
-          <input type="range" min={0.1} max={200} step={0.1} value={settings.blurRadius} onChange={(e) => set('blurRadius', Number(e.target.value), 'Blur radius', true)} />
+          <LiveRange min={0.1} max={200} step={0.1} value={settings.blurRadius} onChange={(v) => set('blurRadius', v, 'Blur radius', true)} />
           <output>{settings.blurRadius.toFixed(1)}</output>
         </label>
       </>}
@@ -136,7 +137,7 @@ export function RetouchBar() {
         )}
         <label className="retouch-field" data-tip="Added to the fill colour">
           <span>Brightness</span>
-          <input type="range" min={-1} max={1} step={0.01} value={settings.fillBrightness} onChange={(e) => set('fillBrightness', Number(e.target.value), 'Fill brightness', true)} />
+          <LiveRange min={-1} max={1} step={0.01} value={settings.fillBrightness} onChange={(v) => set('fillBrightness', v, 'Fill brightness', true)} />
           <output>{settings.fillBrightness.toFixed(2)}</output>
         </label>
       </>}
@@ -189,7 +190,7 @@ function ScalesControl({ spots }: { spots: RetouchSpot[] }) {
           <p>Split the photo into scales of detail, finest first. A spot on a coarse scale evens out a blotch and keeps the fine texture over it.</p>
           <label className="retouch-field">
             <span>Scales</span>
-            <input type="range" min={0} max={most} step={1} value={scales} onChange={(e) => setScales({ scales: Number(e.target.value) }, 'Detail scales')} />
+            <LiveRange min={0} max={most} step={1} value={scales} onChange={(v) => setScales({ scales: v }, 'Detail scales')} />
             <output>{scales || 'Off'}</output>
           </label>
           {scales > 0 && <>

@@ -15,6 +15,7 @@ import {
   type Xy,
 } from '../engine/whitebalance';
 import { editActive, useApp } from '../library/store';
+import { LiveRange } from './LiveRange';
 
 /** Temperature slider steps; the scale is logarithmic, so equal steps look equal. */
 const STEPS = 1000;
@@ -78,16 +79,15 @@ export function WhiteBalanceControls({ recipe, white }: { recipe: Recipe | null;
         </label>
         <output htmlFor="wb-temp">{kelvin(wb.temperature)}</output>
         <div className="track">
-          <input
+          <LiveRange
             id="wb-temp"
-            type="range"
             min={0}
             max={STEPS}
             step={1}
             value={toPos(wb.temperature)}
             disabled={disabled}
             aria-valuetext={kelvin(wb.temperature)}
-            onChange={(e) => set({ temperature: fromPos(Number(e.target.value)), tint: wb.tint })}
+            onChange={(v) => set({ temperature: fromPos(v), tint: wb.tint })}
             onDoubleClick={() => recipe && set(null)}
           />
         </div>
@@ -99,15 +99,14 @@ export function WhiteBalanceControls({ recipe, white }: { recipe: Recipe | null;
         </label>
         <output htmlFor="wb-tint">{signed(Math.round(wb.tint))}</output>
         <div className="track">
-          <input
+          <LiveRange
             id="wb-tint"
-            type="range"
             min={-MAX_TINT}
             max={MAX_TINT}
             step={1}
             value={Math.round(wb.tint)}
             disabled={disabled}
-            onChange={(e) => set({ temperature: wb.temperature, tint: Number(e.target.value) })}
+            onChange={(v) => set({ temperature: wb.temperature, tint: v })}
             onDoubleClick={() => recipe && set(null)}
           />
         </div>

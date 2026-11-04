@@ -8,12 +8,15 @@
 // (requestAnimationFrame intervals: what the eye sees as stutter), and the main-thread time the
 // input handlers took. Per click: time to the next painted frame, and to the photo settling.
 import { logToTerminal, writeExport } from '../backend/api';
-import { Engine } from '../engine/engine';
+import { Engine, InputMode } from '../engine/engine';
 import { defaultRecipe, type Recipe } from '../film/recipe';
 import { activePhoto, editActive, importFolderPhotos, useApp } from '../library/store';
 import { setWorkspace, type ControlGroupId } from '../ui/workspace';
 import { useCatalog } from '../library/catalog';
 import { setDetailOrder } from '../ui/detailorder';
+import { newEllipse, newMask } from '../film/masks';
+import { setMaskUi } from '../ui/maskui';
+import { perfClient } from '../ui/developclient';
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const median = (v: number[]) => v.length ? +v.slice().sort((a, b) => a - b)[Math.floor(v.length / 2)].toFixed(1) : null;
@@ -37,6 +40,7 @@ let seq: string[] | null = null;
 const texBytes = new Map<WebGLTexture, number>();
 // Textures (and their bytes) made since the last reset: allocation churn during a drag.
 let made = { n: 0, bytes: 0 };
+let readbacks: { ms: number; w: unknown; h: unknown }[] = [];
 {
   const proto = WebGL2RenderingContext.prototype;
   const bpp: Record<number, number> = { 0x8814: 16, 0x881A: 8, 0x8230: 8, 0x822F: 4, 0x822E: 4, 0x822D: 2, 0x8058: 4, 0x8229: 1 };
@@ -51,6 +55,11 @@ let made = { n: 0, bytes: 0 };
     }
   } as typeof proto.texImage2D;
   proto.deleteTexture = function (this: WebGL2RenderingContext, t: WebGLTexture | null) { if (t) texBytes.delete(t); del.call(this, t); };
+  const read = proto.readPixels as (...a: unknown[]) => void;
+  proto.readPixels = function (this: WebGL2RenderingContext, ...a: unknown[]) {
+    const started = performance.now();
+    try { read.apply(this, a); } finally { if (rafOn) readbacks.push({ ms: performance.now() - started, w: a[2], h: a[3] }); }
+  } as typeof proto.readPixels;
 }
 const texMB = () => Math.round([...texBytes.values()].reduce((a, b) => a + b, 0) / 2 ** 20);
 /** The width of the source the last screen frame was developed from (preview or full). */
@@ -59,6 +68,10 @@ let lastSrcW = 0;
 let lastSrc: Parameters<Engine['render']>[0] | null = null;
 let lastWhole: Parameters<Engine['render']>[0] | null = null;
 let lastEngine: Engine | null = null;
+let lastScale = 1;
+let lastOpts: Parameters<Engine['render']>[2] | null = null;
+let preparations: string[] = [];
+let preparationFrames: { stage: string; at: number; cpu: number; gpu: number; textures: number; mb: number; draws: number }[] = [];
 function hookDraws(engine: Engine) {
   hooked = true;
   lastEngine = engine;
@@ -130,14 +143,35 @@ Engine.prototype.sourceFromHalf = function (...a: Parameters<Engine['sourceFromH
 const render = Engine.prototype.render;
 Engine.prototype.render = function (this: Engine, ...a: Parameters<Engine['render']>) {
   if (!hooked) hookDraws(this);
-  const outer = depth++ === 0 && a[2]?.target === 'screen';
+  const root = depth++ === 0;
+  const outer = root && a[2]?.target === 'screen' && !a[2].prepare;
   const t0 = performance.now();
-  if (outer) { lastSrc = a[0]; lastWhole = (a[2] as { whole?: Parameters<Engine['render']>[0] } | undefined)?.whole ?? null; }
+  const before = { ...made }, beforeDraws = Object.values(draws).reduce((a, b) => a + b, 0);
+  if (outer) {
+    lastSrc = a[0]; lastWhole = a[2].whole ?? null;
+    lastOpts = a[2];
+    lastScale = a[2].width / ((a[2].view?.w ?? 1) * (a[2].frame?.w ?? a[1]?.crop?.w ?? 1) * a[0].fullW);
+  }
   if (outer) { const s = a[0] as { w: number; h: number }; lastSrcW = s.w; const k = `src@${s.w}x${s.h}`; draws[k] = (draws[k] ?? 0) + 1; }
   try { return render.apply(this, a); } finally {
     depth--;
+    if (root && a[2].prepare) preparations.push(`${a[2].prepare}:${performance.now() - t0}`);
+    if (root && a[2].prepare) {
+      const f = { stage: a[2].prepare, at: t0, cpu: performance.now() - t0, gpu: 0,
+        textures: made.n - before.n, mb: Math.round((made.bytes - before.bytes) / 2 ** 20),
+        draws: Object.values(draws).reduce((a, b) => a + b, 0) - beforeDraws };
+      preparationFrames.push(f);
+      const gl = this.gpu.gl, sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)!;
+      gl.flush();
+      const poll = () => {
+        if (gl.getSyncParameter(sync, gl.SYNC_STATUS) === gl.SIGNALED) { f.gpu = performance.now() - t0; gl.deleteSync(sync); }
+        else setTimeout(poll, 1);
+      };
+      setTimeout(poll, 1);
+    }
     if (outer) {
-      const f: Frame = { start: t0, done: 0, cpu: performance.now() - t0, tag: tagOf(a[1] as Recipe | null), srcW: a[0].w, detail: !this.stoodIn && !a[2]?.draft };
+      const f: Frame = { start: t0, done: 0, cpu: performance.now() - t0, tag: tagOf(a[1] as Recipe | null), srcW: a[0].w, detail: !this.stoodIn && !a[2]?.draft &&
+        (a[0].mode !== InputMode.SceneLinear || !a[1]?.captureSharpening || !!a[0].capture) };
       frames.push(f);
       const gl = this.gpu.gl;
       const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)!;
@@ -151,74 +185,209 @@ Engine.prototype.render = function (this: Engine, ...a: Parameters<Engine['rende
   }
 } as Engine['render'];
 
+// Preparation now yields individual allocations/passes without calling the screen API.
+// Count every submission so settle() cannot mistake a quiet canvas for finished work.
+const prepareFrame = Engine.prototype.prepareFrame;
+Engine.prototype.prepareFrame = function* (...a: Parameters<Engine['prepareFrame']>) {
+  const steps = prepareFrame.apply(this, a);
+  let index = 0;
+  try {
+    while (true) {
+      const t0 = performance.now(), before = { ...made }, beforeDraws = Object.values(draws).reduce((x, y) => x + y, 0);
+      const next = steps.next();
+      if (next.done) return;
+      const stage = `pass${index++}`, cpu = performance.now() - t0;
+      preparations.push(`${stage}:${cpu}`);
+      const f = { stage, at: t0, cpu, gpu: 0, textures: made.n - before.n,
+        mb: Math.round((made.bytes - before.bytes) / 2 ** 20), draws: Object.values(draws).reduce((x, y) => x + y, 0) - beforeDraws };
+      preparationFrames.push(f);
+      const gl = this.gpu.gl, sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)!;
+      gl.flush();
+      const poll = () => {
+        if (gl.getSyncParameter(sync, gl.SYNC_STATUS) === gl.SIGNALED) { f.gpu = performance.now() - t0; gl.deleteSync(sync); }
+        else setTimeout(poll, 1);
+      };
+      setTimeout(poll, 1);
+      yield;
+    }
+  } finally { steps.return(undefined); }
+};
+
 // ---- Screen frames: rAF intervals while measuring.
 let rafGaps: number[] = [];
 let rafOn = false;
+let rafEpoch = 0;
+// ---- The control's own frames: at each screen frame, the value the dragged control shows
+// (a range input's aria-valuetext, which React writes on commit). Separates "the slider moved
+// this frame" from "the photo finished a frame" (Oli, 2026-11-04: controls at 60 fps or better
+// even when the photo is at 30).
+let uiProbe: (() => string | null) | null = null;
+let uiShown: { t: number; v: string | null }[] = [];
 function rafLoop() {
+  const epoch = ++rafEpoch;
   let last = performance.now();
-  const tick = (t: number) => { if (!rafOn) return; rafGaps.push(t - last); last = t; requestAnimationFrame(tick); };
-  rafOn = true; rafGaps = [];
+  const tick = (t: number) => {
+    if (!rafOn || epoch !== rafEpoch) return;
+    rafGaps.push(t - last); last = t;
+    if (uiProbe) uiShown.push({ t, v: uiProbe() });
+    requestAnimationFrame(tick);
+  };
+  rafOn = true; rafGaps = []; uiShown = [];
   requestAnimationFrame(tick);
 }
-const rafStop = () => { rafOn = false; return rafGaps.slice(1); };
+const rafStop = () => { rafOn = false; return rafGaps.slice(); };
 
 const nextPaint = () => new Promise<number>(r => requestAnimationFrame(() => requestAnimationFrame(() => r(performance.now()))));
+
+async function focusWindow() {
+  if (document.hasFocus()) return;
+  logToTerminal('info', 'PERF-TRACE-FOCUS');
+  for (let i = 0; !document.hasFocus() && i < 100; i++) await wait(100);
+  if (!document.hasFocus()) throw Error('Benchmark window did not gain focus');
+}
 
 /** Wait until the GPU has finished every frame and nothing new has been drawn for `quiet` ms. */
 async function settle(quiet = 400, limit = 15000) {
   const t0 = performance.now();
-  let n = frames.length, since = performance.now();
+  let n = frames.length + preparations.length, since = performance.now();
   while (performance.now() - t0 < limit) {
     await wait(20);
-    if (frames.length !== n || frames.some(f => !f.done)) { n = frames.length; since = performance.now(); continue; }
-    if (performance.now() - since > quiet) break;
+    const now = frames.length + preparations.length;
+    if (now !== n || frames.some(f => !f.done) || lastEngine && !lastEngine.idle() || perfClient?.mode === 'worker' && perfClient.busy) { n = now; since = performance.now(); continue; }
+    if (performance.now() - since > quiet) {
+      const last = frames[frames.length - 1];
+      return last?.done ?? performance.now();
+    }
   }
-  const last = frames[frames.length - 1];
-  return last?.done ?? performance.now();
+  throw Error(`Rendering did not settle within ${limit} ms`);
 }
 
 /** Fire `steps` inputs 8 ms apart (a trackpad's 120 Hz); `fire(i)` makes the i-th change. */
-async function gesture(steps: number, fire: (i: number) => void) {
+async function gesture(steps: number, fire: (i: number) => void | Promise<void>, lifecycle?: { start?: () => void; end?: () => void; shown?: () => string | null }) {
   const seen = new WeakMap<object, number>();
   await settle(300);
+  await focusWindow();
   frames = []; draws = {}; tagOf = (r) => (r && seen.get(r)) ?? -1;
   const sent: number[] = [];
   let handler = 0, worstHandler = 0;
   rafLoop();
+  made = { n: 0, bytes: 0 }; readbacks = []; preparations = []; preparationFrames = [];
+  uiProbe = lifecycle?.shown ?? null;
+  // What the control showed right after each input's handler (React commits a discrete input
+  // event before returning): a later screen frame showing an older value is a stale frame.
+  const committed: { t: number; v: string | null }[] = [];
+  // A 2 ms timer chain: a gap far over that is the main thread busy (a long task).
+  const beats: number[] = [];
+  let beating = true, lastBeat = performance.now();
+  const beat = () => { if (!beating) return; const now = performance.now(); beats.push(now - lastBeat); lastBeat = now; setTimeout(beat, 2); };
+  setTimeout(beat, 2);
+  if (perfClient) { perfClient.sendMs = 0; perfClient.sendMax = 0; }
   const t0 = performance.now();
-  for (let i = 0; i < steps; i++) {
-    const due = t0 + i * 8;
-    while (performance.now() < due) await new Promise(r => setTimeout(r, 0));
-    sent[i] = performance.now();
-    fire(i);
-    const h = performance.now() - sent[i];
-    handler += h; worstHandler = Math.max(worstHandler, h);
-    const r = activePhoto()?.recipe;
-    if (r && !seen.has(r)) seen.set(r, i);
-  }
-  const t1 = performance.now();
-  const gaps = rafStop();
-  const end = await settle(400);
-  const lat: number[] = [];
-  let shown = -1;
-  for (const f of frames) if (f.tag > shown && f.tag >= 0 && f.tag < steps && f.done) { lat.push(f.done - sent[shown + 1]); shown = f.tag; }
-  const during = frames.filter(f => f.done && f.done <= t1 + 50);
-  return {
-    fps: +(during.length / ((t1 - t0) / 1000)).toFixed(1),
-    latencyMs: median(lat), latencyP90: p90(lat),
-    settleMs: +(end - sent[steps - 1]).toFixed(0),
-    gpuFrameMs: median(frames.map(f => f.done - f.start).filter(v => v > 0)),
-    renderCpuMs: median(frames.map(f => f.cpu)),
-    handlerMs: +(handler / steps).toFixed(2), worstHandlerMs: +worstHandler.toFixed(1),
-    screenGapMedian: median(gaps), screenGapP90: p90(gaps), screenGapMax: gaps.length ? +Math.max(...gaps).toFixed(0) : null,
-    gapsOver50: gaps.filter(g => g > 50).length,
-    // Where in the drag the worst freeze fell: screen frames before it, out of all.
-    worstGapAt: gaps.length ? `${gaps.indexOf(Math.max(...gaps))}/${gaps.length}` : null,
-    // The first frames: main-thread time inside render, and GPU finish time after it started.
-    first: frames.slice(0, 4).map(f => `${f.cpu.toFixed(0)}/${(f.done - f.start).toFixed(0)}`).join(' '),
-    // Draws per screen frame, by program@size, the largest counts first.
-    perFrame: Object.entries(draws).sort((x, y) => y[1] - x[1]).slice(0, 14).map(([k, n]) => `${k}×${+(n / Math.max(1, frames.length)).toFixed(1)}`).join(' '),
+  // A blur ends Develop's drag. Continuing synthetic inputs then measures exact renders,
+  // not a held drag (the historical 63.7% Texture sample did this). Retain that evidence,
+  // but make interrupted measurements fail validation even if their timings look good.
+  const interruptions: string[] = [];
+  const interrupted = (e: Event) => {
+    if (e.type === 'blur' || document.visibilityState !== 'visible') interruptions.push(`${e.type}:${Math.round(performance.now() - t0)}ms`);
   };
+  if (!document.hasFocus() || document.visibilityState !== 'visible') interruptions.push('unfocused or hidden at start');
+  window.addEventListener('blur', interrupted);
+  document.addEventListener('visibilitychange', interrupted);
+  try {
+    lifecycle?.start?.();
+    for (let i = 0; i < steps; i++) {
+      const due = t0 + i * 8;
+      // The previous input has committed by now (React flushes it before timers run).
+      if (uiProbe && i > 0) committed.push({ t: sent[i - 1], v: uiProbe() });
+      sent[i] = performance.now();
+      const fired = fire(i);
+      const h = performance.now() - sent[i];
+      handler += h; worstHandler = Math.max(worstHandler, h);
+      const r = activePhoto()?.recipe;
+      if (r && !seen.has(r)) seen.set(r, i);
+      await fired;
+      // Even when behind schedule, yield between inputs. Catch-up bursts otherwise batch all
+      // remaining React updates in one task and falsely report a low frame rate or no settle.
+      await wait(Math.max(0, due + 8 - performance.now()));
+    }
+    const t1 = performance.now();
+    if (uiProbe) committed.push({ t: sent[steps - 1], v: uiProbe() });
+    const dragGaps = rafGaps.slice();
+    beating = false;
+    const ui = uiFrames(uiShown.filter(s => s.t <= t1), dragGaps, t0, t1, committed, beats);
+    const releasedAt = rafGaps.length;
+    lifecycle?.end?.();
+    const end = await settle(400);
+    const gaps = rafStop();
+    const releaseGaps = rafGaps.slice(releasedAt);
+    const lat: number[] = [];
+    let shown = -1;
+    for (const f of frames) if (f.tag > shown && f.tag >= 0 && f.tag < steps && f.done) { lat.push(f.done - sent[shown + 1]); shown = f.tag; }
+    const during = frames.filter(f => f.done && f.done <= t1 + 50);
+    return {
+      fps: +(during.length / ((t1 - t0) / 1000)).toFixed(1),
+      latencyMs: median(lat), latencyP90: p90(lat),
+      settleMs: +Math.max(0, end - sent[steps - 1]).toFixed(0),
+      durationMs: Math.round(t1 - t0), visible: document.visibilityState, focused: document.hasFocus(),
+      valid: !interruptions.length, interruptions,
+      ui,
+      gpuFrameMs: median(frames.map(f => f.done - f.start).filter(v => v > 0)),
+      renderCpuMs: median(frames.map(f => f.cpu)),
+      handlerMs: +(handler / steps).toFixed(2), worstHandlerMs: +worstHandler.toFixed(1),
+      screenGapMedian: median(gaps), screenGapP90: p90(gaps), screenGapMax: gaps.length ? +Math.max(...gaps).toFixed(0) : null,
+      gapsOver50: gaps.filter(g => g > 50).length,
+      dragGapMax: dragGaps.length ? Math.round(Math.max(...dragGaps)) : null,
+      releaseGapMax: releaseGaps.length ? Math.round(Math.max(...releaseGaps)) : null,
+      madeMB: Math.round(made.bytes / 2 ** 20), madeTextures: made.n, texMB: texMB(),
+      readbacks: readbacks.filter(r => r.ms > 5).map(r => `${r.w}x${r.h}:${r.ms}ms`).join(' '),
+      releaseFrames: frames.filter(f => f.start > t1).map(f => `${f.cpu}/${f.done - f.start}`).join(' '),
+      preparationCount: preparations.length,
+      preparationFrames: preparationFrames.slice().sort((a, b) => b.gpu - a.gpu).slice(0, 12).map(({ at: _at, ...f }) => f),
+      // Where in the drag the worst freeze fell: screen frames before it, out of all.
+      worstGapAt: gaps.length ? `${gaps.indexOf(Math.max(...gaps))}/${gaps.length}` : null,
+      // The first frames: main-thread time inside render, and GPU finish time after it started.
+      first: frames.slice(0, 4).map(f => `${f.cpu.toFixed(0)}/${(f.done - f.start).toFixed(0)}`).join(' '),
+      // Draws per screen frame, by program@size, the largest counts first.
+      perFrame: Object.entries(draws).sort((x, y) => y[1] - x[1]).slice(0, 14).map(([k, n]) => `${k}×${+(n / Math.max(1, frames.length)).toFixed(1)}`).join(' '),
+    };
+  } finally {
+    window.removeEventListener('blur', interrupted);
+    document.removeEventListener('visibilitychange', interrupted);
+    rafStop();
+    uiProbe = null;
+  }
+
+  /** The control's side of a drag, from screen frames up to the last input. */
+  function uiFrames(shown: { t: number; v: string | null }[], gaps: number[], t0: number, t1: number,
+    committed: { t: number; v: string | null }[], beats: number[]) {
+    const s = (t1 - t0) / 1000;
+    // Main-thread time the engine took during the drag: screen renders and preparation steps.
+    const engineMs = perfClient?.mode === 'worker' ? 0 : frames.filter(f => f.start >= t0 && f.start <= t1).reduce((a, f) => a + f.cpu, 0)
+      + preparationFrames.filter(f => f.at >= t0 && f.at <= t1).reduce((a, f) => a + f.cpu, 0);
+    // Frames that showed an older value than the inputs had committed a frame before them
+    // (controls send their value once per frame: ui/LiveRange.tsx, so one frame of lag is by design).
+    let stale = 0, k = -1;
+    for (let i = 1; i < shown.length; i++) {
+      while (k + 1 < committed.length && committed[k + 1].t <= shown[i - 1].t) k++;
+      if (k < 0) continue;
+      // Shown is stale if it matches no value committed from k on.
+      if (!committed.slice(k).some(c => c.v === shown[i].v)) stale++;
+    }
+    const blocked = beats.map(b => b - 2).filter(b => b > 0);
+    return {
+      fps: +(gaps.length / s).toFixed(1),
+      gapMax: gaps.length ? Math.round(Math.max(...gaps)) : null,
+      gapsOver25: gaps.filter(g => g > 25).length,
+      // Screen frames showing an older value than the latest input had committed.
+      staleFrames: shown.length ? stale : null,
+      // The main thread's longest busy stretch, and its time in tasks over 16 ms, per second.
+      mainBlockMax: blocked.length ? Math.round(Math.max(...blocked)) : null,
+      mainLongMsPerSec: Math.round(blocked.filter(b => b > 16).reduce((a, b) => a + b, 0) / s),
+      engineMainMsPerSec: Math.round(engineMs / s),
+      // Sending states to the engine (structured clone, assets) on this thread.
+      sendMsPerSec: perfClient ? Math.round(perfClient.sendMs / s) : null, sendMax: perfClient ? +perfClient.sendMax.toFixed(1) : null,
+    };
+  }
 }
 
 const setRange = (el: HTMLInputElement, v: number) => {
@@ -239,15 +408,23 @@ async function sliderDrag(key: string, group: ControlGroupId, steps = 240) {
   if (!el) throw Error(`no ${id}`);
   const box = el.getBoundingClientRect();
   const at = { clientX: box.left + box.width / 2, clientY: box.top + box.height / 2, pointerId: 1, button: 0, buttons: 1, bubbles: true };
-  el.dispatchEvent(new PointerEvent('pointerdown', at));
   const lo = Number(el.min), hi = Number(el.max), st = Number(el.step) || 1;
   // A sweep from 30% to 70% of the range and back, as a hand would move it.
   const r = await gesture(steps, (i) => {
+    if (!el.isConnected) throw Error(`Slider ${id} was replaced during the drag`);
+    // Deliberate lifecycle probe, reported as invalid by gesture(), to reproduce lost drags.
+    if (i === Number(import.meta.env.VITE_PERF_BLUR_AT ?? -1)) window.dispatchEvent(new Event('blur'));
     const t = i / (steps - 1), u = t < 0.5 ? t * 2 : 2 - t * 2;
     setRange(el, Math.round((lo + (hi - lo) * (0.3 + 0.4 * u)) / st) * st);
+  }, {
+    start: () => el.dispatchEvent(new PointerEvent('pointerdown', at)),
+    end: () => {
+      el.dispatchEvent(new PointerEvent('pointerup', at));
+      window.dispatchEvent(new PointerEvent('pointerup', at));
+    },
+    // What the row shows (React's commit, not the value this driver set on the input).
+    shown: () => el.getAttribute('aria-valuetext') ?? document.querySelector(`output[for="${id}"]`)?.textContent ?? null,
   });
-  el.dispatchEvent(new PointerEvent('pointerup', at));
-  window.dispatchEvent(new PointerEvent('pointerup', at));
   return r;
 }
 
@@ -279,6 +456,7 @@ export async function run(which: string) {
   setDetailOrder(import.meta.env.VITE_PERF_DETAIL === 'log' ? 'log' : 'darktable');
   const out: Record<string, unknown> = { which, detailOrder: import.meta.env.VITE_PERF_DETAIL ?? 'darktable', dpr: devicePixelRatio, ua: navigator.userAgent.replace(/.*AppleWebKit\/(\S+).*/, 'WebKit $1') };
   try {
+    await focusWindow();
     for (let i = 0; i < 600 && !(useApp.getState().view === 'develop' && useApp.getState().developSize); i++) {
       const s = useApp.getState();
       // The scratch folder is new, so the app asks how to import it: browse it (sync).
@@ -292,6 +470,17 @@ export async function run(which: string) {
     out.canvas = canvas ? `${canvas.width}x${canvas.height}` : null;
     out.window = `${innerWidth}x${innerHeight}`;
     out.photo = { ...useApp.getState().developSize, path: undefined };
+    out.engine = perfClient?.mode ?? null;
+    // With the engine in its worker, its frames come from the client (the prototype hooks above
+    // see only a main-thread engine): draw counts, texture memory and pass timings are main-mode only.
+    if (perfClient?.mode === 'worker') {
+      const client = perfClient;
+      client.onFrame = (f) => {
+        lastSrcW = f.srcW;
+        lastScale = client.lastScale;
+        frames.push({ start: f.start, done: f.done, cpu: f.cpu, tag: tagOf(client.recipeOf(f.seq) as Recipe | null), srcW: f.srcW, detail: f.detail });
+      };
+    }
     const only = which.split(',');
     const want = (k: string) => only.includes('all') || only.includes(k);
 
@@ -318,6 +507,57 @@ export async function run(which: string) {
       out.comboTexture = await sliderDrag('texture', 'refine');
       out.comboDehaze = await sliderDrag('dehaze', 'refine');
       setSliders({ texture: 0, dehaze: 0 });
+    }
+    if (only.includes('gpuload')) {
+      // Does a worker keep the controls at display rate? A worker draws GPU jobs of a set length
+      // on an OffscreenCanvas while this thread's screen frames are timed, idle and in an
+      // Exposure drag at Fit (whose photo frames are cheap). 0 is no worker, for comparison.
+      const lengths = String(import.meta.env.VITE_PERF_JOBS ?? '0,8,16,33,100,300').split(',').map(Number);
+      const idle = async (ms: number) => {
+        rafLoop(); await wait(ms); const g = rafStop();
+        return { fps: +(g.length / (ms / 1000)).toFixed(1), gapMax: Math.round(Math.max(...g)), gapsOver25: g.filter(x => x > 25).length };
+      };
+      // VITE_PERF_PRESENT=placeholder|bitmap: the worker also shows its frames on a visible canvas.
+      const present = (import.meta.env.VITE_PERF_PRESENT ?? 'none') as 'none' | 'placeholder' | 'bitmap';
+      for (const ms of lengths) {
+        let worker: Worker | null = null, stopped: Promise<unknown> = Promise.resolve(null);
+        let shown: HTMLCanvasElement | null = null;
+        if (ms > 0) {
+          worker = new Worker(new URL('./gpuload.worker.ts', import.meta.url), { type: 'module' });
+          shown = document.createElement('canvas');
+          if (present !== 'none') {
+            Object.assign(shown.style, { position: 'fixed', left: '0', top: '0', width: '776px', height: '518px', zIndex: '9999', pointerEvents: 'none' });
+            document.body.appendChild(shown);
+          }
+          let off: OffscreenCanvas;
+          if (present === 'bitmap') {
+            off = new OffscreenCanvas(1552, 1036);
+            shown.width = 1552; shown.height = 1036;
+            const ctx = shown.getContext('bitmaprenderer')!;
+            worker.addEventListener('message', e => { if (e.data.type === 'bitmap') ctx.transferFromImageBitmap(e.data.bmp); });
+          } else off = shown.transferControlToOffscreen();
+          const failed = new Promise<never>((_, reject) => worker!.addEventListener('message', e => { if (e.data.type === 'error') reject(Error(e.data.error)); }));
+          worker.postMessage({ type: 'start', canvas: off, ms, size: 2048, present, chunks: Number(import.meta.env.VITE_PERF_CHUNKS ?? 1) }, [off]);
+          await Promise.race([wait(1500), failed]);
+          stopped = new Promise(resolve => worker!.addEventListener('message', e => { if (e.data.type === 'stopped') resolve(e.data); }));
+        }
+        const beats: number[] = [];
+        let beating = true, lastBeat = performance.now();
+        const beat = () => { if (!beating) return; const now = performance.now(); beats.push(now - lastBeat); lastBeat = now; setTimeout(beat, 2); };
+        setTimeout(beat, 2);
+        const still = { ...await idle(2000), mainBlockMax: 0, mainLongMsPerSec: 0 };
+        beating = false;
+        const blocked = beats.map(x => x - 2).filter(x => x > 0);
+        still.mainBlockMax = Math.round(Math.max(0, ...blocked));
+        still.mainLongMsPerSec = Math.round(blocked.filter(x => x > 16).reduce((a, x) => a + x, 0) / 2);
+        const drag = await sliderDrag('exposure', 'develop', 120);
+        worker?.postMessage({ type: 'stop' });
+        const load = await stopped;
+        worker?.terminate();
+        shown?.remove();
+        out[`gpuload${ms}`] = { load, idle: still, drag: { photoFps: drag.fps, gpuFrameMs: drag.gpuFrameMs, latencyMs: drag.latencyMs, valid: drag.valid, ui: drag.ui } };
+        await wait(500);
+      }
     }
     if (want('zoom')) {
       // 100% and back to fit: the full resolution loads, then the preview is back at screen size.
@@ -407,6 +647,133 @@ export async function run(which: string) {
       out.hAllHovered = await sliderDrag('color-sat-2', 'colour', 120);
       setSliders({ texture: 0, dehaze: 0, clarity: 0, color: null });
       out.zoomOut = await click(key('z'));
+    }
+    if (only.includes('interaction') || only.includes('maskinteraction') || only.includes('pinch') || only.includes('pinchstops') || only.includes('densitycompare')) {
+      // The renderer must accept arbitrary scales; this loop never changes the preset list.
+      const wheel = (scale: number, fx = .5, fy = .5) => {
+        const canvas = document.querySelector('.main canvas') as HTMLCanvasElement;
+        const b = canvas.getBoundingClientRect();
+        canvas.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, ctrlKey: true,
+          clientX: Math.round(b.left + b.width * fx), clientY: Math.round(b.top + b.height * fy),
+          deltaY: -100 * Math.log(scale / lastScale) }));
+      };
+      const sweep = async () => {
+        const fit = lastScale;
+        const delta = 100 * Math.log(4.17 / fit) / 180;
+        let peak = fit;
+        const result = await gesture(360, async i => {
+          const canvas = document.querySelector('.main canvas') as HTMLCanvasElement, b = canvas.getBoundingClientRect();
+          canvas.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, ctrlKey: true,
+            clientX: b.left + b.width / 2, clientY: b.top + b.height / 2, deltaY: i < 180 ? -delta : delta }));
+          await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+          peak = Math.max(peak, lastScale);
+        });
+        return { ...result, peakScale: peak, finalScale: lastScale, expectedScale: fit };
+      };
+      setSliders({ texture: 40, dehaze: 30, clarity: 30, color: null });
+      if (only.includes('pinch')) out.coldPinch = await sweep();
+      out.startSource = { width: lastSrcW, scale: lastScale };
+      out.toFull = await click(() => wheel(1));
+      const z0 = performance.now(), fullW = useApp.getState().developSize!.W;
+      const needsCapture = () => lastSrc?.mode === InputMode.SceneLinear && !!activePhoto()?.recipe?.captureSharpening && !lastSrc.capture;
+      while ((lastSrcW !== fullW || needsCapture()) && performance.now() - z0 < 60000) await wait(50);
+      if (lastSrcW !== fullW) throw Error(`full resolution did not arrive: ${lastSrcW}/${fullW}, scale ${lastScale}`);
+      if (needsCapture()) throw Error('Full-resolution capture metadata did not arrive');
+      await settle(500, 30000);
+      if (only.includes('densitycompare')) {
+        const r = { ...activePhoto()!.recipe!, sharpen: 40, color: { hue: Array(8).fill(0), sat: [0, 0, 30, 0, 0, 0, 0, 0], bright: Array(8).fill(0) } };
+        out.comparisonRecipe = r;
+        const results: Record<string, unknown> = {};
+        const neutral = { ...r, texture: 0, dehaze: 0, clarity: 0, color: null, sharpen: 0 };
+        const cases: [string, Recipe][] = [['combined', r]];
+        if (import.meta.env.VITE_PERF_COMPARE_EFFECTS) cases.push(['neutral', neutral],
+          ...(['texture', 'dehaze', 'clarity', 'color', 'sharpen'] as const).map(key => [key, { ...neutral, [key]: r[key] }] as [string, Recipe]));
+        for (const scale of [.5, .637, .75, 1]) {
+          wheel(scale); await settle(500, 30000);
+          const eng = lastEngine!, source = lastSrc!, opts = lastOpts!;
+          for (const [name, recipe] of cases) {
+            const key = name === 'combined' ? String(scale) : `${name}:${scale}`;
+            const reference = eng.readPixels(source, recipe, opts.width, opts.height, opts.seed, false, opts.view, undefined, lastWhole ?? undefined);
+            eng.render(source, recipe, { ...opts, moving: false, live: false, draft: undefined, prepare: undefined });
+            if (eng.stoodIn || eng.inexact) throw Error('Image comparison did not reach a finished frame');
+            const gl = eng.gpu.gl, bottom = new Uint8Array(reference.length), px = new Uint8Array(reference.length), stride = opts.width * 4;
+            gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.readPixels(0, 0, opts.width, opts.height, gl.RGBA, gl.UNSIGNED_BYTE, bottom);
+            for (let y = 0; y < opts.height; y++) px.set(bottom.subarray(y * stride, (y + 1) * stride), (opts.height - 1 - y) * stride);
+            const bins = new Uint32Array(256);
+            let sum = 0, max = 0, n = 0;
+            for (let i = 0; i < px.length; i++) if (i % 4 !== 3) { const d = Math.abs(px[i] - reference[i]); sum += d; max = Math.max(max, d); bins[d]++; n++; }
+            let count = 0, p99 = 0;
+            while (p99 < 255 && (count += bins[p99]) < n * .99) p99++;
+            results[key] = { max, mean: sum / n, p99 };
+            if (import.meta.env.VITE_PERF_OUT) {
+              results[`${key}files`] = [await writeExport(import.meta.env.VITE_PERF_OUT, `${name}-reference-${scale}`, reference, opts.width, opts.height, 100),
+                await writeExport(import.meta.env.VITE_PERF_OUT, `${name}-screen-${scale}`, px, opts.width, opts.height, 100)];
+            }
+          }
+        }
+        out.comparison = results;
+      }
+      if (only.includes('interaction') || only.includes('maskinteraction')) {
+        const steps = Number(import.meta.env.VITE_PERF_STEPS ?? 120);
+        if (!Number.isInteger(steps) || steps < 2) throw Error('VITE_PERF_STEPS must be an integer >= 2');
+        const selected = (name: string) => !import.meta.env.VITE_PERF_SLIDER || String(import.meta.env.VITE_PERF_SLIDER).split(',').includes(name);
+        const scale = Number(import.meta.env.VITE_PERF_SCALE ?? 0.5);
+        wheel(scale);
+        await settle(500, 30000);
+        out.scale = lastScale;
+        for (const [name, slider, group] of [
+          ['exposure', 'exposure', 'develop'], ['texture', 'texture', 'refine'],
+          ['dehaze', 'dehaze', 'refine'], ['clarity', 'clarity', 'refine'],
+          ['hsl', 'color-sat-2', 'colour'], ['sharpen', 'sharpen', 'refine'],
+          ['capture', 'captureSharpening', 'refine'],
+        ] as const) if (only.includes('interaction') && selected(name)) out[name] = await sliderDrag(slider, group, steps);
+        if (only.includes('maskinteraction')) {
+          const mask = { ...newMask(newEllipse(), 0), texture: 30, dehaze: 20, clarity: 20 };
+          setSliders({ masks: [mask] });
+          setMaskUi({ selected: mask.id, overlay: false, tool: null });
+          await settle(500, 30000);
+          for (const name of ['exposure', 'texture', 'dehaze', 'clarity'] as const) {
+            if (selected(name)) out[`mask-${name}`] = await sliderDrag(`mask-${name}`, 'masks', steps);
+          }
+        }
+      }
+      if (only.includes('pinch')) {
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: '0', metaKey: true, bubbles: true }));
+        await settle(500, 30000);
+        out.warmPinch = await sweep();
+      }
+      if (only.includes('pinchstops')) {
+        const stops = import.meta.env.VITE_PERF_STOPS ? String(import.meta.env.VITE_PERF_STOPS).split(',').map(Number) : [.5, .637, .75, 1.37, 4.17, .637, .5];
+        for (const scale of stops) {
+          const start = lastScale;
+          const bounds = document.querySelector('.main canvas')!.getBoundingClientRect();
+          // WheelEvent rounds client coordinates in WebKit. Use a fixed integer cursor,
+          // rather than accumulating that rounding error over sixty fractional positions.
+          const fx = (Math.round(bounds.left + bounds.width * .37) - bounds.left) / bounds.width;
+          const fy = (Math.round(bounds.top + bounds.height * .61) - bounds.top) / bounds.height;
+          const before = lastOpts!.view!;
+          const anchor = [before.x + fx * before.w, before.y + fy * before.h];
+          const result = await gesture(60, async i => {
+            wheel(start * (scale / start) ** ((i + 1) / 60), fx, fy);
+            await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+          });
+          if (Math.abs(lastScale - scale) > .001 || lastEngine?.stoodIn || lastEngine?.inexact)
+            throw Error(`Zoom stop ${scale} did not reach finished detail: ${lastScale}`);
+          const after = lastOpts!.view!;
+          const anchorError = Math.max(Math.abs(after.x + fx * after.w - anchor[0]), Math.abs(after.y + fy * after.h - anchor[1]));
+          const anchorErrorPx = Math.max(Math.abs(after.x + fx * after.w - anchor[0]) * fullW * scale,
+            Math.abs(after.y + fy * after.h - anchor[1]) * lastSrc!.fullH * scale);
+          if (anchorErrorPx > .5) throw Error(`Zoom stop ${scale} lost its cursor anchor by ${anchorErrorPx} device pixels`);
+          out[`stop${scale}-${Object.keys(out).length}`] = { ...result, finalScale: lastScale, anchorError, anchorErrorPx };
+          const canvas = document.querySelector('.main canvas') as HTMLCanvasElement, b = canvas.getBoundingClientRect();
+          out[`pan${scale}-${Object.keys(out).length}`] = await gesture(30, async i => {
+            canvas.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true,
+              clientX: b.left + b.width / 2, clientY: b.top + b.height / 2, deltaX: i < 15 ? 3 : -3, deltaY: 0 }));
+            await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+          });
+          if (lastEngine?.stoodIn || lastEngine?.inexact) throw Error(`Pan at ${scale} did not settle`);
+        }
+      }
     }
     if (want('zooms')) {
       // Oli, 2026-11-03: 60 fps at every zoom, not just 100%. The six sliders he uses, each with

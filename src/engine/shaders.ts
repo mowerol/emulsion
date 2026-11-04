@@ -5,6 +5,7 @@ import dcp from './shaders/stages/dcp.glsl?raw';
 import dcpPass from './shaders/dcp.frag.glsl?raw';
 import quadVert from './shaders/quad.vert.glsl?raw';
 import common from './shaders/common.glsl?raw';
+import previewmap from './shaders/stages/previewmap.glsl?raw';
 import develop from './shaders/develop.frag.glsl?raw';
 import extract from './shaders/extract.frag.glsl?raw';
 import blur from './shaders/blur.frag.glsl?raw';
@@ -18,6 +19,7 @@ import brushVert from './shaders/brush.vert.glsl?raw';
 import brushFrag from './shaders/brush.frag.glsl?raw';
 import objectFrag from './shaders/object.frag.glsl?raw';
 import regionFrag from './shaders/region.frag.glsl?raw';
+import viewsource from './shaders/viewsource.frag.glsl?raw';
 import toneequalizer from './shaders/stages/toneequalizer.glsl?raw';
 import toneeqmask from './shaders/toneeqmask.frag.glsl?raw';
 import sample from './shaders/sample.frag.glsl?raw';
@@ -54,6 +56,7 @@ import llkeep from './shaders/llkeep.frag.glsl?raw';
 export const SHADER_FILES: Record<string, string> = {
   'stages/dcp.glsl': dcp,
   'common.glsl': common,
+  'stages/previewmap.glsl': previewmap,
   'lenscorrect.frag.glsl': lenscorrect,
   'stages/tone.glsl': tone,
   'stages/input.glsl': input,
@@ -105,4 +108,5 @@ export const SHADERS = {
   brushFrag,
   objectFrag,
   regionFrag,
+  viewsource,
 };

@@ -9,7 +9,7 @@ import { captureInfo, loadImage, logToTerminal, thumbnail } from '../backend/api
 import { recipeKey, type Recipe } from '../film/recipe';
 import { framePixels } from '../film/crop';
 import type { Xy } from '../engine/whitebalance';
-import { Engine, InputMode, type Source, type HalfImage } from '../engine/engine';
+import { Engine, InputMode, type HalfImage } from '../engine/engine';
 import { ImageLoadCache } from './imagecache';
 
 const THUMB_EDGE = 512;
@@ -204,7 +204,9 @@ export const thumbs = new ThumbStore();
  * Read a RAW source's capture sharpening data from Rust and attach it, unless
  * it has it already or is not a RAW. Resolves to whether the source has it.
  */
-export async function ensureCapture(eng: Engine, src: Source, path: string): Promise<boolean> {
+/** Anything that can take capture data for a source: the offscreen engine, or the develop view's client. */
+type CaptureTaker<S> = { attachCapture(src: S, radius: number, toCam: number[], mask: Uint8Array): void };
+export async function ensureCapture<S extends { capture?: unknown; mode: InputMode; w: number; h: number }>(eng: CaptureTaker<S>, src: S, path: string): Promise<boolean> {
   if (src.capture) return true;
   if (src.mode !== InputMode.SceneLinear) return false;
   try {
@@ -241,7 +243,7 @@ async function developBlob(blob: Blob, recipe: Recipe | null, seed: number, edge
     canvas.width = Math.max(1, Math.round(w * s));
     canvas.height = Math.max(1, Math.round(h * s));
     await eng.prepare(recipe, src.camera);
-    eng.renderToCanvas(src, recipe, canvas, seed);
+    await eng.renderToCanvasAsync(src, recipe, canvas, seed);
     const out = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/jpeg', 0.88));
     if (!out) throw new Error('Could not encode thumbnail');
     return URL.createObjectURL(out);

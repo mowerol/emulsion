@@ -2,6 +2,7 @@
 import { LENS_DEFAULTS, lensSupport, normalizeLens, type LensAdjust, type LensMetadata } from '../engine/lenscorrection';
 import { defaultRecipe, type Recipe } from '../film/recipe';
 import { editActive } from '../library/store';
+import { LiveRange } from './LiveRange';
 
 export function LensControls({ recipe, metadata }: { recipe: Recipe; metadata: LensMetadata | null | undefined }) {
   const p = recipe.lens ?? LENS_DEFAULTS;
@@ -27,7 +28,7 @@ export function LensControls({ recipe, metadata }: { recipe: Recipe; metadata: L
           const label = { distortionAmount: 'Distortion', redAmount: 'Red CA', blueAmount: 'Blue CA', vignetteAmount: 'Vignetting' }[key];
           return <div className="grade-row" key={key}>
             <label htmlFor={`lens-${key}`} onDoubleClick={() => change({ [key]: 1 })}>{label} (%)</label>
-            <input id={`lens-${key}`} type="range" min={0} max={200} step={1} value={p[key]*100} disabled={!p.enabled || !available[feature] || !p[feature]} onDoubleClick={() => change({ [key]: 1 })} onChange={e => change({ [key]: Number(e.target.value)/100 })} />
+            <LiveRange id={`lens-${key}`} min={0} max={200} step={1} value={p[key]*100} disabled={!p.enabled || !available[feature] || !p[feature]} onDoubleClick={() => change({ [key]: 1 })} onChange={(v) => change({ [key]: v/100 })} />
             <output>{Math.round(p[key]*100)}</output>
           </div>;
         })}

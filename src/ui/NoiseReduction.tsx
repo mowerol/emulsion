@@ -6,6 +6,7 @@ import { defaultRecipe, type Recipe } from '../film/recipe';
 import { NOISE_DEFAULTS, type NoiseReduction } from '../film/noisereduction';
 import { editActive } from '../library/store';
 import { noiseJob, useNoiseJobs } from '../library/noise';
+import { LiveRange } from './LiveRange';
 
 export function NoiseReductionControls({ recipe, path, raw }: { recipe: Recipe; path: string; raw: boolean }) {
   const p = recipe.noiseReduction ?? NOISE_DEFAULTS;
@@ -28,9 +29,9 @@ export function NoiseReductionControls({ recipe, path, raw }: { recipe: Recipe; 
         <label htmlFor="noise-amount" onDoubleClick={() => change({ amount: 50 })}>Amount</label>
         <input className="slider-value" aria-label="Noise reduction amount value" type="number" min={0} max={100} step={1} value={p.amount} disabled={!p.enabled}
           onChange={e => { if (e.target.value !== '') change({ amount: Math.min(100, Math.max(0, Number(e.target.value))) }); }} />
-        <div className="track"><input id="noise-amount" aria-label="Noise reduction amount" type="range" min={0} max={100} step={1} value={p.amount} disabled={!p.enabled}
+        <div className="track"><LiveRange id="noise-amount" aria-label="Noise reduction amount" min={0} max={100} step={1} value={p.amount} disabled={!p.enabled}
           onPointerDown={() => { drag.current = `noise:${crypto.randomUUID()}`; }} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }}
-          onChange={e => change({ amount: Number(e.target.value) })} /></div>
+          onChange={(v) => change({ amount: v })} /></div>
       </div>
       {p.enabled && job?.pending && <p className="hint" role="status">{job.total ? `Reducing noise… ${Math.round(100 * job.done / job.total)}%` : 'Preparing noise reduction…'}</p>}
       {p.enabled && job?.error && <p className="hint error" role="alert">{job.error}</p>}

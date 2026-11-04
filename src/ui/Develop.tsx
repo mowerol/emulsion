@@ -10,22 +10,26 @@ import { activeTool, chooseTool, toolHint, useTools } from './tools';
 import { RetouchOverlay } from './RetouchOverlay';
 import { removeSpot, scrollSpot, useRetouchUi } from './retouchui';
 import { cycleCropOverlay } from './prefs';
-import { useProfileVersion } from '../engine/profilestore';
-import { useLutVersion } from '../engine/lutstore';
+import { profilePending, useProfileVersion } from '../engine/profilestore';
+import { lutPending, useLutVersion } from '../engine/lutstore';
+import { recipeLookFile } from '../film/looks';
 import { logToTerminal } from '../backend/api';
 import { geometrySourcePoint } from '../engine/perspective';
-import { Engine, type Source, type View } from '../engine/engine';
+import type { View } from '../engine/engine';
+import { DevelopClient, type SourceRef } from './developclient';
+import { VIEW_SETTLE_MS } from '../engine/developloop';
+import type { Recipe } from '../film/recipe';
+import type { CameraMetadata } from '../film/profiles';
 import { pickStats, pickedRange } from '../engine/masks';
 import { RANGE_CHANNELS } from '../film/masks';
-import { histogram } from '../engine/histogram';
 import { warmStageOf, type WarmStage } from '../engine/warm';
 import { defaultRecipe } from '../film/recipe';
 import { D65_XY, clampWhiteBalance, neutralizingWhite, temperatureTint } from '../engine/whitebalance';
 import { STAGE_COLORS, activePhoto, editActive, finishCrop, setCropDraft, setPhotoWhite, setPhotoLens, setPhotoCamera, showToast, startCrop, useApp } from '../library/store';
 import { StageMenu } from './StageMenu';
-import { FULL, bounds, framePixels, orientedSize, rotateFrame } from '../film/crop';
+import { FULL, bounds, orientedSize, rotateFrame } from '../film/crop';
 import { CropOverlay } from './CropOverlay';
-import { ensureCapture, loadCachedImage, prepareFullImage, sourceFromBlob, thumbs } from '../library/thumbs';
+import { ensureCapture, loadCachedImage, prepareFullImage, thumbs } from '../library/thumbs';
 import { Filmstrip } from './Filmstrip';
 import { FIT, imagePoint, label, layout, pan, step, zoomAt, type Layout, type Zoom } from './zoom';
 import { MaskOverlay } from './MaskOverlay';
@@ -36,29 +40,8 @@ import { fitEdgeBound, previewEdge, previewStale, PREVIEW_MAX } from './previews
 /** What an unedited photo is developed with. */
 const UNEDITED = defaultRecipe();
 
-/** Long edge of the small render the histogram is counted from. */
-const HISTOGRAM_EDGE = 384;
-/** Wait this long after the last change before counting, so dragging stays smooth. */
-const HISTOGRAM_DELAY_MS = 120;
 /** How long the pointer rests on a slider before its stage's map is warmed. */
 const WARM_REST_MS = 80;
-/**
- * How long the view must stay still before a zoom or pan builds the full-resolution region it
- * now needs; until then the preview stands in, so the gesture keeps up.
- */
-const VIEW_SETTLE_MS = 180;
-/**
- * While a pointer is held (a slider drag, a brush stroke, any drag), a frame that takes longer
- * than this to develop at full resolution makes the rest of the drag a draft: drawn smaller and
- * scaled up, just small enough to fit a display frame (FRAME_MS), after SLOW_FRAMES of them, and never below 1× on Retina.
- * Full resolution follows once nothing has changed for VIEW_SETTLE_MS. A drag whose frames keep up
- * stays sharp. A mask brush stroke is always a draft at 1× (Oli's choice): it is the slowest drag.
- */
-const SLOW_FRAME_MS = 25;
-/** How many slow full-size frames in a row make a draft: one late frame is not a slow drag. */
-const SLOW_FRAMES = 3;
-const FRAME_MS = 16;
-const draftScale = (ms: number) => Math.max(Math.min(1, 1 / dpr()), Math.min(0.9, Math.sqrt(FRAME_MS / ms)));
 /** A pointer that moves less than this many CSS pixels is a click, not a drag. */
 const CLICK_SLOP = 4;
 /** Clear space round the photo while cropping, in CSS pixels, on top of the stage's padding. */
@@ -66,16 +49,36 @@ const CROP_MARGIN = 24;
 
 const sourceKey = (path: string, res: string, noise = false) => `${path}:${res}:${noise}`;
 /** The long edge each preview was asked for (a photo smaller than that decodes smaller). */
-const previewAsked = new WeakMap<Source, number>();
-const askedEdge = (s: Source) => previewAsked.get(s) ?? Math.max(s.w, s.h);
+const previewAsked = new WeakMap<SourceRef, number>();
+const askedEdge = (s: SourceRef) => previewAsked.get(s) ?? Math.max(s.w, s.h);
 
 type Res = 'thumb' | 'preview' | 'full';
 
 interface Loaded {
   path: string;
-  source: Source;
+  source: SourceRef;
   res: Res;
 }
+
+/** Keep the previous frame until the recipe's base profile and optional creative LUT are ready (Engine.waiting). */
+const assetsPending = (recipe: Recipe | null, camera?: CameraMetadata | null, compare = false) => {
+  const file = compare ? null : recipeLookFile(recipe);
+  return (!!file && lutPending(file)) || profilePending(recipe?.profile ?? 'auto', camera, recipe?.autoProfile);
+};
+/** A number per recipe object, so a change of recipe is a change of key. */
+const recipeIds = new WeakMap<object, number>();
+let recipeCount = 0;
+const recipeId = (r: Recipe | null) => {
+  if (!r) return 0;
+  let id = recipeIds.get(r);
+  if (!id) recipeIds.set(r, (id = ++recipeCount));
+  return id;
+};
+/**
+ * The engine on each canvas: in worker mode a canvas can be handed over only once, so a remount
+ * (React's StrictMode runs effects twice) takes the same client back, and disposal waits a tick.
+ */
+const clients = new WeakMap<HTMLCanvasElement, { client: DevelopClient; dispose: number }>();
 
 const dpr = () => Math.min(window.devicePixelRatio || 1, 2);
 /** A workspace colour as the engine's display-encoded RGB, painted around the photo while it is straightened. */
@@ -89,30 +92,15 @@ export function Develop() {
   const masksOpen = useWorkspace(s => s.layout !== 'workflow' || s.group === 'masks');
   const boxRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const engineRef = useRef<Engine | null>(null);
-  // Whether a pointer is held down anywhere in the window (see SLOW_FRAME_MS).
-  const heldRef = useRef(false);
-  // Called once when the held pointer is let go (the histogram waits for it).
-  const onReleaseRef = useRef(new Set<() => void>());
-  // Warms a stage's map for the current render (Engine.warm); set by the render effect.
-  const warmRef = useRef<((stage: WarmStage) => void) | null>(null);
-  // The stage whose slider the pointer rests on, if any.
-  const hoverRef = useRef<WarmStage | null>(null);
-  // The last screen render: when it was submitted, whether it was full size, whether a frame had
-  // to wait for it; and the draft scale this drag has settled on (1 = full resolution).
-  const paceRef = useRef({ submitted: 0, full: false, waited: false, scale: 1, slow: 0, fastest: Infinity });
+  const engineRef = useRef<DevelopClient | null>(null);
+  // The engine follows the pointer itself (a held pointer drafts slow frames and defers exact
+  // renders, engine/developloop.ts); it is told of every press and release in the window.
   useEffect(() => {
     const down = (e: PointerEvent) => {
-      heldRef.current = true;
       const brush = useMaskUi.getState().tool?.kind === 'brush' && e.target instanceof Element && !!e.target.closest('svg.mask-overlay');
-      Object.assign(paceRef.current, { scale: brush ? Math.min(1, 1 / dpr()) : 1, slow: 0, fastest: Infinity });
+      engineRef.current?.pointer(true, brush);
     };
-    const up = () => {
-      heldRef.current = false;
-      const waiting = [...onReleaseRef.current];
-      onReleaseRef.current.clear();
-      for (const f of waiting) f();
-    };
+    const up = () => engineRef.current?.pointer(false);
     window.addEventListener('pointerdown', down, true);
     window.addEventListener('pointerup', up, true);
     window.addEventListener('pointercancel', up, true);
@@ -124,6 +112,8 @@ export function Develop() {
       window.removeEventListener('blur', up);
     };
   }, []);
+  // The stage whose slider the pointer rests on, if any.
+  const hoverRef = useRef<WarmStage | null>(null);
   // Resting on the slider of a stage that is off warms its map (Engine.warm), so the click that
   // turns it on doesn't build it from scratch. After a short rest, so sweeping across the panel
   // warms nothing.
@@ -136,7 +126,7 @@ export function Develop() {
       if (which === hoverRef.current) return;
       hoverRef.current = which;
       clearTimeout(timer);
-      if (which) timer = window.setTimeout(() => warmRef.current?.(which), WARM_REST_MS);
+      if (which) timer = window.setTimeout(() => engineRef.current?.warm(which), WARM_REST_MS);
     };
     window.addEventListener('pointerover', enter, true);
     return () => {
@@ -145,11 +135,11 @@ export function Develop() {
     };
   }, []);
   const loadedRef = useRef<Loaded | null>(null);
-  const sourceCacheRef = useRef(new Map<string, Source>());
+  const sourceCacheRef = useRef(new Map<string, SourceRef>());
   const [error, setError] = useState<string | null>(null);
   const [loadedVersion, setLoadedVersion] = useState(0);
-  /** Bumped when the retouch worker finishes, to redraw with its result. */
-  const [retouchVersion, setRetouchVersion] = useState(0);
+  /** Bumped when the engine has started, so the effects that need it run. */
+  const [engineReady, setEngineReady] = useState(0);
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [zoom, setZoom] = useState<Zoom>(FIT);
   const [loadingFull, setLoadingFull] = useState(false);
@@ -195,29 +185,40 @@ export function Develop() {
   const tool = workflow ? activeTool(tools, cropping, picking, masksOpen, healing) : 'select';
   useEffect(() => { if (!masksOpen) setMaskUi({ tool: null, pick: null }); }, [masksOpen]);
 
-  // Start the GPU engine for this canvas.
+  // Start the GPU engine for this canvas (in a worker: ui/developclient.ts).
   useLayoutEffect(() => {
+    const canvas = canvasRef.current!;
+    const kept = clients.get(canvas);
     try {
-      engineRef.current = new Engine(canvasRef.current!);
-      // Retouch off this thread, so dragging a heal spot stays smooth; redraw when it is done.
-      engineRef.current.useRetouchWorker(new Worker(new URL('../engine/retouch.worker.ts', import.meta.url), { type: 'module' }), () => setRetouchVersion((v) => v + 1));
+      if (kept) clearTimeout(kept.dispose);
+      const client = kept?.client ?? DevelopClient.start(canvas, {
+        error: (message) => { setError(message); logToTerminal('error', message); },
+        warn: (message) => logToTerminal('warn', message),
+        histogram: (path, data) => useApp.setState({ histogram: { path, data } }),
+      });
+      clients.set(canvas, { client, dispose: 0 });
+      engineRef.current = client;
+      setEngineReady((v) => v + 1);
     } catch (err) {
       setError(`Emulsion could not start the GPU pipeline. ${String(err)}`);
     }
     return () => {
       const e = engineRef.current;
-      if (e) {
+      engineRef.current = null;
+      const entry = clients.get(canvas);
+      if (!e || !entry) return;
+      entry.dispose = window.setTimeout(() => {
+        clients.delete(canvas);
         for (const source of sourceCacheRef.current.values()) e.release(source);
         if (loadedRef.current && !sourceCacheRef.current.has(sourceKey(loadedRef.current.path, loadedRef.current.res, !!loadedRef.current.source.denoised))) e.release(loadedRef.current.source);
         e.dispose();
-      }
-      sourceCacheRef.current.clear();
-      engineRef.current = null;
-      loadedRef.current = null;
+        sourceCacheRef.current.clear();
+        loadedRef.current = null;
+      }, 0);
     };
   }, []);
 
-  const swapSource = useCallback((p: string, source: Source, res: Res) => {
+  const swapSource = useCallback((p: string, source: SourceRef, res: Res) => {
     const engine = engineRef.current!;
     const key = sourceKey(p, res, !!source.denoised);
     const old = loadedRef.current;
@@ -231,7 +232,7 @@ export function Develop() {
     if (res !== 'thumb') {
       sourceCacheRef.current.set(key, source);
       while (sourceCacheRef.current.size > 4) {
-        const [evictedKey, evicted] = sourceCacheRef.current.entries().next().value as [string, Source];
+        const [evictedKey, evicted] = sourceCacheRef.current.entries().next().value as [string, SourceRef];
         if (old && evicted === old.source) {
           sourceCacheRef.current.delete(evictedKey);
           sourceCacheRef.current.set(evictedKey, evicted);
@@ -250,7 +251,7 @@ export function Develop() {
    * roi.md), and whole-photo work (histogram, pickers, the object encoder) runs on it, as
    * darktable's runs on its preview pipe.
    */
-  const wholeOf = (l: Loaded): Source | null =>
+  const wholeOf = (l: Loaded): SourceRef | null =>
     l.res === 'full' ? (sourceCacheRef.current.get(sourceKey(l.path, 'preview', !!l.source.denoised)) ?? null) : null;
   const cachedSource = (key: string) => {
     const source = sourceCacheRef.current.get(key);
@@ -271,7 +272,7 @@ export function Develop() {
     fullLoadRef.current = null;
     setLoadingFull(false);
     setDecodeFailed(null);
-    const swap = (source: Source, res: Res) => {
+    const swap = (source: SourceRef, res: Res) => {
       if (cancelled) engine.release(source);
       else swapSource(path, source, res);
     };
@@ -285,7 +286,7 @@ export function Develop() {
         } else {
           const orig = await thumbs.original(path);
           if (!cancelled && loadedRef.current?.path !== path) {
-            const { src } = await sourceFromBlob(engine, orig.blob, useApp.getState().photos.find((p) => p.path === path)?.white ?? null);
+            const src = await engine.uploadBlob(orig.blob, useApp.getState().photos.find((p) => p.path === path)?.white ?? null);
             swap(src, 'thumb');
             previewShown = true;
           }
@@ -307,7 +308,7 @@ export function Develop() {
         if (img.white) setPhotoWhite(path, img.white);
         setPhotoLens(path, img.lens ?? null);
         setPhotoCamera(path, img.camera ?? null);
-        const source: Source = { ...engine.sourceFromHalf(img), origin: path };
+        const source = engine.upload(img, path);
         previewAsked.set(source, edge);
         swap(source, 'preview');
       } catch (err) {
@@ -324,7 +325,7 @@ export function Develop() {
     return () => {
       cancelled = true;
     };
-  }, [path, wantsNoise, swapSource]);
+  }, [path, wantsNoise, swapSource, engineReady]);
 
   // Track the stage size.
   useEffect(() => {
@@ -363,6 +364,7 @@ export function Develop() {
   const margin = cropping ? CROP_MARGIN : 0;
   const current: Layout | null =
     src && box.w > 2 + 2 * margin && box.h > 2 + 2 * margin ? layout(cropping ? FIT : zoom, box.w - 2 * margin, box.h - 2 * margin, dpr(), frameW, frameH) : null;
+  const viewKey = current ? `${current.pxW}x${current.pxH}:${current.view.x},${current.view.y},${current.view.w},${current.view.h}` : '';
 
   // Capture sharpening needs the RAW's sensor data, read once per loaded source.
   const sharpening = recipe?.captureSharpening ?? 0;
@@ -387,49 +389,14 @@ export function Develop() {
   const cropKey = JSON.stringify(recipe?.crop ?? null);
   useEffect(() => setZoom(FIT), [cropKey, cropping]);
 
-  // Size the canvas to the layout.
+  // Size the canvas to the layout; its pixel size is the engine's to set (it may own the canvas).
   useLayoutEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !current) return;
     canvas.style.width = `${current.cssW}px`;
     canvas.style.height = `${current.cssH}px`;
-    if (canvas.width !== current.pxW || canvas.height !== current.pxH) {
-      canvas.width = current.pxW;
-      canvas.height = current.pxH;
-    }
   });
 
-  // Each photo's haze removal ambient light, measured while idle (Engine.measureAhead), then the
-  // working targets a first Texture or Dehaze drag would make, one per idle moment
-  // (Engine.prepareSteps).
-  const preparedRef = useRef<WebGLTexture | null>(null);
-  useEffect(() => {
-    const engine = engineRef.current;
-    const l = loadedRef.current;
-    if (!engine || !sizeKnown || !l || l.path !== path) return;
-    const whole = wholeOf(l) ?? l.source;
-    if (preparedRef.current === whole.tex) return;
-    let steps: (() => void)[] = [];
-    const next = () => {
-      if (engineRef.current !== engine || loadedRef.current !== l) return;
-      if (!steps.length) { preparedRef.current = whole.tex; return; }
-      // Wait for the GPU to finish what is drawn, so a step never queues behind a frame.
-      if (engine.idle()) {
-        try { steps.shift()!(); } catch (err) { steps = []; logToTerminal('warn', `Prepare: ${String(err)}`); return; }
-      }
-      timer = setTimeout(next, 50);
-    };
-    let timer = setTimeout(() => {
-      if (engineRef.current !== engine || loadedRef.current !== l) return;
-      try {
-        engine.measureAhead(whole, photo?.recipe ?? UNEDITED);
-        steps = engine.prepareSteps(whole);
-      } catch (err) { logToTerminal('warn', `Prepare: ${String(err)}`); }
-      timer = setTimeout(next, 50);
-    }, 900);
-    return () => clearTimeout(timer);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sizeKnown, loadedVersion, path]);
 
   // The preview follows the size the photo is shown at (previewsize.ts): when a zoom, crop or
   // layout change leaves it too small or far larger than needed, decode it again at the new size
@@ -456,7 +423,7 @@ export function Develop() {
       loadCachedImage(path, wanted, wantsNoise).then((img) => {
         const l = loadedRef.current;
         if (cancelled || engineRef.current !== engine || l?.path !== path || sourceCacheRef.current.get(key) !== have) return;
-        const next: Source = { ...engine.sourceFromHalf(img), origin: path };
+        const next = engine.upload(img, path);
         previewAsked.set(next, wanted);
         if (l.res === 'preview') swapSource(path, next, 'preview');
         else {
@@ -471,7 +438,7 @@ export function Develop() {
       clearTimeout(timer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [previewEdge(previewFor || 1), path, wantsNoise, loadedVersion]);
+  }, [previewEdge(previewFor || 1), path, wantsNoise, loadedVersion, viewKey]);
 
   // While the fitted photo rests, prepare its exact full decode in the bounded
   // payload cache. Do not upload it or change the preview: zoom joins this request.
@@ -510,7 +477,7 @@ export function Develop() {
     loadCachedImage(path, engine.maxTextureSize, wantsNoise)
       .then((img) => {
         if (!stillWanted() || loadedRef.current?.path !== path) return;
-        swapSource(path, { ...engine.sourceFromHalf(img), origin: path }, 'full');
+        swapSource(path, engine.upload(img, path), 'full');
       })
       .catch((err) => {
         if (stillWanted()) showToast(`Could not load the full resolution. ${String(err)}`);
@@ -523,134 +490,28 @@ export function Develop() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current?.scale, path, wantsNoise, loadedVersion]);
 
-  // Render whenever anything that affects the frame changes.
+  // Render whenever anything that affects the frame changes: the latest state goes to the engine,
+  // which draws the newest it has once the GPU is free (engine/developloop.ts).
   const seed = photo?.seed ?? 0;
   // The trial detail order (ui/detailorder.ts): switching it redraws the photo.
   const detailOrder = useDetailOrder(st => st.order);
-  const viewKey = current ? `${current.pxW}x${current.pxH}:${current.view.x},${current.view.y},${current.view.w},${current.view.h}` : '';
-  const shownViewRef = useRef('');
   useEffect(() => {
-    // A new view is a zoom or pan in progress: draw what is already made (the preview, when the
-    // region would have to be rebuilt) and develop the full resolution once the view settles.
-    const moving = shownViewRef.current !== '' && shownViewRef.current !== viewKey;
-    shownViewRef.current = viewKey;
-    let settle = 0;
-    // Wait for the GPU to finish the previous frame, then draw the latest state: while dragging,
-    // frames are skipped rather than queued, so the photo keeps up with the slider. A draft
-    // (pointer held) or a stand-in is followed by a full render once nothing changes for a moment.
-    let id = 0;
-    const tick = (moving: boolean, settled = false) => {
-      const engine = engineRef.current;
-      const l = loadedRef.current;
-      const canvas = canvasRef.current;
-      if (!engine || !l || !canvas || l.path !== path || !canvas.width || !current) return;
-      // Compare also needs the base camera profile, but never the creative LUT.
-      if (engine.waiting(recipe, l.source.camera, compare)) return;
-      const pace = paceRef.current;
-      if (!engine.idle()) {
-        pace.waited = true;
-        id = requestAnimationFrame(() => tick(moving, settled));
-        return;
-      }
-      // A full-size frame during this drag that a new frame had to wait for, and that missed the
-      // display's pace: draft from here on, at the size that would have fitted.
-      if (heldRef.current && pace.full) {
-        const ms = performance.now() - pace.submitted;
-        if (pace.waited && ms > SLOW_FRAME_MS) {
-          pace.slow++;
-          pace.fastest = Math.min(pace.fastest, ms);
-          if (pace.slow >= SLOW_FRAMES) pace.scale = Math.min(pace.scale, draftScale(pace.fastest));
-        } else {
-          pace.slow = 0;
-          pace.fastest = Infinity;
-        }
-      }
-      const draft = !settled && heldRef.current && pace.scale < 1 ? pace.scale : undefined;
-      // While a pointer is held, zoomed-in maps are remade without their reach (Engine.render's
-      // `live`); the settle render below remakes them exactly.
-      const live = !settled && heldRef.current;
-      try {
-        engine.retouchShow = healing ? showScale : 0;
-        engine.render(l.source, recipe, { target: 'screen', width: canvas.width, height: canvas.height, seed, compare, view: current.view, clipping, split, frame, outside: rgb(stage.hex), sharpenMask, maskShow: compare ? null : maskShow, whole: wholeOf(l) ?? undefined, moving, draft, live });
-        Object.assign(pace, { submitted: performance.now(), full: !draft, waited: false });
-        if ((moving && engine.stoodIn) || draft || engine.inexact) settle = window.setTimeout(() => { id = requestAnimationFrame(() => tick(false, true)); }, VIEW_SETTLE_MS);
-      } catch (err) {
-        setError(`Rendering failed. ${String(err)}`);
-      }
-    };
-    id = requestAnimationFrame(() => tick(moving));
-    // The same render, stopped once the hovered stage's map is built. Once per stage and render.
-    const warmed = new Set<WarmStage>();
-    warmRef.current = (which) => {
-      const engine = engineRef.current;
-      const l = loadedRef.current;
-      const canvas = canvasRef.current;
-      if (warmed.has(which) || heldRef.current || !engine || !l || !canvas || l.path !== path || !canvas.width || !current) return;
-      if (engine.waiting(recipe, l.source.camera, compare)) return;
-      // The GPU is still on the last frame: try again shortly, if the pointer is still there.
-      if (!engine.idle()) {
-        window.setTimeout(() => hoverRef.current === which && warmRef.current?.(which), WARM_REST_MS);
-        return;
-      }
-      warmed.add(which);
-      try {
-        engine.warm(l.source, recipe, which, { width: canvas.width, height: canvas.height, seed, compare, view: current.view, clipping, split, frame, outside: rgb(stage.hex), sharpenMask, maskShow: compare ? null : maskShow, whole: wholeOf(l) ?? undefined });
-      } catch {
-        /* warming is a head start; the click builds the map anyway */
-      }
-    };
-    // Still resting on a slider whose stage this change turned off (a reset): warm it again.
-    const rest = hoverRef.current ? window.setTimeout(() => hoverRef.current && warmRef.current?.(hoverRef.current), WARM_REST_MS) : 0;
-    return () => {
-      cancelAnimationFrame(id);
-      clearTimeout(settle);
-      clearTimeout(rest);
-      warmRef.current = null;
-    };
+    const engine = engineRef.current;
+    const l = loadedRef.current;
+    if (!engine || !l || l.path !== path || !current || !saved) return;
+    // Compare also needs the base camera profile, but never the creative LUT. Waiting here also
+    // starts their loading; the change of version when they arrive runs this again.
+    if (assetsPending(recipe, l.source.camera, compare)) return;
+    const whole = wholeOf(l);
+    engine.render({
+      source: l.source.key, whole: whole?.key ?? null, sizeKnown, full: l.res === 'full', recipe, saved, seed, compare, viewKey,
+      width: current.pxW, height: current.pxH, view: current.view, clipping, split, frame, outside: rgb(stage.hex), sharpenMask, maskShow,
+      retouchShow: healing ? showScale : 0, detailOrder,
+      histogram: `${recipeId(recipe)}|${seed}|${compare}|${loadedVersion}|${path}|${lutVersion}|${profileVersion}`, histogramFor: frameId!,
+      prepare: `${sizeKnown}|${loadedVersion}|${path}|${viewKey}`,
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recipe, seed, compare, loadedVersion, viewKey, path, clipping, split, JSON.stringify(frame), stage, sharpenMask, lutVersion, profileVersion, maskShow, retouchVersion, healing, showScale, detailOrder]);
-
-  // Count the histogram from a small render of the whole frame, once changes settle. Not while a
-  // pointer is held: its readPixels waits for the GPU, and during a drag (or a click that has just
-  // turned a stage on and is building its map) that blocks the main thread. It counts
-  // HISTOGRAM_DELAY_MS after the release instead.
-  useEffect(() => {
-    let cancelled = false;
-    let timer = 0;
-    const count = async () => {
-      if (heldRef.current) {
-        onReleaseRef.current.add(later);
-        return;
-      }
-      const engine = engineRef.current;
-      const l = loadedRef.current;
-      if (!engine || !l || l.path !== path) return;
-      const hs = wholeOf(l) ?? l.source;
-      const [w, h] = framePixels(recipe?.crop ?? null, hs.w, hs.h);
-      const k = HISTOGRAM_EDGE / Math.max(w, h);
-      const hw = Math.max(1, Math.round(w * Math.min(1, k)));
-      const hh = Math.max(1, Math.round(h * Math.min(1, k)));
-      try {
-        // Count the same camera rendering and look as the photo, including
-        // assets still loading. A superseded request must not publish old bins.
-        await engine.prepare(compare && recipe ? { ...recipe, lookEnabled: false } : recipe, l.source.camera);
-        if (cancelled) return;
-        const data = histogram(engine.readPixels(hs, recipe, hw, hh, seed, compare));
-        useApp.setState({ histogram: { path: frameId!, data } });
-      } catch {
-        /* the histogram is a convenience; a failed count leaves the last one */
-      }
-    };
-    function later() {
-      if (!cancelled) timer = window.setTimeout(count, HISTOGRAM_DELAY_MS);
-    }
-    later();
-    return () => {
-      cancelled = true;
-      clearTimeout(timer);
-      onReleaseRef.current.delete(later);
-    };
-  }, [recipe, seed, compare, loadedVersion, path, frameId, lutVersion, profileVersion]);
+  }, [recipe, seed, compare, loadedVersion, viewKey, path, clipping, split, JSON.stringify(frame), stage, sharpenMask, lutVersion, profileVersion, maskShow, healing, showScale, detailOrder, sizeKnown, engineReady]);
 
   // ---------- Zoom and pan ----------
 
@@ -682,6 +543,7 @@ export function Develop() {
       if (!current || !src) return;
       e.preventDefault();
       if (cropping) return;
+      engineRef.current?.motion();
       if (e.ctrlKey || e.metaKey) {
         const [fx, fy] = fraction(e);
         zoomTo(current.scale * Math.exp(-e.deltaY * 0.01), fx, fy);
@@ -811,7 +673,7 @@ export function Develop() {
   }, []);
 
   /** Set the selected mask's picked range channel round what is in `box` (darktable's set-values picker). */
-  const pickRange = (box: View) => {
+  const pickRange = async (box: View) => {
     const engine = engineRef.current;
     const l = loadedRef.current;
     const channel = useMaskUi.getState().pick;
@@ -819,7 +681,9 @@ export function Develop() {
     const index = recipe?.masks.findIndex((m) => m.id === maskSelected) ?? -1;
     setMaskUi({ pick: null });
     if (!engine || !l || l.path !== path || !channel || !recipe || index < 0) return;
-    const stats = pickStats(engine.sampleMaskInput(wholeOf(l) ?? l.source, recipe, index, box));
+    let input: Float32Array;
+    try { input = await engine.sampleMaskInput(wholeOf(l) ?? l.source, recipe, index, box); } catch { return; }
+    const stats = pickStats(input);
     if (!stats) return;
     const range = pickedRange(stats, channel);
     const name = RANGE_CHANNELS.find((c) => c.id === channel)!.label.toLowerCase();
@@ -827,15 +691,16 @@ export function Develop() {
   };
 
   /** Set white balance so the clicked spot becomes neutral. */
-  const pickNeutral = (fx: number, fy: number) => {
+  const pickNeutral = async (fx: number, fy: number) => {
     const engine = engineRef.current;
     const l = loadedRef.current;
     if (!engine || !l || l.path !== path || !current) return;
     const [fu, fv] = imagePoint(current.view, fx, fy);
     const [u, v] = geometrySourcePoint({ ...FULL, ...frame }, l.source.fullW, l.source.fullH, fu, fv, photo?.recipe?.transform);
-    const sample = engine.sampleScene(wholeOf(l) ?? l.source, u, v, photo?.recipe ?? null);
-    const w = neutralizingWhite(sample, l.source.white ?? D65_XY);
     useApp.setState({ picking: false });
+    let sample: [number, number, number];
+    try { sample = await engine.sampleScene(wholeOf(l) ?? l.source, u, v, photo?.recipe ?? null); } catch { return; }
+    const w = neutralizingWhite(sample, l.source.white ?? D65_XY);
     if (!w) {
       showToast('That spot is too dark to judge white balance from. Try a lighter neutral area.');
       return;
@@ -859,6 +724,7 @@ export function Develop() {
     if (!p.moved && Math.hypot(dx, dy) < CLICK_SLOP) return;
     if (zoom.scale === null) return;
     p.moved = true;
+    engineRef.current?.motion();
     setPanning(true);
     p.x = e.clientX;
     p.y = e.clientY;

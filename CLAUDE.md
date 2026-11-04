@@ -49,4 +49,5 @@ Headless Chrome understates what Oli feels: the app runs in WKWebView on his Ret
 - **GLSL:** `shared` is reserved. JSX attribute strings don't process escapes; use `{'...'}`.
 - **`isnan`/`isinf` in GLSL:** on ANGLE's Metal backend a single `isnan` in the develop shader made the whole pass ~2.7× slower (28 → 10.5 ms at 1800 × 1200). Avoid them in per-pixel shaders; prevent the NaN instead. `tools/browser-tests/develop-cost.ts` (`only`, `combo`, `stub` queries) times shader variants.
 - **Float precision:** `pow(1 - k, n)` for tiny k loses precision in 32-bit floats; use a series for ln(1 - k).
+- **OpenMP (LibRaw):** the static libomp shuts down when its last root thread exits, and tokio's blocking threads exit when idle, so call `raw::openmp_root()` before any new LibRaw entry point.
 - **DNGs from DxO PureRAW 6** are JPEG XL compressed, which LibRaw can't decode; the app says so and edits the embedded preview.

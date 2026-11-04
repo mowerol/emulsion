@@ -10,11 +10,13 @@
 // for Distance, blended by its mask; that is affine per pixel, so dehazegf.frag folds them all
 // into (beta, alpha) per source pixel and this stage applies alpha x + beta.
 
+#include "stages/previewmap.glsl"
+uniform float uDehazePreview;
 uniform float uDehazeOn;
 uniform sampler2D uDehazeTex;
 
 vec3 stageDehaze(vec3 x, vec2 uv) {
   if (uDehazeOn < 0.5) return x;
-  vec4 f = texture(uDehazeTex, uv);
+  vec4 f = texture(uDehazeTex, previewMapUv(uv, uDehazePreview));
   return f.a * x + f.rgb;
 }

@@ -2,9 +2,9 @@
 // Zooming while the full-resolution decode runs must not drop it (docs/research/zoom-100-percent.md).
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { InputMode } from '../../src/engine/engine';
+import { Engine, InputMode } from '../../src/engine/engine';
 import { defaultRecipe } from '../../src/film/recipe';
-import { useApp } from '../../src/library/store';
+import { editActive, useApp } from '../../src/library/store';
 import { Develop } from '../../src/ui/Develop';
 import '../../src/styles.css';
 
@@ -112,6 +112,44 @@ async function main() {
   assert(!badge(), 'Zoom decoded a prepared photo again');
   assert(fullLoads.length === beforePreparation + 1, 'Zoom did not reuse the background full decode');
   assert(document.querySelector('.tool-zoom-value span')?.textContent === '100%', 'Prepared zoom did not reach 100%');
-  document.body.dataset.result = 'PASS: zoom changes preserve in-flight detail; thumbnail dimensions do not control zoom; background preparation keeps Fit and the badge unchanged, then zoom reuses its exact decode';
+  // The final input can commit after pointer-up, before its animation frame. It must still
+  // settle held maps in stages, rather than bypassing preparation with one expensive render.
+  editActive(() => ({ ...recipe, captureSharpening: 0, texture: 40, clarity: 30, dehaze: 20 }));
+  await wait(500);
+  const prepare = Engine.prototype.prepareFrame;
+  const render = Engine.prototype.render;
+  const finishedReleases = new Set<number>(), preparedReleases = new Set<number>();
+  let holding = false, preparedDuringHold = 0;
+  let depth = 0;
+  Engine.prototype.render = function (...args: Parameters<Engine['render']>) {
+    const root = depth++ === 0;
+    try { return render.apply(this, args); }
+    finally {
+      depth--;
+      if (root && args[1] && args[2].target === 'screen' && !args[2].prepare && !args[2].live && !this.inexact && !this.stoodIn) finishedReleases.add(args[1].exposure);
+    }
+  };
+  Engine.prototype.prepareFrame = function (...args: Parameters<Engine['prepareFrame']>) {
+    if (holding) preparedDuringHold++;
+    if (args[1]) preparedReleases.add(args[1].exposure);
+    return prepare.apply(this, args);
+  };
+  try {
+    for (const [index, event] of ['pointerup', 'blur', 'pointercancel'].entries()) {
+      const final = (index + 1) * .2;
+      holding = true;
+      window.dispatchEvent(new PointerEvent('pointerdown', { pointerId: 1, buttons: 1 }));
+      editActive(r => ({ ...r!, exposure: final - .1 }));
+      await wait(300);
+      assert(preparedDuringHold === 0, 'Settling started while the pointer was still held');
+      editActive(r => ({ ...r!, exposure: final }));
+      holding = false;
+      window.dispatchEvent(event === 'blur' ? new Event(event) : new PointerEvent(event, { pointerId: 1 }));
+      for (let i = 0; i < 100 && !finishedReleases.has(final); i++) await wait(20);
+      assert(preparedReleases.has(final), `Last input after ${event} bypassed staged exact preparation`);
+      assert(finishedReleases.has(final), `${event} never displayed the final finished frame`);
+    }
+  } finally { Engine.prototype.prepareFrame = prepare; Engine.prototype.render = render; }
+  document.body.dataset.result = 'PASS: zoom preserves in-flight detail; preparation keeps Fit stable; prepared zoom reuses its exact decode; held inputs wait, and pointer-up, blur and cancellation settle their final input in stages';
 }
 main().catch(error => { document.body.dataset.result = `FAIL: ${String(error)} | calls: ${calls.join(' ; ')}`; });

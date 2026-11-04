@@ -10,6 +10,7 @@ import type { Photo } from '../library/store';
 import { useTileRenders } from './tilerenders';
 import { useUserLooksVersion } from '../library/userlooks';
 import { choiceKey, lookChoices, setLookBrowserView, toggleLookFavourite, useLookBrowser, type LookChoice } from './lookbrowser';
+import { LiveRange } from './LiveRange';
 
 function Swatch({ name, bw = false }: { name: string; bw?: boolean }) {
   const palettes = [['#d2a24f','#806538'], ['#c79b73','#79644e'], ['#92aa96','#526e5c'], ['#b7aa98','#736858']];
@@ -112,7 +113,7 @@ export function LookChooser({ photo, recipe, onPick, onAmount, onEdit, onNew, on
     return () => document.removeEventListener('pointerdown', outside);
   }, [quick]);
   useEffect(() => { if (browse && !dialog.current?.contains(document.activeElement)) dialog.current?.querySelector<HTMLButtonElement>('button')?.focus(); }, [browse, preferences.favourites]);
-  const amount = <label className="look-amount"><span>Amount</span><input aria-label="Look amount" style={{ '--look-fill': `${recipe.lookAmount}%` } as CSSProperties} type="range" min="0" max="100" value={recipe.lookAmount} disabled={!recipe.lookEnabled} onChange={e => onAmount(Number(e.target.value))}/><output>{Math.round(recipe.lookAmount)}%</output></label>;
+  const amount = <label className="look-amount"><span>Amount</span><LiveRange aria-label="Look amount" style={{ '--look-fill': `${recipe.lookAmount}%` } as CSSProperties} min="0" max="100" value={recipe.lookAmount} disabled={!recipe.lookEnabled} onChange={(v) => onAmount(v)}/><output>{Math.round(recipe.lookAmount)}%</output></label>;
   const fullBrowser = browse && <div ref={dialog} className="look-browser-panel" role="dialog" aria-label="Browse looks" aria-modal="true" onKeyDown={e => {
     e.stopPropagation();
     if(e.key==='Escape'){e.preventDefault();close();}

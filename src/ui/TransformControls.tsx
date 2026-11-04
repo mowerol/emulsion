@@ -6,6 +6,7 @@ import { photoId } from '../library/copies';
 import { fitPhotoPerspective } from '../library/perspective';
 import { activePhoto, editActive, useApp } from '../library/store';
 import { Segmented } from './common';
+import { LiveRange } from './LiveRange';
 
 export const transformSummary = (p: Perspective | null | undefined) => hasPerspective(p) ? 'Corrected' : 'As shot';
 
@@ -52,10 +53,10 @@ export function TransformControls({ recipe }: { recipe: Recipe }) {
       {([{key:'vertical',label:'Vertical',max:80},{key:'horizontal',label:'Horizontal',max:80},{key:'rotation',label:'Rotate',max:20}] as const).map(({key,label,max}) => <div className="slider" key={key}>
         <label htmlFor={`transform-${key}`} onDoubleClick={()=>change({[key]:0})}>{label}</label>
         <output htmlFor={`transform-${key}`}>{p[key].toFixed(1)}°</output>
-        <div className="track"><input id={`transform-${key}`} type="range" min={-max} max={max} step={0.1} value={p[key]} disabled={disabled||busy}
+        <div className="track"><LiveRange id={`transform-${key}`} min={-max} max={max} step={0.1} value={p[key]} disabled={disabled||busy}
           onPointerDown={()=>{gesture.current=`transform-${key}-${performance.now()}`;}}
           onPointerUp={()=>{gesture.current=null;}} onPointerCancel={()=>{gesture.current=null;}} onBlur={()=>{gesture.current=null;}}
-          onChange={e=>change({[key]:Number(e.target.value)})} onDoubleClick={()=>change({[key]:0})} /></div>
+          onChange={(v) =>change({[key]:v})} onDoubleClick={()=>change({[key]:0})} /></div>
       </div>)}
     </div>
     <label className="lens-toggle"><input type="checkbox" checked={p.autoCrop} disabled={disabled||busy} onChange={e=>change({autoCrop:e.target.checked})} />Constrain crop</label>

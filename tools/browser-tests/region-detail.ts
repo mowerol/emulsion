@@ -896,5 +896,258 @@ void main() {
   } finally { engine.gpu.draw = original; engine.release(full); engine.release(preview); engine.dispose(); }
   document.body.dataset.result = `${failures.length ? 'FAIL' : 'PASS'}: ${JSON.stringify({ failures, out })}`;
 }
+// A mask's amount changes its fold, not the input or mask evaluated before that instance.
+async function maskedDehazeCache() {
+  const engine = new Engine(document.createElement('canvas')), e = engine as any, g = engine.gpu, gl = g.gl;
+  const W = 1152, H = 768;
+  const upload = (w: number, h: number) => {
+    const data = new Uint16Array(w * h * 4);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) data.set([
+      0x3000 + Math.round(500 * x / w), 0x3000 + Math.round(400 * y / h), 0x2c00, 0x3c00,
+    ], 4 * (y * w + x));
+    return engine.sourceFromHalf({ width: w, height: h, fullWidth: W, fullHeight: H, mode: InputMode.SceneLinear, white: null, data });
+  };
+  const full = upload(W, H), preview = upload(384, 256), target = g.target(240, 160, false);
+  const originalStep = e.dehazeStep.bind(e), originalSet = e.develop.set.bind(e.develop), originalDraw = g.draw.bind(g);
+  let inputDraws = 0, maskDraws = 0, tap = 0;
+  e.dehazeStep = (...args: any[]) => { if (args[2] === 8) inputDraws++; return originalStep(...args); };
+  e.develop.set = (u: any) => { if (u.uTap !== undefined) tap = u.uTap; return originalSet(u); };
+  g.draw = (...args: Parameters<typeof g.draw>) => { if (args[0] === e.develop && tap === 10) maskDraws++; return originalDraw(...args); };
+  const out: Record<string, unknown> = {};
+  try {
+    for (const regional of [false, true]) {
+      e.freeRegion(); e.freeLaneTargets();
+      const mask = { ...newMask(newGradient(), 0), dehaze: 20 };
+      const recipe = { ...defaultRecipe('neutral', 'straight'), captureSharpening: 0, grain: 0, dehaze: 20, masks: [mask] };
+      const opts = { target, width: target.w, height: target.h, seed: 0,
+        ...(regional ? { view: { x: .35, y: .35, w: .25, h: .25 }, whole: preview } : {}) };
+      const source = regional ? full : preview;
+      const read = () => { const px = new Uint8Array(target.w * target.h * 4); gl.bindFramebuffer(gl.FRAMEBUFFER, target.fbo); gl.readPixels(0, 0, target.w, target.h, gl.RGBA, gl.UNSIGNED_BYTE, px); return px; };
+      const draw = (r: Recipe) => { engine.render(source, r, opts); return read(); };
+      draw(recipe);
+      inputDraws = maskDraws = 0;
+      const changed = { ...recipe, masks: [{ ...mask, dehaze: 35 }] };
+      draw(changed);
+      assert(inputDraws === 0 && maskDraws === 0, `${regional ? 'region' : 'whole'}: amount-only edit rebuilt ${inputDraws} masked inputs and ${maskDraws} masks`);
+      out[regional ? 'region' : 'whole'] = { inputDraws, maskDraws };
+      // Changing the sign overwrites the transmission scratch. Geometry, upstream input,
+      // and refinement must all refresh the mask; every cached result equals a fresh build.
+      for (const r of [changed, { ...changed, masks: [{ ...mask, dehaze: -30 }] },
+        { ...changed, masks: [{ ...mask, shapes: [newGradient([.6, .4])] }] },
+        { ...changed, dehaze: -25 },
+        { ...changed, masks: [{ ...mask, refine: { ...mask.refine, blur: 5, feather: 5 } }] }]) {
+        const cached = draw(r);
+        e.invalidateRegionMaps(); e.freeLaneTargets();
+        const fresh = draw(r);
+        assert(cached.every((v, i) => v === fresh[i]), 'Masked Dehaze cache differs from fresh output');
+      }
+      assert(gl.getError() === gl.NO_ERROR, 'Masked Dehaze cache: WebGL error');
+    }
+    document.body.dataset.result = `PASS: ${JSON.stringify(out)}`;
+  } finally { g.free(target); engine.release(full); engine.release(preview); engine.dispose(); }
+}
+// Capture metadata arrives asynchronously after the full source is first shown.
+// Rendering must then match the same source with capture data present from the start.
+async function captureArrival() {
+  const engine = new Engine(document.createElement('canvas'));
+  const W = 2048, H = 1536;
+  const data = new Uint16Array(W * H * 4);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const value = 0x3200 + Math.round(256 * Math.sin(x * .7) ** 2) + (((x >> 4) ^ (y >> 4)) & 1) * 384;
+    data.set([value, value, value, 0x3c00], 4 * (y * W + x));
+  }
+  const upload = () => engine.sourceFromHalf({ width: W, height: H, fullWidth: W, fullHeight: H, mode: InputMode.SceneLinear, white: null, data });
+  const late = upload(), ready = upload();
+  const preview = engine.sourceFromHalf({ width: 256, height: 192, fullWidth: W, fullHeight: H, mode: InputMode.SceneLinear, white: null, data: data.slice(0, 256 * 192 * 4) });
+  const recipe = { ...defaultRecipe('neutral', 'straight'), sharpen: 0, grain: 0 };
+  const view = { x: .35, y: .35, w: .25, h: .25 };
+  const draw = (src: typeof late) => engine.readPixels(src, recipe, 512, 384, 0, false, view, undefined, preview);
+  const k = 65535 / 1.8, toCam = [k, 0, 0, 0, k, 0, 0, 0, k];
+  const mask = new Uint8Array(W * H).fill(1);
+  try {
+    engine.attachCapture(ready, .7, toCam, mask);
+    const fresh = draw(ready);
+    const unsharpened = draw(late);
+    engine.attachCapture(late, .7, toCam, mask);
+    const arrived = draw(late);
+    let worst = 0, moved = 0;
+    for (let i = 0; i < fresh.length; i++) {
+      worst = Math.max(worst, Math.abs(fresh[i] - arrived[i]));
+      moved = Math.max(moved, Math.abs(fresh[i] - unsharpened[i]));
+    }
+    assert(moved > 1, 'Capture fixture has no visible sharpening');
+    assert(worst === 0, `Late capture differs from ready capture by ${worst}/255`);
+    const whole = engine.readPixels(ready, recipe, 512, 384, 0, false, view);
+    let wholeWorst = 0;
+    for (let i = 0; i < whole.length; i++) wholeWorst = Math.max(wholeWorst, Math.abs(whole[i] - fresh[i]));
+    assert(wholeWorst <= 1, `Regional capture differs from the whole-source reference by ${wholeWorst}/255`);
+    // Replacing capture metadata on a source must also invalidate the copied clip mask.
+    engine.attachCapture(ready, 1.3, toCam, mask);
+    const freshReplacement = draw(ready);
+    draw(late); // leave the old capture result cached on this same source
+    engine.attachCapture(late, 1.3, toCam, mask);
+    const replaced = draw(late);
+    for (let i = 0; i < replaced.length; i++) assert(replaced[i] === freshReplacement[i], 'Replacing capture data left a stale region');
+    // Noise reduction replaces the input texture before capture sharpening. Metadata
+    // replacement must invalidate that derived source on the whole-photo lane too.
+    for (const amount of [50, 100]) {
+      const width = 160, height = 120;
+      const original = data.slice(0, width * height * 4);
+      const denoised = original.map((v, i) => i % 4 === 3 ? v : v - 64);
+      const make = () => engine.sourceFromHalf({ width, height, fullWidth: width, fullHeight: height, mode: InputMode.SceneLinear, white: null, data: original, denoised });
+      const cached = make(), reference = make(), clip = new Uint8Array(width * height).fill(1);
+      const r: Recipe = { ...recipe, captureSharpening: 5, noiseReduction: { enabled: true, amount, model: 'rawnind-linear-v1' } };
+      const read = (src: typeof cached) => engine.readPixels(src, r, width, height, 0);
+      try {
+        engine.attachCapture(reference, 1.3, toCam, clip);
+        const expected = read(reference);
+        engine.attachCapture(cached, .7, toCam, clip);
+        const previous = read(cached);
+        assert(previous.some((v, i) => v !== expected[i]), `Noise ${amount}: replacement fixture has no effect`);
+        engine.attachCapture(cached, 1.3, toCam, clip);
+        const got = read(cached);
+        for (let i = 0; i < got.length; i++) assert(got[i] === expected[i], `Noise ${amount}: capture replacement left stale whole-source output`);
+      } finally { engine.release(cached); engine.release(reference); }
+    }
+    assert(engine.gpu.gl.getError() === engine.gpu.gl.NO_ERROR, 'Capture arrival: WebGL error');
+    document.body.dataset.result = `PASS: asynchronous and replaced capture match ready sources; sharpening changes pixels by ${moved}/255`;
+  } finally { engine.release(late); engine.release(ready); engine.release(preview); engine.dispose(); }
+}
+// The band where the preview is too small but a padded region covers most of the photo
+// must also stand in during motion, rather than develop the entire full-size source.
+async function motion() {
+  const canvas = document.createElement('canvas'); canvas.width = 300; canvas.height = 200;
+  const engine = new Engine(canvas);
+  const upload = (w: number, h: number) => engine.sourceFromHalf({ width: w, height: h, fullWidth: 768, fullHeight: 512,
+    mode: InputMode.SceneLinear, white: null, data: new Uint16Array(w * h * 4).fill(0x3000) });
+  const full = upload(768, 512), preview = upload(128, 86);
+  // Perspective requires full-density analysis; its padded region can still fail admission.
+  // Untransformed display-density regions may now cover the entire source by design.
+  const recipe = { ...defaultRecipe('neutral', 'straight'), captureSharpening: 0, grain: 0, dehaze: 30, clarity: 30, texture: 30,
+    transform: { rotation: 1, vertical: 0, horizontal: 0, focalLength: 28, autoCrop: true } };
+  try {
+    for (const width of [.73, .89, .61]) {
+      const view = { x: (1 - width) / 2, y: (1 - width) / 2, w: width, h: width };
+      const opts = { target: 'screen' as const, width: 300, height: 200, seed: 0, view, whole: preview, moving: true };
+      assert(!(engine as any).regionPlan(full, recipe, opts), 'Fixture must cross the whole-source fallback');
+      engine.render(full, recipe, opts);
+      assert(engine.stoodIn, 'Motion without an admissible region developed the full source');
+      assert((engine as any).whole.dh?.input !== full.tex, 'Motion built a whole-photo full-resolution Dehaze map');
+      assert(engine.gpu.gl.getError() === engine.gpu.gl.NO_ERROR, 'Motion fallback has a GL error');
+    }
+    document.body.dataset.result = 'PASS: motion uses the preview across the whole-source fallback band';
+  } finally { engine.release(full); engine.release(preview); engine.dispose(); }
+}
+async function density(textured = false) {
+  const canvas = document.createElement('canvas'); canvas.width = 600; canvas.height = 400;
+  const engine = new Engine(canvas), W = 2400, H = 1600;
+  const upload = (w: number, h: number) => {
+    const data = new Uint16Array(w * h * 4);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const u = x / w, v = y / h;
+      const edge = u < .5 ? 0 : 300;
+      // Fine stone/foliage detail exposes the settled loss that a smooth ramp missed.
+      const detail = textured ? Math.round(260 * Math.sin(u * W * 1.7) * Math.cos(v * H * 1.3)) : 0;
+      data.set([0x3000 + Math.round(512 * u) + edge + detail, 0x3000 + Math.round(512 * v) + detail,
+        0x2c00 + Math.round(128 * Math.sin(u * 120) ** 2) + detail, 0x3c00], 4 * (y * w + x));
+    }
+    return engine.sourceFromHalf({ width: w, height: h, fullWidth: W, fullHeight: H, mode: InputMode.SceneLinear, white: null, data });
+  };
+  const full = upload(W, H), preview = upload(600, 400);
+  const r = { ...defaultRecipe('neutral', 'straight'), captureSharpening: 0, grain: 0, dehaze: 30, texture: 40, clarity: 30, sharpen: 40,
+    color: { hue: Array(8).fill(0), sat: [0, 0, 30, 0, 0, 0, 0, 0], bright: Array(8).fill(0) },
+    masks: [{ ...newMask(newGradient(), 0), exposure: .2 }] };
+  const internals = engine as any;
+  const results: Record<string, unknown> = {};
+  const draw = (scale: number, recipe: Recipe = r, live = false) => {
+    const w = canvas.width / (W * scale), h = canvas.height / (H * scale);
+    const view = { x: (1 - w) / 2, y: (1 - h) / 2, w, h };
+    engine.render(full, recipe, { target: 'screen', width: canvas.width, height: canvas.height, seed: 0, view, whole: preview, live });
+    const gl = engine.gpu.gl, px = new Uint8Array(canvas.width * canvas.height * 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.readPixels(0, 0, canvas.width, canvas.height, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    const topFirst = new Uint8Array(px.length), stride = canvas.width * 4;
+    for (let y = 0; y < canvas.height; y++) topFirst.set(px.subarray(y * stride, (y + 1) * stride), (canvas.height - 1 - y) * stride);
+    assert(gl.getError() === gl.NO_ERROR, `Display density ${scale}: GL error`);
+    return { px: topFirst, view };
+  };
+  try {
+    for (const scale of [.5, .637, .75, 1, 1.37, 4.17]) {
+      const { px, view } = draw(scale);
+      if (internals.regionMade) assert(internals.regionMade.input === full.tex, `${scale}: settled detail uses a reduced input`);
+      const reference = engine.readPixels(full, r, canvas.width, canvas.height, 0, false, view, undefined, preview);
+      const diffs = [...reference].map((v, i) => Math.abs(v - px[i])).sort((a, b) => a - b);
+      results[scale] = { max: diffs.at(-1), mean: diffs.reduce((a, b) => a + b, 0) / diffs.length, p99: diffs[Math.floor(diffs.length * .99)] };
+      assert(diffs.at(-1)! <= (textured ? 2 : scale >= 1 ? 1 : 6), `${scale}: display/reference deviation ${JSON.stringify(results[scale])}`);
+      assert(diffs[Math.floor(diffs.length * .99)] <= 1, `${scale}: display/reference p99 exceeds 1/255`);
+    }
+    draw(.637, r, true);
+    const kept = internals.regionMade.source;
+    const exactTargets = [internals.region.eq, internals.region.usm, internals.region.ce];
+    draw(.631, r, true);
+    assert(internals.regionMade.source === kept, 'A small zoom change recreated the working source');
+    assert(!internals.viewMade, 'Live preview maps allocated a smaller regional source');
+    assert(exactTargets.every((t, i) => t === [internals.region.eq, internals.region.usm, internals.region.ce][i]), 'Live activation resized settled buffers');
+    const settled = draw(.631, { ...r, clarity: 45 }).px;
+    internals.invalidateRegionMaps();
+    const fresh = draw(.631, { ...r, clarity: 45 }).px;
+    const settledWorst = fresh.reduce((max, v, i) => Math.max(max, Math.abs(v - settled[i])), 0);
+    assert(settledWorst <= 1, `A reused display source differs from a fresh settled render by ${settledWorst}/255: ${JSON.stringify(results)}`);
+    const edited = { ...r, exposure: .7, clarity: 47 };
+    const { view } = draw(.631, edited, true);
+    assert(engine.inexact, 'The staged settle fixture must contain held or preview maps');
+    for (const _ of engine.prepareFrame(full, edited, { target: 'screen', width: canvas.width, height: canvas.height, seed: 0, view, whole: preview })) { /* drain the same preparation as Develop */ }
+    const prepared = draw(.631, edited).px;
+    internals.invalidateRegionMaps();
+    const direct = draw(.631, edited).px;
+    assert(direct.every((v, i) => Math.abs(v - prepared[i]) <= 1), 'Staged settling differs from a fresh exact frame');
+    // Cancel while maps are partly overwritten, then return to settings whose keys once
+    // matched. An old key must never certify the scratch images left by the cancelled edit.
+    const prepareOpts = { target: 'screen' as const, width: canvas.width, height: canvas.height, seed: 0, view, whole: preview };
+    for (const stop of [1, 8, 20, 40]) {
+      const pending = engine.prepareFrame(full, { ...r, exposure: .9, dehaze: -40 }, prepareOpts);
+      for (let i = 0; i < stop && !pending.next().done; i++) { /* interruption point */ }
+      pending.return(undefined);
+      const restored = draw(.631, edited).px;
+      assert(restored.every((v, i) => Math.abs(v - direct[i]) <= 1), `Cancellation at pass ${stop} retained an incomplete map`);
+      assert(internals.L === internals.whole && !internals.inject && !engine.gpu.clip, 'Cancellation leaked region state');
+    }
+    const identity = [1, 0, 0, 0, 1, 0, 0, 0, 1];
+    engine.attachCapture(full, .6, identity, new Uint8Array(W * H).fill(1));
+    draw(.637, { ...r, captureSharpening: 5 }, true);
+    const before = internals.regionMade.source;
+    engine.attachCapture(full, .7, identity, new Uint8Array(W * H));
+    draw(.637, { ...r, captureSharpening: 5 }, true);
+    assert(internals.regionMade.source !== before, 'Capture replacement retained a stale display source');
+    assert(internals.regionMade.source.capture.threshold === full.capture!.threshold, 'Sharp region lost the whole-photo capture threshold');
+    engine.release(full);
+    assert(!internals.viewMade && !internals.regionMade, 'Releasing a photo retained its derived sources');
+    document.body.dataset.result = `PASS: arbitrary display densities, exact 1:1 input, reuse, settled equivalence and capture replacement ${JSON.stringify(results)}`;
+  } finally { engine.release(preview); engine.dispose(); }
+}
+async function readback() {
+  const engine = new Engine(document.createElement('canvas'));
+  const w = 96, h = 64, data = new Uint16Array(w * h * 4);
+  for (let i = 0; i < w * h; i++) data.set([0x3000 + i % 512, 0x2c00 + i % 256, 0x3000, 0x3c00], i * 4);
+  const source = engine.sourceFromHalf({ width: w, height: h, fullWidth: w, fullHeight: h, mode: InputMode.SceneLinear, white: null, data });
+  const recipe = { ...defaultRecipe('neutral', 'straight'), captureSharpening: 0, grain: 0 };
+  const gl = engine.gpu.gl, read = gl.readPixels.bind(gl);
+  let directReads = 0;
+  gl.readPixels = ((...args: unknown[]) => {
+    if (ArrayBuffer.isView(args[6])) directReads++;
+    (read as (...a: unknown[]) => void)(...args);
+  }) as typeof gl.readPixels;
+  try {
+    const pending = [engine.readPixelsAsync(source, recipe, w, h, 0), engine.readPixelsAsync(source, { ...recipe, exposure: 1 }, w, h, 0)];
+    const pixels = await Promise.all(pending);
+    assert(directReads === 0, 'Async readback synchronously read into CPU memory');
+    assert(gl.getParameter(gl.PIXEL_PACK_BUFFER_BINDING) === null, 'Async readback left a pack buffer bound');
+    for (let i = 0; i < pixels.length; i++) {
+      const reference = engine.readPixels(source, { ...recipe, exposure: i }, w, h, 0);
+      assert(reference.every((v, k) => v === pixels[i][k]), 'Concurrent async readback lost its own frame');
+    }
+    assert(gl.getError() === gl.NO_ERROR, 'Async readback has a GL error');
+    document.body.dataset.result = 'PASS: concurrent async readbacks match synchronous output without direct CPU reads or leaked bindings';
+  } finally { engine.release(source); engine.dispose(); }
+}
 const mode = new URLSearchParams(location.search);
-(mode.has('colorpreview') ? colorPreview() : mode.has('hsl') ? hslDrag() : mode.has('gesture') ? gesture() : mode.has('timing') ? timing() : main()).catch(error => { document.body.dataset.result = `FAIL: ${document.body.dataset.progress ?? ''}: ${String(error)} ${error?.stack ?? ''}`; });
+(mode.has('maskdehaze') ? maskedDehazeCache() : mode.has('readback') ? readback() : mode.has('density') || mode.has('fidelity') ? density(mode.has('fidelity')) : mode.has('motion') ? motion() : mode.has('capture') ? captureArrival() : mode.has('colorpreview') ? colorPreview() : mode.has('hsl') ? hslDrag() : mode.has('gesture') ? gesture() : mode.has('timing') ? timing() : main()).catch(error => { document.body.dataset.result = `FAIL: ${document.body.dataset.progress ?? ''}: ${String(error)} ${error?.stack ?? ''}`; });

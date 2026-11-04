@@ -60,6 +60,32 @@ unsafe extern "C" {
     fn emu_raw_free(img: *mut c_void);
 }
 
+unsafe extern "C" {
+    fn emu_omp_root();
+}
+
+/// Park one thread for the life of the app as an OpenMP root, before any LibRaw call. With
+/// the parallel build, libomp shut its runtime down whenever the last thread that had used
+/// it exited (tokio's blocking threads do when idle), and the next LibRaw call crashed on
+/// a dangling lock (`__kmp_acquire_ticket_lock`; see `emu_omp_root` in raw_shim.cpp).
+pub(crate) fn openmp_root() {
+    static ROOT: std::sync::Once = std::sync::Once::new();
+    ROOT.call_once(|| {
+        let (ready, wait) = std::sync::mpsc::channel();
+        std::thread::Builder::new()
+            .name("openmp-root".into())
+            .spawn(move || {
+                unsafe { emu_omp_root() };
+                let _ = ready.send(());
+                loop {
+                    std::thread::park();
+                }
+            })
+            .expect("spawn the OpenMP root thread");
+        let _ = wait.recv();
+    });
+}
+
 /// Linear Rec.2020 to XYZ (D65).
 const REC2020_TO_XYZ: Mat3 = [
     [0.636_958, 0.144_617, 0.168_881],
@@ -155,6 +181,7 @@ pub fn exposure(path: &Path) -> Option<crate::exposure::Exposure> {
     let path = c_path(path).ok()?;
     let mut info = EmuRawInfo::empty();
     let mut err = [0 as c_char; 256];
+    openmp_root();
     let rc = unsafe { emu_raw_info(path.as_ptr(), &mut info, err.as_mut_ptr(), err.len()) };
     if rc != 0 { return None; }
     let mut result = crate::exposure::Exposure::new(info.iso as f64, info.shutter as f64, info.aperture as f64, info.focal_length as f64);
@@ -167,6 +194,7 @@ pub fn catalog_camera(path: &Path) -> Option<String> {
     let path = c_path(path).ok()?;
     let mut info = EmuRawInfo::empty();
     let mut err = [0 as c_char; 256];
+    openmp_root();
     let rc = unsafe { emu_raw_info(path.as_ptr(), &mut info, err.as_mut_ptr(), err.len()) };
     if rc != 0 { return None; }
     let name = format!("{} {}", error_text(&info.make), error_text(&info.model)).trim().to_owned();
@@ -222,6 +250,7 @@ pub fn as_shot_white(path: &Path) -> Result<Option<[f32; 2]>, String> {
     let cpath = c_path(path)?;
     let mut info = EmuRawInfo::empty();
     let mut err = [0 as c_char; 256];
+    openmp_root();
     let rc = unsafe { emu_raw_info(cpath.as_ptr(), &mut info, err.as_mut_ptr(), err.len()) };
     if rc != 0 {
         return Err(format!("Could not read {}: {}", file_name(path), error_text(&err)));
@@ -236,6 +265,7 @@ pub fn working_to_camera(path: &Path) -> Result<Mat3, String> {
     let cpath = c_path(path)?;
     let mut info = EmuRawInfo::empty();
     let mut err = [0 as c_char; 256];
+    openmp_root();
     let rc = unsafe { emu_raw_info(cpath.as_ptr(), &mut info, err.as_mut_ptr(), err.len()) };
     if rc != 0 {
         return Err(format!("Could not read {}: {}", file_name(path), error_text(&err)));
@@ -255,6 +285,7 @@ pub fn decode(path: &Path, half: bool) -> Result<Decoded, String> {
     let mut img: *mut c_void = std::ptr::null_mut();
     let mut pixels: *const u16 = std::ptr::null();
     let mut err = [0 as c_char; 256];
+    openmp_root();
     let rc = unsafe {
         emu_raw_decode(cpath.as_ptr(), half as c_int, &mut info, &mut img, &mut pixels, err.as_mut_ptr(), err.len())
     };
@@ -365,6 +396,7 @@ pub fn embedded_preview(path: &Path) -> Result<DynamicImage, String> {
     let mut t = EmuRawThumb { format: 0, width: 0, height: 0, flip: 0, data: std::ptr::null(), len: 0 };
     let mut img: *mut c_void = std::ptr::null_mut();
     let mut err = [0 as c_char; 256];
+    openmp_root();
     let rc = unsafe { emu_raw_thumb(cpath.as_ptr(), &mut t, &mut img, err.as_mut_ptr(), err.len()) };
     if rc != 0 {
         return Err(format!("No preview in {}: {}", path.display(), error_text(&err)));
@@ -423,6 +455,28 @@ mod tests {
         let (m, from) = colour_matrix("X-T30 II", &XT30II);
         assert_eq!((m, from), (Some(XT30II), None));
         assert_eq!(colour_matrix("Unknown", &[[0.0; 3]; 3]), (None, None));
+    }
+
+    /// `EMULSION_RAW_SAMPLES=a.RAF cargo test libraw_survives -- --ignored`.
+    #[test]
+    #[ignore]
+    fn libraw_survives_threads_that_exit() {
+        // Without `openmp_root`, the parallel build crashed (SIGSEGV in libomp) on the second
+        // or third round: each round's threads were libomp's only roots, and their exit tore
+        // the runtime down under the next call. Mirrors tokio's blocking threads.
+        let samples = std::env::var("EMULSION_RAW_SAMPLES").expect("set EMULSION_RAW_SAMPLES");
+        let path = std::path::PathBuf::from(samples.split(':').next().unwrap());
+        for round in 0..300 {
+            let threads: Vec<_> = (0..1 + round % 6)
+                .map(|_| {
+                    let path = path.clone();
+                    std::thread::spawn(move || as_shot_white(&path).unwrap())
+                })
+                .collect();
+            for t in threads {
+                t.join().unwrap();
+            }
+        }
     }
 
     /// A half-size decode reports the photo's full size, the same as a full decode.

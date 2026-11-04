@@ -15,6 +15,8 @@
 
 // 1 applies the change in L* in uTextureTex (.r): the photo's instance and the masks'
 // masked instances folded together (maskfold.frag).
+#include "stages/previewmap.glsl"
+uniform float uTexturePreview;
 uniform float uTextureOn;
 uniform sampler2D uTextureTex;
 // 1 (Engine.detailOrder 'log'): the change is in log lightness, taken before Exposure
@@ -28,11 +30,11 @@ const vec2 LL_LOG_RANGE = vec2(-0.5, 7.0 / 6.0);
 float clarityLogInput(vec3 lin, float du) { return clamp((logLightness(lin) + du) / 100.0, LL_LOG_RANGE.x, LL_LOG_RANGE.y); }
 vec3 stageClarityLog(vec3 x, vec2 uv) {
   if (uTextureLog < 0.5 || uClarityOn < 0.5) return x;
-  return labShiftL(x, logShift(x, 100.0 * uClarityScale * texture(uClarityTex, uv).r));
+  return labShiftL(x, logShift(x, 100.0 * uClarityScale * texture(uClarityTex, previewMapUv(uv, uClarityPreview)).r));
 }
 
 vec3 stageTexture(vec3 x, vec2 uv) {
   if (uTextureOn < 0.5) return x;
-  float d = texture(uTextureTex, uv).r;
+  float d = texture(uTextureTex, previewMapUv(uv, uTexturePreview)).r;
   return labShiftL(x, uTextureLog > 0.5 ? logShift(x, d) : d);
 }

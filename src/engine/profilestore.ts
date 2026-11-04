@@ -23,6 +23,34 @@ const profiles = new Map<string, DcpProfile>(),
   pending = new Map<string, Promise<DcpProfile>>(),
   errors = new Map<string, string>();
 const listeners = new Set<() => void>();
+/**
+ * In the engine's worker (engine/developloop.ts) the app's IPC and settings are out of reach: the
+ * main thread sends this store's state there (`profileSnapshot`), and the worker's copy only
+ * reads it (`adoptProfileSnapshot`), never loading anything itself.
+ */
+let mirrored: { defaults: Record<string, string> } | null = null;
+export interface ProfileSnapshot {
+  entries: ProfileEntry[];
+  defaults: Record<string, string>;
+  profiles: [string, DcpProfile][];
+  errors: [string, string][];
+}
+/** What the worker's copy needs: the list, the cameras' defaults, and the profiles loaded so far. */
+export function profileSnapshot(): ProfileSnapshot | null {
+  if (!initialized) return null;
+  return { entries, defaults: defaults(), profiles: [...profiles], errors: [...errors] };
+}
+/** Replace this copy's state with the main thread's. */
+export function adoptProfileSnapshot(snap: ProfileSnapshot) {
+  mirrored = { defaults: snap.defaults };
+  entries = snap.entries;
+  initialized = true;
+  initializationError = null;
+  for (const [id, p] of snap.profiles) profiles.set(id, p);
+  errors.clear();
+  for (const [id, e] of snap.errors) errors.set(id, e);
+  changed();
+}
 const changed = () => {
   version++;
   listeners.forEach((l) => l());
@@ -42,6 +70,7 @@ const normalized = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '');
 export const sameCamera = (a: string, b: string) => normalized(a) === normalized(b);
 const DEFAULTS = 'emulsion.cameraProfiles';
 function defaults(): Record<string, string> {
+  if (mirrored) return mirrored.defaults;
   try {
     const value: unknown = getSetting(DEFAULTS) ?? {};
     return value && typeof value === 'object' && !Array.isArray(value)
@@ -58,6 +87,7 @@ export function setDefaultProfile(camera: CameraMetadata, id: string) {
   changed();
 }
 export async function refreshProfiles() {
+  if (mirrored) return;
   if (initializing) return initializing;
   // Defer even the browser-only path so finally cannot run before assignment.
   initializing = Promise.resolve().then(async () => {
@@ -111,6 +141,8 @@ export function withAutoProfile<P extends { recipe: Recipe | null; camera?: Came
 }
 async function load(id: string): Promise<DcpProfile> {
   if (profiles.has(id)) return profiles.get(id)!;
+  // A mirror waits for the main thread to send it.
+  if (mirrored) throw Error('Camera profile not received yet');
   if (pending.has(id)) return pending.get(id)!;
   if (errors.has(id)) throw Error(errors.get(id));
   const entry = entries.find((p) => p.id === id);

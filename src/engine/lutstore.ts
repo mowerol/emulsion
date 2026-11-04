@@ -67,10 +67,27 @@ export async function readLut(name: string, data: Blob): Promise<LoadedLut> {
   return { ...parseHald(px, c.width, c.height), id: ++ids, eightBit: true };
 }
 
+/**
+ * In the engine's worker the main thread loads LUTs and sends each one here (`provideLut`); the
+ * worker's copy never loads a file itself (`mirrorLuts`).
+ */
+let mirror = false;
+export const mirrorLuts = () => { mirror = true; };
+export function provideLut(file: string, lut: LoadedLut) {
+  luts.set(file, lut);
+  version++;
+  listeners.forEach((l) => l());
+}
+/** Each LUT loaded so far, to send to the worker's copy. */
+export function loadedLuts(): [string, LoadedLut][] {
+  return [...luts].filter((e): e is [string, LoadedLut] => typeof e[1] === 'object');
+}
+
 /** Load a bundled LUT (path under public/looks); resolves when it is in. */
 export async function loadLut(file: string): Promise<LoadedLut | null> {
   const have = luts.get(file);
   if (have && have !== 'loading' && have !== 'failed') return have;
+  if (mirror) return null;
   if (!have) {
     luts.set(file, 'loading');
     inFlight.set(file, (async () => {
@@ -120,3 +137,4 @@ export function useLutVersion(): number {
     () => version,
   );
 }
+export const lutVersion = () => version;

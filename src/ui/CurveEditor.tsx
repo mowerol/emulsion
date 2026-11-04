@@ -19,6 +19,7 @@ import {
 import { BINS, heights } from '../engine/histogram';
 import { activePhoto, useApp } from '../library/store';
 import { Segmented } from './common';
+import { useFrameLatest } from './LiveRange';
 
 /** Drawing size; the SVG scales to the panel width. */
 const S = 300;
@@ -56,16 +57,19 @@ export function CurveEditor({ curve, disabled, onChange }: { curve: ToneCurve | 
   const [removing, setRemoving] = useState(false);
   const drag = useRef<number | null>(null);
 
-  const full = curve ?? IDENTITY_CURVE;
+  // A drag shows its curve at once and hands it to the app at most once per display frame.
+  const live = useFrameLatest<{ curve: ToneCurve | null }>((v) => onChange(v.curve));
+  const full = (live.local ? live.local.curve : curve) ?? IDENTITY_CURVE;
   const points = full[channel];
 
   const photo = useApp(activePhoto);
   const hist = useApp((s) => s.histogram);
   const luma = hist && photo && hist.path === photoId(photo) ? heights(hist.data).l : null;
 
-  const set = (pts: CurvePoint[]) => {
+  const set = (pts: CurvePoint[], dragging = false) => {
     const next = { ...full, [channel]: pts };
-    onChange(isIdentity(next) ? null : next);
+    live.push({ curve: isIdentity(next) ? null : next });
+    if (!dragging) live.flush();
   };
 
   const pos = (e: PointerEvent) => {
@@ -107,10 +111,11 @@ export function CurveEditor({ curve, disabled, onChange }: { curve: ToneCurve | 
     const middle = i > 0 && i < points.length - 1;
     const off = middle && (y < -REMOVE_MARGIN || y > 1 + REMOVE_MARGIN);
     setRemoving(off);
-    if (!off) set(movePoint(points, i, x, y));
+    if (!off) set(movePoint(points, i, x, y), true);
   };
 
   const onUp = () => {
+    live.flush();
     const i = drag.current;
     if (i !== null && removing) {
       set(points.filter((_, k) => k !== i));

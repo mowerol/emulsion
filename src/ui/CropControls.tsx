@@ -2,6 +2,7 @@
 import type { Recipe } from '../film/recipe';
 import { activePhoto, finishCrop, setCropDraft, startCrop, useApp } from '../library/store';
 import { ASPECTS, FULL, MAX_ANGLE, flip, orientedSize, pixelRatio, ratioLabel, rotateFrame, setAngle, setAspect, turn, type AspectId, type Crop } from '../film/crop';
+import { LiveRange } from './LiveRange';
 
 export const cropSummary = (c: Crop | null) => {
   if (!c) return 'Whole frame';
@@ -54,14 +55,13 @@ export function CropControls({ recipe }: { recipe: Recipe | null }) {
         </label>
         <output htmlFor="slider-straighten">{`${draft.angle > 0 ? '+' : draft.angle < 0 ? '−' : ''}${Math.abs(draft.angle).toFixed(1)}°`}</output>
         <div className="track">
-          <input
+          <LiveRange
             id="slider-straighten"
-            type="range"
             min={-MAX_ANGLE}
             max={MAX_ANGLE}
             step={0.1}
             value={draft.angle}
-            onChange={(e) => change((c) => setAngle(c, Number(e.target.value), W, H))}
+            onChange={(v) => change((c) => setAngle(c, v, W, H))}
             onDoubleClick={() => change((c) => setAngle(c, 0, W, H))}
           />
         </div>

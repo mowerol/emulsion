@@ -64,6 +64,7 @@ pub fn mosaic(path: &Path) -> Result<Mosaic, String> {
     let mut m = EmuRawMosaic { width: 0, height: 0, flip: 0, pattern_size: 0, pattern: [[0; 6]; 6], black: [0.0; 3], white: 0.0, pre_mul: [0.0; 3] };
     let mut data: *mut u16 = std::ptr::null_mut();
     let mut err = [0 as c_char; 256];
+    crate::raw::openmp_root();
     let rc = unsafe { emu_raw_mosaic(cpath.as_ptr(), &mut m, &mut data, err.as_mut_ptr(), err.len()) };
     if rc != 0 {
         return Err(unsafe { std::ffi::CStr::from_ptr(err.as_ptr()) }.to_string_lossy().into_owned());

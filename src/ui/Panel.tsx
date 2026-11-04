@@ -36,6 +36,7 @@ import { setDetailOrder, useDetailOrder } from './detailorder';
 import { ISOS } from '../engine/grain';
 import { WhiteBalanceControls } from './WhiteBalanceControls';
 import { sliderGradient } from '../engine/colorequal';
+import { LiveRange } from './LiveRange';
 
 /** A logarithmic slider (film speeds) runs over this many steps. */
 const LOG_STEPS = 1000;
@@ -97,16 +98,15 @@ const SliderRow = memo(function SliderRow({ def, recipe, onChange }: SliderRowPr
       <ValueInput id={id} value={value} label={def.label} display={fmt(value).replace(/ EV$/, '')} disabled={!recipe}
         onCommit={(text) => { const v = commitTyped(def, text); if (v !== null && v !== value) onChange(def.key, def.log ? Math.round(v) : v, { key: `typed:${def.key}:${++typedCount}`, continuous: false }); }} />
       <div className="track">
-        <input
+        <LiveRange
           id={id}
-          type="range"
           min={def.log ? 0 : def.min}
           max={def.log ? LOG_STEPS : def.max}
           step={def.log ? 1 : def.step}
           value={def.log ? toLog(def, value) : value}
           disabled={!recipe}
           aria-valuetext={fmt(value)}
-          onChange={(e) => onChange(def.key, def.log ? fromLog(def, Number(e.target.value)) : Number(e.target.value), drag.grouping())}
+          onChange={(v) => onChange(def.key, def.log ? fromLog(def, v) : v, drag.grouping())}
           onDoubleClick={reset}
           onPointerDown={(e) => { drag.start(); mask(e.altKey); }}
           onPointerUp={() => { drag.end(); mask(false); }}
@@ -170,7 +170,7 @@ function ColorControls({ recipe }: { recipe: Recipe }) {
               </label>
               <output htmlFor={id}>{signed(v, '')}</output>
               <div className="track">
-                <input id={id} type="range" min={def.min} max={def.max} step={1} value={v} onChange={(e) => set(channel, i, Number(e.target.value))} onDoubleClick={() => set(channel, i, 0)} />
+                <LiveRange id={id} min={def.min} max={def.max} step={1} value={v} onChange={(x) => set(channel, i, x)} onDoubleClick={() => set(channel, i, 0)} />
               </div>
             </div>
           );

@@ -15,6 +15,8 @@
 
 // 1 applies the filter's change from uClarityTex (.r: change in lightness, 0 to 1 scale): the
 // photo's instance and the masks' masked instances folded together (maskfold.frag).
+#include "stages/previewmap.glsl"
+uniform float uClarityPreview;
 uniform float uClarityOn;
 uniform sampler2D uClarityTex;
 // The photo's amount over the one its map was made at (clarityScale in locallaplacian.ts): the
@@ -30,5 +32,5 @@ vec3 clarityShift(vec3 e, float delta) { return srgbOetf(labShiftL(srgbEotf(max(
 
 vec3 stageClarity(vec3 e, vec2 uv) {
   if (uClarityOn < 0.5) return e;
-  return clarityShift(e, uClarityScale * texture(uClarityTex, uv).r);
+  return clarityShift(e, uClarityScale * texture(uClarityTex, previewMapUv(uv, uClarityPreview)).r);
 }

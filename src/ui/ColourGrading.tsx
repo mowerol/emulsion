@@ -6,6 +6,7 @@ import { editActive } from '../library/store';
 import { Segmented } from './common';
 import { ychToYrg, yrgToLms, LMS_TO_REC2020 } from '../engine/colorbalance';
 import { mulVec, REC2020_TO_SRGB, srgbOetf } from '../engine/color';
+import { LiveRange, useFrameLatest } from './LiveRange';
 
 const TONES = ['shadows', 'midtones', 'highlights', 'global'] as const;
 type Tone = typeof TONES[number];
@@ -37,8 +38,10 @@ export function ColourGradingControls({ recipe }: { recipe: Recipe }) {
   const gesture = useRef(0);
   useEffect(() => { if (canvas.current) drawWheel(canvas.current); }, []);
   const change = (patch: Partial<Record<GradeKey, number>>, drag = false) => editActive(r => updateGrade(r ?? defaultRecipe(), patch), 'Colour Grading', drag ? { key: `grading-wheel-${gesture.current}`, continuous: true } : undefined);
+  // The wheel's dot follows the pointer at once; the app gets the newest point once per frame.
+  const wheel = useFrameLatest<Partial<Record<GradeKey, number>>>((patch) => change(patch, true));
   const H: GradeKey = `${tone}_H`, C: GradeKey = `${tone}_C`, Y: GradeKey = `${tone}_Y`;
-  const hue = gradeValue(recipe, H), chroma = gradeValue(recipe, C);
+  const hue = wheel.local?.[H] ?? gradeValue(recipe, H), chroma = wheel.local?.[C] ?? gradeValue(recipe, C);
   // The pad offers a useful fine range; numeric entry retains upstream's full range.
   const padMax = gradeSoftRange(C)[1];
   const radius = Math.min(chroma / padMax, 1) * 50;
@@ -47,12 +50,12 @@ export function ColourGradingControls({ recipe }: { recipe: Recipe }) {
   const row = (key: GradeKey, label: string) => {
     const [min, max, step] = gradeRange(key);
     const [softMin, softMax] = gradeSoftRange(key);
-    const value = gradeValue(recipe, key);
+    const value = wheel.local?.[key] ?? gradeValue(recipe, key);
     const percent = key.endsWith('_C') || key.endsWith('_Y') || /^(chroma|saturation|brilliance)_/.test(key) || key === 'grey_fulcrum' || key === 'mask_grey_fulcrum';
     const scale = percent ? 100 : 1;
     return <div className="grade-row" key={key}>
       <label htmlFor={`grade-${key}`} onDoubleClick={() => reset([key])} title="Double-click to reset">{label}{percent ? ' (%)' : ''}</label>
-      <input aria-label={`${label} slider`} type="range" min={softMin} max={softMax} step={step} value={Math.max(softMin, Math.min(softMax, value))} onDoubleClick={() => reset([key])} onChange={e => change({ [key]: Number(e.target.value) })} />
+      <LiveRange aria-label={`${label} slider`} min={softMin} max={softMax} step={step} value={Math.max(softMin, Math.min(softMax, value))} onDoubleClick={() => reset([key])} onChange={(v) => change({ [key]: v })} />
       <input id={`grade-${key}`} type="number" min={min * scale} max={max * scale} step={step * scale} value={Number((value * scale).toFixed(3))} onChange={e => { if (e.target.value !== '' && Number.isFinite(e.target.valueAsNumber)) change({ [key]: Math.max(min, Math.min(max, e.target.valueAsNumber / scale)) }); }} />
     </div>;
   };
@@ -61,7 +64,8 @@ export function ColourGradingControls({ recipe }: { recipe: Recipe }) {
     <div className="grade-wheel" onDoubleClick={() => reset([H, C])}
       onPointerDown={e => { gesture.current = Date.now(); e.currentTarget.setPointerCapture(e.pointerId); point(e); }}
       onPointerMove={e => { if (e.currentTarget.hasPointerCapture(e.pointerId)) point(e); }}
-      onPointerUp={e => { if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId); }}>
+      onPointerUp={e => { wheel.flush(); if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId); }}
+      onPointerCancel={() => wheel.flush()}>
       <canvas ref={canvas} width={240} height={240} aria-hidden="true" />
       <span className="grade-wheel-center" />
       <span className="grade-wheel-dot" style={{ left: `${50 + radius * Math.cos(angle)}%`, top: `${50 - radius * Math.sin(angle)}%` }} />
@@ -86,6 +90,6 @@ export function ColourGradingControls({ recipe }: { recipe: Recipe }) {
     const dx = (e.clientX - rect.left - rect.width / 2) / (rect.width / 2);
     const dy = (rect.top + rect.height / 2 - e.clientY) / (rect.height / 2);
     const r = Math.hypot(dx, dy);
-    change({ [H]: r < 0.015 ? hue : (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360, [C]: r < 0.015 ? 0 : Math.min(1, r) * padMax }, true);
+    wheel.push({ [H]: r < 0.015 ? hue : (Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360, [C]: r < 0.015 ? 0 : Math.min(1, r) * padMax });
   }
 }

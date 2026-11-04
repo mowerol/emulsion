@@ -16,6 +16,7 @@ import { fitPhotoLevel } from '../library/perspective';
 import { activePhoto, setCropDraft, showToast, useApp } from '../library/store';
 import { CROP_OVERLAYS, cycleCropOverlay, usePrefs } from './prefs';
 import { useTools } from './tools';
+import { LiveRange } from './LiveRange';
 
 const signedAngle = (a: number) => `${a > 0 ? '+' : a < 0 ? '−' : ''}${Math.abs(a).toFixed(1)}°`;
 
@@ -155,9 +156,9 @@ export function CropBar() {
       <button type="button" className="tool-icon small" aria-label="Flip vertical" aria-pressed={!!o?.flipV} data-tip="Flip vertical" onClick={() => change((c) => flip(c, 'v'))}><FlipV size={16} aria-hidden="true" /></button>
 
       <span className="crop-sep" aria-hidden="true" />
-      <input
-        className="crop-angle" type="range" min={-MAX_ANGLE} max={MAX_ANGLE} step={0.1} value={draft.angle} aria-label="Straighten" data-tip="Straighten (double-click resets)"
-        onChange={(e) => change((c) => setAngle(c, Number(e.target.value), ...orientedSize(c, W, H)))}
+      <LiveRange
+        className="crop-angle" min={-MAX_ANGLE} max={MAX_ANGLE} step={0.1} value={draft.angle} aria-label="Straighten" data-tip="Straighten (double-click resets)"
+        onChange={(v) => change((c) => setAngle(c, v, ...orientedSize(c, W, H)))}
         onDoubleClick={() => change((c) => setAngle(c, 0, ...orientedSize(c, W, H)))}
       />
       <output className="crop-angle-value" aria-label="Straighten angle" onDoubleClick={() => change((c) => setAngle(c, 0, ...orientedSize(c, W, H)))}>{signedAngle(draft.angle)}</output>

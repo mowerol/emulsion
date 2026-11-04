@@ -13,6 +13,7 @@ import { importLutFile, lutSourceOf, saveLook } from '../library/userlooks';
 import { activePhoto, editActive, endLookEdit, lookEditDirty, redo, renameLookEdit, showToast, undo, useApp } from '../library/store';
 import { LutBrowser, lutPacks, type LutCollection } from './TreatmentBrowser';
 import type { StockId } from '../film/stocks';
+import { LiveRange } from './LiveRange';
 
 const MOD = navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl+';
 const DEFAULT_NAME = 'My look';
@@ -171,8 +172,8 @@ export function LookLutSummary({ recipe }: { recipe: Recipe }) {
     </div>
     <label className="look-lut-slider">
       <span>Intensity</span>
-      <input aria-label="Base LUT intensity" type="range" min="0" max="100" value={recipe.lookAmount} style={{ '--t': recipe.lookAmount / 100 } as React.CSSProperties}
-        onChange={e => set({ lookAmount: Number(e.target.value) }, 'Base LUT intensity')} />
+      <LiveRange aria-label="Base LUT intensity" min="0" max="100" value={recipe.lookAmount} style={{ '--t': recipe.lookAmount / 100 } as React.CSSProperties}
+        onChange={(v) => set({ lookAmount: v }, 'Base LUT intensity')} />
       <output>{Math.round(recipe.lookAmount)}%</output>
     </label>
     <label className="look-lut-slider">

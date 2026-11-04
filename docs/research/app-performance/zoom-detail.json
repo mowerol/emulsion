@@ -832,5 +832,528 @@
     "noiseReduction": "Never initiated speculatively",
     "runningCancellation": "A running LibRaw call completes; foreground gets share the same key and bypass unrelated preparation.",
     "strictDetailSignal": "GPU-complete full-resolution source frame, excluding stoodIn previews and draft frames, plus two animation frames."
+  },
+  "completion20261103": {
+    "scope": "Finish prepared zoom rendering and capture-sharpening correctness; early zoom still waits for exact RAW decode.",
+    "baseline": {
+      "which": "zoomprepared",
+      "detailOrder": "darktable",
+      "dpr": 2,
+      "ua": "WebKit 605.1.15",
+      "canvas": "1552x1036",
+      "window": "1440x779",
+      "photo": {
+        "W": 6246,
+        "H": 4170
+      },
+      "zoomDetail": {
+        "viewingPauseMs": 6000,
+        "sharpMs": 867,
+        "firstRenderMs": 202,
+        "firstRenderCpuMs": 42,
+        "firstFrameMs": 102,
+        "uploadCpuMs": 60.00000000000182,
+        "screenGapMax": 537
+      }
+    },
+    "baselineCaveat": "The original detail signal excluded stand-ins/drafts but could count frames before asynchronous capture metadata arrived; not a valid final-processing comparison.",
+    "boundaryProfile": {
+      "which": "zoomprepared",
+      "detailOrder": "darktable",
+      "dpr": 2,
+      "ua": "WebKit 605.1.15",
+      "canvas": "1552x1036",
+      "window": "1440x779",
+      "photo": {
+        "W": 6246,
+        "H": 4170
+      },
+      "zoomDetail": {
+        "viewingPauseMs": 6000,
+        "sharpMs": 1044,
+        "firstRenderMs": 143,
+        "firstRenderCpuMs": 33,
+        "firstFrameMs": 634,
+        "uploadCpuMs": 41,
+        "screenGapMax": 641,
+        "debug": {
+          "z0": 11327,
+          "frames": [
+            {
+              "start": 11376,
+              "done": 11457,
+              "cpu": 47,
+              "tag": -1,
+              "srcW": 6246,
+              "detail": false
+            },
+            {
+              "start": 11470,
+              "done": 12104.000000000002,
+              "cpu": 33,
+              "tag": -1,
+              "srcW": 6246,
+              "detail": true
+            },
+            {
+              "start": 12111,
+              "done": 12369,
+              "cpu": 243.00000000000182,
+              "tag": -1,
+              "srcW": 6246,
+              "detail": true
+            }
+          ],
+          "zoomEvents": [
+            {
+              "name": "lensCorrected",
+              "start": 11471,
+              "ms": 6
+            },
+            {
+              "name": "attachCapture",
+              "start": 11532,
+              "ms": 555
+            },
+            {
+              "name": "readPixels",
+              "start": 12105,
+              "ms": 2.000000000001819
+            },
+            {
+              "name": "measureContrast",
+              "start": 12112,
+              "ms": 241
+            },
+            {
+              "name": "measureCaptureThreshold",
+              "start": 12112,
+              "ms": 241
+            }
+          ],
+          "draws": {
+            "src@6246x4170": 3,
+            "develop@screenx": 3,
+            "regionP@2240x1824": 1,
+            "lensP@2240x1824": 1,
+            "develop@2240x1824[1753x1335]": 1,
+            "usmP@2240x1824[1753x1335]": 3,
+            "develop@384x256": 2,
+            "csP@6246x4170": 1,
+            "csP@1562x4170": 1
+          }
+        }
+      }
+    },
+    "maskConversionTrial": {
+      "which": "zoomprepared",
+      "detailOrder": "darktable",
+      "dpr": 2,
+      "ua": "WebKit 605.1.15",
+      "canvas": "1552x1036",
+      "window": "1440x779",
+      "photo": {
+        "W": 6246,
+        "H": 4170
+      },
+      "zoomDetail": {
+        "viewingPauseMs": 6000,
+        "sharpMs": 656,
+        "firstRenderMs": 160,
+        "firstRenderCpuMs": 34,
+        "firstFrameMs": 130,
+        "uploadCpuMs": 53,
+        "screenGapMax": 346,
+        "debug": {
+          "z0": 11368,
+          "frames": [
+            {
+              "start": 11428,
+              "done": 11523,
+              "cpu": 56,
+              "tag": -1,
+              "srcW": 6246,
+              "detail": false
+            },
+            {
+              "start": 11528,
+              "done": 11658,
+              "cpu": 34,
+              "tag": -1,
+              "srcW": 6246,
+              "detail": true
+            },
+            {
+              "start": 11678,
+              "done": 12024,
+              "cpu": 330,
+              "tag": -1,
+              "srcW": 6246,
+              "detail": true
+            }
+          ],
+          "zoomEvents": [
+            {
+              "name": "lensCorrected",
+              "start": 11529,
+              "ms": 7
+            },
+            {
+              "name": "attachCapture",
+              "start": 11614,
+              "ms": 26
+            },
+            {
+              "name": "measureContrast",
+              "start": 11678,
+              "ms": 328
+            },
+            {
+              "name": "measureCaptureThreshold",
+              "start": 11678,
+              "ms": 328
+            },
+            {
+              "name": "readPixels",
+              "start": 12009,
+              "ms": 12
+            }
+          ],
+          "draws": {
+            "src@6246x4170": 3,
+            "develop@screenx": 3,
+            "regionP@2240x1824": 1,
+            "lensP@2240x1824": 1,
+            "develop@2240x1824[1753x1335]": 1,
+            "usmP@2240x1824[1753x1335]": 3,
+            "develop@384x256": 2,
+            "csP@6246x4170": 1,
+            "csP@1562x4170": 1
+          }
+        }
+      }
+    },
+    "maskConversionTrialCaveat": "Includes the original stale-region bug; 656 ms does not certify capture sharpening.",
+    "captureCorrectnessTrial": {
+      "which": "zoomprepared",
+      "detailOrder": "darktable",
+      "dpr": 2,
+      "ua": "WebKit 605.1.15",
+      "canvas": "1552x1036",
+      "window": "1440x779",
+      "photo": {
+        "W": 6246,
+        "H": 4170
+      },
+      "zoomDetail": {
+        "viewingPauseMs": 6000,
+        "sharpMs": 833,
+        "firstRenderMs": 335,
+        "firstRenderCpuMs": 362,
+        "firstFrameMs": 478,
+        "uploadCpuMs": 48,
+        "screenGapMax": 478,
+        "debug": {
+          "z0": 11424,
+          "frames": [
+            {
+              "start": 11479.000000000002,
+              "done": 11591.000000000002,
+              "cpu": 55.99999999999818,
+              "tag": -1,
+              "srcW": 6246,
+              "detail": false
+            },
+            {
+              "start": 11607.000000000002,
+              "done": 11736,
+              "cpu": 36.99999999999818,
+              "tag": -1,
+              "srcW": 6246,
+              "detail": false
+            },
+            {
+              "start": 11759,
+              "done": 12237,
+              "cpu": 362,
+              "tag": -1,
+              "srcW": 6246,
+              "detail": true
+            }
+          ],
+          "zoomEvents": [
+            {
+              "name": "lensCorrected",
+              "start": 11608,
+              "ms": 7
+            },
+            {
+              "name": "attachCapture",
+              "start": 11691,
+              "ms": 28
+            },
+            {
+              "name": "readPixels",
+              "start": 11746,
+              "ms": 2.000000000001819
+            },
+            {
+              "name": "measureContrast",
+              "start": 11760,
+              "ms": 238.00000000000182
+            },
+            {
+              "name": "measureCaptureThreshold",
+              "start": 11759,
+              "ms": 239.00000000000182
+            },
+            {
+              "name": "regionSource",
+              "start": 11998.000000000002,
+              "ms": 6.999999999998181
+            },
+            {
+              "name": "captureSharpened",
+              "start": 12005,
+              "ms": 6.000000000001819
+            },
+            {
+              "name": "lensCorrected",
+              "start": 12011.000000000002,
+              "ms": 39.99999999999818
+            },
+            {
+              "name": "readPixels",
+              "start": 12180,
+              "ms": 53
+            }
+          ],
+          "draws": {
+            "src@6246x4170": 3,
+            "develop@screenx": 3,
+            "regionP@2240x1824": 1,
+            "lensP@2240x1824": 1,
+            "develop@2240x1824[1753x1335]": 1,
+            "usmP@2240x1824[1753x1335]": 3,
+            "develop@384x256": 2,
+            "csP@6246x4170": 1,
+            "csP@1562x4170": 1,
+            "regionP@2336x1920": 2,
+            "csP@2336x1920": 46,
+            "csP@73x60": 20,
+            "csP@73x1920": 19,
+            "lensP@2336x1920": 1,
+            "develop@2336x1920[1753x1335]": 1,
+            "usmP@2336x1920[1753x1335]": 3
+          }
+        }
+      }
+    },
+    "rowCopyTrial": {
+      "which": "zoomprepared",
+      "detailOrder": "darktable",
+      "dpr": 2,
+      "ua": "WebKit 605.1.15",
+      "canvas": "1552x1036",
+      "window": "1440x779",
+      "photo": {
+        "W": 6246,
+        "H": 4170
+      },
+      "zoomDetail": {
+        "viewingPauseMs": 6000,
+        "sharpMs": 898,
+        "firstRenderMs": 340,
+        "firstRenderCpuMs": 407,
+        "firstFrameMs": 542,
+        "uploadCpuMs": 63,
+        "screenGapMax": 542,
+        "debug": {
+          "z0": 11711,
+          "frames": [
+            {
+              "start": 11782,
+              "done": 11889.000000000002,
+              "cpu": 54,
+              "tag": -1,
+              "srcW": 6246,
+              "detail": false
+            },
+            {
+              "start": 11892,
+              "done": 12031,
+              "cpu": 38,
+              "tag": -1,
+              "srcW": 6246,
+              "detail": false
+            },
+            {
+              "start": 12051,
+              "done": 12593,
+              "cpu": 407,
+              "tag": -1,
+              "srcW": 6246,
+              "detail": true
+            }
+          ],
+          "zoomEvents": [
+            {
+              "name": "lensCorrected",
+              "start": 11893,
+              "ms": 7
+            },
+            {
+              "name": "attachCapture",
+              "start": 11982.000000000002,
+              "ms": 29
+            },
+            {
+              "name": "readPixels",
+              "start": 12041,
+              "ms": 3
+            },
+            {
+              "name": "measureContrast",
+              "start": 12052,
+              "ms": 295
+            },
+            {
+              "name": "measureCaptureThreshold",
+              "start": 12052,
+              "ms": 295
+            },
+            {
+              "name": "regionSource",
+              "start": 12347,
+              "ms": 8
+            },
+            {
+              "name": "captureSharpened",
+              "start": 12355,
+              "ms": 6
+            },
+            {
+              "name": "lensCorrected",
+              "start": 12361,
+              "ms": 44.00000000000182
+            },
+            {
+              "name": "readPixels",
+              "start": 12548,
+              "ms": 41
+            }
+          ],
+          "draws": {
+            "src@6246x4170": 3,
+            "develop@screenx": 3,
+            "regionP@2240x1824": 1,
+            "lensP@2240x1824": 1,
+            "develop@2240x1824[1753x1335]": 1,
+            "usmP@2240x1824[1753x1335]": 3,
+            "develop@384x256": 2,
+            "csP@6246x4170": 1,
+            "csP@1562x4170": 1,
+            "regionP@2336x1920": 2,
+            "csP@2336x1920": 46,
+            "csP@73x60": 20,
+            "csP@73x1920": 19,
+            "lensP@2336x1920": 1,
+            "develop@2336x1920[1753x1335]": 1,
+            "usmP@2336x1920[1753x1335]": 3
+          }
+        }
+      }
+    },
+    "rowCopyTrialDecision": "No demonstrated gain; reverted.",
+    "finalEarly": {
+      "which": "zoomdetail",
+      "detailOrder": "darktable",
+      "dpr": 2,
+      "ua": "WebKit 605.1.15",
+      "canvas": "1552x1036",
+      "window": "1440x779",
+      "photo": {
+        "W": 6246,
+        "H": 4170
+      },
+      "zoomDetail": {
+        "viewingPauseMs": 0,
+        "sharpMs": 5244,
+        "firstRenderMs": 4740,
+        "firstRenderCpuMs": 320,
+        "firstFrameMs": 461,
+        "uploadCpuMs": 38,
+        "screenGapMax": 472
+      }
+    },
+    "finalPrepared": {
+      "which": "zoomprepared",
+      "detailOrder": "darktable",
+      "dpr": 2,
+      "ua": "WebKit 605.1.15",
+      "canvas": "1552x1036",
+      "window": "1440x779",
+      "photo": {
+        "W": 6246,
+        "H": 4170
+      },
+      "zoomDetail": {
+        "viewingPauseMs": 6000,
+        "sharpMs": 937,
+        "firstRenderMs": 355,
+        "firstRenderCpuMs": 407,
+        "firstFrameMs": 555,
+        "uploadCpuMs": 68,
+        "screenGapMax": 555
+      }
+    },
+    "finalSignal": "GPU-complete full-resolution frame, no preview stand-in or draft, and requested RAW capture data attached; then two animation frames.",
+    "preReviewSources": {
+      "src/engine/engine.ts": "5fbc5809e9e9f8ae969409b87ab7c8f19a60cf547c34973ee0e3338f989444a1",
+      "src/dev/perfrun.ts": "0cff5cfb1c3e00ab21e059a78ed83698176143b574f49944f10001facf7c5072",
+      "tools/browser-tests/region-detail.ts": "2de59234f8b3b147603b4a4fcfc712ba68e872555ff503d80a337121938214f0"
+    },
+    "sources": {
+      "src/engine/engine.ts": "8b4329246416101fbe3d9295567b0329a9173a8f97792f6ec26d3fc62206d3ea",
+      "src/dev/perfrun.ts": "0cff5cfb1c3e00ab21e059a78ed83698176143b574f49944f10001facf7c5072",
+      "tools/browser-tests/region-detail.ts": "d9e0026ca64738b358a7588cba29c1e5e56931eb3457047fc8ce6bbacb182834"
+    },
+    "reviewFix": "Capture metadata identity is part of the cache key, including post-noiseReduced whole-source inputs; regression fails without it at 50% noise reduction and passes at 50% and 100% with it.",
+    "finalPreparedRepeat": {
+      "which": "zoomprepared",
+      "detailOrder": "darktable",
+      "dpr": 2,
+      "ua": "WebKit 605.1.15",
+      "canvas": "1552x1036",
+      "window": "1440x779",
+      "photo": {
+        "W": 6246,
+        "H": 4170
+      },
+      "zoomDetail": {
+        "viewingPauseMs": 6000,
+        "sharpMs": 894,
+        "firstRenderMs": 387,
+        "firstRenderCpuMs": 357,
+        "firstFrameMs": 494,
+        "uploadCpuMs": 64,
+        "screenGapMax": 494
+      }
+    },
+    "checks": {
+      "frontend": 541,
+      "rust": 70,
+      "rustIgnored": 9,
+      "captureArrivalRegression": "PASS including replacement with noise reduction at 50%/100%; red before each fix",
+      "zoomFullRes": "PASS",
+      "regionDetail": "PASS",
+      "browserTypeCheck": "PASS",
+      "captureGpuProbe": "threshold equal to reference; relative pixels <0.001",
+      "review": {
+        "standards": 0,
+        "spec": 0,
+        "resolvedSpec": "derived-source capture metadata replacement"
+      }
+    }
   }
 }

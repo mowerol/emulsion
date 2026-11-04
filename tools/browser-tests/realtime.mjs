@@ -7,6 +7,9 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+// These pages patch Engine.prototype and read the develop engine in place: keep it on the page's
+// thread (ui/developclient.ts); VITE_ENGINE=worker runs a page with it in its worker instead.
+process.env.VITE_ENGINE ??= 'main';
 const browser = process.env.BROWSER_BIN ?? '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
 const page = process.argv[2];
 const query = process.argv[4] ?? '';

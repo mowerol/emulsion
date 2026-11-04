@@ -55,7 +55,17 @@ fn build_libraw() {
                 .define("LIBRAW_FORCE_OPENMP", None);
             // Emit the runtime after libraw so the static archive's references resolve.
             build.compile("libraw");
-            println!("cargo:rustc-link-search=native={}", prefix.join("lib").display());
+            // Search a folder holding only the archive: beside Homebrew's libomp.dylib, the
+            // linker picked the dylib for test binaries, which shuts down differently from
+            // the app's static runtime (see raw::openmp_root) and hid its crash from tests.
+            let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("omp");
+            std::fs::create_dir_all(&out).unwrap();
+            // Homebrew's archive is read-only and copy keeps the mode, so a rebuild can't
+            // overwrite its own earlier copy: remove it first.
+            let copy = out.join("libomp.a");
+            let _ = std::fs::remove_file(&copy);
+            std::fs::copy(&archive, &copy).unwrap();
+            println!("cargo:rustc-link-search=native={}", out.display());
             println!("cargo:rustc-link-lib=static=omp");
         } else if explicit.is_some() {
             panic!("LIBOMP_PREFIX must contain include/omp.h and lib/libomp.a");

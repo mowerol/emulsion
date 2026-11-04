@@ -9,13 +9,15 @@
 // Needs stages/clarity.glsl (clarityShift).
 
 // 1 applies the change from uUsmTex (.r: change in lightness, 0 to 1 scale; .g: the contrast mask).
+#include "stages/previewmap.glsl"
+uniform float uUsmPreview;
 uniform float uUsmOn;
 uniform sampler2D uUsmTex;
 
 vec3 stageUnsharpMask(vec3 e, vec2 uv) {
   if (uUsmOn < 0.5) return e;
-  return clarityShift(e, texture(uUsmTex, uv).r);
+  return clarityShift(e, texture(uUsmTex, previewMapUv(uv, uUsmPreview)).r);
 }
 
 /** The contrast mask as grey, for showing where Sharpening reaches. */
-float usmMask(vec2 uv) { return texture(uUsmTex, uv).g; }
+float usmMask(vec2 uv) { return texture(uUsmTex, previewMapUv(uv, uUsmPreview)).g; }

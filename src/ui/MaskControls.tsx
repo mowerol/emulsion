@@ -9,6 +9,7 @@ import { installObjectModel, newObjectSession, prepareObjectSelect, useObjectSel
 import { formatEv, formatSigned } from '../film/recipe';
 import { MaskRanges } from './MaskRange';
 import { deleteMask, deleteShape, duplicateMask, setMaskUi, updateMask, updateShape, useMasks, useMaskUi, useSelectedMask, type MaskTool } from './maskui';
+import { LiveRange } from './LiveRange';
 
 const TOOLS: { kind: MaskTool['kind']; label: string; short: string; hint: string }[] = [
   { kind: 'gradient', label: 'Linear gradient', short: 'Linear', hint: 'Drag on the photo from where the effect is full to where it ends' },
@@ -28,7 +29,7 @@ function Slider({ id, label, value, min, max, step, format, onChange, onReset }:
       <label htmlFor={id} onDoubleClick={onReset} title="Double-click to reset">{label}</label>
       <output htmlFor={id}>{format(value)}</output>
       <div className="track">
-        <input id={id} type="range" min={min} max={max} step={step} value={value} onChange={(e) => onChange(Number(e.target.value))} onDoubleClick={onReset} />
+        <LiveRange id={id} min={min} max={max} step={step} value={value} onChange={onChange} onDoubleClick={onReset} />
       </div>
     </div>
   );

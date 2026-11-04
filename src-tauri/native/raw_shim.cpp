@@ -87,6 +87,19 @@ static void fill_colour_info(LibRaw *raw, EmuRawInfo *info) {
   info->focal_length35 = raw->imgdata.lens.FocalLengthIn35mmFormat;
 }
 
+// Make the calling thread an OpenMP root that stays registered. libomp tears down its
+// runtime, including the lock behind LibRaw's allocator (`#pragma omp critical` in
+// libraw_alloc.h), when the last root thread exits; the next LibRaw call from a new thread
+// then takes a dangling lock and crashes in __kmp_acquire_ticket_lock. Our calls come from
+// tokio's blocking threads, which exit when idle, so the app parks one thread here for good
+// (raw::openmp_root). Reproduced and checked with short-lived threads, 2026-11-04.
+void emu_omp_root(void) {
+#ifdef LIBRAW_USE_OPENMP
+#pragma omp parallel
+  { (void)omp_get_thread_num(); }
+#endif
+}
+
 // Decode to 16-bit linear camera RGB, white balanced as shot and oriented.
 // On success `*out` holds an image for emu_raw_free and its pixels start at `*pixels`.
 int emu_raw_decode(const char *path, int half, EmuRawInfo *info, void **out, const unsigned short **pixels,

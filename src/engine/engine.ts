@@ -19,7 +19,7 @@ import { prepareProfile, profilePending } from './profilestore';
 
 import type { Recipe } from '../film/recipe';
 import { lensCenter, lensColourUniforms, lensSpline, lensUniforms, type LensMetadata } from './lenscorrection';
-import { geometryMatrix } from './perspective';
+import { geometryMatrix, hasPerspective } from './perspective';
 import { FULL, orientedSize, type Orientation, type Rect } from '../film/crop';
 import { Gpu, GpuError, Lru, type Program, type SpareSpec, type Target } from './gpu';
 import { InputMode, LUT_UNIT, colorBalanceUniforms, developUniforms, llParams, needsPasses, type Uniforms } from './params';
@@ -44,11 +44,13 @@ import { profileSettingsFor } from '../film/looks';
 import type { Xy } from './whitebalance';
 import { SHADERS, SHADER_FILES } from './shaders';
 import { warmRecipe, type WarmStage } from './warm';
-import { chooseRegionWithin, regionReach, regionWorthIt, stageReach, visibleSource, type PixelRect, type StageReach } from './region';
+import { chooseRegionWithin, REGION_SHARE, regionReach, regionWorthIt, stageReach, visibleSource, type PixelRect, type StageReach } from './region';
+import { displayDensity, workingScale } from './viewscale';
 
 // DCP calibration uses 12 only in its separate early pass. The develop shader
 // reads the late DCP tables (13–15), leaving 12 for the cached dark channel.
 const DEHAZE_UNIT = 12;
+const LIVE_ANALYSIS_EDGE = 768;
 
 export { GpuError, InputMode };
 
@@ -146,6 +148,8 @@ interface DehazeTargets {
   guideKey: string;
   abKey: string;
   foldKey: string;
+  /** The mask in r1; transmission filtering reuses that scratch and invalidates it. */
+  maskKey?: string;
   /** A masked instance's ambient light and depth, and the input they were measured on. */
   ambient?: { key: string; A0: [number, number, number]; distanceMax: number };
   /** The instance's input. */
@@ -227,6 +231,7 @@ interface Products {
   dehazeMap?: { tex: WebGLTexture; key: number };
   /** Live colour's scene-linear RGB change, added to the sharp regional input. */
   colorDelta?: WebGLTexture;
+  usmMap?: WebGLTexture;
   teq?: WebGLTexture;
   hal?: WebGLTexture;
   glow?: WebGLTexture;
@@ -286,7 +291,7 @@ class Lane {
   llMade: { tex: WebGLTexture; key: string; own: string; out: Target; coarse: boolean; amount: number } | null = null;
   /** The capture-sharpened source for the latest size, and what it was made from. */
   csOut: Target | null = null;
-  csMade: { tex: WebGLTexture; iterations: number } | null = null;
+  csMade: { tex: WebGLTexture; capture: Capture; iterations: number } | null = null;
   /** The texture map's ping-pong targets for the latest source size, and what it was made from. */
   /** Texture's targets: a, b hold the detail sums and mask (RGBA), ia, ib the image at each
    *  scale (one channel, what the 25 taps read), ga, gb draw into a + ia and b + ib at once;
@@ -312,6 +317,9 @@ class Lane {
   /** Preview-only live colour change; the finished RGB map itself would blur a zoomed image. */
   ceDelta: Target | null = null;
   ceDeltaMade: Lane['ceMade'] = null;
+  /** Colour's RGB change at display density, applied to the full-density sharp input. */
+  ceDisplayDelta: Target | null = null;
+  ceDisplayDeltaMade: Lane['ceMade'] = null;
   /** A look's colour equalizer instance (before the photo's): its output, in ce.t[5], and what it was made from. */
   ceLookMade: { tex: WebGLTexture; key: string } | null = null;
   /** Bounded live colour keeps its working images when the exact preview is rendered. */
@@ -324,6 +332,8 @@ class Lane {
   profileEarly: ProfileEarly = { early: null };
   /** Haze removal's targets for the latest source size (see dehazeMap), and what they were made from. */
   dh: DehazeTargets | null = null;
+  /** The bounded live transmission, retained separately from the settled preview's maps. */
+  dhLive: DehazeTargets | null = null;
   /** The masks' masked haze removal instances, in order. */
   dhMasked: DehazeTargets[] = [];
   /** The ambient light and depth of the latest source, measured on a small copy. */
@@ -369,11 +379,18 @@ export class Engine {
   /** The lane for the whole photo, the lane for a region shown at full resolution, and the one in use. */
   private whole: Lane;
   private region: Lane;
+  /** Interaction maps retain their buffers without resizing the faithful settled lane. */
+  private display: Lane;
+  private displayBuilt = new Set<keyof RegionClips>();
   private L: Lane;
   /** During a region render, what it takes from the whole photo. */
   private inject: Products | null = null;
   private regionProductsSource: WebGLTexture | null = null;
   private regionP: Program;
+  private viewSourceP: Program;
+  private sharpSampler: WebGLSampler | null = null;
+  /** A retained copy for effect analysis; the displayed image keeps its sharp source. */
+  private viewMade: { input: WebGLTexture; scale: number; source: Source; target: Target } | null = null;
   /** The region of a full-size source last copied out, and the copy (docs/plans/roi.md). */
   private regionMade: { input: WebGLTexture; rect: PixelRect; source: Source; targets: Target[] } | null = null;
   /** Where in the region its per-edit maps are made (region pixels). */
@@ -445,7 +462,7 @@ export class Engine {
   private retouchFbo: WebGLFramebuffer | null = null;
   private dehazeGfP: Program;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement | OffscreenCanvas) {
     this.gpu = new Gpu(canvas);
     this.profiles = new ProfileGpu(this.gpu);
     this.noiseP = this.gpu.program(SHADERS.vertex, noiseShader);
@@ -462,8 +479,10 @@ export class Engine {
       refine: this.gpu.program(SHADERS.vertex, SHADERS.maskrefine),
     };
     this.regionP = this.gpu.program(SHADERS.vertex, SHADERS.regionFrag);
+    this.viewSourceP = this.gpu.program(SHADERS.vertex, SHADERS.viewsource);
     this.whole = new Lane(this.gpu, programs);
     this.region = new Lane(this.gpu, programs);
+    this.display = new Lane(this.gpu, programs);
     this.L = this.whole;
     this.sampleP = this.gpu.program(SHADERS.vertex, SHADERS.sample);
     this.blurP = this.gpu.program(SHADERS.vertex, SHADERS.blur);
@@ -515,6 +534,11 @@ export class Engine {
       return;
     }
     g.draw(program, null, w, h, true);
+    this.fenceWork();
+  }
+
+  private fenceWork() {
+    const g = this.gpu;
     if (this.fence) g.gl.deleteSync(this.fence);
     this.fence = g.gl.fenceSync(g.gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
     g.gl.flush();
@@ -586,16 +610,34 @@ export class Engine {
     if (!eqFits || !L.eq!.coarse) add(2, true, 'rg');
     const b = L.textureBoundaries.get(-1);
     if (!b || b.target.w !== w || b.target.h !== h) add(1, true, 'rg');
+    // Colour's live analysis and its exact preview/regional targets, one allocation per
+    // idle step. They are the buffers a cold activation/release would otherwise make at once.
+    if (!L.ce || L.ce.w !== w || L.ce.h !== h) add(5, true, false);
+    const ratio = Math.min(1, LIVE_ANALYSIS_EDGE / Math.max(w, h));
+    const cw = Math.max(1, Math.round(w * ratio)), ch = Math.max(1, Math.round(h * ratio));
+    if (!L.ceDraft?.ce || L.ceDraft.ce.w !== cw || L.ceDraft.ce.h !== ch)
+      for (let i = 0; i < 5; i++) wanted.push([cw, ch, true, true, false]);
+    if (!L.ceDelta || L.ceDelta.w !== cw || L.ceDelta.h !== ch) wanted.push([cw, ch, true, true, false]);
+    if (!L.dhLive || L.dhLive.w !== cw || L.dhLive.h !== ch) {
+      for (let i = 0; i < 6; i++) wanted.push([cw, ch, true, true, false]);
+      for (let i = 0; i < 3; i++) wanted.push([cw, ch, true, true, true]);
+    }
+    for (const [region, lane] of [[this.regionMade?.source, this.region], [this.viewMade?.source, this.display]] as const) {
+      const ce = lane.ce;
+      if (region && (!ce || ce.w !== region.w || ce.h !== region.h))
+        for (let i = 0; i < 5; i++) wanted.push([region.w, region.h, true, true, false]);
+    }
     return g.keepSpares(wanted).map((s) => () => g.reserve(...s));
   }
 
   release(src: Source | null | undefined) {
     if (!src) return;
+    if (this.viewMade?.input === src.tex) this.freeViewSource();
     this.gpu.gl.deleteTexture(src.tex);
     if (src.denoised) this.gpu.gl.deleteTexture(src.denoised);
     this.eachLane(() => {
       if (this.L.noiseMade?.input === src.tex) { this.gpu.free(this.L.noiseMade.out); this.L.noiseMade = null; }
-      if (this.L.dh?.input === src.tex || this.L.dhMasked.some((d) => d.input === src.tex)) this.freeDehaze();
+      if (this.L.dh?.input === src.tex || this.L.dhLive?.input === src.tex || this.L.dhMasked.some((d) => d.input === src.tex)) this.freeDehaze();
       if (this.L.dhAmbient?.input === src.tex) this.L.dhAmbient = null;
       if (this.L.lensMade?.input === src.tex) { this.gpu.free(this.L.lensMade.out); this.L.lensMade = null; }
       if (this.L.retouchMade?.input === src.tex) { this.gpu.free(this.L.retouchMade.out); this.L.retouchMade = null; }
@@ -609,7 +651,7 @@ export class Engine {
   private eachLane(f: () => void) {
     const was = this.L;
     try {
-      for (const lane of [this.whole, this.region]) {
+      for (const lane of [this.whole, this.region, this.display]) {
         this.L = lane;
         f();
       }
@@ -642,6 +684,8 @@ export class Engine {
     if (L.ceDraft?.ce) { g.freePair(L.ceDraft.ce.pair); L.ceDraft.ce.t.forEach((t) => g.free(t)); }
     L.ceDraft = null;
     if (L.ceDelta) g.free(L.ceDelta);
+    if (L.ceDisplayDelta) g.free(L.ceDisplayDelta);
+    L.ceDisplayDelta = L.ceDisplayDeltaMade = null;
     L.ceDelta = L.ceDeltaMade = null;
     L.lls.clear();
     L.refiner.release();
@@ -661,8 +705,10 @@ export class Engine {
 
   private freeDehaze() {
     if (this.L.dh) this.freeDehazeTargets(this.L.dh);
+    if (this.L.dhLive) this.freeDehazeTargets(this.L.dhLive);
     this.L.dhMasked.forEach((d) => this.freeDehazeTargets(d));
     this.L.dh = null;
+    this.L.dhLive = null;
     this.L.dhMasked = [];
     if (this.L.dhStandIn) this.gpu.free(this.L.dhStandIn);
     this.L.dhStandIn = null;
@@ -737,32 +783,47 @@ export class Engine {
    * maximum and minimum commute with that increasing map, and the guided filter is linear in its
    * input and keeps constants, so its output is (1 - k) + k times its output for strength σ.
    */
-  private dehazeTransmission(d: DehazeTargets, src: Source, A0: number[], strength: number, guideKey: string) {
+
+
+  private *dehazeTransmissionSteps(d: DehazeTargets, src: Source, A0: number[], strength: number, guideKey: string): Generator<void> {
     const { w, h } = d;
     const { w1, w2 } = windows(pxScale(src));
     const sign = Math.sign(strength);
     const step = (mode: number, to: Target, tex: Partial<Record<'I' | 'A' | 'B' | 'C' | 'D', WebGLTexture>>, extra: Uniforms = {}) =>
       this.dehazeStep(w, h, mode, to, tex, { uW: w2, uA0: A0, uStrength: sign, ...extra });
+    yield;
     if (d.guideKey !== guideKey) {
       // The guide's means: along rows, then columns.
       step(3, d.split, { I: d.I.tex });
+    yield;
       step(4, d.guide, { A: d.s1.tex, B: d.s2.tex, C: d.r1.tex }, { uDir: [0, 1] });
+    yield;
       d.guideKey = guideKey;
       d.abKey = '';
     }
     const abKey = JSON.stringify([A0, sign]);
     if (d.abKey === abKey) return;
+    d.maskKey = undefined;
     // The transition map, its box maximum then box minimum (radius w1).
     step(1, d.r1, { I: d.I.tex }, { uW: w1 });
+    yield;
     step(2, d.r2, { A: d.r1.tex }, { uW: w1, uDir: [0, 1] });
+    yield;
     step(2, d.r1, { A: d.r2.tex }, { uW: w1, uMin: 1 });
+    yield;
     step(2, d.r2, { A: d.r1.tex }, { uW: w1, uMin: 1, uDir: [0, 1] });
+    yield;
     // The guided filter (radius w2): means of t and t × guide, a and b, then their means.
     step(5, d.s1, { I: d.I.tex, A: d.r2.tex });
+    yield;
     step(4, d.s2, { A: d.s1.tex }, { uDir: [0, 1] });
+    yield;
     step(6, d.s1, { A: d.s2.tex, B: d.g0.tex, C: d.g1.tex, D: d.g2.tex });
+    yield;
     step(4, d.s2, { A: d.s1.tex });
+    yield;
     step(4, d.s1, { A: d.s2.tex }, { uDir: [0, 1] });
+    yield;
     d.abKey = abKey;
   }
 
@@ -801,9 +862,15 @@ export class Engine {
    * mask `slot`'s value at its instance's input into `to` (refining it there first if it has
    * Refine settings). Sets uDehazeOn and uDehazeKey (what the result depends on) in `u`.
    */
-  private dehazeMap(src: Source, u: Uniforms, photoOn: boolean, masked: { slot: number; strength: number; key: string }[], maskTap: (slot: number, prev: Target | null, to: Target) => void): WebGLTexture {
+
+
+  private *dehazeMapSteps(src: Source, u: Uniforms, photoOn: boolean, masked: { slot: number; strength: number; key: string; maskKey: string }[], maskTap: (slot: number, prev: Target | null, to: Target) => void): Generator<void, WebGLTexture> {
     const g = this.gpu;
     const { w, h } = src;
+    if (!this.L.dh || this.L.dh.w !== w || this.L.dh.h !== h) {
+      yield* this.reserveSteps([...Array.from({ length: 6 }, (): SpareSpec => [w, h, true, true, false]),
+        ...Array.from({ length: 3 }, (): SpareSpec => [w, h, true, true, true])]);
+    }
     const d0 = (this.L.dh = this.dehazeTargets(this.L.dh, w, h));
     const inputKey = `${pick(u, ['uInputMode', 'uToWorking', 'uSigN'])}`;
     if (d0.input !== src.tex || d0.inputKey !== inputKey) {
@@ -811,6 +878,7 @@ export class Engine {
       g.bind(0, src.tex);
       this.dehazeP.set({ ...u, uSrc: 0 });
       g.draw(this.dehazeP, d0.I, w, h);
+    yield;
       d0.input = src.tex;
       d0.inputKey = inputKey;
       d0.guideKey = '';
@@ -822,37 +890,50 @@ export class Engine {
     if (photoOn) {
       const { A0, distanceMax } = this.dehazeAmbient(src, u);
       const strength = u.uDehazeStrength as number;
-      this.dehazeTransmission(d0, src, A0, strength, inputKey);
+      yield* this.dehazeTransmissionSteps(d0, src, A0, strength, inputKey);
       const tMin = minTransmission(distance, distanceMax);
       chain += `|${JSON.stringify([A0, strength, tMin])}`;
       if (d0.foldKey !== chain) {
         this.dehazeStep(w, h, 7, d0.F, { I: d0.I.tex, B: d0.s1.tex }, { uA0: A0, uTmin: tMin, uGfScale: Math.abs(strength) });
+    yield;
         d0.foldKey = chain;
       }
       prev = d0.F;
     }
-    masked.forEach((m, k) => {
+    for (const [k, m] of masked.entries()) {
       const d = (this.L.dhMasked[k] = this.dehazeTargets(this.L.dhMasked[k], w, h));
       const before = chain;
       chain += `|${m.key}`;
       if (d.input === src.tex && d.foldKey === chain) {
         prev = d.F;
-        return;
+        continue;
       }
       // Its input: the source through the instances before it.
-      this.dehazeStep(w, h, 8, d.I, { I: d0.I.tex, A: prev?.tex }, { uPrevOn: prev ? 1 : 0 });
+      const sameInput = d.input === src.tex && d.inputKey === before;
+      if (!sameInput) {
+        this.dehazeStep(w, h, 8, d.I, { I: d0.I.tex, A: prev?.tex }, { uPrevOn: prev ? 1 : 0 });
+        d.inputKey = before;
+        d.guideKey = '';
+        d.maskKey = undefined;
+        yield;
+      }
       // Its ambient light depends on its input, not on its strength.
       if (d.input !== src.tex || d.ambient?.key !== before) d.ambient = { key: before, ...(this.inject?.maskedAmbient?.get(m.slot) ?? this.dehazeMeasure(src, u, prev)) };
       const { A0, distanceMax } = d.ambient;
-      this.dehazeTransmission(d, src, A0, m.strength, before);
+      yield* this.dehazeTransmissionSteps(d, src, A0, m.strength, before);
       const tMin = minTransmission(distance, distanceMax);
       // The mask's value at this input, into r1 (free once the filter is done).
-      maskTap(m.slot, prev, d.r1);
+      const maskKey = `${before}|${m.maskKey}`;
+      if (d.maskKey !== maskKey) {
+        maskTap(m.slot, prev, d.r1);
+        d.maskKey = maskKey;
+      }
       this.dehazeStep(w, h, 7, d.F, { I: d.I.tex, A: prev?.tex, B: d.s1.tex, C: d.r1.tex }, { uA0: A0, uTmin: tMin, uPrevOn: prev ? 1 : 0, uWeighted: 1, uGfScale: Math.abs(m.strength) });
+    yield;
       d.input = src.tex;
       d.foldKey = chain;
       prev = d.F;
-    });
+    }
     this.L.dhMasked.splice(masked.length).forEach((d) => this.freeDehazeTargets(d));
     u.uDehazeOn = prev ? 1 : 0;
     // A hash: uniforms hold numbers. The map keys pick it up.
@@ -867,38 +948,57 @@ export class Engine {
     this.gpu.scratch();
     gl.bindTexture(gl.TEXTURE_2D, clip);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, src.w, src.h, 0, gl.RED, gl.UNSIGNED_BYTE, Uint8Array.from(mask, (v) => (v ? 255 : 0)));
+    const pixels = new Uint8Array(mask.length);
+    for (let i = 0; i < mask.length; i++) pixels[i] = mask[i] ? 255 : 0;
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, src.w, src.h, 0, gl.RED, gl.UNSIGNED_BYTE, pixels);
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
     this.gpu.params(false);
     if (src.capture) gl.deleteTexture(src.capture.clip);
     src.capture = { radius, toCam, clip };
+    if (this.viewMade?.input === src.tex) this.freeViewSource();
+    // A region copied before this asynchronous metadata arrived has no clip mask.
+    // Replacing metadata must also discard its previous capture result.
+    if (this.regionMade?.input === src.tex) this.freeRegion();
   }
 
   /**
    * RawTherapee's capture sharpening of a RAW source: a texture of the source
    * with its luminance deconvolved, kept until the source or iterations change.
    */
-  private captureSharpened(src: Source, iterations: number): WebGLTexture {
+  private *captureSteps(src: Source, iterations: number, lane: Lane): Generator<void, WebGLTexture> {
     const g = this.gpu;
     const gl = g.gl;
     const cap = src.capture!;
-    if (this.L.csOut && this.L.csMade?.tex === src.tex && this.L.csMade.iterations === iterations && this.L.csOut.w === src.w && this.L.csOut.h === src.h) return this.L.csOut.tex;
+    const made = lane.csMade;
+    // Metadata can change while noise reduction keeps the same derived texture.
+    const sameInput = made?.tex === src.tex && made.capture === cap;
+    if (lane.csOut && sameInput && made.iterations === iterations && lane.csOut.w === src.w && lane.csOut.h === src.h) return lane.csOut.tex;
     const { w, h } = src;
     // The radius is in sensor pixels; a smaller texture (a preview) sees it smaller.
     const sigma = cap.radius * pxScale(src);
     const kernel = kernelFor(sigma);
     const border = borderFor(sigma, iterations);
     const tiles = [Math.max(1, Math.ceil((w - 2 * border) / TILE)), Math.max(1, Math.ceil((h - 2 * border) / TILE))];
-    const one = () => g.target(w, h, true, true, true);
-    if (this.L.csMade?.tex !== src.tex) cap.threshold = undefined;
-    if (this.L.csOut && (this.L.csOut.w !== w || this.L.csOut.h !== h || this.L.csMade?.tex !== src.tex || this.L.csMade.iterations !== iterations)) {
-      g.free(this.L.csOut);
-      this.L.csOut = null;
+    const scratch: Target[] = [];
+    const one = () => { const t = g.target(w, h, true, true, true); scratch.push(t); return t; };
+    // Regional capture inherits the threshold measured over the whole source.
+    if (!src.roi && !sameInput) cap.threshold = undefined;
+    if (lane.csOut && (lane.csOut.w !== w || lane.csOut.h !== h || !sameInput || made.iterations !== iterations)) {
+      g.free(lane.csOut);
+      lane.csOut = null;
     }
-    const out = (this.L.csOut ??= g.target(w, h, true));
-    const [Y, L, blend, estA, estB] = [one(), one(), one(), one(), one()];
-    const flags = [g.target(tiles[0], tiles[1], true), g.target(tiles[0], tiles[1], true)];
-    const rows = g.target(tiles[0], h, true, false, true);
+    const out = (lane.csOut ??= g.target(w, h, true));
+    let complete = false;
+    try {
+    yield;
+    const Y = one(); yield;
+    const L = one(); yield;
+    const blend = one(); yield;
+    const estA = one(); yield;
+    const estB = one(); yield;
+    const flags: Target[] = [];
+    for (let i = 0; i < 2; i++) { const t = g.target(tiles[0], tiles[1], true); scratch.push(t); flags.push(t); yield; }
+    const rows = g.target(tiles[0], h, true, false, true); scratch.push(rows); yield;
     const base = {
       uS: 0, uY: 1, uL: 2, uClip: 3, uEst: 4, uR: 5, uBl: 6, uF: 8,
       uToCam: columnMajor([cap.toCam.slice(0, 3), cap.toCam.slice(3, 6), cap.toCam.slice(6, 9)] as Mat3), uK: kernel.weights.flat(), uKHalf: kernel.half, uBorder: border, uTiles: tiles,
@@ -914,47 +1014,70 @@ export class Engine {
       g.draw(this.csP, to, to.w, to.h);
     };
     step(0, Y, { S: src.tex });
+      yield;
     step(1, L, { S: src.tex });
+      yield;
     if (cap.threshold === undefined) cap.threshold = this.measureContrast(L);
+      yield;
     // The blend mask, then its 2 px blur: across into estA, down into blend.
     const gk = gaussian1d(2);
     step(2, blend, { L: L.tex, Clip: cap.clip }, { uThreshold: cap.threshold });
+      yield;
     step(3, estA, { R: blend.tex }, { uG: gk, uGHalf: (gk.length - 1) / 2, uDir: [1, 0] });
+      yield;
     step(3, blend, { R: estA.tex }, { uG: gk, uGHalf: (gk.length - 1) / 2, uDir: [0, 1] });
+      yield;
     step(4, flags[0], { Bl: blend.tex });
+      yield;
     // Richardson-Lucy: the estimate starts as Y; L's target holds the ratio.
     let est = Y;
     let next = estA;
     let f = 0;
     for (let n = 0; n < iterations; n++) {
       step(5, L, { Y: Y.tex, Est: est.tex });
+      yield;
       step(6, next, { Est: est.tex, R: L.tex, F: flags[f].tex });
+      yield;
       if (n < iterations - 1) {
         // The early stop, in two steps so no pixel scans a whole tile: rows, then tiles.
         step(7, rows, { Y: Y.tex, Est: next.tex, Bl: blend.tex });
+      yield;
         step(10, flags[1 - f], { R: rows.tex, F: flags[f].tex });
+      yield;
         f = 1 - f;
       }
       est = next;
       next = next === estA ? estB : estA;
     }
     step(8, out, { S: src.tex, Y: Y.tex, Est: est.tex, Bl: blend.tex });
-    for (const t of [Y, L, blend, estA, estB, rows, ...flags]) g.free(t);
+      yield;
+
     // Mipmaps, as the source has them, for views smaller than the texture.
     g.scratch();
     gl.bindTexture(gl.TEXTURE_2D, out.tex);
     gl.generateMipmap(gl.TEXTURE_2D);
     g.params(true);
-    this.L.csMade = { tex: src.tex, iterations };
+    lane.csMade = { tex: src.tex, capture: cap, iterations };
+    complete = true;
     return out.tex;
+    } finally {
+      scratch.forEach(t => g.free(t));
+      if (!complete) { g.free(out); if (lane.csOut === out) lane.csOut = null; lane.csMade = null; }
+    }
   }
 
+  private captureSharpened(src: Source, iterations: number): WebGLTexture {
+    const steps = this.captureSteps(src, iterations, this.L);
+    let next = steps.next();
+    while (!next.done) next = steps.next();
+    return next.value;
+  }
   /**
    * The region of a full-size source to develop for this view (docs/plans/roi.md), or null to
    * develop the whole source: when a stage this recipe uses cannot work on a region yet, or the
    * region would hold most of the source anyway.
    */
-  private regionPlan(src: Source, recipe: Recipe | null, opts: { target: Target | 'screen'; view?: View; frame?: Rect & { angle: number; orient?: Orientation }; split?: number; pick?: number; compare?: boolean; live?: boolean; whole?: Source }): RegionPlan | null {
+  private regionPlan(src: Source, recipe: Recipe | null, opts: { target: Target | 'screen'; width?: number; height?: number; shown?: [number, number]; view?: View; frame?: Rect & { angle: number; orient?: Orientation }; split?: number; pick?: number; compare?: boolean; live?: boolean; whole?: Source }): RegionPlan | null {
     const g = this.gpu;
     if (!recipe || !g.hdr || (opts.split !== undefined && opts.split >= 0) || opts.pick !== undefined) return null;
     // Wavelet retouch and its scale viewer still require the whole source.
@@ -984,32 +1107,69 @@ export class Engine {
       texture: !compare && (recipe.texture !== 0 || recipe.masks.some(m => maskActive(m) && m.texture !== 0)),
       textureCount: Number(recipe.texture !== 0) + recipe.masks.filter(m => maskActive(m) && m.texture !== 0).length,
     };
-    const reach = regionReach(setup), stages = stageReach(setup);
+    // Settled filters retain their source-pixel support at every display scale. Interaction
+    // maps may be smaller, but their padding must never choose a different settled region.
+    const reach = regionReach(setup);
+    const stages = stageReach(setup);
     // A margin so a little panning reuses the region's maps.
     const margin = Math.round(0.15 * Math.max(visible.w, visible.h));
     const prev = this.regionMade?.input === src.tex ? this.regionMade.rect : null;
-    let rect = chooseRegionWithin(visible, reach, margin, src.w, src.h, prev);
+    const share = REGION_SHARE;
+    let rect = chooseRegionWithin(visible, reach, margin, src.w, src.h, prev, share);
     if (!compare && recipe.retouch.length) {
       const required = retouchInputs(recipe.retouch, rect, src.fullW, src.fullH, scale, src.w, src.h).region;
       // Keep a previous region that already holds the spots' dependencies: zooming must not
       // rebuild the lane just because a source spot sits outside the freshly chosen rectangle.
-      rect = chooseRegionWithin(required, 0, 0, src.w, src.h, prev);
+      rect = chooseRegionWithin(required, 0, 0, src.w, src.h, prev, share);
     }
+    // Map work is bounded at display density; the sharp source can cover most of the photo.
     return regionWorthIt(rect, src.w, src.h) ? { rect, visible, reach, stages } : null;
+  }
+
+  private viewSource(src: Source, scale: number): Source {
+    const made = this.viewMade;
+    if (made?.input === src.tex && made.scale === scale) return made.source;
+    this.freeViewSource();
+    this.regionBuilt.clear();
+    const g = this.gpu, gl = g.gl;
+    const w = Math.max(1, Math.ceil(src.w * scale)), h = Math.max(1, Math.ceil(src.h * scale));
+    const target = g.target(w, h, true);
+    g.bind(0, src.tex);
+    this.viewSourceP.set({ uTex: 0 });
+    g.draw(this.viewSourceP, target, w, h);
+    g.scratch(); gl.bindTexture(gl.TEXTURE_2D, target.tex);
+    gl.generateMipmap(gl.TEXTURE_2D); g.params(true);
+    const source: Source = { ...src, w, h, tex: target.tex, denoised: undefined, capture: undefined };
+    this.viewMade = { input: src.tex, scale, source, target };
+    return source;
+  }
+
+  private freeViewSource() {
+    const made = this.viewMade;
+    if (!made) return;
+    this.viewMade = null;
+    this.displayBuilt.clear();
+    const was = this.L;
+    this.L = this.display;
+    try { this.freeLaneTargets(); } finally { this.L = was; }
+    this.regionBuilt.clear();
+    this.release(made.source);
+    // release owns the texture; this target also owns a framebuffer.
+    this.gpu.gl.deleteFramebuffer(made.target.fbo);
   }
 
   /**
    * Develop the region `rect` of the full-size `src` onto the screen: the whole photo's products
    * from `opts.whole` on the whole lane, then the region on the region lane.
    */
-  private renderRegion(src: Source, plan: RegionPlan, recipe: Recipe | null, opts: Parameters<Engine['render']>[2]) {
+  private *regionRenderSteps(src: Source, plan: RegionPlan, recipe: Recipe | null, opts: Parameters<Engine['render']>[2]) {
     const { rect, visible } = plan;
     const products: Products = {};
-    this.render(opts.whole!, recipe, { ...opts, whole: undefined, products });
+    yield* this.renderSteps(opts.whole!, recipe, { ...opts, whole: undefined, products, prepare: undefined });
     // RawTherapee measures capture sharpening's contrast threshold on the whole photo.
     const iterations = recipe && !opts.compare && src.capture && this.gpu.float32 ? iterationsFor(recipe.captureSharpening) : 0;
     if (iterations > 0 && src.capture!.threshold === undefined) this.measureCaptureThreshold(src);
-    const region = this.regionSource(src, rect);
+    const region = (yield* this.regionSteps(src, rect));
     if (this.regionProductsSource !== opts.whole!.tex) {
       this.invalidateRegionMaps();
       this.regionProductsSource = opts.whole!.tex;
@@ -1038,7 +1198,7 @@ export class Engine {
     this.L = this.region;
     this.inject = products;
     try {
-      this.render(region, recipe, { ...opts, whole: undefined });
+      yield* this.renderSteps(region, recipe, { ...opts, whole: undefined });
     } finally {
       this.L = this.whole;
       this.inject = null;
@@ -1069,44 +1229,44 @@ export class Engine {
   }
 
   /** The region `rect` of `src` (and of its denoised pixels and clip mask), copied out once per region. */
-  private regionSource(src: Source, rect: PixelRect): Source {
+  private *regionSteps(src: Source, rect: PixelRect): Generator<void, Source> {
     const made = this.regionMade;
     if (made?.input === src.tex && made.rect === rect) return made.source;
     this.freeRegion();
-    const g = this.gpu;
-    const gl = g.gl;
-    const copy = (tex: WebGLTexture, single: boolean, mips: boolean) => {
-      const t = g.target(rect.w, rect.h, true, false, single);
+    const g = this.gpu, gl = g.gl, targets: Target[] = [];
+    let complete = false;
+    const copy = function* (this: Engine, tex: WebGLTexture, single: boolean, mips: boolean): Generator<void, Target> {
+      const t = g.target(rect.w, rect.h, true, false, single); targets.push(t); yield;
       g.bind(0, tex);
       this.regionP.set({ uTex: 0, uOffset: [rect.x, rect.y] });
-      g.draw(this.regionP, t, rect.w, rect.h);
+      g.draw(this.regionP, t, rect.w, rect.h); yield;
       if (mips) {
-        g.scratch();
-        gl.bindTexture(gl.TEXTURE_2D, t.tex);
-        gl.generateMipmap(gl.TEXTURE_2D);
-        g.params(true);
+        g.scratch(); gl.bindTexture(gl.TEXTURE_2D, t.tex);
+        gl.generateMipmap(gl.TEXTURE_2D); g.params(true); yield;
       }
       return t;
-    };
-    const main = copy(src.tex, false, true);
-    const denoised = src.denoised ? copy(src.denoised, false, true) : null;
-    const clip = src.capture ? copy(src.capture.clip, true, false) : null;
-    const source: Source = {
-      ...src,
-      tex: main.tex,
-      denoised: denoised?.tex,
-      w: rect.w,
-      h: rect.h,
-      roi: { x: rect.x / src.w, y: rect.y / src.h, w: rect.w / src.w, h: rect.h / src.h },
-      capture: src.capture ? { ...src.capture, clip: clip!.tex } : undefined,
-    };
-    this.regionMade = { input: src.tex, rect, source, targets: [main, ...(denoised ? [denoised] : []), ...(clip ? [clip] : [])] };
-    return source;
+    }.bind(this);
+    try {
+      const main = yield* copy(src.tex, false, true);
+      const denoised = src.denoised ? yield* copy(src.denoised, false, true) : null;
+      const clip = src.capture ? yield* copy(src.capture.clip, true, false) : null;
+      const source: Source = {
+        ...src, tex: main.tex, denoised: denoised?.tex, w: rect.w, h: rect.h,
+        roi: { x: rect.x / src.w, y: rect.y / src.h, w: rect.w / src.w, h: rect.h / src.h },
+        capture: src.capture ? { ...src.capture, clip: clip!.tex } : undefined,
+      };
+      this.regionMade = { input: src.tex, rect, source, targets };
+      complete = true;
+      return source;
+    } finally { if (!complete) targets.forEach(t => g.free(t)); }
   }
+
+
 
   /** Drop the region copy and everything the region lane made from it. */
   private freeRegion() {
     if (!this.regionMade) return;
+    this.freeViewSource();
     const was = this.L;
     this.L = this.region;
     try {
@@ -1294,6 +1454,10 @@ export class Engine {
    * pixel. `drawInput` renders the lightness into a target.
    */
   private clarityMap(ll: Ll, uLl: number[], drawInput: (t: Target) => void, source?: Source, slot = -1, amount = 0): WebGLTexture {
+    return this.drain(this.clarityMapSteps(ll, uLl, drawInput, source, slot, amount));
+  }
+
+  private *clarityMapSteps(ll: Ll, uLl: number[], drawInput: (t: Target) => void, source?: Source, slot = -1, amount = 0): Generator<void, WebGLTexture> {
     const g = this.gpu;
     const last = ll.A.length - 1;
     const clip = source?.roi ? g.clip : null;
@@ -1307,21 +1471,24 @@ export class Engine {
       finally { g.clip = previous; }
     };
     drawInput(ll.O[0]);
+    yield;
     g.bind(0, ll.O[0].tex);
     // Four levels per image; the last image carries the lightness (.b) and a mask (.a).
     const gammas = ll.C ? LOG_GAMMAS : GAMMAS;
     const packs = ll.C ? [ll.A, ll.B, ll.C] : [ll.A, ll.B];
-    packs.forEach((p, k) => {
+    for (const [k, p] of packs.entries()) {
       const carry = k === packs.length - 1;
       const gs = gammas.slice(4 * k, 4 * k + (carry ? 2 : 4));
       this.llCurve.set({ uL: 0, uGamma: [...gs, 0, 0, 0, 0].slice(0, 4), uCarry: carry ? 1 : 0, uLl });
       draw(this.llCurve, p[0], 0);
-    });
+    yield;
+    }
     for (let l = 1; l <= last; l++) {
       for (const p of packs) {
         g.bind(0, p[l - 1].tex);
         this.llReduce.set({ uFine: 0 });
         draw(this.llReduce, p[l], l);
+    yield;
       }
     }
     const boundary = source?.roi ? this.inject?.clarity?.get(slot) : null;
@@ -1335,6 +1502,7 @@ export class Engine {
       g.bind(0, target(lo).tex); g.bind(1, target(hi).tex); g.bind(2, boundary.base?.tex ?? g.blackTexture);
       this.llBoundary.set({ uScale: boundary.amount === amount ? 1 : clarityScale(amount, boundary.amount) ?? 1, uLow: 0, uHigh: 1, uBase: 2, uBoundary: [source.roi!.x * preview.w, source.roi!.y * preview.h, 2 ** last * pxScale(preview) / pxScale(source), 2 ** last * pxScale(preview) / pxScale(source)], uLevels: [lo, hi, pl - lo], uModes: [lo === top ? 1 : lo === 0 ? 2 : 0, hi === top ? 1 : hi === 0 ? 2 : 0] });
       draw(this.llBoundary, ll.O[last], last);
+    yield;
     }
     for (let l = last - 1; l >= 0; l--) {
       g.bind(0, l === last - 1 && !boundary ? g.blackTexture : ll.O[l + 1].tex);
@@ -1346,6 +1514,7 @@ export class Engine {
       const collapse = ll.C ? this.llCollapseLog : this.llCollapse;
       collapse.set({ uCoarse: 0, uA0: 1, uA1: 2, uB0: 3, uB1: 4, uC0: 5, uC1: 6, uTop: l === last - 1 && !boundary ? 1 : 0, uDelta: l === 0 ? 1 : 0 });
       draw(collapse, ll.O[l], l);
+    yield;
     }
     return ll.O[0].tex;
   }
@@ -1449,6 +1618,10 @@ export class Engine {
    * mask (.g). `kernel` is the lightness blur for this source size.
    */
   private usmMap(w: number, h: number, p: UsmParams, kernel: number[], drawInput: (t: Target) => void): Target {
+    return this.drain(this.usmSteps(w, h, p, kernel, drawInput));
+  }
+
+  private *usmSteps(w: number, h: number, p: UsmParams, kernel: number[], drawInput: (t: Target) => void): Generator<void, Target> {
     const g = this.gpu;
     const { a, b } = this.usmTargets(w, h);
     const m = gaussian1d(2);
@@ -1458,14 +1631,16 @@ export class Engine {
       uG: pad(kernel, 25), uGHalf: (kernel.length - 1) / 2, uM: pad(m, 13), uMHalf: (m.length - 1) / 2,
     };
     drawInput(a);
+    yield;
     // The passes below overwrite b, where Clarity's tap left its print.
     this.L.printMade = null;
-    [a, b, a].forEach((from, mode) => {
+    for (const [mode, from] of [a, b, a].entries()) {
       const to = from === a ? b : a;
       g.bind(0, from.tex);
       this.usmP.set({ ...common, uMode: mode });
       g.draw(this.usmP, to, to.w, to.h);
-    });
+    yield;
+    }
     return b;
   }
 
@@ -1510,7 +1685,13 @@ export class Engine {
    * or allocating any additional textures. Without a key (the probe), rebuild it.
    */
   private colorEqMap(w: number, h: number, roi: number, color: ColorAdjust, u: Uniforms, drawInput: (t: Target) => void, scene?: { tex: WebGLTexture; key: string } | null, into?: Target): Target {
+    return this.drain(this.colorEqSteps(w, h, roi, color, u, drawInput, scene, into));
+  }
+
+  private *colorEqSteps(w: number, h: number, roi: number, color: ColorAdjust, u: Uniforms, drawInput: (t: Target) => void, scene?: { tex: WebGLTexture; key: string } | null, into?: Target): Generator<void, Target> {
     const g = this.gpu;
+    if (!this.L.ce || this.L.ce.w !== w || this.L.ce.h !== h)
+      yield* this.reserveSteps(Array.from({ length: 5 }, (): SpareSpec => [w, h, true, true, false]));
     const [t0, t1, t2, t3, t4] = this.ceTargets(w, h);
     const key = JSON.stringify(color);
     let luts = this.ceLuts.get(key);
@@ -1544,14 +1725,20 @@ export class Engine {
     const both = this.L.ce!.pair;
     if (!scene || this.L.ceScene?.tex !== scene.tex || this.L.ceScene.key !== scene.key) {
       drawInput(t0);
+    yield;
       step(0, both, t0);
+    yield;
       step(2, t3, t0, t1, t2);
+    yield;
       this.L.ceScene = scene ?? null;
     }
     step(3, t4, t3);
+    yield;
     step(4, both, t3, t4);
+    yield;
     const out = into ?? t0;
     step(6, out, t3, t4, t1, t2);
+    yield;
     return out;
   }
 
@@ -1631,6 +1818,10 @@ export class Engine {
    * `drawInput` renders the lightness into a target.
    */
   private textureMap(src: Source, drawInput: (t: Target) => void, captureCoarse = false, slot = -1): Target {
+    return this.drain(this.textureMapSteps(src, drawInput, captureCoarse, slot));
+  }
+
+  private *textureMapSteps(src: Source, drawInput: (t: Target) => void, captureCoarse = false, slot = -1): Generator<void, Target> {
     const g = this.gpu;
     const { a, b, ia, ib, ga, gb } = this.eqTargets(src.w, src.h);
     const all = amountScales(...wholeSize(src), src.fullW, src.fullH);
@@ -1640,10 +1831,11 @@ export class Engine {
       this.L.eq!.coarse = { a: ca, b: cb, pa: g.group([a, ia, ca]), pb: g.group([b, ib, cb]) };
     }
     drawInput(a);
+    yield;
     let from = a;
     let to = b;
     let coarseFrom: Target | null = null;
-    sc.forEach((s, i) => {
+    for (const [i, s] of sc.entries()) {
       g.bind(0, from.tex);
       g.bind(1, coarseFrom?.tex ?? g.blackTexture);
       g.bind(2, i === 0 ? g.blackTexture : from === a ? ia.tex : ib.tex);
@@ -1651,9 +1843,10 @@ export class Engine {
       const c = this.L.eq!.coarse;
       const target = captureCoarse ? (to === a ? c!.pa : c!.pb) : to === a ? ga : gb;
       g.draw(this.eqP, target, to.w, to.h);
+    yield;
       if (captureCoarse) coarseFrom = to === a ? c!.a : c!.b;
       [from, to] = [to, from];
-    });
+    }
     if (captureCoarse && coarseFrom) {
       let boundary = this.L.textureBoundaries.get(slot);
       if (boundary && (boundary.target.w !== src.w || boundary.target.h !== src.h)) { g.free(boundary.target); boundary = undefined; }
@@ -1725,7 +1918,9 @@ export class Engine {
    * `drawInput(t, slot, acc)` taps the develop pass into t: the photo's input (slot -1), or mask
    * `slot`'s input and value, with the sum so far (`acc`) applied.
    */
-  private textureDelta(src: Source, photoMix: number | null, masked: Masked[], drawInput: (t: Target, slot: number, acc: Target | null) => void, collectCoarse = true, photoKey = ''): Target {
+
+
+  private *textureDeltaSteps(src: Source, photoMix: number | null, masked: Masked[], drawInput: (t: Target, slot: number, acc: Target | null) => void, collectCoarse = true, photoKey = ''): Generator<void, Target> {
     if (!src.roi) {
       const active = new Set([...(photoMix !== null ? [-1] : []), ...masked.map(m => m.slot)]);
       for (const [slot, b] of this.L.textureBoundaries) if (!active.has(slot)) { this.gpu.free(b.target); this.L.textureBoundaries.delete(slot); }
@@ -1745,7 +1940,7 @@ export class Engine {
       let out: Target;
       if (made && made.tex === src.tex && made.key === photoKey && (!coarse || made.coarse)) out = made.out;
       else {
-        out = this.textureMap(src, (t) => drawInput(t, -1, null), coarse);
+        out = yield* this.textureMapSteps(src, (t) => drawInput(t, -1, null), coarse);
         this.L.eqPhoto = { tex: src.tex, key: photoKey, out, coarse };
       }
       add(out, false, photoMix);
@@ -1753,12 +1948,16 @@ export class Engine {
     // A masked instance's input carries the sum so far, so it is made again; it reuses the
     // targets the photo's decomposition is kept in.
     if (masked.length) this.L.eqPhoto = null;
-    for (const m of masked) add(this.textureMap(src, (t) => drawInput(t, m.slot, acc), coarse, m.slot), true, m.value / 100, m.slot);
+    for (const m of masked) {
+      add(yield* this.textureMapSteps(src, (t) => drawInput(t, m.slot, acc), coarse, m.slot), true, m.value / 100, m.slot); yield;
+    }
     return acc!;
   }
 
   /** Clarity's change in lightness over the whole photo, as textureDelta: the photo's local laplacian instance, then the masks'. */
-  private clarityDelta(ll: Ll, photo: number | null, masked: Masked[], drawInput: (t: Target, slot: number, acc: Target | null) => void, source?: Source, collectCoarse = true): Target {
+
+
+  private *clarityDeltaSteps(ll: Ll, photo: number | null, masked: Masked[], drawInput: (t: Target, slot: number, acc: Target | null) => void, source?: Source, collectCoarse = true): Generator<void, Target> {
     const photoLl = photo === null ? null : llParams(photo);
     if (source && !source.roi) {
       const active = new Set([...(photoLl ? [-1] : []), ...masked.map(m => m.slot)]);
@@ -1775,12 +1974,12 @@ export class Engine {
       acc = to;
     };
     if (photoLl) {
-      this.clarityMap(ll, photoLl, (t) => drawInput(t, -1, null), source, -1, photo!);
+      yield* this.clarityMapSteps(ll, photoLl, (t) => drawInput(t, -1, null), source, -1, photo!);
       if (source && !source.roi && collectCoarse) this.keepClarityBoundary(ll, source, -1, photo!);
       add(false);
     }
     for (const m of masked) {
-      this.clarityMap(ll, llParams(m.value), (t) => drawInput(t, m.slot, acc), source, m.slot, m.value);
+      yield* this.clarityMapSteps(ll, llParams(m.value), (t) => drawInput(t, m.slot, acc), source, m.slot, m.value);
       if (source && !source.roi && collectCoarse) this.keepClarityBoundary(ll, source, m.slot, m.value);
       add(true);
     }
@@ -2058,7 +2257,21 @@ export class Engine {
    * Develop `src` with `recipe` (null = original) into `target`, or onto the
    * canvas when `target` is 'screen'.
    */
-  render(
+  render(src: Source, recipe: Recipe | null, opts: Parameters<Engine['renderSteps']>[2]): void {
+    this.drain(this.renderSteps(src, recipe, opts));
+  }
+
+  private *reserveSteps(specs: SpareSpec[]): Generator<void> {
+    for (const spec of this.gpu.keepSpares(specs, false)) { this.gpu.reserve(...spec); yield; }
+  }
+
+  private drain<T>(steps: Generator<void, T>): T {
+    let next = steps.next();
+    while (!next.done) next = steps.next();
+    return next.value;
+  }
+
+  private *renderSteps(
     src: Source,
     recipe: Recipe | null,
     opts: {
@@ -2115,8 +2328,10 @@ export class Engine {
        * map after it as it was (see `warm`).
        */
       warm?: WarmStage;
+      /** Internal: prepare exact maps through this stage without replacing the screen. */
+      prepare?: WarmStage | 'frame';
     },
-  ): void {
+  ): Generator<void> {
     const g = this.gpu;
     // Live colour uses a small, persistent set of float targets. Swapping just these fields
     // keeps all the other preview maps and the exact colour targets in their existing lane.
@@ -2126,7 +2341,7 @@ export class Engine {
       Object.assign(L, L.ceDraft ?? { ce: null, ceScene: null, ceMade: null, ceLookMade: null });
       this.inColorDraft = true;
       try {
-        return this.render(src, recipe, opts);
+        return yield* this.renderSteps(src, recipe, opts);
       } finally {
         L.ceDraft = { ce: L.ce, ceScene: L.ceScene, ceMade: L.ceMade, ceLookMade: L.ceLookMade };
         Object.assign(L, exact);
@@ -2147,7 +2362,7 @@ export class Engine {
       const t = this.outs.get(`draft:${w}x${h}`, () => g.target(w, h, false));
       this.draftTarget = t;
       try {
-        this.render(src, recipe, { ...opts, width: w, height: h, draft: undefined, shown: [opts.width, opts.height] });
+        yield* this.renderSteps(src, recipe, { ...opts, width: w, height: h, draft: undefined, shown: [opts.width, opts.height] });
       } finally {
         this.draftTarget = null;
       }
@@ -2162,8 +2377,8 @@ export class Engine {
       const size = `${opts.width}x${opts.height}`;
       const after = this.outs.get(`noise-after:${size}`, () => g.target(opts.width, opts.height, false));
       const before = this.outs.get(`noise-before:${size}`, () => g.target(opts.width, opts.height, false));
-      this.render(src, recipe, { ...opts, split: undefined, target: after });
-      this.render(src, recipe, { ...opts, split: undefined, compare: true, target: before });
+      yield* this.renderSteps(src, recipe, { ...opts, split: undefined, target: after });
+      yield* this.renderSteps(src, recipe, { ...opts, split: undefined, compare: true, target: before });
       g.bind(0, before.tex); g.bind(1, after.tex);
       this.noiseP.set({ uOriginal: 0, uDenoised: 1, uAmount: 1, uSplit: opts.split });
       if (opts.target === 'screen') this.toScreen(this.noiseP, opts.width, opts.height);
@@ -2172,13 +2387,24 @@ export class Engine {
     }
     if (opts.whole && !src.roi && !opts.products && this.L === this.whole) {
       this.stoodIn = false;
+      // Reuse the preview while it already contains the display's detail. The region path
+      // below keeps the sharp image and scales only effect analysis for the current view.
+      if (opts.target === 'screen' && g.hdr && src !== this.viewMade?.source && !hasPerspective(recipe?.transform)) {
+        const [sw, sh] = opts.shown ?? [opts.width, opts.height];
+        const frame = { ...FULL, ...(opts.frame ?? recipe?.crop ?? FULL) };
+        const density = displayDensity(sw, sh, opts.view ?? FULL_VIEW, frame, src.fullW, src.fullH) / pxScale(src);
+        if (density <= opts.whole.w / src.w * 1.05) {
+          if (!opts.moving) this.freeRegion();
+          return yield* this.renderSteps(opts.whole, recipe, { ...opts, whole: undefined });
+        }
+      }
       const plan = this.regionPlan(src, recipe, opts);
-      if (plan && opts.moving && !this.regionHolds(src, opts.whole, plan)) {
+      if (opts.moving && (!plan || !this.regionHolds(src, opts.whole, plan))) {
         // Keep the lane as it is: the view may come back to it once the gesture ends.
         this.stoodIn = true;
-        return this.render(opts.whole, recipe, { ...opts, whole: undefined, moving: undefined });
+        return yield* this.renderSteps(opts.whole, recipe, { ...opts, whole: undefined, moving: undefined });
       }
-      if (plan) return this.renderRegion(src, plan, recipe, opts);
+      if (plan) return yield* this.regionRenderSteps(src, plan, recipe, opts);
       this.freeRegion();
       // Shown no larger than the whole source holds (zoomed back out): develop that instead.
       // Allow a little more than that while a zoom is between the preview's own resolution and
@@ -2190,7 +2416,7 @@ export class Engine {
       const [sw, sh] = opts.shown ?? [opts.width, opts.height];
       const shown = Math.max(sw / view.w / frame.w, sh / view.h / frame.h);
       const wholeOnly = (recipe?.retouchScales?.scales ?? 0) > 0 && (this.retouchShow || !!recipe?.retouch.some(s => s.opacity > 0));
-      if (shown <= Math.max(opts.whole.w, opts.whole.h) * (wholeOnly ? 1.05 : 1.5)) return this.render(opts.whole, recipe, { ...opts, whole: undefined });
+      if (shown <= Math.max(opts.whole.w, opts.whole.h) * (wholeOnly ? 1.05 : 1.5)) return yield* this.renderSteps(opts.whole, recipe, { ...opts, whole: undefined });
     }
     const picking = opts.pick !== undefined && !!recipe;
     // The picked mask's input: the masks before it have had their say, it and those after none.
@@ -2198,7 +2424,7 @@ export class Engine {
     if (!opts.compare) src = this.noiseReduced(src, recipe);
     // Capture sharpening replaces the source for everything after it.
     const iterations = recipe && !opts.compare && src.capture && g.hdr && g.float32 ? iterationsFor(recipe.captureSharpening) : 0;
-    if (iterations > 0) src = { ...src, tex: this.captureSharpened(src, iterations) };
+    if (iterations > 0) src = { ...src, tex: (yield* this.captureSteps(src, iterations, this.L)) };
     src = this.lensCorrected(src, recipe);
     // The masks' raster layers: brushes, and refined masks (drawn below, once the uniforms are
     // known). One texture array, bound to MASK_UNIT just before each draw that reads it.
@@ -2258,18 +2484,47 @@ export class Engine {
       const shown = Math.max(sw / view.w / frame.w, sh / view.h / frame.h) / Math.max(src.w, src.h);
       src = this.retouched(src, recipe, shown < 0.5 ? Math.min(8, Math.floor(1 / shown)) : 1);
     }
+    const previousLane = this.L;
+    const drawEffects = function* (this: Engine): Generator<void> {
+    const directPreview = !!(opts.live && src.roi && this.inject && opts.target === 'screen' &&
+      displayDensity(...(opts.shown ?? [opts.width, opts.height]), view, { ...FULL, ...frame }, src.fullW, src.fullH) < pxScale(src));
+    let sharpSource: Source | null = null;
+    let mapX = 1, mapY = 1;
+    if (!directPreview && src.roi && this.inject && opts.target === 'screen' && opts.live && !hasPerspective(recipe?.transform)) {
+      const [sw, sh] = opts.shown ?? [opts.width, opts.height];
+      const density = displayDensity(sw, sh, view, { ...FULL, ...frame }, src.fullW, src.fullH) / pxScale(src);
+      const previous = this.viewMade?.input === src.tex ? this.viewMade.scale : undefined;
+      const wanted = workingScale(density, previous);
+      const scale = opts.moving && previous !== undefined ? previous : wanted;
+      if (scale !== wanted) this.stoodIn = true;
+      if (scale < 1) {
+        sharpSource = src;
+        this.L = this.display;
+        this.mapsHeld = true;
+        src = this.viewSource({ ...src, capture: undefined }, scale);
+        mapX = src.w / sharpSource.w; mapY = src.h / sharpSource.h;
+      }
+    }
     // Retouch's source can be far from the view. Copy its complete input before scissoring
     // later per-edit maps; otherwise the remote source is left blank in the retouched target.
     // Each per-edit map below narrows it to its own stage's clip (clipTo).
-    const clips = src.roi && this.inject ? this.regionClip : null;
+    const scaleRect = (r: PixelRect): PixelRect => {
+      const x = Math.max(0, Math.floor(r.x * mapX)), y = Math.max(0, Math.floor(r.y * mapY));
+      return { x, y, w: Math.min(src.w, Math.ceil((r.x + r.w) * mapX)) - x, h: Math.min(src.h, Math.ceil((r.y + r.h) * mapY)) - y };
+    };
+    const rawClips = src.roi && this.inject ? this.regionClip : null;
+    const clips = sharpSource && rawClips ? { all: scaleRect(rawClips.all), dehaze: scaleRect(rawClips.dehaze), texture: scaleRect(rawClips.texture),
+      color: scaleRect(rawClips.color), clarity: scaleRect(rawClips.clarity), usm: scaleRect(rawClips.usm) } : rawClips;
+    const liveClip = sharpSource && this.liveClip ? scaleRect(this.liveClip) : this.liveClip;
     const clipTo = (k: keyof RegionClips) => {
       if (!clips) return;
       // A live render narrows a map whose targets already hold this place (made since the
       // lane's last invalidation); a first build is exact, so nothing stale from elsewhere shows.
-      const narrow = !!this.liveClip && k !== 'all' && this.regionBuilt.has(k);
-      this.gpu.clip = { ...(narrow ? this.liveClip! : clips[k]), tw: src.w, th: src.h };
+      const built = this.L === this.display ? this.displayBuilt : this.regionBuilt;
+      const narrow = !!liveClip && k !== 'all' && built.has(k);
+      this.gpu.clip = { ...(narrow ? liveClip! : clips[k]), tw: src.w, th: src.h };
       if (narrow) this.regionLive = true;
-      if (k !== 'all') this.regionBuilt.add(k);
+      if (k !== 'all') built.add(k);
     };
     clipTo('all');
     // Effects that belong to the film (grain, vignette) see the whole uncropped
@@ -2292,6 +2547,8 @@ export class Engine {
     u.uView = [view.x, view.y, view.w, view.h];
     const roi = src.roi ?? { x: 0, y: 0, w: 1, h: 1 };
     u.uRoi = [roi.x, roi.y, roi.w, roi.h];
+    Object.assign(u, { uPreviewMapRoi: [roi.x, roi.y, roi.w, roi.h],
+      uTexturePreview: 0, uClarityPreview: 0, uDehazePreview: 0, uUsmPreview: 0 });
     // Passes over the source's own pixels (analysis taps): each pixel's place on the whole photo.
     const tapGeo = { uGeoU: [roi.w, 0, roi.x], uGeoV: [0, roi.h, roi.y], uGeoW: [0, 0, 1] };
     u.uMaskObjectLayer = objectLayer;
@@ -2320,16 +2577,34 @@ export class Engine {
       // What a mask's value depends on: the shapes, ranges and opacities of the masks, the brushes, and its refinement.
       const geometry = `${pick(u, ['uMaskCount', 'uMaskShapeCount', 'uMaskShapes', 'uMaskRange', 'uMaskRangeOn'])}|${((u.uMaskMeta as number[] | undefined) ?? []).filter((_, i) => i % 4 === 0)}|${this.L.stack.generation}|${BrushGpu.key(brushList)}|${ObjectGpu.key(objectList)}`;
       const [rw, rh] = refineSize(src.w, src.h);
-      const dhInstances = dehazeMasked.map((m) => ({ slot: m.slot, strength: m.strength, key: `${m.slot}|${m.strength}|${geometry}|${JSON.stringify(m.job)}` }));
+      const dhInstances = dehazeMasked.map((m) => {
+        const maskKey = `${m.slot}|${geometry}|${JSON.stringify(m.job)}`;
+        return { slot: m.slot, strength: m.strength, key: `${m.strength}|${maskKey}`, maskKey };
+      });
       // A live drag at full resolution that would remake the region's transmission (the first
       // Dehaze frame, its strength crossing zero, an edit before it, a masked instance) shows the
       // preview's map instead, as Texture and Clarity do; a Dehaze drag on one side of zero only folds.
       const dhPreview = src.roi && this.inject && this.liveClip ? this.inject.dehazeMap : undefined;
-      if (dhPreview && !this.dehazeFoldsOnly(src, u, photoDehaze, dhInstances)) {
+      if (directPreview && dhPreview) {
+        dehaze = dhPreview.tex;
+        u.uDehazeOn = 1; u.uDehazeKey = hashKey(`preview|${dhPreview.key}`); u.uDehazePreview = 1;
+        this.mapsHeld = true;
+      } else if (dhPreview && !this.dehazeFoldsOnly(src, u, photoDehaze, dhInstances)) {
         dehaze = this.dehazeStandIn(src, dhPreview.tex);
         u.uDehazeOn = 1;
         u.uDehazeKey = hashKey(`preview|${dhPreview.key}`);
-      } else dehaze = this.dehazeMap(src, u, photoDehaze, dhInstances, (slot, prev, to) => {
+      } else if (opts.products && (opts.live || opts.warm === 'dehaze') && !dhInstances.length && Math.max(src.w, src.h) > LIVE_ANALYSIS_EDGE) {
+        // Bound the transmission analysis while retaining the original sharp image and
+        // whole-photo ambient measurement. The settled cache and port maths stay intact.
+        const L = this.L, exact = L.dh, inject = this.inject;
+        const ambient = this.dehazeAmbient(src, u), ratio = LIVE_ANALYSIS_EDGE / Math.max(src.w, src.h);
+        L.dh = L.dhLive;
+        this.inject = { ...inject, ambient };
+        try {
+          dehaze = yield* this.dehazeMapSteps({ ...src, w: Math.round(src.w * ratio), h: Math.round(src.h * ratio) }, u, photoDehaze, [], () => {});
+          u.uDehazeKey = hashKey(`live:${u.uDehazeKey}`);
+        } finally { L.dhLive = L.dh; L.dh = exact; this.inject = inject; }
+      } else dehaze = yield* this.dehazeMapSteps(src, u, photoDehaze, dhInstances, (slot, prev, to) => {
         const job = dehazeMasked.find((m) => m.slot === slot)!.job;
         const draw = (t: Target, uTap: number) => {
           g.bind(0, src.tex);
@@ -2349,7 +2624,7 @@ export class Engine {
       });
     }
     if (opts.products && u.uDehazeOn === 1) opts.products.dehazeMap = { tex: dehaze, key: u.uDehazeKey as number };
-    if (opts.warm === 'dehaze') {
+    if (opts.warm === 'dehaze' || opts.prepare === 'dehaze') {
       // A region measures nothing itself: it takes the whole photo's ambient light.
       if (opts.products && photoDehaze) opts.products.ambient = this.dehazeAmbient(src, u);
       return;
@@ -2381,15 +2656,38 @@ export class Engine {
     // Clarity needs float targets and at least two pyramid levels.
     // With detail before Exposure, on log lightness over ten levels (LOG_GAMMAS).
     const detailLog = u.uTextureLog === 1;
-    const ll = !picking && (passes.clarity || maskClarity.length > 0) && g.hdr && numLevels(src.w, src.h) >= 2 ? this.llPyramids(src.w, src.h, src.roi ? 4 : undefined, detailLog) : null;
+    const needsLl = !directPreview && !picking && (passes.clarity || maskClarity.length > 0) && g.hdr && numLevels(src.w, src.h) >= 2;
+    const llKeySize = `${src.w}x${src.h}${src.roi ? ':4' : ''}${detailLog ? '|log' : ''}`;
+    if (needsLl && !this.L.lls.has(llKeySize)) {
+      const specs: SpareSpec[] = [];
+      for (let p = 0; p < (detailLog ? 4 : 3); p++) for (let l = 0; l < Math.min(numLevels(src.w, src.h), src.roi ? 5 : Infinity); l++)
+        specs.push([levelSize(src.w, l), levelSize(src.h, l), true, false, false]);
+      specs.push([src.w, src.h, true, false, true], [src.w, src.h, true, false, true]);
+      yield* this.reserveSteps(specs);
+    }
+    const ll = needsLl ? this.llPyramids(src.w, src.h, src.roi ? 4 : undefined, detailLog) : null;
     // Texture needs float targets and at least one wavelet scale.
     const eqOn = !picking && (passes.texture || maskTexture.length > 0) && g.hdr && scales(...wholeSize(src), src.fullW, src.fullH, 1).length > 0;
-    if (eqOn) this.eqTargets(src.w, src.h);
+    if (eqOn && !directPreview) {
+      if (!this.L.eq || this.L.eq.w !== src.w || this.L.eq.h !== src.h)
+        yield* this.reserveSteps([...Array.from({ length: 2 }, (): SpareSpec => [src.w, src.h, true, g.float32, false]),
+          ...Array.from({ length: 4 }, (): SpareSpec => [src.w, src.h, true, g.float32, true])]);
+      this.eqTargets(src.w, src.h);
+    }
     // Sharpening needs 32-bit targets, and a radius RawTherapee would blur at this size.
     const usmP = usmParams(recipe?.sharpen ?? 0, recipe?.sharpenRadius ?? 0.5, recipe?.sharpenMasking ?? 0);
-    const usmKern = usmKernel(usmP.radius * pxScale(src));
+    // A live whole-photo stand-in must still show a sharpening change when its preview
+    // texels are too coarse for the sensor-pixel kernel. The finished pipe keeps its radius.
+    const usmScale = opts.products && opts.live
+      ? Math.max(pxScale(src), Math.min(1, displayDensity(...(opts.shown ?? [opts.width, opts.height]), view, { ...FULL, ...frame }, src.fullW, src.fullH)))
+      : pxScale(src);
+    const usmKern = usmKernel(usmP.radius * usmScale);
     const usmOn = !picking && passes.usm && g.hdr && g.float32 && usmKern.length > 1;
-    if (usmOn) this.usmTargets(src.w, src.h);
+    if (usmOn && !directPreview) {
+      if (!this.L.usm || this.L.usm.w !== src.w || this.L.usm.h !== src.h)
+        yield* this.reserveSteps(Array.from({ length: 2 }, (): SpareSpec => [src.w, src.h, true, true, false]));
+      this.usmTargets(src.w, src.h);
+    }
     // A look's HSL is darktable's colour equalizer instance before the photo's own.
     const lookColor = recipe ? lookColorFor(recipe) : null;
     const ceOn = !picking && passes.colorEq && g.hdr && g.float32 && (!!recipe?.color || !!lookColor);
@@ -2397,7 +2695,7 @@ export class Engine {
     // Bound the expensive live effect, not the sharp source or the other preview products.
     // Colour hover warming uses the same size, so the first click can reuse its analysis.
     const colorDraft = ceOn && !!opts.products && (!!opts.live || opts.warm === 'color');
-    const colorRatio = colorDraft ? Math.min(1, 1024 / Math.max(src.w, src.h)) : 1;
+    const colorRatio = colorDraft ? Math.min(1, LIVE_ANALYSIS_EDGE / Math.max(src.w, src.h)) : 1;
     const colorW = Math.max(1, Math.round(src.w * colorRatio)), colorH = Math.max(1, Math.round(src.h * colorRatio));
     const colorScale = colorDraft ? pxScale(src) * colorW / src.w : pxScale(src);
     const highlights = passes.highlights && !picking;
@@ -2463,7 +2761,7 @@ export class Engine {
     if (opts.products) {
       Object.assign(opts.products, { teq: teqLocal ? teq : undefined, hal, glow, mask: maskTex, ambient: photoDehaze ? this.dehazeAmbient(src, u) : null });
       opts.products.maskedAmbient = new Map(dehazeMasked.flatMap((m, i) => this.L.dhMasked[i]?.ambient ? [[m.slot, this.L.dhMasked[i].ambient!] as const] : []));
-      if (!passes.clarity && !passes.texture && !maskClarity.length && !maskTexture.length && !colorDraft) return;
+      if (!passes.clarity && !passes.texture && !maskClarity.length && !maskTexture.length && !colorDraft && !(opts.live && passes.usm)) return;
     }
 
     let usm: WebGLTexture = g.blackTexture;
@@ -2524,7 +2822,7 @@ export class Engine {
       ? `${maskClarity.length ? sceneKey : textureKey}|log|${clarityStage}|${JSON.stringify(maskClarity)}`
       : `${ceKey}|${pick(u, BEFORE_CLARITY)}|${aspect}|${clarityStage}|${JSON.stringify(maskClarity)}`;
     // Sharpening reads the print, after everything up to it, Clarity included (its amount too).
-    const usmKey = `${detailLog ? `${ceKey}|${pick(u, BEFORE_CLARITY)}|${aspect}|${llKey}` : llKey}|${photoClarity}|${recipe?.sharpen},${recipe?.sharpenRadius},${recipe?.sharpenMasking}`;
+    const usmKey = `${detailLog ? `${ceKey}|${pick(u, BEFORE_CLARITY)}|${aspect}|${llKey}` : llKey}|${photoClarity}|${recipe?.sharpen},${recipe?.sharpenRadius},${recipe?.sharpenMasking}|${usmScale}`;
     // A live drag holds each of these maps as made before it while its own settings stay the
     // same, even though an edit before it moved (Capture One's trick: the stages after the
     // dragged one keep their change in lightness); the dragged stage's own map stays live, and
@@ -2556,7 +2854,9 @@ export class Engine {
     const preview = src.roi && this.inject && this.liveClip ? this.inject : null;
     const photoTexture = this.L.eqPhoto;
     const textureFolds = passes.texture && !maskTexture.length && photoTexture?.tex === src.tex && photoTexture.key === photoTextureKey;
-    if (eqOn && this.L.eqMade && (!collectCoarse || this.L.eqMade.coarse) && holds(this.L.eqMade, textureKey, textureOwn)) texture = this.L.eqMade.out.tex;
+    if (eqOn && directPreview && preview?.textureMap) {
+      texture = preview.textureMap; u.uTexturePreview = 1; this.mapsHeld = true;
+    } else if (eqOn && this.L.eqMade && (!collectCoarse || this.L.eqMade.coarse) && holds(this.L.eqMade, textureKey, textureOwn)) texture = this.L.eqMade.out.tex;
     else if (eqOn && preview?.textureMap && !textureFolds) {
       if (clips) this.gpu.clip = { ...clips.texture, tw: src.w, th: src.h };
       const to = this.eqTargets(src.w, src.h).d[0];
@@ -2566,7 +2866,7 @@ export class Engine {
       texture = to.tex;
     } else if (eqOn) {
       clipTo('texture');
-      const out = this.textureDelta(src, passes.texture ? (u.uTextureMix as number) : null, maskTexture, (t, slot, acc) => {
+      const out = yield* this.textureDeltaSteps(src, passes.texture ? (u.uTextureMix as number) : null, maskTexture, (t, slot, acc) => {
         bindDevelop(g.blackTexture);
         if (slot < 0) tap(t, 2, { uTextureOn: 0, uClarityOn: 0 });
         else {
@@ -2582,9 +2882,9 @@ export class Engine {
         opts.products.texture = this.L.textureBoundaries;
         opts.products.textureMap = texture;
       }
-      if (!passes.clarity && !maskClarity.length && !colorDraft) return;
+      if (!passes.clarity && !maskClarity.length && !colorDraft && !(opts.live && passes.usm)) return;
     }
-    if (opts.warm === 'texture') return;
+    if (opts.warm === 'texture' || opts.prepare === 'texture') return;
     // Whether Clarity's map is reused (held or scaled) rather than made: decided before the colour
     // map, which only its making reads when collecting products.
     const made = ll && this.L.llMade && (!collectCoarse || this.L.llMade.coarse) && holds(this.L.llMade, llKey, clarityOwn) ? this.L.llMade : null;
@@ -2617,13 +2917,13 @@ export class Engine {
         const lookOut = this.ceLookTarget(colorW, colorH);
         const made = `${ceSceneKey}|${pick(u, COLOR_STAGE)}|${lookKey}`;
         if (this.L.ceLookMade?.tex !== src.tex || this.L.ceLookMade.key !== made) {
-          this.colorEqMap(colorW, colorH, colorScale, lookColor, u, analyseScene, null, lookOut);
+          yield* this.colorEqSteps(colorW, colorH, colorScale, lookColor, u, analyseScene, null, lookOut);
           this.L.ceLookMade = { tex: src.tex, key: made };
         }
         out = recipe!.color
-          ? this.colorEqMap(colorW, colorH, colorScale, recipe!.color, u, (t) => this.ceAnalyseFrom(lookOut, t), { tex: src.tex, key: `${ceSceneKey}|look:${made}` })
+          ? yield* this.colorEqSteps(colorW, colorH, colorScale, recipe!.color, u, (t) => this.ceAnalyseFrom(lookOut, t), { tex: src.tex, key: `${ceSceneKey}|look:${made}` })
           : lookOut;
-      } else out = this.colorEqMap(colorW, colorH, colorScale, recipe!.color!, u, analyseScene, { tex: src.tex, key: ceSceneKey });
+      } else out = yield* this.colorEqSteps(colorW, colorH, colorScale, recipe!.color!, u, analyseScene, { tex: src.tex, key: ceSceneKey });
       this.L.ceMade = { tex: src.tex, key: ceKey, out };
       ceTex = out.tex;
     }
@@ -2641,9 +2941,27 @@ export class Engine {
       }
       opts.products.colorDelta = L.ceDelta.tex;
     }
-    if (opts.warm === 'color') return;
+    if (opts.warm === 'color' || opts.prepare === 'color') return;
+    let displayColor: WebGLTexture | null = null;
+    if (sharpSource && ceOn && ceMode === 1 && this.L.ceMade) {
+      const L = this.L;
+      if (!L.ceDisplayDelta || L.ceDisplayDelta.w !== colorW || L.ceDisplayDelta.h !== colorH) {
+        if (L.ceDisplayDelta) g.free(L.ceDisplayDelta);
+        L.ceDisplayDelta = g.target(colorW, colorH, true, true);
+        L.ceDisplayDeltaMade = null;
+      }
+      if (L.ceDisplayDeltaMade !== L.ceMade) {
+        bindDevelop(g.blackTexture);
+        tap(L.ceDisplayDelta, 14, { uTextureOn: eqOn ? 1 : 0, uClarityOn: 0 });
+        L.ceDisplayDeltaMade = L.ceMade;
+      }
+      displayColor = L.ceDisplayDelta.tex;
+    }
     let clarity: WebGLTexture = g.blackTexture;
-    if (clarityReused) {
+    const previewClarity = directPreview ? preview?.clarityMap : null;
+    if (previewClarity) {
+      clarity = previewClarity.tex; u.uClarityScale = previewClarity.scale; u.uClarityPreview = 1; this.mapsHeld = true;
+    } else if (clarityReused) {
       clarity = made.out.tex;
       u.uClarityScale = scale;
       if (region && scale !== 1) this.regionClarityScaled = true;
@@ -2660,7 +2978,7 @@ export class Engine {
       // The filter's input: the print's lightness at every source pixel, uncropped (and for a
       // masked instance, after the instances before it, with the mask's value); with detail
       // before Exposure, the log lightness after Texture (taps 12 and 13).
-      const out = this.clarityDelta(ll, passes.clarity ? buildAmount : null, maskClarity, (t, slot, acc) => {
+      const out = yield* this.clarityDeltaSteps(ll, passes.clarity ? buildAmount : null, maskClarity, (t, slot, acc) => {
         bindDevelop(acc?.tex ?? g.blackTexture);
         if (detailLog) {
           tap(t, slot < 0 ? 12 : 13, { uTextureOn: eqOn ? 1 : 0, uClarityOn: acc ? 1 : 0, uTapMask: Math.max(slot, 0) });
@@ -2684,14 +3002,17 @@ export class Engine {
         opts.products.clarity = this.L.clarityBoundaries;
         opts.products.clarityMap = { tex: clarity, scale: u.uClarityScale as number };
       }
-      return;
+      if (!opts.live) return;
     }
-    if (opts.warm === 'clarity') return;
-    if (usmOn && holds(this.L.usmMade, usmKey, usmOwn)) usm = this.L.usmMade!.out.tex;
+    if (opts.warm === 'clarity' || opts.prepare === 'clarity') return;
+    const previewUsm = directPreview ? this.inject?.usmMap : null;
+    if (usmOn && previewUsm) {
+      usm = previewUsm; u.uUsmPreview = 1; this.mapsHeld = true;
+    } else if (usmOn && holds(this.L.usmMade, usmKey, usmOwn)) usm = this.L.usmMade!.out.tex;
     else if (usmOn) {
       clipTo('usm');
       // The mask's input: the finished print's lightness at every source pixel, uncropped.
-      const out = this.usmMap(src.w, src.h, usmP, usmKern, (t) => {
+      const out = yield* this.usmSteps(src.w, src.h, usmP, usmKern, (t) => {
         bindDevelop(clarity);
         const print = this.L.printMade?.tex === src.tex && this.L.printMade.key === llKey;
         if (print) g.bind(0, this.L.usm!.b.tex);
@@ -2700,21 +3021,38 @@ export class Engine {
       this.L.usmMade = { tex: src.tex, key: usmKey, own: usmOwn, out };
       usm = out.tex;
     }
+    if (opts.products) { if (usmOn) opts.products.usmMap = usm; return; }
+    if (opts.prepare === 'frame') return;
     // The frame itself is never clipped, whatever its size.
     g.clip = null;
     bindDevelop(clarity);
-    this.develop.set({
-      ...u, ...teqU, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3, uClarityTex: 6, uTextureTex: 8, uUsmTex: 9, uCeTex: 10, uDehazeTex: DEHAZE_UNIT, uCeOn: ceMode, uTap: 0, uClarityOn: ll ? 1 : 0, uTextureOn: eqOn ? 1 : 0,
+    if (sharpSource) g.bind(0, sharpSource.tex);
+    if (displayColor) g.bind(10, displayColor);
+    if (displayColor) {
+      // The exact colour RGB map is sampled without mipmaps. Keep that same sharp input
+      // sampling when replacing it with a bounded colour change, rather than adding blur.
+      const gl = g.gl;
+      if (!this.sharpSampler) {
+        this.sharpSampler = gl.createSampler();
+        gl.samplerParameteri(this.sharpSampler!, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.samplerParameteri(this.sharpSampler!, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.samplerParameteri(this.sharpSampler!, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+        gl.samplerParameteri(this.sharpSampler!, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      }
+      gl.bindSampler(0, this.sharpSampler);
+    }
+    try {
+      this.develop.set({
+      ...u, ...teqU, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3, uClarityTex: 6, uTextureTex: 8, uUsmTex: 9, uCeTex: 10, uDehazeTex: DEHAZE_UNIT, uCeOn: displayColor ? 2 : ceMode, uCeRoi: displayColor ? [0, 0, 1, 1] : u.uCeRoi ?? [0, 0, 1, 1], uTap: 0, uClarityOn: ll || previewClarity ? 1 : 0, uTextureOn: eqOn ? 1 : 0,
       uUsmOn: usmOn ? 1 : 0, uUsmShowMask: usmOn && opts.sharpenMask ? 1 : 0,
-    });
-    if (opts.target === 'screen') {
+      });
       g.bindArray(MASK_UNIT, maskTex);
-      this.toScreen(this.develop, opts.width, opts.height);
-    }
-    else {
-      g.bindArray(MASK_UNIT, maskTex);
-      g.draw(this.develop, opts.target, opts.width, opts.height, false);
-    }
+      if (opts.target === 'screen') this.toScreen(this.develop, opts.width, opts.height);
+      else g.draw(this.develop, opts.target, opts.width, opts.height, false);
+    } finally { if (displayColor) g.gl.bindSampler(0, null); }
+    }.bind(this);
+    try { return yield* drawEffects(); } finally { this.L = previousLane; }
+
   }
 
   /**
@@ -2805,6 +3143,29 @@ export class Engine {
     return true;
   }
 
+  /** Exact settling in dependency order, one GPU submission at a time. The caller waits for
+   * idle between steps and can discard the remaining steps when a newer edit arrives. */
+  *prepareFrame(src: Source, recipe: Recipe | null, opts: Parameters<Engine['render']>[2]): Generator<void> {
+    const steps = this.renderSteps(src, recipe, { ...opts, live: false, moving: false, draft: undefined, prepare: 'frame' });
+    let complete = false;
+    try {
+      let next = steps.next();
+      while (!next.done) { this.fenceWork(); yield; next = steps.next(); }
+      complete = true;
+    } finally {
+      steps.return(undefined);
+      if (!complete) {
+        this.eachLane(() => {
+          const L = this.L;
+          L.eqMade = L.eqPhoto = L.llMade = L.usmMade = L.printMade = L.ceMade = L.ceScene = L.ceLookMade = null;
+          for (const d of [L.dh, ...L.dhMasked]) if (d) d.input = null;
+        });
+        this.invalidateRegionMaps();
+        this.gpu.freeSpares();
+      }
+    }
+  }
+
   /** Develop into RGBA8 pixels, top row first, at width × height; size it to the recipe's crop (`framePixels`). */
   readPixels(src: Source, recipe: Recipe | null, width: number, height: number, seed: number, compare = false, view?: View, split?: number, whole?: Source): Uint8Array<ArrayBuffer> {
     const g = this.gpu;
@@ -2818,6 +3179,40 @@ export class Engine {
     return px;
   }
 
+  /** The same output, with GPU readback queued into a buffer so UI work never waits on it. */
+  async readPixelsAsync(src: Source, recipe: Recipe | null, width: number, height: number, seed: number, compare = false): Promise<Uint8Array<ArrayBuffer>> {
+    const g = this.gpu, gl = g.gl;
+    const out = this.outs.get(`${width}x${height}`, () => g.target(width, height, false));
+    this.render(src, recipe, { target: out, width, height, seed, compare });
+    const px = new Uint8Array(width * height * 4), buffer = gl.createBuffer();
+    if (!buffer) throw new GpuError('Could not allocate a pixel readback buffer');
+    let fence: WebGLSync | null = null;
+    try {
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer);
+      gl.bufferData(gl.PIXEL_PACK_BUFFER, px.byteLength, gl.STREAM_READ);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, out.fbo);
+      gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, 0);
+      fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+      gl.flush();
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      const started = performance.now();
+      while (fence && gl.getSyncParameter(fence, gl.SYNC_STATUS) !== gl.SIGNALED) {
+        if (gl.isContextLost() || performance.now() - started > 15000) throw new GpuError('Pixel readback did not complete');
+        await new Promise(resolve => setTimeout(resolve, 4));
+      }
+      if (!fence) throw new GpuError('Could not fence a pixel readback');
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer);
+      gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, px);
+      return px;
+    } finally {
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      if (fence) gl.deleteSync(fence);
+      gl.deleteBuffer(buffer);
+    }
+  }
+
   /** Develop into a 2D canvas at the canvas's size. */
   renderToCanvas(src: Source, recipe: Recipe | null, canvas: HTMLCanvasElement, seed: number) {
     const px = this.readPixels(src, recipe, canvas.width, canvas.height, seed);
@@ -2826,7 +3221,17 @@ export class Engine {
     ctx.putImageData(new ImageData(new Uint8ClampedArray(px.buffer), canvas.width, canvas.height), 0, 0);
   }
 
+  async renderToCanvasAsync(src: Source, recipe: Recipe | null, canvas: HTMLCanvasElement, seed: number) {
+    const px = await this.readPixelsAsync(src, recipe, canvas.width, canvas.height, seed);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) throw new GpuError('2D canvas unavailable');
+    ctx.putImageData(new ImageData(new Uint8ClampedArray(px.buffer), canvas.width, canvas.height), 0, 0);
+  }
+
   dispose() {
+    if (this.sharpSampler) this.gpu.gl.deleteSampler(this.sharpSampler);
+    this.sharpSampler = null;
+    this.freeViewSource();
     this.freeRegion();
     this.eachLane(() => {
       this.freeLaneTargets();

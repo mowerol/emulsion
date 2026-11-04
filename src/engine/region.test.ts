@@ -73,6 +73,12 @@ describe('chooseRegion', () => {
 describe('chooseRegionWithin', () => {
   const W = 7728, H = 5152;
   const vis = { x: 3000, y: 2000, w: 1600, h: 1000 };
+  it('retains a bounded working source even when its filter padding covers most of it', () => {
+    const view = { x: 250, y: 150, w: 1500, h: 1000 };
+    const r = chooseRegionWithin(view, 200, 150, 2200, 1800, null, 1 + Number.EPSILON);
+    expect(r.w * r.h).toBeGreaterThan(.6 * 2200 * 1800);
+    expect(chooseRegionWithin(view, 200, 150, 2200, 1800, r, 1 + Number.EPSILON)).toBe(r);
+  });
   it('keeps a previous region that still fits the budget', () => {
     const prev = chooseRegion(vis, 150, 400, W, H);
     expect(chooseRegionWithin(vis, 150, 400, W, H, prev)).toBe(prev);

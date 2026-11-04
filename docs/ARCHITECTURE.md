@@ -91,6 +91,10 @@ Dehaze is darktable's haze removal (`hazeremoval.c`, He et al.'s dark channel pr
 - **Ambient light and depth** (`Engine.dehazeAmbient`): the module's input drawn at most 1280 px across, read back, and darktable's `_ambient_light` run on it: the most hazy 5% by dark channel, the brightest 5% of those, their mean colour as A0, and the depth from the haze level at the 95% quantile. darktable's darkroom takes these from its small preview pipe; Emulsion always does, so the preview and an export agree. Kept per source.
 - **Transmission** (`dehazegf.frag.glsl`, `Engine.dehazeMap`): the module's input at the source's size (`dehaze.frag.glsl`), darktable's transition map, its box maximum then box minimum, then darktable's colour guided filter (Cramer's rule, eps 0.025). Box windows are separable passes truncated at the edges, scaled by darktable's adaptive w1 = 2 + ⌈4s⌉ and w2 = 3 + ⌈6s⌉, where s is the source's width over the full image's. The guide's means are kept per source. The transition map and filter run for a strength of ±1 and are kept until the sign or A0 changes: with strength s = σk, 1 − s·m = (1 − k) + k(1 − σm), the box maximum and minimum commute with that increasing map and the guided filter is linear and keeps constants, so mode 7 takes t = (1 − k) + k(a · I + b) (`uGfScale`) and a Dehaze drag redoes one pass instead of ten (exact up to float rounding; probe ≤ 9e-7 against `dehaze.ts`, which stays darktable's literal order). Each instance is (x − A0) / max(t, tmin) + A0, with tmin from Distance; that is affine per pixel, so mode 7 folds it into one (β, α) image and the develop pass applies αx + β (unit 12).
 - **Masks' Dehaze** (`Engine.dehazeMap`): darktable's second instance after the photo's, one per mask, each on its own input (the source through the instances before it, mode 8), with its own ambient light (measured on that input, mode 9), transition map and guided filter, blended normally by its mask and folded into the same (β, α) image. The mask is evaluated at the instance's input (develop tap 10: drawn × ranges there); a mask with Refine settings is refined there too (tap 9, into mask stack layers 3–4), as darktable refines each instance's mask at its own input. Distance is the photo's.
+- An amount-only masked Dehaze edit reuses the unchanged instance input and mask;
+  only its fold changes. The mask cache excludes its own amount but includes upstream
+  input, geometry and refinement. Transmission rebuilding invalidates the mask because
+  the filter reuses its scratch target; source/input changes invalidate the guide too.
 - **Memory:** nine 32-bit images per instance at the source's size (six RGBA, three single-channel), about 450 MB per instance at the 2560 px preview, freed with the export buffers.
 - **Checks:** probe `out.dehaze` (ambient light and depth equal to the reference, transmission within 1e-6, the stage within 4e-6) and `node tools/browser-tests/treatment-filters.mjs dehaze` (with a synthetic DCP on the shared unit 12, cache reuse, cleanup). Unit 12 is free in develop because DCP calibration runs in a separate early pass.
 
@@ -148,7 +152,7 @@ Sharpening (RawTherapee's unsharp mask) taps the develop pass after Clarity for 
 
 Colour (darktable's color equalizer) taps the develop pass after Texture for darktable UCS U, V, L* and RGB saturation at every source pixel, then seven passes on five 32-bit targets run darktable's chromaticity prefilter and its guided filter of the corrections (Gaussian means as exact 2D kernels of at most 7 × 7; at its default radii darktable never downsamples) and write the finished scene colour, which the develop pass takes in place of its own before colour balance. Each pass rebinds all four of its input units, since a target left bound from an earlier step makes a feedback loop and WebGL silently drops the draw. darktable's curves through eight nodes at rest ripple by about 0.15%, so the stage is skipped entirely when every value is 0. The map is kept like clarity's.
 
-Capture sharpening runs before everything, and only for RAWs. Rust reads the raw mosaic once per photo (`capture_info`, cached for the last photo) for RawTherapee's auto radius and its clip mask, which comes to the webview oriented and resampled to the decoded size, with the matrix back to camera RGB. On the GPU, `cs.frag` makes luminance and lightness, the contrast mask (its threshold measured once per source from a read-back of the lightness), and runs the Richardson-Lucy iterations on one-channel 32-bit images, with the early stop checked per 32 px tile in two passes. The sharpened source (half floats, with mipmaps) is kept until the photo or the Sharpening value changes. The radius is in sensor pixels, so the half-size preview sees half of it and the effect shows at 100% and in exports. About 0.2 s at preview size and 0.65 s at 20 MP when it has to be redone.
+Capture sharpening runs before everything, and only for RAWs. Its metadata arrives asynchronously: attaching or replacing it invalidates any region copied before it and any cached capture result. Regions retain the contrast threshold measured over the whole full-resolution source. The native 0/1 clip mask is expanded to 0/255 with an indexed loop; a callback per pixel stalled a 26 MP zoom for about half a second. Rust reads the raw mosaic once per photo (`capture_info`, cached for the last photo) for RawTherapee's auto radius and its clip mask, which comes to the webview oriented and resampled to the decoded size, with the matrix back to camera RGB. On the GPU, `cs.frag` makes luminance and lightness, the contrast mask (its threshold measured once per source from a read-back of the lightness), and runs the Richardson-Lucy iterations on one-channel 32-bit images, with the early stop checked per 32 px tile in two passes. The sharpened source (half floats, with mipmaps) is kept until the photo or the Sharpening value changes. The radius is in sensor pixels, so the half-size preview sees half of it and the effect shows at 100% and in exports. About 0.2 s at preview size and 0.65 s at 20 MP when it has to be redone.
 
 Halation and glow are blurred on small, fixed-size levels of a downsample pyramid (`engine/pyramid.ts`), with taps no more than one texel apart. That keeps the halos smooth, cheap, and the same relative size in the preview and in a full-size export. Passes are skipped when their amounts are zero.
 
@@ -157,6 +161,34 @@ Halation and glow are blurred on small, fixed-size levels of a downsample pyrami
 A recipe's `crop` (`film/crop.ts`) turns the photo about its centre by `angle`, then cuts a rectangle from it, measured in units of the source's width and height (so with no rotation it is the ordinary crop in image coordinates). The develop pass composes crop with perspective and maps each frame pixel to the source with one projective map (`uGeoU`, `uGeoV`, `uGeoW`); every other pass (tone equalizer map, highlight pyramid, sharpening) still works on the whole source, which the develop pass samples at the mapped point. Grain, vignette, halation and glow belong to the film, so they stay tied to the uncropped frame and cropping enlarges them, as it would a negative. While cropping, the canvas shows the whole straightened photo (`bounds`) with the stage colour around it, and `CropOverlay` edits a draft in the store that is saved as one undo step when cropping ends. Everything that sizes a render (export, thumbnails, stock tiles, histogram) uses `framePixels`. Pasted settings keep each frame's own crop.
 
 ### Preview and export
+
+Settled regional rendering retains full source density for the spatial effects at every zoom.
+The earlier display-density settled-map candidate lost fine stone and foliage texture;
+`docs/research/continuous-zoom.md` records its rejection and the faithful replacement.
+For held drags below 1:1, the current candidate samples preview Dehaze, Texture, Clarity and
+Sharpening maps directly at the sharp region's whole-photo coordinates
+(`stages/previewmap.glsl`), avoiding a regional copy or reduced-source allocation on activation.
+Colour keeps its bounded signed RGB change. Live preview Sharpening derives its radius from
+display density when the physical preview kernel would be disabled; settled Sharpening keeps
+the original sensor-pixel radius. These interaction approximations await final native timing
+and visual review. They are independent of the UI zoom preset list.
+
+Motion uses existing faithful regional maps or the preview when the region must be rebuilt.
+Preview re-decode waits for the view to stop, including while its requested size is capped.
+`Engine.render` synchronously drains the same generator that `Engine.prepareFrame` advances
+between GPU fences for interactive settling. Region copies, capture deconvolution, working
+allocations and later spatial filters yield between submissions, including Sharpening.
+Develop cancels the generator when a newer input arrives; scratch targets are released and
+cache certificates for partly overwritten maps are invalidated. The last finished screen stays
+visible while preparation runs. Pending release tracking handles the final input committed
+after pointer-up even if the previous live frame was exact. A held pointer waits for release;
+pointer-up, blur and cancellation resume preparation. Histograms wait for settling and use
+pixel pack buffers/fences; developed thumbnails use the same asynchronous readback approach.
+Idle allocation preparation pauses while rendering is pending or a pointer is held.
+
+The implementation is WIP: correctness checks pass, while final screen-gap, first-pan memory
+and prepared-zoom latency checks remain open. Whole-photo capture-threshold readback and
+views outside regional admission still need bounded-work investigation.
 
 The develop view decodes a preview at the size the photo is shown at (`ui/previewsize.ts`): the whole photo's long edge on screen in device pixels, rounded up to 128 px, at least 1536 (the object selector's encode size) and at most 2560. Every slider frame develops all of the preview's pixels and the map filters (Texture's seven à-trous passes, haze removal's guided filter) run over all of them, so a preview larger than the screen only costs time: at fit on a 1552 px wide canvas, the 2560 px preview made a Texture frame 37 ms on the GPU, a 1664 px one 15 ms. darktable's darkroom likewise processes at the scale it displays. A zoom, crop or layout change that leaves the preview too small (or a quarter larger than needed) decodes it again at the new size once the view has been still for 360 ms; past what a 2560 px preview holds, the full resolution loads as before. While it loads, the cached thumbnail is shown through the same pipeline. Once the full resolution is on screen the preview follows the size the whole photo fits at, not the zoom (the full resolution is then what is shown; the preview gives the whole photo's maps, the histogram and a moving pinch's stand-in), since zoomed in every slider frame rebuilds those maps as well as the region's: a 2560 px preview made a Texture frame at 100% cost 65 ms, and Lightcraft's loupe likewise renders the whole frame at canvas size under its zoomed window. While the full resolution loads, the preview grows with the zoom as before. Haze removal's ambient light is measured for each photo shortly after it shows (`Engine.measureAhead`), so the first Dehaze drag doesn't pay the read back. After it, the working targets a first Texture or Dehaze drag would make (16 float targets at preview size, ~320 MB at 1664 × 1111) are made one per idle moment (`Engine.prepareSteps`, `Gpu.reserve`): ANGLE on Metal allocates a large float target at the next sync point and the GPU's first writes to it are slow, so made in the drag's first frame they froze it 100–240 ms. `Gpu.target` hands out a reserved target of the same size and format before making one. Only the whole-photo lane is prepared; the region lane (zoomed in) still makes its own in its first frame. Export decodes at full size (up to the GPU's maximum texture size), develops into an offscreen target, reads the pixels back and hands them to Rust to encode. Grain and blur sizes are relative to the frame, so the export matches the preview.
 
@@ -167,6 +199,33 @@ Zoomed past the preview, the view loads the full size and develops only the regi
 A stage turned on from 0 has no map to hold or scale, so its first frame used to build it from scratch (at 100% twice: the preview's and the region's). When the pointer rests 80 ms on the slider of a stage that is off (Dehaze, Texture, Clarity, an HSL colour), `Develop` calls `Engine.warm`: the screen render's own options, with the stage on (`warm.ts`'s `warmRecipe`: Dehaze 50, Texture 50, Clarity +100, one HSL saturation), stopped right after that stage (`render`'s `warm`), so it draws nothing and leaves every map after the stage as it was. What it builds is the part of the map that doesn't depend on the value: Dehaze's guide means, transition map and guided filter for a positive strength (the click redoes the fold), Texture's decomposition (`eqPhoto`; the click folds it), the colour equalizer's scene analysis (`ceScene`; the click runs 3 of 5 passes), Clarity's map at +100 (`llMade`; the click scales it, and at 100% the region's is scaled while the pointer is held and remade at the settle). Nothing is warmed while a pointer is held, when the stage is on, or when a mask has its own instance of it. At 100% a stage turned on can widen the region's clip (its reach), which remakes the region's maps, as the click would. The histogram is not read while a pointer is held (its `readPixels` waits on the GPU); it counts 120 ms after the release. On 1OKK6432.RAF (`inapp.mjs firstclick`), worst screen freeze, ms, from 0 cold / hovered first / already on: at 100% Dehaze 187/61/74, HSL 185/55/59, Texture 107/49/39, Clarity 111/55/43; at fit HSL 85/41/44, Dehaze 40/35/32. Checked by `region-detail`'s `warm_*` (fit and region: the other maps unchanged, the warmed map made, the click draws fewer passes, its settle equals the cold click's 0/255).
 
 During a live regional drag, Colour also borrows the preview's effect. The preview makes its colour equalizer output and a signed RGB change from its input at at most 1024 pixels on the long edge, with the filter radii scaled to that size (`develop` tap 14, `Lane.ceDelta`); the regional develop pass adds that change to its own sharp input at the whole-photo coordinates (`uCeOn` 2, `uCeRoi`). It does not enlarge the preview's finished RGB pixels. An unchanged exact regional colour map can still be reused. Live colour needs no regional filter padding or colour targets, so enabling HSL need not widen the region and invalidate its other maps on the first click. Colour hover warming prepares only the preview lane. The release restores the normal regional reach and exact colour processing, invalidating the preview's colour analysis too because it may have read held Texture maps. The bounded colour working images have their own cache (`Lane.ceDraft`), so a settled preview or histogram does not resize and reallocate them before the next drag. They and the extra bounded RGB target are freed with the lane; no zoom-percentage switch chooses this approximation.
+
+## The develop engine's thread
+
+The develop view's engine runs in a worker (`engine/develop.worker.ts`) on the canvas's
+OffscreenCanvas, so the controls keep the display's pace whatever a photo costs (Oli,
+2026-11-04: sliders and knobs never below 60 fps even when the photo drops to 30; measurements
+in [research/engine-worker.md](research/engine-worker.md)). `engine/developloop.ts` holds what
+`Develop` used to do with the engine: its sources (by key), the render loop (frame skipping,
+drafts, stand-ins while the view moves, `prepareFrame` stepping, release and settle), idle
+preparation, warming and the histogram. `ui/developclient.ts` is the main thread's handle:
+`Develop` sends the latest view state and pointer presses and releases, uploads sources
+(`SourceRef`s mirror what layout reads), and asks for pickers and the object encoder's pixels
+by promise. Camera profiles and LUTs load on the main thread (they need the app's IPC) and the
+client sends them to the worker's copies of the stores (`profileSnapshot`, `provideLut`).
+
+- **Short GPU submissions:** WebKit paints the page through the same GPU, and one long
+  submission held the controls' painting for its whole length (Capture Sharpening at 50%: 430 ms
+  frames, controls at 2.7 fps). In the worker `Gpu.flushEach` flushes after every draw and draws
+  a pass over more than 1 MP in scissored bands of rows (`BAND_PIXELS`), each flushed; each
+  fragment writes only its own pixel, so the result is unchanged.
+- **`localStorage['emulsion.engine'] = 'main'`** (or `VITE_ENGINE=main`) runs the same loop on
+  the main thread. The browser-test runners default to it, since those pages patch
+  `Engine.prototype`; the perf driver reads frames from the client in worker mode, and its
+  draw counts, texture memory and pass timings need main mode.
+- **Still on the main thread:** the shared offscreen engine (`library/thumbs.ts`:
+  thumbnails, tile renders, export, perspective). Its WebGL work would queue behind the
+  worker's GPU work; it waits for edits to pause, but it is the next to move.
 
 ## RAW files
 

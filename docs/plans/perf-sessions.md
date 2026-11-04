@@ -1,5 +1,29 @@
 # Performance: the next three sessions
 
+**Latest bounded session (2026-11-04):** exact masked-Dehaze input/mask reuse is fixed
+and validated, but its 63.7% native rerun still fails (48.3 fps / 137 ms gap). Capture
+at 50% is much worse (2.6 fps / 403 ms gap); live deconvolution and scratch allocation
+are the next performance target. A remaining mask run hit the known LibRaw/OpenMP
+metadata crash. Next goal: isolate that crash with the existing serial control, then
+address Capture and validate its settled output. Keep each session bounded and hand
+off with measured results; do not reopen the entire matrix in one session. See the
+latest HANDOFF entry and `boundedMaskedControls20261104` evidence.
+
+**Current priority (2026-11-04):** responsive editing through continuous zoom. Oli reports
+all sliders poor at 50%, including Clarity and HSL, and requires a general policy supporting
+future zoom steps. The active work supersedes the historical session ordering below. See
+HANDOFF.md and `docs/research/continuous-zoom.md` for evidence and remaining failures. The latest
+checkpoint restores faithful settled maps and stages individual GPU passes. Final direct-preview
+activation timings remain unverified after native LibRaw/OpenMP metadata crashes; start with
+the new top section of HANDOFF, not the historical density candidate or Texture anomaly.
+
+**Additional user feedback (2026-11-04):** individual-mask Clarity, Dehaze and Texture
+also lag; global Exposure, Dehaze and Capture Sharpening lag seriously, with other
+controls potentially affected. Reproduce both masked and global editing, add Capture
+Sharpening to the existing slider coverage, and survey the remaining controls. No
+zoom restriction or shared cause is established for this report. Keep activation,
+held dragging and release/settle inside the same performance budgets.
+
 Planned 2026-11-03, after the real-app loop (`tools/perf/inapp.mjs`) and the screen-sized preview (HANDOFF.md, top section). Each is one `/diagnosing-bugs` session, in this order. Oli starts one with `/diagnosing-bugs session N` (N is 1, 2 or 3). Run the session's brief below, and strike it through here when it's done.
 
 Before any of them: read HANDOFF.md; measure with `node tools/perf/inapp.mjs`, never headless Chrome; get a red loop before reading code to form theories; show Oli ranked hypotheses before fixing; keep the app window visible during runs (macOS throttles hidden webviews).
@@ -32,6 +56,6 @@ The first Dehaze drag on each photo freezes once for 90–190 ms; the first Text
 
 ## Next candidates (from the 2026-11-03 sliders-at-100% session)
 
-- **Full resolution after Z:** diagnosed 2026-11-03; serial `zoomdetail` 12.8 s → **5.9 s** with existing LibRaw OpenMP (four threads, static runtime) and optimized development image resizing. Exact payload preserved. Oli delegated the next mechanism; bounded background preparation is implemented: early zoom **5.7 s**, after six seconds viewing **1.26 s**. Still FAILS the provisional one-second bar; first regional work remains. See [stage report](../research/zoom-detail.md) and HANDOFF.md. Historical `fullResMs` in `zoom100` was 11–18 s (17.7 s reproduced this session).
+- **Full resolution after Z:** diagnosed 2026-11-03; serial `zoomdetail` 12.8 s → **5.9 s** with existing LibRaw OpenMP (four threads, static runtime) and optimized development image resizing. Exact payload preserved. Oli delegated the next mechanism; bounded background preparation is implemented: early zoom **5.7 s**, after six seconds viewing **1.26 s**. Follow-up fixes asynchronous capture arrival, retains the whole-photo threshold and cuts mask conversion 555 → 26–29 ms. Final strict prepared zoom **937 / 894 ms (PASS)**; early zoom **5.24 s (FAIL)**. First-frame freezes remain (555 ms in the prepared run); no p95 claim. See [stage report](../research/zoom-detail.md) and HANDOFF.md. Historical `fullResMs` in `zoom100` was 11–18 s (17.7 s reproduced this session).
 - **Clarity at 100% (42 ms):** options A/B/C in HANDOFF.md (top section); B (darktable's bilateral-grid local contrast mode) needs side-by-sides and Oli's approval of the look.
 

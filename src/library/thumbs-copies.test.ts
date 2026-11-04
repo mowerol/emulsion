@@ -10,7 +10,7 @@ vi.mock('../engine/engine', () => ({
   Engine: class {
     sourceFromImage() { return {}; }
     async prepare() {}
-    renderToCanvas(_src: unknown, recipe: unknown, canvas: { recipe?: unknown }) { canvas.recipe = recipe; calls.render(recipe); }
+    async renderToCanvasAsync(_src: unknown, recipe: unknown, canvas: { recipe?: unknown }) { canvas.recipe = recipe; calls.render(recipe); }
     release() {}
   },
 }));

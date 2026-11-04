@@ -77,8 +77,8 @@ export class Gpu {
   private vao: WebGLVertexArrayObject;
   private black: WebGLTexture;
 
-  constructor(canvas: HTMLCanvasElement) {
-    const gl = canvas.getContext('webgl2', { alpha: false, antialias: false, premultipliedAlpha: false, preserveDrawingBuffer: false, powerPreference: 'high-performance' });
+  constructor(canvas: HTMLCanvasElement | OffscreenCanvas) {
+    const gl = (canvas as HTMLCanvasElement).getContext('webgl2', { alpha: false, antialias: false, premultipliedAlpha: false, preserveDrawingBuffer: false, powerPreference: 'high-performance' });
     if (!gl) throw new GpuError('WebGL2 is not available.');
     this.gl = gl;
     this.maxTextureSize = gl.getParameter(gl.MAX_TEXTURE_SIZE) as number;
@@ -194,7 +194,7 @@ export class Gpu {
    * Keep the reserved targets `wanted` asks for and free the rest; return the ones of `wanted`
    * not reserved yet.
    */
-  keepSpares(wanted: SpareSpec[]): SpareSpec[] {
+  keepSpares(wanted: SpareSpec[], discardUnused = true): SpareSpec[] {
     const left = [...this.spares];
     const missing = wanted.filter((s) => {
       const i = left.findIndex((x) => x.key === spareKey(...s));
@@ -202,8 +202,10 @@ export class Gpu {
       left.splice(i, 1);
       return false;
     });
-    left.forEach((x) => this.free(x.t));
-    this.spares = this.spares.filter((x) => !left.includes(x));
+    if (discardUnused) {
+      left.forEach((x) => this.free(x.t));
+      this.spares = this.spares.filter((x) => !left.includes(x));
+    }
     return missing;
   }
 
@@ -320,6 +322,14 @@ export class Gpu {
   clip: { x: number; y: number; w: number; h: number; tw: number; th: number } | null = null;
 
   /** Draw a full-frame quad with `program` into `target` (null = the canvas). */
+  /**
+   * Flush after every draw. In the develop engine's worker (engine/developloop.ts): WebKit paints
+   * the page through the same GPU, and one long submission (a frame of Capture Sharpening at 50%
+   * was 430 ms) held the controls' painting back for its whole length; flushed pieces let the
+   * page's work in between (docs/research/engine-worker.md).
+   */
+  flushEach = false;
+
   draw(program: Program, target: Target | null, w: number, h: number, flipY = false) {
     const gl = this.gl;
     program.set({ uFlipY: flipY ? 1 : 0 });
@@ -328,12 +338,27 @@ export class Gpu {
     gl.bindVertexArray(this.vao);
     const c = this.clip;
     const clipped = !!c && !!target && w === c.tw && h === c.th;
+    const x0 = clipped ? c!.x : 0, y0 = clipped ? c!.y : 0, cw = clipped ? c!.w : w, ch = clipped ? c!.h : h;
+    // A large pass in the worker is drawn in bands of rows, each flushed: the result is the same
+    // (each fragment writes only its own pixel), and no submission holds the GPU for long.
+    if (this.flushEach && cw * ch > BAND_PIXELS) {
+      const rows = Math.max(1, Math.floor(BAND_PIXELS / cw));
+      gl.enable(gl.SCISSOR_TEST);
+      for (let y = y0; y < y0 + ch; y += rows) {
+        gl.scissor(x0, y, cw, Math.min(rows, y0 + ch - y));
+        gl.drawArrays(gl.TRIANGLES, 0, 6);
+        gl.flush();
+      }
+      gl.disable(gl.SCISSOR_TEST);
+      return;
+    }
     if (clipped) {
       gl.enable(gl.SCISSOR_TEST);
       gl.scissor(c!.x, c!.y, c!.w, c!.h);
     }
     gl.drawArrays(gl.TRIANGLES, 0, 6);
     if (clipped) gl.disable(gl.SCISSOR_TEST);
+    if (this.flushEach) gl.flush();
   }
 
   /** Draw `count` instances of the quad (the vertex shader places each by gl_InstanceID). */
@@ -344,13 +369,18 @@ export class Gpu {
     gl.viewport(0, 0, target.w, target.h);
     gl.bindVertexArray(this.vao);
     gl.drawArraysInstanced(gl.TRIANGLES, 0, 6, count);
+    if (this.flushEach) gl.flush();
   }
 }
+
+/** The most pixels one flushed piece of a pass covers when `Gpu.flushEach` is on. */
+const BAND_PIXELS = 1 << 20;
 
 /** Map with least-recently-used eviction. */
 export class Lru<V> {
   private map = new Map<string, V>();
   constructor(private limit: number, private onEvict: (v: V) => void) {}
+  has(key: string) { return this.map.has(key); }
   get(key: string, create: () => V): V {
     const hit = this.map.get(key);
     if (hit !== undefined) {
