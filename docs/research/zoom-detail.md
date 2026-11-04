@@ -172,3 +172,181 @@ Final validation: `npm run check` passes (541 frontend, 70 Rust, nine ignored),
 pass. The GPU capture probe has identical reference thresholds (0.06) and maximum
 relative pixel error below 0.001. Standards and Spec review have no remaining
 findings after fixing and regression-testing derived-source cache invalidation.
+
+## Worker preparation scheduling (2026-11-04)
+
+Oli reported that the soft-to-sharp wait had slowed after recent rendering work.
+On `b4341e3`, the existing real-app prepared-zoom command reproduced **1593 ms**
+(1000 ms budget). An instrumented repeat took 1523 ms: 107 generator advances,
+400 ms inside preparation and 709 ms between advances. The latter includes GPU
+waits and scheduling, rather than pure JavaScript overhead. The longest advance
+was 291 ms; the full-source capture-threshold measurement remains expensive.
+
+Ranked predictions were scheduling between passes, capture/region processing,
+worker source copying, then the motion-settle delay. Changing only the scheduler
+confirmed a substantial avoidable wait: message tasks alone reduced the prepared
+sample to 1209 ms; bounded batching then measured 1051 ms and finally 994 ms.
+
+`DevelopLoop` now resumes preparation with a cancellable MessageChannel task.
+Each turn advances at most four passes, stopping after 4 ms of CPU submission;
+then it waits for the GPU before the next batch. Busy-GPU polling still uses a
+timer, so it does not spin message tasks. Existing per-draw flushes and 1 MP GPU
+bands remain. New input cancels the generator and its queued continuation; dispose
+closes the ports. No filter maths, precision, source density or cache size changed.
+
+The new `zoomsettle` scenario sends sixty trackpad-style inputs to each stop. It
+uses the latest submitted scale, checks the achieved scale, rejects interrupted
+samples and older state sequences, and excludes stand-ins, drafts, inexact frames
+and requested-but-missing capture data. Times include a GPU fence and two screen
+frames as a display estimate. Worker frame stats report preparation separately
+from the final cached screen draw, which was only 1–2 ms of CPU here.
+
+```sh
+node tools/perf/inapp.mjs ~/Pictures/1OKK6432.RAF zoomprepared
+node tools/perf/inapp.mjs ~/Pictures/1OKK6432.RAF zoomsettle
+# Optional effect-heavy recipe; no result for this configuration is claimed below.
+VITE_PERF_ZOOM_EFFECTS=1 node tools/perf/inapp.mjs ~/Pictures/1OKK6432.RAF zoomsettle
+```
+
+Same 26 MP RAF, 1552×1036 canvas, DPR 2, real WKWebView worker. Neutral recipe,
+capture sharpening enabled, Texture/Clarity/Dehaze off. Fresh process per command,
+six seconds viewing to prepare the exact decode; OS caches are not cold. To make
+the before comparison, the instrumented loop was restored to one pass and
+`setTimeout(0)` between passes, then restored to the final scheduler.
+
+| Scenario | Original scheduler | Final scheduler | Final worst screen gap |
+| --- | ---: | ---: | ---: |
+| Prepared Z | 1593 ms | 994 ms | 120 ms |
+| First pinch stop, 50% | 2150 ms | 1700 ms | 124 ms |
+| Next pinch stop, 63.7% | 1483 ms | 843 ms | 24 ms |
+| Next pinch stop, 100% | 1100 ms | 566 ms | 22 ms |
+
+The first 50% stop includes source upload and capture-threshold measurement;
+later stops reuse them. A second sequence after Z measured 1267/899/533 ms and
+30/22/22 ms gaps. These are individual samples, not p95. The prepared Z repeat
+was 1051 ms before the final 994 ms sample, so a consistent sub-second guarantee
+is not established. First 50% still fails the one-second goal; cold RAW decoding,
+effect-heavy recipes and the remaining first-frame hitches are not fixed here.
+Raw results and discarded-harness caveats are under `workerScheduling20261104`
+in [zoom-detail.json](app-performance/zoom-detail.json).
+
+Oli also asked whether capture sharpening can be baked in. A full-resolution
+sharpened-source cache could serve every region and remain valid through exposure,
+colour, zoom and pan. Source/capture metadata, noise-reduction input and capture
+iterations must invalidate it. Its retained RGBA16F result adds about 199 MiB for
+this photo, with substantial temporary deconvolution buffers and up-front GPU
+work. This session keeps the existing regional cache; no whole-photo sharpening
+or speculative GPU allocation was added. That is a separate measured trade-off.
+
+Regression: `npx vitest run src/engine/developloop.test.ts`. Restoring the old
+timer scheduling fails four tests; all five pass with the fix. Coverage includes
+unclamped progress, bounded batches, expensive-pass yielding, busy-GPU waiting,
+superseding input and disposal. The real UI release regression remains
+`node tools/browser-tests/realtime.mjs zoom-full-res 90`.
+
+Validation passes: `npm run check` (577 frontend tests, 70 Rust tests, ten ignored),
+GPU `region-detail` (full, `capture`, `fidelity`) and real-time `zoom-full-res`. Manual review checked
+generator order, stale message rejection, cancellation and port disposal; the
+processing implementation is unchanged.
+
+Retrospective: timing only `Engine.render` hid the worker's preparation wait.
+Keep preparation timing and arbitrary-stop checks in the real-app loop. GPU
+correctness harnesses and native performance runs must run sequentially to avoid
+contaminating timing; unit/build checks do not establish interaction latency.
+An environment follow-up is to run the existing `npm run check` automatically:
+this repo has no CI or pre-commit configuration enforcing it. No hook or CI setup
+was added as part of this zoom fix.
+
+
+## Whole-photo capture cache (2026-11-04)
+
+Implemented one bounded capture result for the active full-resolution source. It has its
+own ownership, separate from the preview/region/display lanes. After the quiet-period full
+decode, an eligible RAW is uploaded and sharpened while idle; Fit stays on its preview.
+The native decode and capture-metadata requests are shared with foreground zoom, and a
+foreground completion reuses an already uploaded full source. The base payload limit is
+256 MiB, as for background decoding; mipmaps and temporary storage are additional.
+Navigation, new inputs and disposal cancel pending GPU passes. Source/capture metadata,
+noise input/amount and capture iterations invalidate the result. Downstream edits, pan and
+zoom retain it. Regional rendering copies these exact sharpened pixels and skips the
+already-applied noise/capture stages. When preparation is incomplete, zoom uses the existing
+regional path; it does not wait for a cold whole-photo build. No filter or shader maths changed.
+
+The first measurement isolated capture from other preparation: 756/480/235 ms across
+50%/63.7%/100%, plus a separate 269 ms full-source threshold measurement at the first stop.
+These are capture-generator elapsed times including GPU/scheduler waits, not CPU-only times.
+
+Same 26 MP RAF, 1552×1036, DPR 2, WKWebView worker, neutral recipe with capture enabled and
+Texture/Clarity/Dehaze off. Native runs were sequential; GPU correctness ran separately.
+These are individual samples, not p95; OS caches were warm.
+
+| Scenario | Cache disabled | Cache ready | Repeat with cache ready |
+| --- | ---: | ---: | ---: |
+| Prepared Z → exact detail | 1164 ms | 392 ms | — |
+| First pinch stop, 50% | 1783 ms | 766 ms | 883 ms |
+| Next stop, 63.7% | 901 ms | 483 ms | 501 ms |
+| Next stop, 100% | 550 ms | 383 ms | 384 ms |
+
+Prepared-Z's earlier instrumented baseline was 1109 ms. The ready-Z run explicitly waits
+for cache readiness after its normal six-second pause; its additional wait was not recorded
+in that first readiness sample. A separate fixed-six-second-pause Z run reached detail in
+767 ms with the cache still unavailable, using regional capture and reusing its already
+measured threshold. Six seconds of viewing does not guarantee that decode plus capture has
+finished. The final warm-pinch check waited another 77 ms after the six-second pause to confirm
+readiness, then measured 883/501/384 ms. Capture preparation itself took 1786–1906 ms in the ready-cache samples, after
+decode/upload/metadata arrival. Ready-cache pinch stops made 12 preparation advances rather
+than 107, with no deconvolution or threshold readback during the measured settle.
+
+The early-zoom test observed a whole-source build in progress after 26 yielded passes
+(deconvolution had started), then sent the pinch. It cancelled that work and finished via
+regional capture in **1384 ms** at 50%, with a 20 ms worst screen gap. It still misses the
+one-second goal. An earlier 1334 ms sample lost focus and is discarded. Changing capture
+from 100 to 25 invalidated the old result immediately; the replacement took 936–1029 ms of idle
+capture work and was ready 1251–1349 ms after the change across two runs. These are not drag-throughput results.
+
+Memory is a trade-off. The cached RGBA16F base is 198.7 MiB; its mipmaps bring the retained
+result to **264.9 MiB**. The full source, clip mask and temporary deconvolution images are
+additional. Measured worker logical texture peaks were 1664.3 MiB for ready-cache Z versus
+898.7 MiB with caching disabled, and 3109.6 versus 3000.5 MiB over the three-stop pinch.
+At the 100% stop the respective retained totals were 2537.9 and 1899.2 MiB. These totals
+include the engine's other caches and spare working targets, whose occupancy depends on
+scheduling; the cache alone is not the entire difference. Tracking includes mipmaps and
+captures allocation peaks, but excludes CPU allocations, driver storage and process RSS.
+This work does not resolve the engine's broader memory budget.
+
+Raw observations, the fixed-pause/early cases and discarded-focus sample are under
+`captureCache20261104` in [zoom-detail.json](app-performance/zoom-detail.json).
+
+```sh
+# Before/after with the same implementation and decode preparation:
+VITE_CAPTURE_CACHE=0 node tools/perf/inapp.mjs ~/Pictures/1OKK6432.RAF zoomprepared
+VITE_CAPTURE_CACHE=0 node tools/perf/inapp.mjs ~/Pictures/1OKK6432.RAF zoomsettle
+node tools/perf/inapp.mjs ~/Pictures/1OKK6432.RAF zoomprepared
+node tools/perf/inapp.mjs ~/Pictures/1OKK6432.RAF zoomsettle
+# Explicit warm-cache, early-work and settings-change cases:
+VITE_PERF_WAIT_CAPTURE=ready node tools/perf/inapp.mjs ~/Pictures/1OKK6432.RAF zoomprepared
+VITE_PERF_WAIT_CAPTURE=building VITE_PERF_VIEWING_MS=0 VITE_PERF_STOPS=.5 node tools/perf/inapp.mjs ~/Pictures/1OKK6432.RAF zoomsettle
+VITE_PERF_WAIT_CAPTURE=ready VITE_PERF_CAPTURE_CHANGE=1 node tools/perf/inapp.mjs ~/Pictures/1OKK6432.RAF zoomsettle
+# Correctness only, separately from timing:
+VITE_CAPTURE_CACHE=0 VITE_ENGINE=main node tools/perf/inapp.mjs ~/Pictures/1OKK6432.RAF capturecompare
+node tools/browser-tests/realtime.mjs capture-cache 120
+```
+
+The real RAW's whole cached RGBA result and nine regional copies (50%, 63.7%, 100%, at
+centre/corner/edge) matched the exact whole-source capture reference with **zero differing
+float values**. The reference is retained independently of lane work. The synthetic GPU
+regression checks whole-source equality, regional edges, stopped and active capture tiles,
+preview/histogram ownership, downstream reuse, iteration and metadata invalidation, noise
+changes, cancellation and source release. Unit regressions cover idle batching/GPU waits,
+navigation/disposal, cancelled decode callbacks, shared payloads and shared capture metadata.
+
+Validation passes: `npm run check` (585 frontend, 70 Rust, ten ignored), standalone typecheck
+of the new browser test, GPU `capture-cache`, `region-detail` (full, `capture`, `fidelity`),
+and real-time `zoom-full-res`. The zoom test now allows the parallel loading-status UI's
+intentional 280 ms appearance delay; its decode/zoom and release/settle assertions remain.
+The last implementation changes coalesce capture metadata and reuse an uploaded full source
+when idle preparation and foreground completion meet; a final RAW comparison and native
+warm/settings run passed after these changes.
+
+Controls work remains paused. Effect-heavy latency, cold RAW opening and trackpad feel with
+Oli's usual edits remain to check. No commits or pushes.

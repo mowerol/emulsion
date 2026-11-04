@@ -52,28 +52,29 @@ export class ImageLoadCache<T> {
     return promise;
   }
 
-  /** Prepare the current photo after a pause. Only one background decode runs at
+  /** Prepare the current photo on the next turn. Only one background decode runs at
    * a time; navigating replaces the pending photo rather than building a queue.
    * A foreground get shares the decode and never waits for another photo's preparation.
    * Cancellation stops pending work; an already-running native decode must finish. */
-  prepare(path: string, maxEdge: number, load: Loader<T>): () => void {
+  prepare(path: string, maxEdge: number, load: Loader<T>, ready?: (value: T) => void): () => void {
     this.cancelPreparation?.();
     const key = `${path}\0${maxEdge}`;
-    if (this.entries.has(key) || this.inflight.has(key)) return () => {};
+    if (!ready && (this.entries.has(key) || this.inflight.has(key))) return () => {};
     let cancelled = false;
+    const generation = this.generation;
     const run = () => {
       if (cancelled) return;
       if (this.preparing) { this.nextPreparation = run; return; }
       const pending = Promise.resolve().then(() => this.get(path, maxEdge, load));
       this.preparing = pending;
-      void pending.catch(() => {}).finally(() => {
+      void pending.then(value => { if (!cancelled && generation === this.generation) ready?.(value); }).catch(() => {}).finally(() => {
         this.preparing = null;
         const next = this.nextPreparation;
         this.nextPreparation = null;
         next?.();
       });
     };
-    const timer = setTimeout(run, 750);
+    const timer = setTimeout(run, 0);
     const cancel = () => {
       cancelled = true;
       clearTimeout(timer);

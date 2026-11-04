@@ -29,10 +29,10 @@ export function loadCachedImage(path: string, maxEdge: number, noiseReduction = 
 
 /** Prepare only a bounded ordinary decode, never speculative noise-reduction work.
  * The decoded payload shares the existing 512 MiB cache and foreground requests. */
-export function prepareFullImage(path: string, width: number, height: number, maxEdge: number): () => void {
+export function prepareFullImage(path: string, width: number, height: number, maxEdge: number, ready?: (img: HalfImage) => void): () => void {
   const scale = Math.min(1, maxEdge / Math.max(width, height));
   if (Math.round(width * scale) * Math.round(height * scale) * 8 > IMAGE_CACHE_BYTES / 2) return () => {};
-  return decodedImages.prepare(`${path}\0noise:false`, maxEdge, () => loadImage(path, maxEdge, false));
+  return decodedImages.prepare(`${path}\0noise:false`, maxEdge, () => loadImage(path, maxEdge, false), ready);
 }
 
 let engine: Engine | null | undefined;
@@ -206,17 +206,24 @@ export const thumbs = new ThumbStore();
  */
 /** Anything that can take capture data for a source: the offscreen engine, or the develop view's client. */
 type CaptureTaker<S> = { attachCapture(src: S, radius: number, toCam: number[], mask: Uint8Array): void };
-export async function ensureCapture<S extends { capture?: unknown; mode: InputMode; w: number; h: number }>(eng: CaptureTaker<S>, src: S, path: string): Promise<boolean> {
-  if (src.capture) return true;
-  if (src.mode !== InputMode.SceneLinear) return false;
-  try {
-    const info = await captureInfo(path, src.w, src.h);
-    eng.attachCapture(src, info.radius, info.toCam, info.mask);
-    return true;
-  } catch (err) {
-    logToTerminal('warn', `Capture sharpening unavailable for ${path}: ${String(err)}`);
-    return false;
-  }
+const captureRequests = new WeakMap<object, Promise<boolean>>();
+export function ensureCapture<S extends { capture?: unknown; mode: InputMode; w: number; h: number }>(eng: CaptureTaker<S>, src: S, path: string): Promise<boolean> {
+  if (src.capture) return Promise.resolve(true);
+  if (src.mode !== InputMode.SceneLinear) return Promise.resolve(false);
+  const pending = captureRequests.get(src);
+  if (pending) return pending;
+  const request = (async () => {
+    try {
+      const info = await captureInfo(path, src.w, src.h);
+      eng.attachCapture(src, info.radius, info.toCam, info.mask);
+      return true;
+    } catch (err) {
+      logToTerminal('warn', `Capture sharpening unavailable for ${path}: ${String(err)}`);
+      return false;
+    }
+  })().finally(() => captureRequests.delete(src));
+  captureRequests.set(src, request);
+  return request;
 }
 
 /** A developed thumbnail depends on the photo's white point only when the recipe changes white balance. */

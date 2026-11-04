@@ -1,28 +1,138 @@
 # Handoff
 
-## Next: high-resolution detail after a zoom comes in faster (Oli, 2026-11-04)
+## Next session: preserve unfinished capture preparation across zoom and pan
 
-**Start here.** Oli is pausing the controls work (sliders "feeling way quicker") and wants the
-full-resolution photo to arrive sooner once a zoom has slowed down or stopped. Nothing is built
-for this yet. Read first:
+Oli asked why the very first zoom is still slow, then requested this handoff and a
+commit. **The next fix is recorded here, not implemented.** Controls work remains paused.
 
-- [docs/research/zoom-detail.md](docs/research/zoom-detail.md): Z to sharp detail on the 26 MP
-  RAF was 5.9 s (LibRaw ~4.7 s of it with OpenMP; serial was 12.7 s), and what was already done
-  (OpenMP LibRaw, faster pixel packing). `node tools/perf/inapp.mjs ~/Pictures/1OKK6432.RAF
-  zoomdetail` times it (budget 1000 ms, `PERF_SHARP_MS`); `zoomprepared` waits 6 s first (earlier:
-  937 / 894 ms).
-- [docs/research/continuous-zoom.md](docs/research/continuous-zoom.md) and the "Half-done
-  candidates" section below: during motion the preview or cached regions stand in, and
-  construction waits until rest; arbitrary-stop/pan, cold-source and memory checks are not done.
-- The engine now runs in a worker (`engine/developloop.ts`): the settle after a zoom (`tick`
-  with `settled`, `VIEW_SETTLE_MS`, `prepareFrame` steps) happens there, so time it there. The
-  perf driver's draw counts and texture MB still come only from main mode (`VITE_ENGINE=main`).
-- LibRaw/OpenMP crash is fixed (`raw::openmp_root`); keep calling it before any new LibRaw
-  entry point.
+The current `DevelopLoop.setState` calls `captureCancel()` on every view state, and
+`prepareCaptureIdle` cancels again before creating a new generator. Cancellation calls
+`return()` on the generator and frees its unfinished sharpening result and scratch.
+Consequently, zoom or pan can discard background deconvolution even though its full-source
+pixels and capture settings have not changed. The foreground then sharpens its visible
+region separately; idle whole-photo preparation starts again afterwards.
 
-First job: measure where the wait goes now (decode, capture metadata, upload, region
-preparation, the settle delay itself) for a pinch that stops at 50%, 100% and a stop between,
-then pick the largest piece. Keep settled output faithful (no reduced-density maps).
+Keep one preparation job keyed by the full source, capture metadata, noise input/amount
+and capture iterations. Preserve its generator across viewport-only changes. Pause it while
+foreground rendering or interaction needs the GPU, then resume the same passes. Cancel
+and free it when its inputs change, capture is disabled, the photo changes, the source is
+released or the loop is disposed. Keep foreground regional fallback available while it is
+unfinished, and never expose a partly built result. Inspect the single-slot `queueWork`
+scheduler when giving a preserved background job and foreground rendering separate lifetimes.
+
+Verify progress survives zoom/pan, actual input changes still cancel and release scratch,
+and completed cached pixels still match the exact whole-source reference, including tile
+boundaries. Compare an early first Z/pinch against a confirmed-ready cache in the real app;
+keep GPU correctness separate from timing, and report memory as well as latency. Preserve
+filter maths, settled source density and short GPU submissions.
+
+Other first-use costs remain: full RAW decode/upload if not ready, capture's full-photo
+contrast analysis (~270–305 ms in recorded runs), and regional working-image allocations.
+The previous early pinch interrupted deconvolution and took 1384 ms; confirmed-ready Z took
+392 ms versus 1164 ms without capture caching. These are different scenarios, not a measured
+saving from the proposed job-preservation fix. Removing the 750 ms delay was checked with
+the ten focused image-cache tests only; first-zoom timings after that removal are unmeasured.
+
+The current scheduling/cache/status work is included in this commit at Oli's request.
+No push was requested. Local `.codex/` and `.scratch/` files are outside this commit.
+
+## One "Loading full resolution" status for the whole wait (2026-11-04)
+
+`src/ui/FullResolutionStatus.tsx` (styles `.stage-status.loading-full`) is the stage's bottom-left
+chip, on the scrim like the zoom bar, for both waits for full detail: the full decode
+(`loadingFull`) and, zoomed in and not cropping, the engine preparing exact detail while the soft
+stand-in shows. Oli asked for the second wait to say "Loading full resolution" and share one status
+with the first. `DevelopLoop` posts `{ type: 'sharpening', pending }` on change only (true when
+`prepareFrame` starts, false after the next screen render or an error); `ClientEvents.sharpening`
+carries it to Develop.tsx. The chip appears after 280 ms, fades in 220 ms / out 180 ms, and its dot
+pulls from blurred to crisp; reduced motion makes it static. Two loop tests cover the message.
+Oli should try in the app: open a RAW (decode wait), Z to 100%, pan and release, drag a slider
+while zoomed; the chip should cover the soft-to-sharp wait and never flicker at Fit.
+
+## Capture sharpening cache: implemented and measured (2026-11-04)
+
+**Follow-up:** Oli requested removal of the 750 ms pause. Preparation now starts on the
+next event-loop turn once the preview is available. Only the focused image-cache tests
+were rerun for this small change; the measurements below predate removing the delay.
+
+One bounded whole-photo capture result now belongs to the active full-resolution source,
+independently of preview/histogram lanes. Eligible RAWs (base payload ≤256 MiB) prepare it
+while idle after immediate background decoding; Fit stays on the preview. Background
+and foreground loads share the decode, upload and capture metadata. A ready result supplies
+exact sharpened region pixels across zoom, pan and downstream edits. Source/metadata, noise
+input/amount and capture iterations invalidate it. Navigation/new input/disposal cancel
+unfinished GPU passes and free scratch; early zoom keeps the regional fallback.
+
+Read [zoom-detail.md, Whole-photo capture cache](docs/research/zoom-detail.md#whole-photo-capture-cache-2026-11-04)
+and `captureCache20261104` in its raw JSON for measurements, commands and limits.
+
+- **Warm benefit, real 26 MP RAF / WKWebView / DPR 2:** Z 1164 → 392 ms; pinch stops
+  50% 1783 → 766 ms, 63.7% 901 → 483 ms, 100% 550 → 383 ms. Repeat warm pinch:
+  883/501/384 ms on the final tree. Individual samples, not p95; capture on, Texture/Clarity/Dehaze off.
+- **Not instant cold detail:** whole-photo capture took 1.79–1.91 s after decode/upload.
+  A six-second viewing pause did not always finish it. An early pinch during deconvolution
+  cancelled the partial cache and took 1384 ms via regional capture (still fails 1000 ms).
+  Changing capture 100 → 25 invalidated immediately; ready again after 1251–1349 ms.
+- **Memory:** result 198.7 MiB base / 264.9 MiB including mipmaps, plus input and scratch.
+  Worker logical texture peaks: warm Z 1664 MiB vs disabled 899; three-stop pinch 3110
+  vs 3000. Includes other caches/spares; excludes CPU/driver/RSS. Broader memory remains open.
+- **Faithfulness:** unchanged capture maths. Real RAW whole output and nine cached-region
+  copies at three scales/positions match the exact whole-source capture reference, all RGBA
+  float values exactly. Synthetic GPU regression also covers stopped/active tiles, edges,
+  ownership, edits, noise, cancellation and release.
+- **Checks:** `npm run check` passes (585 frontend, 70 Rust, ten ignored), standalone browser
+  test typecheck, GPU `capture-cache`, `region-detail` (full, `capture`, `fidelity`), and
+  real-time `zoom-full-res`. The zoom test allows the shared status's 280 ms appearance delay.
+- **Comparison switch:** `VITE_CAPTURE_CACHE=0` restores decode-only preparation/regional
+  capture. `VITE_PERF_WAIT_CAPTURE=ready|building` makes perf readiness explicit; memory and
+  capture-only counters are available in worker stats. GPU checks run separately from timing.
+
+**Manual check:** Oli should try real pinch, Z and pan at 50%, 100% and an intermediate scale,
+including zooming immediately after opening a RAW and changing capture sharpening. Confirm
+its feel with usual edits. Controls work remains paused. The scheduling fix, capture cache
+and loading-status UI are included together; preserve them while addressing the next task
+above. Do not push without Oli's instruction.
+
+## Zoom detail: worker scheduling improved (2026-11-04)
+
+Oli reported a slower soft-to-sharp transition after zooming and asked whether capture
+sharpening can be baked in. The scheduling fix is implemented, validated and included
+with the capture cache.
+Read [zoom-detail.md, Worker preparation scheduling](docs/research/zoom-detail.md#worker-preparation-scheduling-2026-11-04)
+and `workerScheduling20261104` in its linked raw JSON for evidence and limits.
+
+- **Cause reproduced:** current worker prepared Z took 1593 ms; instrumented repeat 1523 ms,
+  with 107 preparation advances and 709 ms between them (GPU waits plus scheduling).
+  A cached final screen draw alone hid that cost.
+- **Fix:** `DevelopLoop` advances at most four passes or 4 ms per turn via cancellable
+  MessageChannel tasks, waiting for GPU idle between batches. Busy polling remains a timer.
+  Existing per-draw flushing/bands, processing maths, precision and source density remain.
+  New inputs cancel queued work; dispose closes the ports.
+- **Measurements, 26 MP RAF / WKWebView / DPR 2:** prepared Z 1593 → 994 ms (another trial
+  1051 ms). Fresh pinch sequence: 50% 2150 → 1700 ms, 63.7% 1483 → 843 ms, 100% 1100 → 566 ms.
+  First stop includes upload/capture-threshold measurement; later stops reuse them. These
+  are individual samples, not p95. First 50% still fails 1000 ms and had a 124 ms screen gap.
+- **Harness:** `node tools/perf/inapp.mjs ~/Pictures/1OKK6432.RAF zoomsettle` times a pinch to
+  .5/.637/1, validates final scale and focus/visibility, rejects older state sequences and
+  inexact/stand-in/draft frames. `VITE_PERF_STOPS` overrides stops; `VITE_PERF_ZOOM_EFFECTS=1`
+  enables Texture/Clarity/Dehaze (not timed this session). Frame stats now include preparation
+  elapsed/submission/resume time in worker mode. Draw counts/texture MB remain main-mode only.
+- **Capture caching:** whole-photo sharpened pixels could be reused across zoom/pan and
+  downstream edits, invalidated by source/capture metadata, noise input or capture iterations.
+  This adds ~199 MiB retained for this photo plus large temporary buffers/up-front GPU work.
+  No whole-photo sharpening cache or speculative GPU allocation was added. The existing cache
+  is regional; source upload, the ~260–290 ms full-source threshold measurement and large-region
+  deconvolution remain candidates. Cold RAW decoding and effect-heavy latency remain open.
+- **Checks:** `npm run check` passes (577 frontend, 70 Rust, ten ignored); GPU
+  `region-detail` (full, `capture`, `fidelity`) and real-time `zoom-full-res` pass. Five new loop tests cover progress,
+  cancellation, batching, GPU waiting and disposal; restoring old scheduling fails four.
+  Timing runs were sequential; an early harness overshoot/overlapping GPU check was discarded.
+- **Review:** scheduling preserves generator order and cancellation; existing exact-output,
+  capture and release regressions pass. No filter/shader changes. No commits or pushes.
+
+Controls work remains paused at Oli's request. Keep settled output faithful. Performance
+samples above do not establish smoothness for every gesture; Oli should try real trackpad
+pinch/zoom and pan at 50%, 100% and an intermediate scale with his usual edits.
 
 ## Controls work: paused (2026-11-04)
 

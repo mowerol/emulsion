@@ -17,13 +17,16 @@ import { setDetailOrder } from '../ui/detailorder';
 import { newEllipse, newMask } from '../film/masks';
 import { setMaskUi } from '../ui/maskui';
 import { perfClient } from '../ui/developclient';
+import type { PreparationStat, FrameStat } from '../engine/developloop';
+import { iterationsFor } from '../engine/capture';
 
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const median = (v: number[]) => v.length ? +v.slice().sort((a, b) => a - b)[Math.floor(v.length / 2)].toFixed(1) : null;
 const p90 = (v: number[]) => v.length ? +v.slice().sort((a, b) => a - b)[Math.floor(v.length * 0.9)].toFixed(1) : null;
 
 // ---- Frames: every render to the screen, when the GPU finished it, and which input it showed.
-type Frame = { start: number; done: number; cpu: number; tag: number; srcW: number; detail: boolean };
+type Frame = { start: number; done: number; cpu: number; tag: number; srcW: number; detail: boolean; seq?: number; preparation?: PreparationStat;
+  captureCache?: FrameStat['captureCache']; memory?: FrameStat['memory'] };
 let frames: Frame[] = [];
 let tagOf: (r: Recipe | null) => number = () => -1;
 let depth = 0;
@@ -170,7 +173,7 @@ Engine.prototype.render = function (this: Engine, ...a: Parameters<Engine['rende
       setTimeout(poll, 1);
     }
     if (outer) {
-      const f: Frame = { start: t0, done: 0, cpu: performance.now() - t0, tag: tagOf(a[1] as Recipe | null), srcW: a[0].w, detail: !this.stoodIn && !a[2]?.draft &&
+      const f: Frame = { start: t0, done: 0, cpu: performance.now() - t0, tag: tagOf(a[1] as Recipe | null), srcW: a[0].w, detail: !this.stoodIn && !this.inexact && !a[2]?.draft &&
         (a[0].mode !== InputMode.SceneLinear || !a[1]?.captureSharpening || !!a[0].capture) };
       frames.push(f);
       const gl = this.gpu.gl;
@@ -478,11 +481,58 @@ export async function run(which: string) {
       client.onFrame = (f) => {
         lastSrcW = f.srcW;
         lastScale = client.lastScale;
-        frames.push({ start: f.start, done: f.done, cpu: f.cpu, tag: tagOf(client.recipeOf(f.seq) as Recipe | null), srcW: f.srcW, detail: f.detail });
+        frames.push({ start: f.start, done: f.done, cpu: f.cpu, tag: tagOf(client.recipeOf(f.seq) as Recipe | null), srcW: f.srcW, detail: f.detail, seq: f.seq, preparation: f.preparation, captureCache: f.captureCache, memory: f.memory });
       };
     }
     const only = which.split(',');
     const want = (k: string) => only.includes('all') || only.includes(k);
+
+    if (only.includes('capturecompare')) {
+      if (!perfClient?.local) throw Error('capturecompare requires VITE_ENGINE=main');
+      setSliders({ texture: 0, dehaze: 0, clarity: 0, sharpen: 0 });
+      key('z')();
+      const fullW = useApp.getState().developSize!.W, started = performance.now();
+      while ((!lastSrc?.capture || lastSrcW !== fullW) && performance.now() - started < 60000) await wait(20);
+      await settle(1000, 30000);
+      const eng = lastEngine!, src = lastSrc!, preview = lastWhole!, recipe = activePhoto()!.recipe!;
+      if (!src.capture || src.w !== src.fullW) throw Error('capturecompare needs a full RAW source');
+      eng.cacheCapture = false; eng.clearCaptureCache(); eng.gpu.freeSpares();
+      eng.probeCapture(src, iterationsFor(recipe.captureSharpening), false);
+      const internal = eng as any, exact = internal.whole.csOut;
+      // Keep the reference alive independently: preview capture may resize this lane.
+      internal.whole.csOut = internal.whole.csMade = null;
+      eng.cacheCapture = true;
+      const steps = eng.prepareCapture(src, recipe);
+      while (!steps.next().done) { while (!eng.idle()) await wait(1); }
+      const cached = internal.fullCapture.csOut;
+      if (!cached) throw Error('Full RAW cache was not prepared');
+      const gl = eng.gpu.gl;
+      const compare = (target: typeof cached, x = 0, y = 0) => {
+        let worst = 0, different = 0;
+        // Read bounded strips: avoid two 400 MiB float arrays for a 26 MP source.
+        for (let row = 0; row < target.h; row += 64) {
+          const h = Math.min(64, target.h - row), a = new Float32Array(target.w * h * 4), b = new Float32Array(a.length);
+          gl.bindFramebuffer(gl.FRAMEBUFFER, exact.fbo); gl.readPixels(x, y + row, target.w, h, gl.RGBA, gl.FLOAT, a);
+          gl.bindFramebuffer(gl.FRAMEBUFFER, target.fbo); gl.readPixels(0, row, target.w, h, gl.RGBA, gl.FLOAT, b);
+          for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) { different++; worst = Math.max(worst, Math.abs(a[i] - b[i])); }
+        }
+        if (different) throw Error(`RAW cache differs from exact source: ${different} values, worst ${worst}`);
+        return { different, worst };
+      };
+      const results: Record<string, unknown> = { whole: compare(cached) };
+      for (const scale of [.5, .637, 1]) for (const position of ['centre', 'corner', 'edge']) {
+        const w = 1552 / (scale * src.w), h = 1036 / (scale * src.h);
+        const fraction = position === 'centre' ? .5 : position === 'corner' ? 0 : 1;
+        const view = { x: (1 - w) * fraction, y: (1 - h) * fraction, w, h };
+        eng.readPixels(src, recipe, 1552, 1036, 0, false, view, undefined, preview);
+        const made = internal.regionMade;
+        if (!made || !made.source.captureApplied) throw Error(`RAW cache ${scale}/${position} did not use the cached region`);
+        results[`${scale}:${position}`] = compare(made.targets[0], made.rect.x, made.rect.y);
+      }
+      if (gl.getError() !== gl.NO_ERROR) throw Error('RAW cache comparison: WebGL error');
+      out.captureComparison = results;
+      eng.gpu.free(exact);
+    }
 
     if (want('sliders')) {
       setSliders({ texture: 0, dehaze: 0, clarity: 0 });
@@ -577,6 +627,16 @@ export async function run(which: string) {
       await settle(500, 30000);
       const viewingPauseMs = only.includes('zoomprepared') ? 6000 : 0;
       if (viewingPauseMs) await wait(viewingPauseMs);
+      if (import.meta.env.VITE_PERF_WAIT_CAPTURE) {
+        const started = performance.now(), expected = import.meta.env.VITE_PERF_WAIT_CAPTURE;
+        while (true) {
+          const state = await perfClient!.captureState();
+          if (expected === 'ready' ? state.cache.ready : state.cache.preparing && state.cache.steps >= 24) { out.captureBeforeZoom = state; break; }
+          if (performance.now() - started > 30000) throw Error(`Capture never became ${expected}`);
+          await wait(10);
+        }
+        out.captureWaitMs = Math.round(performance.now() - started);
+      }
       const fullW = useApp.getState().developSize!.W;
       frames = []; uploads = [];
       rafLoop();
@@ -590,8 +650,91 @@ export async function run(which: string) {
         firstRenderMs: sharp ? Math.round(sharp.start - z0) : null,
         firstRenderCpuMs: sharp ? Math.round(sharp.cpu) : null,
         firstFrameMs: sharp ? Math.round(sharp.done - sharp.start) : null,
+        preparation: sharp?.preparation,
+        captureCache: sharp?.captureCache, memory: sharp?.memory,
         uploadCpuMs: uploads.find(u => u.width === fullW)?.cpuMs ?? null,
         screenGapMax: gaps.length ? Math.round(Math.max(...gaps)) : null };
+    }
+    if (only.includes('zoomsettle')) {
+      // A prepared source and real trackpad-style motion, in either engine realm. Measure
+      // the final input through exact detail, including preparation rather than only render().
+      setSliders(import.meta.env.VITE_PERF_ZOOM_EFFECTS ? { texture: 40, clarity: 30, dehaze: 30 } : { texture: 0, clarity: 0, dehaze: 0 });
+      await settle(500, 30000);
+      await wait(Number(import.meta.env.VITE_PERF_VIEWING_MS ?? 6000));
+      if (import.meta.env.VITE_PERF_WAIT_CAPTURE) {
+        const started = performance.now(), expected = import.meta.env.VITE_PERF_WAIT_CAPTURE;
+        while (true) {
+          const state = await perfClient!.captureState();
+          if (expected === 'ready' ? state.cache.ready : state.cache.preparing && state.cache.steps >= 24) { out.captureBeforeZoom = state; break; }
+          if (performance.now() - started > 30000) throw Error(`Capture never became ${expected}`);
+          await wait(10);
+        }
+        out.captureWaitMs = Math.round(performance.now() - started);
+      }
+      const fullW = useApp.getState().developSize!.W;
+      const stops = String(import.meta.env.VITE_PERF_STOPS ?? '.5,.637,1').split(',').map(Number);
+      const results = [];
+      for (const scale of stops) {
+        if (!(scale > 0 && scale <= 8)) throw Error(`Invalid zoom stop ${scale}`);
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: '0', metaKey: true, bubbles: true }));
+        await settle(500, 30000);
+        await focusWindow();
+        let interrupted = false;
+        const interrupt = () => { interrupted = true; };
+        window.addEventListener('blur', interrupt);
+        document.addEventListener('visibilitychange', interrupt);
+        try {
+          const canvas = document.querySelector('.main canvas') as HTMLCanvasElement;
+          const b = canvas.getBoundingClientRect(), start = lastScale;
+          frames = [];
+          rafLoop();
+          let stoppedAt = 0;
+          for (let i = 0; i < 60; i++) {
+            const target = start * (scale / start) ** ((i + 1) / 60);
+            stoppedAt = performance.now();
+            canvas.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, ctrlKey: true,
+              clientX: Math.round(b.left + b.width * .37), clientY: Math.round(b.top + b.height * .61),
+              deltaY: -100 * Math.log(target / (perfClient?.lastScale ?? lastScale)) }));
+            await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+          }
+          await nextPaint(); // let the final input's React effects submit its view state
+          const finalSeq = perfClient?.lastSequence ?? 0;
+          let sharp: Frame | undefined;
+          while (!(sharp = frames.find(f => f.srcW === fullW && f.detail && f.start >= stoppedAt && (f.seq === undefined || f.seq >= finalSeq))) && performance.now() - stoppedAt < 60000) await wait(10);
+          const painted = await nextPaint(), gaps = rafStop();
+          results.push({ scale, finalScale: lastScale, valid: !interrupted && document.hasFocus() && document.visibilityState === 'visible' && Math.abs(lastScale - scale) < .001,
+            interrupted, focused: document.hasFocus(), visibility: document.visibilityState,
+            sharpMs: sharp ? Math.round(Math.max(sharp.done, painted) - stoppedAt) : null,
+            firstRenderMs: sharp ? Math.round(sharp.start - stoppedAt) : null, preparation: sharp?.preparation,
+            captureCache: sharp?.captureCache, memory: sharp?.memory,
+            screenGapMax: gaps.length ? Math.round(Math.max(...gaps)) : null });
+          await settle(400, 30000);
+        } finally {
+          rafStop();
+          window.removeEventListener('blur', interrupt);
+          document.removeEventListener('visibilitychange', interrupt);
+        }
+      }
+      out.zoomStops = results;
+      if (import.meta.env.VITE_PERF_CAPTURE_CHANGE) {
+        const waitReady = async () => {
+          const started = performance.now();
+          while (true) {
+            const state = await perfClient!.captureState();
+            if (state.cache.ready) return state;
+            if (performance.now() - started > 30000) throw Error('Changed capture settings never prepared');
+            await wait(20);
+          }
+        };
+        const before = await waitReady(), started = performance.now();
+        setSliders({ captureSharpening: 25 });
+        await nextPaint();
+        const invalidated = await perfClient!.captureState();
+        if (invalidated.cache.ready) throw Error('Capture settings did not invalidate the full-source result');
+        await settle(500, 30000);
+        const after = await waitReady();
+        out.captureSettingsChange = { before, invalidated, after, elapsedMs: Math.round(performance.now() - started) };
+      }
     }
     if (want('zoom100')) {
       // Every kind of slider at 100%, against the same drags at fit (Oli, 2026-11-03: sliders

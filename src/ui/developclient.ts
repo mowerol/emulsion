@@ -5,7 +5,7 @@
 // (localStorage `emulsion.engine` = `main`, or no OffscreenCanvas WebGL2), which the perf driver's
 // engine-level scenarios also use.
 import type { HalfImage, View } from '../engine/engine';
-import { DevelopLoop, type FrameState, type FrameStat, type FromLoop, type SourceRef, type ToLoop } from '../engine/developloop';
+import { DevelopLoop, type FrameState, type FrameStat, type FromLoop, type SourceRef, type ToLoop, type CaptureState } from '../engine/developloop';
 import type { Recipe } from '../film/recipe';
 import type { Xy } from '../engine/whitebalance';
 import type { WarmStage } from '../engine/warm';
@@ -21,6 +21,8 @@ export interface ClientEvents {
   error: (message: string) => void;
   warn: (message: string) => void;
   histogram: (path: string, data: Histogram) => void;
+  /** Whether the latest view's exact detail is still being prepared. */
+  sharpening?: (pending: boolean) => void;
 }
 
 /** Which realm the develop engine runs in: the worker unless asked otherwise or unavailable. */
@@ -67,6 +69,8 @@ export class DevelopClient {
   private recipes = new Map<number, Recipe | null>();
   /** The last state's screen pixels per full-resolution pixel and its source's width (perf driver). */
   lastScale = 1;
+  /** Latest submitted state, so timing checks can reject a completed frame of an older view. */
+  get lastSequence() { return this.seq; }
   /** Which recipe object a state's seq showed (perf driver: frames to inputs). */
   recipeOf(seq: number) { return this.recipes.get(seq) ?? null; }
 
@@ -91,7 +95,7 @@ export class DevelopClient {
     let c: DevelopClient | null = null;
     const early: FromLoop[] = [];
     const loop = new DevelopLoop(canvas, (m) => (c ? c.receive(m) : early.push(m)),
-      new Worker(new URL('../engine/retouch.worker.ts', import.meta.url), { type: 'module' }));
+      new Worker(new URL('../engine/retouch.worker.ts', import.meta.url), { type: 'module' }), stats);
     loop.stats = stats;
     c = new DevelopClient('main', loop.engine.maxTextureSize, events);
     c.loop = loop;
@@ -121,6 +125,7 @@ export class DevelopClient {
         break;
       }
       case 'busy': this.busy = m.busy; break;
+      case 'sharpening': this.events.sharpening?.(m.pending); break;
       case 'reply': {
         const r = this.requests.get(m.id);
         this.requests.delete(m.id);
@@ -170,6 +175,10 @@ export class DevelopClient {
     src.capture = true;
     this.send({ type: 'capture', key: src.key, radius, toCam, mask });
   }
+
+  /** Prepare the active full source while idle, without replacing the fitted preview. */
+  prepareCapture(src: SourceRef) { this.send({ type: 'prepareCapture', key: src.key }); }
+  captureState(): Promise<CaptureState> { return this.ask({ call: 'captureState' }); }
 
   /** The latest view; the loop draws the newest it has when the GPU is free. Returns its seq. */
   /** Main-thread ms spent sending states, and the largest one (perf driver). */

@@ -38,6 +38,11 @@ function report(r) {
     console.log(`${ok ? 'PASS' : 'FAIL'} zoomDetail: ${detail.sharpMs ?? 'timed out'} ms to sharp detail (budget ${sharpBudget} ms)`);
   }
   let bad = detail && (detail.sharpMs == null || detail.sharpMs > sharpBudget) ? 1 : 0;
+  for (const stop of r.zoomStops ?? []) {
+    const ok = stop.valid && stop.sharpMs != null && stop.sharpMs <= sharpBudget;
+    if (!ok) bad++;
+    console.log(`${ok ? 'PASS' : 'FAIL'} zoom stop ${stop.scale}: ${stop.sharpMs ?? 'timed out'} ms to sharp detail${stop.valid ? '' : ' (invalid sample)'} (budget ${sharpBudget} ms)`);
+  }
   for (const [k, v] of Object.entries(r)) {
     if (!v || typeof v !== 'object' || !('fps' in v)) continue;
     if (v.valid === false) {

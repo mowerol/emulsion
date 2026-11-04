@@ -95,6 +95,8 @@ export interface Source {
   fullH: number;
   /** A RAW's capture sharpening data, once attached (see attachCapture). */
   capture?: Capture;
+  /** Internal: this source already contains noise reduction and whole-source capture sharpening. */
+  captureApplied?: boolean;
   /** Which photo this is (its path), so the view can stand in one of its sources for another. */
   origin?: string;
   /**
@@ -121,6 +123,9 @@ export interface Capture {
   /** RawTherapee's auto contrast threshold, once measured. */
   threshold?: number;
 }
+
+/** Capture-only work, including waits between yielded GPU passes, for the native perf driver. */
+export interface CaptureWork { builds: number; hits: number; steps: number; cpuMs: number; elapsedMs: number; thresholdMs: number }
 
 interface Chain {
   /** Highlight pyramid; levels[0] is quarter resolution. */
@@ -376,6 +381,27 @@ const covers = (outer: PixelRect | null, inner: PixelRect) =>
 
 export class Engine {
   readonly gpu: Gpu;
+  captureWork: CaptureWork = { builds: 0, hits: 0, steps: 0, cpuMs: 0, elapsedMs: 0, thresholdMs: 0 };
+  /** One full-resolution result, independent of preview/histogram lane ownership. */
+  cacheCapture = true;
+  private fullCapture: Pick<Lane, 'csOut' | 'csMade' | 'noiseMade'> = { csOut: null, csMade: null, noiseMade: null };
+  private captureOwner: Source | null = null;
+  private captureNoise: WebGLTexture | undefined;
+  private captureAmount = 0;
+  private captureBuildMs = 0;
+  private capturePasses = 0;
+
+  get captureCacheStat() {
+    const out = this.fullCapture.csOut;
+    let bytes = 0;
+    if (out) for (let w = out.w, h = out.h; ; w = Math.max(1, w >> 1), h = Math.max(1, h >> 1)) {
+      bytes += w * h * 8;
+      if (!this.fullCapture.csMade || w === 1 && h === 1) break;
+    }
+    const noise = this.fullCapture.noiseMade?.out;
+    if (noise) bytes += noise.w * noise.h * 8;
+    return { ready: !!this.fullCapture.csMade, preparing: !!out && !this.fullCapture.csMade, steps: this.capturePasses, buildMs: this.captureBuildMs, retainedMiB: bytes / 2 ** 20 };
+  }
   /** The lane for the whole photo, the lane for a region shown at full resolution, and the one in use. */
   private whole: Lane;
   private region: Lane;
@@ -632,6 +658,7 @@ export class Engine {
 
   release(src: Source | null | undefined) {
     if (!src) return;
+    if (this.captureOwner?.tex === src.tex) this.clearCaptureCache();
     if (this.viewMade?.input === src.tex) this.freeViewSource();
     this.gpu.gl.deleteTexture(src.tex);
     if (src.denoised) this.gpu.gl.deleteTexture(src.denoised);
@@ -943,6 +970,7 @@ export class Engine {
 
   /** Give a RAW source its capture sharpening data: the radius, the camera matrix and the clip mask at the source's size. */
   attachCapture(src: Source, radius: number, toCam: number[], mask: Uint8Array) {
+    if (this.captureOwner?.tex === src.tex) this.clearCaptureCache();
     const gl = this.gpu.gl;
     const clip = gl.createTexture()!;
     this.gpu.scratch();
@@ -965,7 +993,26 @@ export class Engine {
    * RawTherapee's capture sharpening of a RAW source: a texture of the source
    * with its luminance deconvolved, kept until the source or iterations change.
    */
-  private *captureSteps(src: Source, iterations: number, lane: Lane): Generator<void, WebGLTexture> {
+  private *captureSteps(src: Source, iterations: number, lane: Pick<Lane, 'csMade' | 'csOut'>): Generator<void, WebGLTexture> {
+    const work = this.captureWork, start = performance.now();
+    const steps = this.captureBuildSteps(src, iterations, lane);
+    let count = 0;
+    try {
+      while (true) {
+        const t = performance.now(), next = steps.next();
+        work.cpuMs += performance.now() - t;
+        if (next.done) { if (count) work.builds++; else work.hits++; return next.value; }
+        count++; work.steps++;
+        if (lane === this.fullCapture) this.capturePasses = count;
+        yield;
+      }
+    } finally {
+      steps.return(src.tex);
+      if (count) work.elapsedMs += performance.now() - start;
+    }
+  }
+
+  private *captureBuildSteps(src: Source, iterations: number, lane: Pick<Lane, 'csMade' | 'csOut'>): Generator<void, WebGLTexture> {
     const g = this.gpu;
     const gl = g.gl;
     const cap = src.capture!;
@@ -1072,6 +1119,70 @@ export class Engine {
     while (!next.done) next = steps.next();
     return next.value;
   }
+
+  /** Release the active photo's retained result and any region copied from it. */
+  clearCaptureCache() {
+    const c = this.fullCapture;
+    if (c.csOut) {
+      if (this.regionMade?.input === c.csOut.tex) this.freeRegion();
+      if (this.viewMade?.input === c.csOut.tex) this.freeViewSource();
+      this.gpu.free(c.csOut);
+    }
+    if (c.noiseMade) this.gpu.free(c.noiseMade.out);
+    c.csOut = c.csMade = c.noiseMade = null;
+    this.captureOwner = null;
+    this.captureNoise = undefined;
+    this.captureBuildMs = 0;
+    this.capturePasses = 0;
+  }
+
+  private captureIterations(src: Source, recipe: Recipe | null) {
+    return this.cacheCapture && !src.roi && src.w === src.fullW && src.h === src.fullH &&
+      src.w * src.h * 8 <= 256 * 2 ** 20 && src.capture && this.gpu.hdr && this.gpu.float32
+      ? iterationsFor(recipe?.captureSharpening ?? 0) : 0;
+  }
+
+  private captureMatches(src: Source, recipe: Recipe | null) {
+    const amount = noiseEnabled(recipe) && src.denoised ? recipe!.noiseReduction!.amount / 100 : 0;
+    const input = amount === 1 ? src.denoised : amount === 0 ? src.tex : this.fullCapture.noiseMade?.out.tex;
+    return this.captureOwner?.tex === src.tex && this.fullCapture.csMade?.capture === src.capture &&
+      this.captureNoise === src.denoised && this.captureAmount === amount &&
+      this.fullCapture.csMade?.tex === input && this.fullCapture.csOut?.w === src.w && this.fullCapture.csOut.h === src.h &&
+      this.fullCapture.csMade?.iterations === this.captureIterations(src, recipe);
+  }
+
+  /** Settings can change while the fitted preview is showing; invalidate immediately. */
+  validateCaptureCache(recipe: Recipe) {
+    if (this.captureOwner && !this.captureMatches(this.captureOwner, recipe)) this.clearCaptureCache();
+  }
+
+  private *cachedCaptureSteps(src: Source, recipe: Recipe | null): Generator<void, Source> {
+    const iterations = this.captureIterations(src, recipe);
+    if (!iterations) {
+      if (this.captureOwner?.tex === src.tex) this.clearCaptureCache();
+      return src;
+    }
+    const building = !this.captureMatches(src, recipe);
+    if (building) {
+      this.clearCaptureCache();
+      this.captureOwner = src;
+      this.captureNoise = src.denoised;
+      this.captureAmount = noiseEnabled(recipe) && src.denoised ? recipe!.noiseReduction!.amount / 100 : 0;
+    }
+    const started = performance.now();
+    const input = this.noiseReduced(src, recipe, this.fullCapture);
+    const tex = yield* this.captureSteps(input, iterations, this.fullCapture);
+    if (building) this.captureBuildMs = performance.now() - started;
+    return { ...src, tex, denoised: undefined, captureApplied: true };
+  }
+
+  /** Idle preparation uses the same cancellable passes and exact pixels as a foreground render. */
+  *prepareCapture(src: Source, recipe: Recipe): Generator<void> {
+    const steps = this.cachedCaptureSteps(src, recipe);
+    try {
+      while (!steps.next().done) { this.fenceWork(); yield; }
+    } finally { steps.return(src); }
+  }
   /**
    * The region of a full-size source to develop for this view (docs/plans/roi.md), or null to
    * develop the whole source: when a stage this recipe uses cannot work on a region yet, or the
@@ -1168,6 +1279,9 @@ export class Engine {
     yield* this.renderSteps(opts.whole!, recipe, { ...opts, whole: undefined, products, prepare: undefined });
     // RawTherapee measures capture sharpening's contrast threshold on the whole photo.
     const iterations = recipe && !opts.compare && src.capture && this.gpu.float32 ? iterationsFor(recipe.captureSharpening) : 0;
+    // An early zoom must not wait for a cold whole-photo build. Use the regional path
+    // until idle preparation has completed; a ready result supplies exact source pixels.
+    if (!opts.compare && this.captureMatches(src, recipe) && this.fullCapture.csOut) src = yield* this.cachedCaptureSteps(src, recipe);
     if (iterations > 0 && src.capture!.threshold === undefined) this.measureCaptureThreshold(src);
     const region = (yield* this.regionSteps(src, rect));
     if (this.regionProductsSource !== opts.whole!.tex) {
@@ -1212,9 +1326,10 @@ export class Engine {
    * products from the same preview, and per-edit maps made over the view. Then rendering it costs
    * only the edits since, not a rebuild.
    */
-  private regionHolds(src: Source, whole: Source, plan: RegionPlan): boolean {
+  private regionHolds(src: Source, whole: Source, plan: RegionPlan, recipe: Recipe | null): boolean {
     const made = this.regionMade;
-    return !!made && made.input === src.tex && made.rect === plan.rect && this.regionProductsSource === whole.tex && clipsCover(this.regionClip, plan);
+    const input = this.captureMatches(src, recipe) ? this.fullCapture.csOut?.tex : src.tex;
+    return !!made && made.input === input && made.rect === plan.rect && this.regionProductsSource === whole.tex && clipsCover(this.regionClip, plan);
   }
 
   /** The region lane's per-edit maps no longer cover what they must (the clip moved): remake them. */
@@ -1300,6 +1415,7 @@ export class Engine {
 
   /** RawTherapee's auto contrast threshold from the lightness image, read back four values per texel. */
   private measureContrast(L: Target): number {
+    const started = performance.now();
     const g = this.gpu;
     const gl = g.gl;
     const pw = Math.ceil(L.w / 4);
@@ -1314,11 +1430,14 @@ export class Engine {
     g.free(packed);
     const data = new Float64Array(L.w * L.h);
     for (let y = 0; y < L.h; y++) for (let x = 0; x < L.w; x++) data[y * L.w + x] = px[y * pw * 4 + x];
-    return autoContrast({ w: L.w, h: L.h, data });
+    const threshold = autoContrast({ w: L.w, h: L.h, data });
+    this.captureWork.thresholdMs += performance.now() - started;
+    return threshold;
   }
 
   /** Free the intermediate buffers for one source size (after a large export). */
   dropBuffers(w: number, h: number) {
+    if (this.captureOwner?.w === w && this.captureOwner.h === h) this.clearCaptureCache();
     this.eachLane(() => this.dropLaneBuffers(w, h));
     this.chains.delete(`${w}x${h}`);
     this.outs.delete(`${w}x${h}`);
@@ -2092,21 +2211,21 @@ export class Engine {
   /** Correct the RAW once, before all analysis maps, crop and creative adjustments. Camera
    * JPEG previews already have manufacturer corrections and never enter this pass. */
   /** Cached RAW strength blend, before capture sharpening and lens correction. */
-  private noiseReduced(src: Source, recipe: Recipe | null): Source {
-    if (!noiseEnabled(recipe) || !src.denoised) return src;
+  private noiseReduced(src: Source, recipe: Recipe | null, cache: Pick<Lane, 'noiseMade'> = this.L): Source {
+    if (src.captureApplied || !noiseEnabled(recipe) || !src.denoised) return src;
     const amount = recipe!.noiseReduction!.amount / 100;
     if (amount === 0) return src;
     if (amount === 1) return { ...src, tex: src.denoised };
-    if (this.L.noiseMade?.input !== src.tex || this.L.noiseMade.amount !== amount) {
-      if (this.L.noiseMade) this.gpu.free(this.L.noiseMade.out);
+    if (cache.noiseMade?.input !== src.tex || cache.noiseMade.amount !== amount) {
+      if (cache.noiseMade) this.gpu.free(cache.noiseMade.out);
       // Fresh texture identity invalidates all downstream analysis caches.
       const out = this.gpu.target(src.w, src.h, true);
       this.gpu.bind(0, src.tex); this.gpu.bind(1, src.denoised);
       this.noiseP.set({ uOriginal: 0, uDenoised: 1, uAmount: amount, uSplit: -1 });
       this.gpu.draw(this.noiseP, out, src.w, src.h);
-      this.L.noiseMade = { input: src.tex, amount, out };
+      cache.noiseMade = { input: src.tex, amount, out };
     }
-    return { ...src, tex: this.L.noiseMade.out.tex };
+    return { ...src, tex: cache.noiseMade.out.tex };
   }
 
   private lensCorrected(src: Source, recipe: Recipe | null): Source {
@@ -2399,7 +2518,7 @@ export class Engine {
         }
       }
       const plan = this.regionPlan(src, recipe, opts);
-      if (opts.moving && (!plan || !this.regionHolds(src, opts.whole, plan))) {
+      if (opts.moving && (!plan || !this.regionHolds(src, opts.whole, plan, recipe))) {
         // Keep the lane as it is: the view may come back to it once the gesture ends.
         this.stoodIn = true;
         return yield* this.renderSteps(opts.whole, recipe, { ...opts, whole: undefined, moving: undefined });
@@ -2421,9 +2540,10 @@ export class Engine {
     const picking = opts.pick !== undefined && !!recipe;
     // The picked mask's input: the masks before it have had their say, it and those after none.
     if (picking) recipe = { ...recipe!, masks: recipe!.masks.slice(0, opts.pick) };
+    if (!opts.compare && !src.captureApplied) src = yield* this.cachedCaptureSteps(src, recipe);
     if (!opts.compare) src = this.noiseReduced(src, recipe);
     // Capture sharpening replaces the source for everything after it.
-    const iterations = recipe && !opts.compare && src.capture && g.hdr && g.float32 ? iterationsFor(recipe.captureSharpening) : 0;
+    const iterations = recipe && !opts.compare && !src.captureApplied && src.capture && g.hdr && g.float32 ? iterationsFor(recipe.captureSharpening) : 0;
     if (iterations > 0) src = { ...src, tex: (yield* this.captureSteps(src, iterations, this.L)) };
     src = this.lensCorrected(src, recipe);
     // The masks' raster layers: brushes, and refined masks (drawn below, once the uniforms are
@@ -3143,9 +3263,10 @@ export class Engine {
     return true;
   }
 
-  /** Exact settling in dependency order, one GPU submission at a time. The caller waits for
-   * idle between steps and can discard the remaining steps when a newer edit arrives. */
+  /** Exact settling in dependency order, yielding after each GPU submission. The caller
+   * paces bounded batches and can discard the remaining steps when a newer edit arrives. */
   *prepareFrame(src: Source, recipe: Recipe | null, opts: Parameters<Engine['render']>[2]): Generator<void> {
+    this.captureWork = { builds: 0, hits: 0, steps: 0, cpuMs: 0, elapsedMs: 0, thresholdMs: 0 };
     const steps = this.renderSteps(src, recipe, { ...opts, live: false, moving: false, draft: undefined, prepare: 'frame' });
     let complete = false;
     try {
@@ -3229,6 +3350,7 @@ export class Engine {
   }
 
   dispose() {
+    this.clearCaptureCache();
     if (this.sharpSampler) this.gpu.gl.deleteSampler(this.sharpSampler);
     this.sharpSampler = null;
     this.freeViewSource();

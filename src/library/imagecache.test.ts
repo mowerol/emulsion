@@ -43,15 +43,56 @@ describe('ImageLoadCache', () => {
 });
 
 describe('background image preparation', () => {
-  it('cancels preparation before the quiet period ends', async () => {
+  it('delivers cached and shared foreground payloads only to the current preparation', async () => {
+    vi.useFakeTimers();
+    try {
+      const cache = new ImageLoadCache<TestImage>(100, v => v.data.byteLength);
+      const value = image(20), load = vi.fn().mockResolvedValue(value), ready = vi.fn();
+      await cache.get('a', 100, load);
+      cache.prepare('a', 100, load, ready);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(ready).toHaveBeenCalledWith(value);
+      expect(load).toHaveBeenCalledOnce();
+      let resolve!: (v: TestImage) => void;
+      const pending = vi.fn(() => new Promise<TestImage>(r => { resolve = r; }));
+      const foreground = cache.get('b', 100, pending);
+      const stale = vi.fn();
+      cache.prepare('b', 100, pending, stale);
+      await vi.advanceTimersByTimeAsync(0);
+      cache.prepare('a', 100, load, ready); // navigation cancels the old callback
+      resolve(image(20));
+      await foreground;
+      await vi.advanceTimersByTimeAsync(0);
+      expect(stale).not.toHaveBeenCalled();
+      expect(pending).toHaveBeenCalledOnce();
+      expect(ready).toHaveBeenCalledTimes(2);
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('does not upload an already-running preparation after cancellation or a cache clear', async () => {
+    vi.useFakeTimers();
+    try {
+      for (const clear of [false, true]) {
+        const cache = new ImageLoadCache<TestImage>(100, v => v.data.byteLength), ready = vi.fn();
+        let resolve!: (v: TestImage) => void;
+        const cancel = cache.prepare('a', 100, () => new Promise<TestImage>(r => { resolve = r; }), ready);
+        await vi.advanceTimersByTimeAsync(0);
+        if (clear) cache.clear(); else cancel();
+        resolve(image(20));
+        await vi.advanceTimersByTimeAsync(0);
+        expect(ready).not.toHaveBeenCalled();
+      }
+    } finally { vi.useRealTimers(); }
+  });
+
+  it('cancels preparation before the next turn', async () => {
     vi.useFakeTimers();
     try {
       const cache = new ImageLoadCache<TestImage>(100, v => v.data.byteLength);
       const load = vi.fn().mockResolvedValue(image(20));
       const cancel = cache.prepare('a', 16384, load);
-      await vi.advanceTimersByTimeAsync(500);
       cancel();
-      await vi.advanceTimersByTimeAsync(500);
+      await vi.advanceTimersByTimeAsync(0);
       expect(load).not.toHaveBeenCalled();
     } finally { vi.useRealTimers(); }
   });
@@ -63,11 +104,11 @@ describe('background image preparation', () => {
       const resolve = new Map<string, (value: TestImage) => void>();
       const load = vi.fn((path: string) => new Promise<TestImage>(r => { resolve.set(path, r); }));
       cache.prepare('a', 16384, load);
-      await vi.advanceTimersByTimeAsync(750);
+      await vi.advanceTimersByTimeAsync(0);
       cache.prepare('b', 16384, load);
-      await vi.advanceTimersByTimeAsync(750);
+      await vi.advanceTimersByTimeAsync(0);
       cache.prepare('c', 16384, load);
-      await vi.advanceTimersByTimeAsync(750);
+      await vi.advanceTimersByTimeAsync(0);
       expect(load.mock.calls.map(([path]) => path)).toEqual(['a']);
       const foreground = cache.get('d', 16384, load);
       expect(load.mock.calls.map(([path]) => path)).toEqual(['a', 'd']);
@@ -92,13 +133,13 @@ describe('background image preparation', () => {
         return image(20);
       });
       cache.prepare('broken', 16384, load);
-      await vi.advanceTimersByTimeAsync(750);
+      await vi.advanceTimersByTimeAsync(0);
       cache.prepare('a', 16384, load);
-      await vi.advanceTimersByTimeAsync(750);
+      await vi.advanceTimersByTimeAsync(0);
       await cache.get('a', 16384, load);
       expect(load).toHaveBeenCalledTimes(2);
       cache.prepare('b', 16384, load);
-      await vi.advanceTimersByTimeAsync(750);
+      await vi.advanceTimersByTimeAsync(0);
       await cache.get('a', 16384, load);
       expect(load.mock.calls.map(([path]) => path)).toEqual(['broken', 'a', 'b', 'a']);
     } finally { vi.useRealTimers(); }
@@ -111,7 +152,7 @@ describe('background image preparation', () => {
       const resolve: ((value: TestImage) => void)[] = [];
       const load = vi.fn(() => new Promise<TestImage>(r => { resolve.push(r); }));
       cache.prepare('a', 16384, load);
-      await vi.advanceTimersByTimeAsync(750);
+      await vi.advanceTimersByTimeAsync(0);
       cache.clear();
       const foreground = cache.get('a', 16384, load);
       resolve[0](image(20));
@@ -131,7 +172,7 @@ describe('background image preparation', () => {
       let resolve!: (value: TestImage) => void;
       const load = vi.fn(() => new Promise<TestImage>(r => { resolve = r; }));
       cache.prepare('a', 16384, load);
-      await vi.advanceTimersByTimeAsync(750);
+      await vi.advanceTimersByTimeAsync(0);
       const foreground = cache.get('a', 16384, load);
       resolve(image(20));
       const prepared = await foreground;

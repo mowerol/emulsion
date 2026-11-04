@@ -16,6 +16,7 @@ import { recipeLookFile } from '../film/looks';
 import { logToTerminal } from '../backend/api';
 import { geometrySourcePoint } from '../engine/perspective';
 import type { View } from '../engine/engine';
+import { InputMode } from '../engine/params';
 import { DevelopClient, type SourceRef } from './developclient';
 import { VIEW_SETTLE_MS } from '../engine/developloop';
 import type { Recipe } from '../film/recipe';
@@ -31,6 +32,7 @@ import { FULL, bounds, orientedSize, rotateFrame } from '../film/crop';
 import { CropOverlay } from './CropOverlay';
 import { ensureCapture, loadCachedImage, prepareFullImage, thumbs } from '../library/thumbs';
 import { Filmstrip } from './Filmstrip';
+import { FullResolutionStatus } from './FullResolutionStatus';
 import { FIT, imagePoint, label, layout, pan, step, zoomAt, type Layout, type Zoom } from './zoom';
 import { MaskOverlay } from './MaskOverlay';
 import { setMaskUi, updateMask, useMaskUi } from './maskui';
@@ -143,6 +145,8 @@ export function Develop() {
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [zoom, setZoom] = useState<Zoom>(FIT);
   const [loadingFull, setLoadingFull] = useState(false);
+  /** The engine is preparing the latest view's exact detail (FullResolutionStatus). */
+  const [sharpeningDetail, setSharpeningDetail] = useState(false);
   /** The photo whose decode failed, leaving its embedded preview as the thing being edited. */
   const [decodeFailed, setDecodeFailed] = useState<string | null>(null);
   /** The source key of the full-resolution decode in flight, if one is. */
@@ -195,6 +199,7 @@ export function Develop() {
         error: (message) => { setError(message); logToTerminal('error', message); },
         warn: (message) => logToTerminal('warn', message),
         histogram: (path, data) => useApp.setState({ histogram: { path, data } }),
+        sharpening: setSharpeningDetail,
       });
       clients.set(canvas, { client, dispose: 0 });
       engineRef.current = client;
@@ -440,15 +445,37 @@ export function Develop() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [previewEdge(previewFor || 1), path, wantsNoise, loadedVersion, viewKey]);
 
-  // While the fitted photo rests, prepare its exact full decode in the bounded
-  // payload cache. Do not upload it or change the preview: zoom joins this request.
+  // While the fitted photo rests, prepare its exact full decode and one capture result.
+  // Keep the fitted preview on screen; zoom shares the decoded and sharpened sources.
   // Navigation cancels pending work, and the cache admits only one background decode.
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine || !path || !src || !sizeKnown || loaded?.res !== 'preview' || wantsNoise || decodeFailed === path) return;
     if (Math.max(src.w, src.h) >= Math.max(src.fullW, src.fullH)) return;
-    return prepareFullImage(path, src.fullW, src.fullH, engine.maxTextureSize);
-    // Recipe changes restart the quiet period before preparation begins.
+    let cancelled = false;
+    const ready = (img: Parameters<typeof engine.upload>[0]) => {
+      if (cancelled || engineRef.current !== engine || loadedRef.current?.path !== path) return;
+      // The measurement switch keeps the previous decode-only path for comparisons.
+      if (import.meta.env.VITE_CAPTURE_CACHE === '0' || sharpening <= 0 || img.mode !== InputMode.SceneLinear) return;
+      const key = sourceKey(path, 'full', false);
+      let full = cachedSource(key);
+      if (!full) {
+        full = engine.upload(img, path);
+        sourceCacheRef.current.set(key, full);
+        while (sourceCacheRef.current.size > 4) {
+          const candidate = [...sourceCacheRef.current].find(([, s]) => s !== loadedRef.current?.source && s !== full);
+          if (!candidate) break;
+          sourceCacheRef.current.delete(candidate[0]); engine.release(candidate[1]);
+        }
+      }
+      const source = full;
+      void ensureCapture(engine, source, path).then(ok => {
+        if (ok && !cancelled && engineRef.current === engine && loadedRef.current?.path === path) engine.prepareCapture(source);
+      });
+    };
+    const cancel = prepareFullImage(path, src.fullW, src.fullH, engine.maxTextureSize, ready);
+    return () => { cancelled = true; cancel(); };
+    // Recipe changes cancel stale callbacks and request preparation for the current settings.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, wantsNoise, sizeKnown, loadedVersion, recipe, decodeFailed]);
 
@@ -477,7 +504,8 @@ export function Develop() {
     loadCachedImage(path, engine.maxTextureSize, wantsNoise)
       .then((img) => {
         if (!stillWanted() || loadedRef.current?.path !== path) return;
-        swapSource(path, engine.upload(img, path), 'full');
+        // Idle preparation may have uploaded the same shared decode in the meantime.
+        swapSource(path, cachedSource(key) ?? engine.upload(img, path), 'full');
       })
       .catch((err) => {
         if (stillWanted()) showToast(`Could not load the full resolution. ${String(err)}`);
@@ -792,7 +820,9 @@ export function Develop() {
         {!workflow && cropping && <span className="badge">Cropping: Enter to keep, Esc to cancel, X turns the frame</span>}
         {photo && !showing && !error && <span className="stage-status">Opening {photo.name}</span>}
         {photo && showing && loaded!.res === 'thumb' && <span className="stage-status">Loading preview</span>}
-        {photo && showing && loadingFull && <span className="stage-status">Loading full resolution</span>}
+        {photo && showing && loaded!.res !== 'thumb' && (
+          <FullResolutionStatus pending={loadingFull || (sharpeningDetail && zoom.scale !== null && !cropping)} />
+        )}
         {!workflow && current && !cropping && (
           <div className="zoom-bar" role="group" aria-label="Zoom">
             <button type="button" aria-pressed={before === 'full'} onClick={() => setBefore((b) => (b === 'full' ? 'off' : 'full'))} title={'Show the original (or hold \\)'}>

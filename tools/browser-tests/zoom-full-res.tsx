@@ -66,7 +66,7 @@ async function main() {
   for (let i = 0; i < 40 && !(document.querySelector('.tool-zoom-value') && useApp.getState().developSize?.path === photo.path); i++) await wait(10);
   assert(!fullLoads.length, 'Fit asked for the full resolution');
   // 100% needs more than the 300 px preview, so the decode starts.
-  key('z'); await wait(100);
+  key('z'); await wait(350); // the shared status deliberately waits 280 ms before appearing
   assert(fullLoads.length === 1, 'Full-resolution decode did not start at 100%');
   assert(badge(), 'No loading badge while decoding');
   // Zoom around while it runs: fit, then 100% again.

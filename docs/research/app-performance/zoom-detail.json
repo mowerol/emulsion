@@ -1355,5 +1355,1589 @@
         "resolvedSpec": "derived-source capture metadata replacement"
       }
     }
+  },
+  "workerScheduling20261104": {
+    "baselineCommit": "b4341e3b5e3071ff3a0ab1141959f88ea11be56d",
+    "environment": "Same 26 MP RAF, real Tauri dev WKWebView, worker, 1552x1036 canvas at DPR 2; scratch copies, visible focused window. Sequential performance runs; OS cache not cold.",
+    "scope": "Neutral recipe, capture sharpening enabled, Texture/Clarity/Dehaze off. First 50% stop includes upload and global capture threshold; later stops reuse those. Exact decoded payload prepared for six seconds before zoom. Not cold RAW decode latency or p95; effect-heavy recipes not timed.",
+    "originalPrepared": {
+      "which": "zoomprepared",
+      "detailOrder": "darktable",
+      "dpr": 2,
+      "ua": "WebKit 605.1.15",
+      "canvas": "1552x1036",
+      "window": "1440x779",
+      "photo": {
+        "W": 6246,
+        "H": 4170
+      },
+      "engine": "worker",
+      "zoomDetail": {
+        "viewingPauseMs": 6000,
+        "sharpMs": 1593,
+        "firstRenderMs": 1548,
+        "firstRenderCpuMs": 2,
+        "firstFrameMs": 15,
+        "uploadCpuMs": null,
+        "screenGapMax": 96
+      }
+    },
+    "instrumentedPrepared": {
+      "which": "zoomprepared",
+      "detailOrder": "darktable",
+      "dpr": 2,
+      "ua": "WebKit 605.1.15",
+      "canvas": "1552x1036",
+      "window": "1440x779",
+      "photo": {
+        "W": 6246,
+        "H": 4170
+      },
+      "engine": "worker",
+      "zoomDetail": {
+        "viewingPauseMs": 6000,
+        "sharpMs": 1523,
+        "firstRenderMs": 1468,
+        "firstRenderCpuMs": 1,
+        "firstFrameMs": 24,
+        "preparation": {
+          "steps": 107,
+          "cpuMs": 399.9999999999982,
+          "elapsedMs": 1109,
+          "resumeMs": 709.0000000000018,
+          "maxStepMs": 291
+        },
+        "uploadCpuMs": null,
+        "screenGapMax": 118
+      }
+    },
+    "messageTasksOnlyTrial": {
+      "which": "zoomprepared",
+      "detailOrder": "darktable",
+      "dpr": 2,
+      "ua": "WebKit 605.1.15",
+      "canvas": "1552x1036",
+      "window": "1440x779",
+      "photo": {
+        "W": 6246,
+        "H": 4170
+      },
+      "engine": "worker",
+      "zoomDetail": {
+        "viewingPauseMs": 6000,
+        "sharpMs": 1209,
+        "firstRenderMs": 1161,
+        "firstRenderCpuMs": 1,
+        "firstFrameMs": 22,
+        "preparation": {
+          "steps": 107,
+          "cpuMs": 335.9999999999982,
+          "elapsedMs": 763,
+          "resumeMs": 427.0000000000018,
+          "maxStepMs": 254
+        },
+        "uploadCpuMs": null,
+        "screenGapMax": 128
+      }
+    },
+    "boundedBatchPreparedTrial": {
+      "which": "zoomprepared",
+      "detailOrder": "darktable",
+      "dpr": 2,
+      "ua": "WebKit 605.1.15",
+      "canvas": "1552x1036",
+      "window": "1440x779",
+      "photo": {
+        "W": 6246,
+        "H": 4170
+      },
+      "engine": "worker",
+      "zoomDetail": {
+        "viewingPauseMs": 6000,
+        "sharpMs": 1051,
+        "firstRenderMs": 1003,
+        "firstRenderCpuMs": 2,
+        "firstFrameMs": 13,
+        "preparation": {
+          "steps": 107,
+          "cpuMs": 358.9999999999982,
+          "elapsedMs": 602,
+          "resumeMs": 243.00000000000182,
+          "maxStepMs": 293
+        },
+        "uploadCpuMs": null,
+        "screenGapMax": 101
+      }
+    },
+    "originalSchedulerStops": {
+      "which": "zoomsettle",
+      "detailOrder": "darktable",
+      "dpr": 2,
+      "ua": "WebKit 605.1.15",
+      "canvas": "1552x1036",
+      "window": "1440x779",
+      "photo": {
+        "W": 6246,
+        "H": 4170
+      },
+      "engine": "worker",
+      "zoomStops": [
+        {
+          "scale": 0.5,
+          "finalScale": 0.49999999999999994,
+          "valid": true,
+          "sharpMs": 2150,
+          "firstRenderMs": 2111,
+          "preparation": {
+            "steps": 107,
+            "cpuMs": 575.0000000000073,
+            "elapsedMs": 1856,
+            "resumeMs": 1280.9999999999927,
+            "maxStepMs": 290
+          },
+          "screenGapMax": 108
+        },
+        {
+          "scale": 0.637,
+          "finalScale": 0.637,
+          "valid": true,
+          "sharpMs": 1483,
+          "firstRenderMs": 1437,
+          "preparation": {
+            "steps": 107,
+            "cpuMs": 232.9999999999891,
+            "elapsedMs": 1245.9999999999982,
+            "resumeMs": 1013.0000000000091,
+            "maxStepMs": 39
+          },
+          "screenGapMax": 21
+        },
+        {
+          "scale": 1,
+          "finalScale": 0.9999999999999999,
+          "valid": true,
+          "sharpMs": 1100,
+          "firstRenderMs": 1059,
+          "preparation": {
+            "steps": 107,
+            "cpuMs": 142,
+            "elapsedMs": 871,
+            "resumeMs": 729,
+            "maxStepMs": 20
+          },
+          "screenGapMax": 31
+        }
+      ]
+    },
+    "finalStops": {
+      "which": "zoomsettle",
+      "detailOrder": "darktable",
+      "dpr": 2,
+      "ua": "WebKit 605.1.15",
+      "canvas": "1552x1036",
+      "window": "1440x779",
+      "photo": {
+        "W": 6246,
+        "H": 4170
+      },
+      "engine": "worker",
+      "zoomStops": [
+        {
+          "scale": 0.5,
+          "finalScale": 0.5,
+          "valid": true,
+          "sharpMs": 1700,
+          "firstRenderMs": 1650,
+          "preparation": {
+            "steps": 107,
+            "cpuMs": 528.0000000000036,
+            "elapsedMs": 1283.0000000000018,
+            "resumeMs": 754.9999999999982,
+            "maxStepMs": 259
+          },
+          "screenGapMax": 124
+        },
+        {
+          "scale": 0.637,
+          "finalScale": 0.637,
+          "valid": true,
+          "sharpMs": 843,
+          "firstRenderMs": 802,
+          "preparation": {
+            "steps": 107,
+            "cpuMs": 167,
+            "elapsedMs": 614.9999999999982,
+            "resumeMs": 447.9999999999982,
+            "maxStepMs": 32
+          },
+          "screenGapMax": 24
+        },
+        {
+          "scale": 1,
+          "finalScale": 0.9999999999999999,
+          "valid": true,
+          "sharpMs": 566,
+          "firstRenderMs": 518,
+          "preparation": {
+            "steps": 107,
+            "cpuMs": 91.99999999999636,
+            "elapsedMs": 327,
+            "resumeMs": 235.00000000000364,
+            "maxStepMs": 19
+          },
+          "screenGapMax": 22
+        }
+      ]
+    },
+    "finalPreparedAndWarmStops": {
+      "which": "zoomprepared,zoomsettle",
+      "detailOrder": "darktable",
+      "dpr": 2,
+      "ua": "WebKit 605.1.15",
+      "canvas": "1552x1036",
+      "window": "1440x779",
+      "photo": {
+        "W": 6246,
+        "H": 4170
+      },
+      "engine": "worker",
+      "zoomDetail": {
+        "viewingPauseMs": 6000,
+        "sharpMs": 994,
+        "firstRenderMs": 953,
+        "firstRenderCpuMs": 1,
+        "firstFrameMs": 12,
+        "preparation": {
+          "steps": 107,
+          "cpuMs": 354.99999999999454,
+          "elapsedMs": 594.0000000000018,
+          "resumeMs": 239.00000000000728,
+          "maxStepMs": 280
+        },
+        "uploadCpuMs": null,
+        "screenGapMax": 120
+      },
+      "zoomStops": [
+        {
+          "scale": 0.5,
+          "finalScale": 0.49999999999999994,
+          "valid": true,
+          "sharpMs": 1267,
+          "firstRenderMs": 1236,
+          "preparation": {
+            "steps": 107,
+            "cpuMs": 275.9999999999927,
+            "elapsedMs": 1053,
+            "resumeMs": 777.0000000000073,
+            "maxStepMs": 48.99999999999636
+          },
+          "screenGapMax": 30
+        },
+        {
+          "scale": 0.637,
+          "finalScale": 0.637,
+          "valid": true,
+          "sharpMs": 899,
+          "firstRenderMs": 857,
+          "preparation": {
+            "steps": 107,
+            "cpuMs": 170.99999999997817,
+            "elapsedMs": 669.9999999999964,
+            "resumeMs": 499.0000000000182,
+            "maxStepMs": 32
+          },
+          "screenGapMax": 22
+        },
+        {
+          "scale": 1,
+          "finalScale": 0.9999999999999999,
+          "valid": true,
+          "sharpMs": 533,
+          "firstRenderMs": 505,
+          "preparation": {
+            "steps": 107,
+            "cpuMs": 92,
+            "elapsedMs": 321,
+            "resumeMs": 229,
+            "maxStepMs": 14
+          },
+          "screenGapMax": 22
+        }
+      ]
+    },
+    "baselineMethod": "Restored one pass and setTimeout(0) between passes in the instrumented loop for the before run, then restored the final file in a finally block. The old scheduling also failed four of the five loop regression tests.",
+    "preparationMetrics": "steps counts generator advances (including completion), cpuMs sums advancing time including synchronous GPU waits, elapsedMs is preparation start to completion, resumeMs is elapsed between advances (GPU waits plus scheduling), maxStepMs is the longest advance. These do not isolate hardware GPU execution.",
+    "discarded": "Initial stop harness used completed-frame scale as feedback and overshot its first 50% target; valid=false. That development run also overlapped a Chrome GPU correctness check. Final timing runs were sequential and use latest submitted scale, sequence checks, focus/visibility validation and inexact-frame exclusion."
+  },
+  "captureCache20261104": {
+    "description": "One bounded active full-resolution capture result, idle GPU preparation, exact region copies. Native timing runs sequential; GPU correctness run separately.",
+    "fixture": "~/Pictures/1OKK6432.RAF, 6246x4170, DPR 2, 1552x1036, WKWebView worker except real-pixels (main)",
+    "caveats": [
+      "Individual samples, not p95; OS caches not cold.",
+      "warm-prepared waits for confirmed cache readiness after its six-second pause; added wait was not recorded in that first readiness run.",
+      "after-prepared shows that a fixed six-second pause did not always finish the cache; that sample used regional capture and reused only the threshold.",
+      "early-settle lost window focus and is invalid; early-repeat is valid.",
+      "Texture/Clarity/Dehaze off in latency samples; effect-heavy and cold RAW performance remain open.",
+      "Memory is logical texture storage, includes mipmaps, excludes CPU/driver allocations and RSS.",
+      "before-settle and before-prepared predate worker texture tracking; disabled-* use the final implementation with VITE_CAPTURE_CACHE=0."
+    ],
+    "runs": {
+      "before-settle": {
+        "which": "zoomsettle",
+        "detailOrder": "darktable",
+        "dpr": 2,
+        "ua": "WebKit 605.1.15",
+        "canvas": "1552x1036",
+        "window": "1440x779",
+        "photo": {
+          "W": 6246,
+          "H": 4170
+        },
+        "engine": "worker",
+        "zoomStops": [
+          {
+            "scale": 0.5,
+            "finalScale": 0.49999999999999994,
+            "valid": true,
+            "sharpMs": 1883,
+            "firstRenderMs": 1842,
+            "preparation": {
+              "steps": 107,
+              "cpuMs": 562.0000000000036,
+              "elapsedMs": 1425,
+              "resumeMs": 862.9999999999964,
+              "maxStepMs": 283
+            },
+            "screenGapMax": 112
+          },
+          {
+            "scale": 0.637,
+            "finalScale": 0.637,
+            "valid": true,
+            "sharpMs": 884,
+            "firstRenderMs": 836,
+            "preparation": {
+              "steps": 107,
+              "cpuMs": 172.99999999999818,
+              "elapsedMs": 648,
+              "resumeMs": 475.0000000000018,
+              "maxStepMs": 32
+            },
+            "screenGapMax": 19
+          },
+          {
+            "scale": 1,
+            "finalScale": 0.9999999999999999,
+            "valid": true,
+            "sharpMs": 551,
+            "firstRenderMs": 507,
+            "preparation": {
+              "steps": 107,
+              "cpuMs": 95.99999999999636,
+              "elapsedMs": 322.99999999999636,
+              "resumeMs": 227,
+              "maxStepMs": 16
+            },
+            "screenGapMax": 18
+          }
+        ]
+      },
+      "instrumented-settle": {
+        "which": "zoomsettle",
+        "detailOrder": "darktable",
+        "dpr": 2,
+        "ua": "WebKit 605.1.15",
+        "canvas": "1552x1036",
+        "window": "1440x779",
+        "photo": {
+          "W": 6246,
+          "H": 4170
+        },
+        "engine": "worker",
+        "zoomStops": [
+          {
+            "scale": 0.5,
+            "finalScale": 0.5,
+            "valid": true,
+            "sharpMs": 1617,
+            "firstRenderMs": 1583,
+            "preparation": {
+              "steps": 107,
+              "cpuMs": 505.99999999999636,
+              "elapsedMs": 1308,
+              "resumeMs": 802.0000000000036,
+              "maxStepMs": 271,
+              "capture": {
+                "builds": 1,
+                "hits": 3,
+                "steps": 95,
+                "cpuMs": 3.000000000003638,
+                "elapsedMs": 756,
+                "thresholdMs": 269
+              }
+            },
+            "screenGapMax": 122
+          },
+          {
+            "scale": 0.637,
+            "finalScale": 0.637,
+            "valid": true,
+            "sharpMs": 901,
+            "firstRenderMs": 860,
+            "preparation": {
+              "steps": 107,
+              "cpuMs": 176.00000000000728,
+              "elapsedMs": 667,
+              "resumeMs": 490.9999999999927,
+              "maxStepMs": 38,
+              "capture": {
+                "builds": 1,
+                "hits": 3,
+                "steps": 95,
+                "cpuMs": 1,
+                "elapsedMs": 480,
+                "thresholdMs": 0
+              }
+            },
+            "screenGapMax": 24
+          },
+          {
+            "scale": 1,
+            "finalScale": 0.9999999999999999,
+            "valid": true,
+            "sharpMs": 534,
+            "firstRenderMs": 499,
+            "preparation": {
+              "steps": 107,
+              "cpuMs": 90,
+              "elapsedMs": 310.00000000000364,
+              "resumeMs": 220.00000000000364,
+              "maxStepMs": 14,
+              "capture": {
+                "builds": 1,
+                "hits": 3,
+                "steps": 95,
+                "cpuMs": 1,
+                "elapsedMs": 234.99999999999636,
+                "thresholdMs": 0
+              }
+            },
+            "screenGapMax": 25
+          }
+        ]
+      },
+      "before-prepared": {
+        "which": "zoomprepared",
+        "detailOrder": "darktable",
+        "dpr": 2,
+        "ua": "WebKit 605.1.15",
+        "canvas": "1552x1036",
+        "window": "1440x779",
+        "photo": {
+          "W": 6246,
+          "H": 4170
+        },
+        "engine": "worker",
+        "zoomDetail": {
+          "viewingPauseMs": 6000,
+          "sharpMs": 1109,
+          "firstRenderMs": 1062,
+          "firstRenderCpuMs": 2,
+          "firstFrameMs": 11,
+          "preparation": {
+            "steps": 107,
+            "cpuMs": 316.99999999999636,
+            "elapsedMs": 550,
+            "resumeMs": 233.00000000000364,
+            "maxStepMs": 244,
+            "capture": {
+              "builds": 1,
+              "hits": 3,
+              "steps": 95,
+              "cpuMs": 2,
+              "elapsedMs": 225,
+              "thresholdMs": 243
+            }
+          },
+          "uploadCpuMs": null,
+          "screenGapMax": 102
+        }
+      },
+      "disabled-settle": {
+        "which": "zoomsettle",
+        "detailOrder": "darktable",
+        "dpr": 2,
+        "ua": "WebKit 605.1.15",
+        "canvas": "1552x1036",
+        "window": "1440x779",
+        "photo": {
+          "W": 6246,
+          "H": 4170
+        },
+        "engine": "worker",
+        "zoomStops": [
+          {
+            "scale": 0.5,
+            "finalScale": 0.49999999999999994,
+            "valid": true,
+            "sharpMs": 1783,
+            "firstRenderMs": 1735,
+            "preparation": {
+              "steps": 107,
+              "cpuMs": 542,
+              "elapsedMs": 1384,
+              "resumeMs": 842,
+              "maxStepMs": 287,
+              "capture": {
+                "builds": 1,
+                "hits": 3,
+                "steps": 95,
+                "cpuMs": 2,
+                "elapsedMs": 812.0000000000018,
+                "thresholdMs": 285
+              }
+            },
+            "captureCache": {
+              "ready": false,
+              "preparing": false,
+              "buildMs": 0,
+              "retainedMiB": 0
+            },
+            "memory": {
+              "retainedMiB": 1831.7396659851074,
+              "peakMiB": 1831.7396659851074
+            },
+            "screenGapMax": 134
+          },
+          {
+            "scale": 0.637,
+            "finalScale": 0.637,
+            "valid": true,
+            "sharpMs": 901,
+            "firstRenderMs": 854,
+            "preparation": {
+              "steps": 107,
+              "cpuMs": 174.00000000000182,
+              "elapsedMs": 669.9999999999982,
+              "resumeMs": 495.99999999999636,
+              "maxStepMs": 33.99999999999818,
+              "capture": {
+                "builds": 1,
+                "hits": 3,
+                "steps": 95,
+                "cpuMs": 1.000000000001819,
+                "elapsedMs": 485,
+                "thresholdMs": 0
+              }
+            },
+            "captureCache": {
+              "ready": false,
+              "preparing": false,
+              "buildMs": 0,
+              "retainedMiB": 0
+            },
+            "memory": {
+              "retainedMiB": 2654.505229949951,
+              "peakMiB": 3000.4896659851074
+            },
+            "screenGapMax": 19
+          },
+          {
+            "scale": 1,
+            "finalScale": 0.9999999999999999,
+            "valid": true,
+            "sharpMs": 550,
+            "firstRenderMs": 506,
+            "preparation": {
+              "steps": 107,
+              "cpuMs": 87.00000000001455,
+              "elapsedMs": 319,
+              "resumeMs": 230.99999999998545,
+              "maxStepMs": 14,
+              "capture": {
+                "builds": 1,
+                "hits": 3,
+                "steps": 95,
+                "cpuMs": 0,
+                "elapsedMs": 239,
+                "thresholdMs": 0
+              }
+            },
+            "captureCache": {
+              "ready": false,
+              "preparing": false,
+              "buildMs": 0,
+              "retainedMiB": 0
+            },
+            "memory": {
+              "retainedMiB": 1899.2008934020996,
+              "peakMiB": 3000.4896659851074
+            },
+            "screenGapMax": 23
+          }
+        ]
+      },
+      "after-settle": {
+        "which": "zoomsettle",
+        "detailOrder": "darktable",
+        "dpr": 2,
+        "ua": "WebKit 605.1.15",
+        "canvas": "1552x1036",
+        "window": "1440x779",
+        "photo": {
+          "W": 6246,
+          "H": 4170
+        },
+        "engine": "worker",
+        "zoomStops": [
+          {
+            "scale": 0.5,
+            "finalScale": 0.49999999999999994,
+            "valid": true,
+            "sharpMs": 766,
+            "firstRenderMs": 563,
+            "preparation": {
+              "steps": 12,
+              "cpuMs": 109,
+              "elapsedMs": 364,
+              "resumeMs": 255,
+              "maxStepMs": 43,
+              "capture": {
+                "builds": 0,
+                "hits": 4,
+                "steps": 0,
+                "cpuMs": 0,
+                "elapsedMs": 0,
+                "thresholdMs": 0
+              }
+            },
+            "captureCache": {
+              "ready": true,
+              "buildMs": 1905.999999999999,
+              "retainedMiB": 264.9331588745117
+            },
+            "memory": {
+              "retainedMiB": 1940.8398323059082,
+              "peakMiB": 1940.8398323059082
+            },
+            "screenGapMax": 19
+          },
+          {
+            "scale": 0.637,
+            "finalScale": 0.637,
+            "valid": true,
+            "sharpMs": 483,
+            "firstRenderMs": 344,
+            "preparation": {
+              "steps": 12,
+              "cpuMs": 60.99999999999818,
+              "elapsedMs": 149,
+              "resumeMs": 88.00000000000182,
+              "maxStepMs": 27.99999999999818,
+              "capture": {
+                "builds": 0,
+                "hits": 4,
+                "steps": 0,
+                "cpuMs": 0,
+                "elapsedMs": 0,
+                "thresholdMs": 0
+              }
+            },
+            "captureCache": {
+              "ready": true,
+              "buildMs": 1905.999999999999,
+              "retainedMiB": 264.9331588745117
+            },
+            "memory": {
+              "retainedMiB": 2819.5220832824707,
+              "peakMiB": 3109.589832305908
+            },
+            "screenGapMax": 21
+          },
+          {
+            "scale": 1,
+            "finalScale": 0.9999999999999999,
+            "valid": true,
+            "sharpMs": 383,
+            "firstRenderMs": 279,
+            "preparation": {
+              "steps": 12,
+              "cpuMs": 35,
+              "elapsedMs": 96,
+              "resumeMs": 61,
+              "maxStepMs": 15,
+              "capture": {
+                "builds": 0,
+                "hits": 4,
+                "steps": 0,
+                "cpuMs": 0,
+                "elapsedMs": 0,
+                "thresholdMs": 0
+              }
+            },
+            "captureCache": {
+              "ready": true,
+              "buildMs": 1905.999999999999,
+              "retainedMiB": 264.9331588745117
+            },
+            "memory": {
+              "retainedMiB": 2537.8842964172363,
+              "peakMiB": 3109.589832305908
+            },
+            "screenGapMax": 21
+          }
+        ]
+      },
+      "after-prepared": {
+        "which": "zoomprepared",
+        "detailOrder": "darktable",
+        "dpr": 2,
+        "ua": "WebKit 605.1.15",
+        "canvas": "1552x1036",
+        "window": "1440x779",
+        "photo": {
+          "W": 6246,
+          "H": 4170
+        },
+        "engine": "worker",
+        "zoomDetail": {
+          "viewingPauseMs": 6000,
+          "sharpMs": 767,
+          "firstRenderMs": 731,
+          "firstRenderCpuMs": 1,
+          "firstFrameMs": 11,
+          "preparation": {
+            "steps": 107,
+            "cpuMs": 81,
+            "elapsedMs": 315,
+            "resumeMs": 234,
+            "maxStepMs": 11.999999999998181,
+            "capture": {
+              "builds": 1,
+              "hits": 3,
+              "steps": 95,
+              "cpuMs": 2,
+              "elapsedMs": 239,
+              "thresholdMs": 0
+            }
+          },
+          "captureCache": {
+            "ready": false,
+            "buildMs": 0,
+            "retainedMiB": 0
+          },
+          "memory": {
+            "retainedMiB": 1149.8258934020996,
+            "peakMiB": 1664.3468704223633
+          },
+          "uploadCpuMs": null,
+          "screenGapMax": 23
+        }
+      },
+      "warm-prepared": {
+        "which": "zoomprepared",
+        "detailOrder": "darktable",
+        "dpr": 2,
+        "ua": "WebKit 605.1.15",
+        "canvas": "1552x1036",
+        "window": "1440x779",
+        "photo": {
+          "W": 6246,
+          "H": 4170
+        },
+        "engine": "worker",
+        "captureBeforeZoom": {
+          "cache": {
+            "ready": true,
+            "preparing": false,
+            "buildMs": 1786,
+            "retainedMiB": 264.9331588745117
+          },
+          "work": {
+            "builds": 2,
+            "hits": 6,
+            "steps": 190,
+            "cpuMs": 315,
+            "elapsedMs": 1875,
+            "thresholdMs": 0
+          },
+          "memory": {
+            "retainedMiB": 1132.4550971984863,
+            "peakMiB": 1664.3468704223633
+          }
+        },
+        "zoomDetail": {
+          "viewingPauseMs": 6000,
+          "sharpMs": 392,
+          "firstRenderMs": 294,
+          "firstRenderCpuMs": 24,
+          "firstFrameMs": 74,
+          "preparation": {
+            "steps": 12,
+            "cpuMs": 39,
+            "elapsedMs": 89,
+            "resumeMs": 50,
+            "maxStepMs": 17,
+            "capture": {
+              "builds": 0,
+              "hits": 4,
+              "steps": 0,
+              "cpuMs": 0,
+              "elapsedMs": 0,
+              "thresholdMs": 0
+            }
+          },
+          "captureCache": {
+            "ready": true,
+            "preparing": false,
+            "buildMs": 1786,
+            "retainedMiB": 264.9331588745117
+          },
+          "memory": {
+            "retainedMiB": 1369.1342964172363,
+            "peakMiB": 1664.3468704223633
+          },
+          "uploadCpuMs": null,
+          "screenGapMax": 39
+        }
+      },
+      "early-settle": {
+        "which": "zoomsettle",
+        "detailOrder": "darktable",
+        "dpr": 2,
+        "ua": "WebKit 605.1.15",
+        "canvas": "1552x1036",
+        "window": "1440x779",
+        "photo": {
+          "W": 6246,
+          "H": 4170
+        },
+        "engine": "worker",
+        "captureBeforeZoom": {
+          "cache": {
+            "ready": false,
+            "preparing": true,
+            "steps": 26,
+            "buildMs": 0,
+            "retainedMiB": 198.71383666992188
+          },
+          "work": {
+            "builds": 1,
+            "hits": 6,
+            "steps": 121,
+            "cpuMs": 354.9999999999982,
+            "elapsedMs": 87,
+            "thresholdMs": 0
+          },
+          "memory": {
+            "retainedMiB": 1564.958137512207,
+            "peakMiB": 1664.3468704223633
+          }
+        },
+        "captureWaitMs": 5242,
+        "zoomStops": [
+          {
+            "scale": 0.5,
+            "finalScale": 0.49999999999999994,
+            "valid": false,
+            "sharpMs": 1334,
+            "firstRenderMs": 1283,
+            "preparation": {
+              "steps": 107,
+              "cpuMs": 271.0000000000091,
+              "elapsedMs": 1077,
+              "resumeMs": 805.9999999999909,
+              "maxStepMs": 45,
+              "capture": {
+                "builds": 1,
+                "hits": 3,
+                "steps": 95,
+                "cpuMs": 7,
+                "elapsedMs": 780,
+                "thresholdMs": 0
+              }
+            },
+            "captureCache": {
+              "ready": false,
+              "preparing": false,
+              "steps": 0,
+              "buildMs": 0,
+              "retainedMiB": 0
+            },
+            "memory": {
+              "retainedMiB": 1831.7396659851074,
+              "peakMiB": 1831.7396659851074
+            },
+            "screenGapMax": 37
+          }
+        ]
+      },
+      "early-repeat": {
+        "which": "zoomsettle",
+        "detailOrder": "darktable",
+        "dpr": 2,
+        "ua": "WebKit 605.1.15",
+        "canvas": "1552x1036",
+        "window": "1440x779",
+        "photo": {
+          "W": 6246,
+          "H": 4170
+        },
+        "engine": "worker",
+        "captureBeforeZoom": {
+          "cache": {
+            "ready": false,
+            "preparing": true,
+            "steps": 26,
+            "buildMs": 0,
+            "retainedMiB": 198.71383666992188
+          },
+          "work": {
+            "builds": 1,
+            "hits": 6,
+            "steps": 121,
+            "cpuMs": 327.9999999999998,
+            "elapsedMs": 86.99999999999977,
+            "thresholdMs": 322.9999999999998
+          },
+          "memory": {
+            "retainedMiB": 1564.958137512207,
+            "peakMiB": 1664.3468704223633
+          }
+        },
+        "captureWaitMs": 4859,
+        "zoomStops": [
+          {
+            "scale": 0.5,
+            "finalScale": 0.49999999999999994,
+            "valid": true,
+            "interrupted": false,
+            "focused": true,
+            "visibility": "visible",
+            "sharpMs": 1384,
+            "firstRenderMs": 1328,
+            "preparation": {
+              "steps": 107,
+              "cpuMs": 245.99999999999454,
+              "elapsedMs": 1134,
+              "resumeMs": 888.0000000000055,
+              "maxStepMs": 31,
+              "capture": {
+                "builds": 1,
+                "hits": 3,
+                "steps": 95,
+                "cpuMs": 3.999999999998181,
+                "elapsedMs": 790,
+                "thresholdMs": 0
+              }
+            },
+            "captureCache": {
+              "ready": false,
+              "preparing": false,
+              "steps": 0,
+              "buildMs": 0,
+              "retainedMiB": 0
+            },
+            "memory": {
+              "retainedMiB": 1831.7396659851074,
+              "peakMiB": 1831.7396659851074
+            },
+            "screenGapMax": 20
+          }
+        ]
+      },
+      "warm-and-change": {
+        "which": "zoomsettle",
+        "detailOrder": "darktable",
+        "dpr": 2,
+        "ua": "WebKit 605.1.15",
+        "canvas": "1552x1036",
+        "window": "1440x779",
+        "photo": {
+          "W": 6246,
+          "H": 4170
+        },
+        "engine": "worker",
+        "captureBeforeZoom": {
+          "cache": {
+            "ready": true,
+            "preparing": false,
+            "steps": 95,
+            "buildMs": 1830,
+            "retainedMiB": 264.9331588745117
+          },
+          "work": {
+            "builds": 2,
+            "hits": 6,
+            "steps": 190,
+            "cpuMs": 333,
+            "elapsedMs": 1917,
+            "thresholdMs": 0
+          },
+          "memory": {
+            "retainedMiB": 1132.4550971984863,
+            "peakMiB": 1664.3468704223633
+          }
+        },
+        "captureWaitMs": 120,
+        "zoomStops": [
+          {
+            "scale": 0.5,
+            "finalScale": 0.49999999999999994,
+            "valid": true,
+            "sharpMs": 883,
+            "firstRenderMs": 660,
+            "preparation": {
+              "steps": 12,
+              "cpuMs": 92,
+              "elapsedMs": 475,
+              "resumeMs": 383,
+              "maxStepMs": 42,
+              "capture": {
+                "builds": 0,
+                "hits": 4,
+                "steps": 0,
+                "cpuMs": 0,
+                "elapsedMs": 0,
+                "thresholdMs": 0
+              }
+            },
+            "captureCache": {
+              "ready": true,
+              "preparing": false,
+              "steps": 95,
+              "buildMs": 1830,
+              "retainedMiB": 264.9331588745117
+            },
+            "memory": {
+              "retainedMiB": 1940.8398323059082,
+              "peakMiB": 1940.8398323059082
+            },
+            "screenGapMax": 58
+          },
+          {
+            "scale": 0.637,
+            "finalScale": 0.637,
+            "valid": true,
+            "sharpMs": 500,
+            "firstRenderMs": 344,
+            "preparation": {
+              "steps": 12,
+              "cpuMs": 63.99999999999818,
+              "elapsedMs": 160.99999999999818,
+              "resumeMs": 97,
+              "maxStepMs": 30,
+              "capture": {
+                "builds": 0,
+                "hits": 4,
+                "steps": 0,
+                "cpuMs": 0,
+                "elapsedMs": 0,
+                "thresholdMs": 0
+              }
+            },
+            "captureCache": {
+              "ready": true,
+              "preparing": false,
+              "steps": 95,
+              "buildMs": 1830,
+              "retainedMiB": 264.9331588745117
+            },
+            "memory": {
+              "retainedMiB": 2819.5220832824707,
+              "peakMiB": 3109.589832305908
+            },
+            "screenGapMax": 18
+          },
+          {
+            "scale": 1,
+            "finalScale": 0.9999999999999999,
+            "valid": true,
+            "sharpMs": 367,
+            "firstRenderMs": 277,
+            "preparation": {
+              "steps": 12,
+              "cpuMs": 35,
+              "elapsedMs": 93.99999999999636,
+              "resumeMs": 58.99999999999636,
+              "maxStepMs": 15,
+              "capture": {
+                "builds": 0,
+                "hits": 4,
+                "steps": 0,
+                "cpuMs": 0,
+                "elapsedMs": 0,
+                "thresholdMs": 0
+              }
+            },
+            "captureCache": {
+              "ready": true,
+              "preparing": false,
+              "steps": 95,
+              "buildMs": 1830,
+              "retainedMiB": 264.9331588745117
+            },
+            "memory": {
+              "retainedMiB": 2537.8842964172363,
+              "peakMiB": 3109.589832305908
+            },
+            "screenGapMax": 32
+          }
+        ],
+        "captureSettingsChange": {
+          "before": {
+            "cache": {
+              "ready": true,
+              "preparing": false,
+              "steps": 95,
+              "buildMs": 1830,
+              "retainedMiB": 264.9331588745117
+            },
+            "work": {
+              "builds": 0,
+              "hits": 5,
+              "steps": 0,
+              "cpuMs": 0,
+              "elapsedMs": 0,
+              "thresholdMs": 0
+            },
+            "memory": {
+              "retainedMiB": 2537.8842964172363,
+              "peakMiB": 3109.589832305908
+            }
+          },
+          "invalidated": {
+            "cache": {
+              "ready": false,
+              "preparing": false,
+              "steps": 0,
+              "buildMs": 0,
+              "retainedMiB": 0
+            },
+            "work": {
+              "builds": 0,
+              "hits": 0,
+              "steps": 20,
+              "cpuMs": 5.000000000003638,
+              "elapsedMs": 0,
+              "thresholdMs": 0
+            },
+            "memory": {
+              "retainedMiB": 2031.7161674499512,
+              "peakMiB": 3109.589832305908
+            }
+          },
+          "after": {
+            "cache": {
+              "ready": true,
+              "preparing": false,
+              "steps": 35,
+              "buildMs": 936,
+              "retainedMiB": 264.9331588745117
+            },
+            "work": {
+              "builds": 3,
+              "hits": 4,
+              "steps": 105,
+              "cpuMs": 188.00000000000364,
+              "elapsedMs": 1109,
+              "thresholdMs": 0
+            },
+            "memory": {
+              "retainedMiB": 2531.3607215881348,
+              "peakMiB": 3109.589832305908
+            }
+          },
+          "elapsedMs": 1251
+        }
+      },
+      "real-pixels": {
+        "which": "capturecompare",
+        "detailOrder": "darktable",
+        "dpr": 2,
+        "ua": "WebKit 605.1.15",
+        "canvas": "1552x1036",
+        "window": "1440x779",
+        "photo": {
+          "W": 6246,
+          "H": 4170
+        },
+        "engine": "main",
+        "captureComparison": {
+          "whole": {
+            "different": 0,
+            "worst": 0
+          },
+          "0.5:centre": {
+            "different": 0,
+            "worst": 0
+          },
+          "0.5:corner": {
+            "different": 0,
+            "worst": 0
+          },
+          "0.5:edge": {
+            "different": 0,
+            "worst": 0
+          },
+          "0.637:centre": {
+            "different": 0,
+            "worst": 0
+          },
+          "0.637:corner": {
+            "different": 0,
+            "worst": 0
+          },
+          "0.637:edge": {
+            "different": 0,
+            "worst": 0
+          },
+          "1:centre": {
+            "different": 0,
+            "worst": 0
+          },
+          "1:corner": {
+            "different": 0,
+            "worst": 0
+          },
+          "1:edge": {
+            "different": 0,
+            "worst": 0
+          }
+        }
+      },
+      "disabled-prepared": {
+        "which": "zoomprepared",
+        "detailOrder": "darktable",
+        "dpr": 2,
+        "ua": "WebKit 605.1.15",
+        "canvas": "1552x1036",
+        "window": "1440x779",
+        "photo": {
+          "W": 6246,
+          "H": 4170
+        },
+        "engine": "worker",
+        "zoomDetail": {
+          "viewingPauseMs": 6000,
+          "sharpMs": 1164,
+          "firstRenderMs": 1127,
+          "firstRenderCpuMs": 1,
+          "firstFrameMs": 10,
+          "preparation": {
+            "steps": 107,
+            "cpuMs": 374.9999999999982,
+            "elapsedMs": 616,
+            "resumeMs": 241.00000000000182,
+            "maxStepMs": 306,
+            "capture": {
+              "builds": 1,
+              "hits": 3,
+              "steps": 95,
+              "cpuMs": 4,
+              "elapsedMs": 239,
+              "thresholdMs": 304.9999999999982
+            }
+          },
+          "captureCache": {
+            "ready": false,
+            "preparing": false,
+            "steps": 0,
+            "buildMs": 0,
+            "retainedMiB": 0
+          },
+          "memory": {
+            "retainedMiB": 635.9372215270996,
+            "peakMiB": 898.6938133239746
+          },
+          "uploadCpuMs": null,
+          "screenGapMax": 101
+        }
+      },
+      "real-pixels-final": {
+        "which": "capturecompare",
+        "detailOrder": "darktable",
+        "dpr": 2,
+        "ua": "WebKit 605.1.15",
+        "canvas": "1552x1036",
+        "window": "1440x779",
+        "photo": {
+          "W": 6246,
+          "H": 4170
+        },
+        "engine": "main",
+        "captureComparison": {
+          "whole": {
+            "different": 0,
+            "worst": 0
+          },
+          "0.5:centre": {
+            "different": 0,
+            "worst": 0
+          },
+          "0.5:corner": {
+            "different": 0,
+            "worst": 0
+          },
+          "0.5:edge": {
+            "different": 0,
+            "worst": 0
+          },
+          "0.637:centre": {
+            "different": 0,
+            "worst": 0
+          },
+          "0.637:corner": {
+            "different": 0,
+            "worst": 0
+          },
+          "0.637:edge": {
+            "different": 0,
+            "worst": 0
+          },
+          "1:centre": {
+            "different": 0,
+            "worst": 0
+          },
+          "1:corner": {
+            "different": 0,
+            "worst": 0
+          },
+          "1:edge": {
+            "different": 0,
+            "worst": 0
+          }
+        }
+      },
+      "final-settle": {
+        "which": "zoomsettle",
+        "detailOrder": "darktable",
+        "dpr": 2,
+        "ua": "WebKit 605.1.15",
+        "canvas": "1552x1036",
+        "window": "1440x779",
+        "photo": {
+          "W": 6246,
+          "H": 4170
+        },
+        "engine": "worker",
+        "captureBeforeZoom": {
+          "cache": {
+            "ready": true,
+            "preparing": false,
+            "steps": 95,
+            "buildMs": 1843.999999999999,
+            "retainedMiB": 264.9331588745117
+          },
+          "work": {
+            "builds": 2,
+            "hits": 6,
+            "steps": 190,
+            "cpuMs": 338.9999999999982,
+            "elapsedMs": 1929.999999999999,
+            "thresholdMs": 321.0000000000002
+          },
+          "memory": {
+            "retainedMiB": 1132.4550971984863,
+            "peakMiB": 1664.3468704223633
+          }
+        },
+        "captureWaitMs": 77,
+        "zoomStops": [
+          {
+            "scale": 0.5,
+            "finalScale": 0.49999999999999994,
+            "valid": true,
+            "interrupted": false,
+            "focused": true,
+            "visibility": "visible",
+            "sharpMs": 883,
+            "firstRenderMs": 676,
+            "preparation": {
+              "steps": 12,
+              "cpuMs": 93.99999999999818,
+              "elapsedMs": 490,
+              "resumeMs": 396.0000000000018,
+              "maxStepMs": 43,
+              "capture": {
+                "builds": 0,
+                "hits": 4,
+                "steps": 0,
+                "cpuMs": 0,
+                "elapsedMs": 0,
+                "thresholdMs": 0
+              }
+            },
+            "captureCache": {
+              "ready": true,
+              "preparing": false,
+              "steps": 95,
+              "buildMs": 1843.999999999999,
+              "retainedMiB": 264.9331588745117
+            },
+            "memory": {
+              "retainedMiB": 1940.8398323059082,
+              "peakMiB": 1940.8398323059082
+            },
+            "screenGapMax": 24
+          },
+          {
+            "scale": 0.637,
+            "finalScale": 0.637,
+            "valid": true,
+            "interrupted": false,
+            "focused": true,
+            "visibility": "visible",
+            "sharpMs": 501,
+            "firstRenderMs": 349,
+            "preparation": {
+              "steps": 12,
+              "cpuMs": 64.00000000000182,
+              "elapsedMs": 164,
+              "resumeMs": 99.99999999999818,
+              "maxStepMs": 31,
+              "capture": {
+                "builds": 0,
+                "hits": 4,
+                "steps": 0,
+                "cpuMs": 0,
+                "elapsedMs": 0,
+                "thresholdMs": 0
+              }
+            },
+            "captureCache": {
+              "ready": true,
+              "preparing": false,
+              "steps": 95,
+              "buildMs": 1843.999999999999,
+              "retainedMiB": 264.9331588745117
+            },
+            "memory": {
+              "retainedMiB": 2819.5220832824707,
+              "peakMiB": 3109.589832305908
+            },
+            "screenGapMax": 25
+          },
+          {
+            "scale": 1,
+            "finalScale": 0.9999999999999999,
+            "valid": true,
+            "interrupted": false,
+            "focused": true,
+            "visibility": "visible",
+            "sharpMs": 384,
+            "firstRenderMs": 285,
+            "preparation": {
+              "steps": 12,
+              "cpuMs": 34.99999999999636,
+              "elapsedMs": 98,
+              "resumeMs": 63.00000000000364,
+              "maxStepMs": 14,
+              "capture": {
+                "builds": 0,
+                "hits": 4,
+                "steps": 0,
+                "cpuMs": 0,
+                "elapsedMs": 0,
+                "thresholdMs": 0
+              }
+            },
+            "captureCache": {
+              "ready": true,
+              "preparing": false,
+              "steps": 95,
+              "buildMs": 1843.999999999999,
+              "retainedMiB": 264.9331588745117
+            },
+            "memory": {
+              "retainedMiB": 2537.8842964172363,
+              "peakMiB": 3109.589832305908
+            },
+            "screenGapMax": 19
+          }
+        ],
+        "captureSettingsChange": {
+          "before": {
+            "cache": {
+              "ready": true,
+              "preparing": false,
+              "steps": 95,
+              "buildMs": 1843.999999999999,
+              "retainedMiB": 264.9331588745117
+            },
+            "work": {
+              "builds": 0,
+              "hits": 5,
+              "steps": 0,
+              "cpuMs": 0,
+              "elapsedMs": 0,
+              "thresholdMs": 0
+            },
+            "memory": {
+              "retainedMiB": 2537.8842964172363,
+              "peakMiB": 3109.589832305908
+            }
+          },
+          "invalidated": {
+            "cache": {
+              "ready": false,
+              "preparing": false,
+              "steps": 0,
+              "buildMs": 0,
+              "retainedMiB": 0
+            },
+            "work": {
+              "builds": 0,
+              "hits": 0,
+              "steps": 13,
+              "cpuMs": 4,
+              "elapsedMs": 0,
+              "thresholdMs": 0
+            },
+            "memory": {
+              "retainedMiB": 2031.7161674499512,
+              "peakMiB": 3109.589832305908
+            }
+          },
+          "after": {
+            "cache": {
+              "ready": true,
+              "preparing": false,
+              "steps": 35,
+              "buildMs": 1029,
+              "retainedMiB": 264.9331588745117
+            },
+            "work": {
+              "builds": 3,
+              "hits": 4,
+              "steps": 105,
+              "cpuMs": 245.00000000000364,
+              "elapsedMs": 1211,
+              "thresholdMs": 236
+            },
+            "memory": {
+              "retainedMiB": 1369.6629676818848,
+              "peakMiB": 3109.589832305908
+            }
+          },
+          "elapsedMs": 1349
+        }
+      }
+    },
+    "validation": {
+      "cache": "PASS: exact full-source pixels, regional edges/tiles, preview ownership, edits, noise, cancellation and release; {\"retainedMiB\":18.28022003173828,\"peakMiB\":92.4884090423584}",
+      "arrival": "PASS: asynchronous and replaced capture match ready sources; sharpening changes pixels by 11/255",
+      "fidelity": "PASS: arbitrary display densities, exact 1:1 input, reuse, settled equivalence and capture replacement {\"1\":{\"max\":1,\"mean\":0.24886770833333333,\"p99\":1},\"0.5\":{\"max\":1,\"mean\":0.24905520833333333,\"p99\":1},\"0.637\":{\"max\":2,\"mean\":0.24947291666666666,\"p99\":1},\"0.75\":{\"max\":1,\"mean\":0.24908854166666666,\"p99\":1},\"1.37\":{\"max\":1,\"mean\":0.24932395833333335,\"p99\":1},\"4.17\":{\"max\":2,\"mean\":0.249871875,\"p99\":1}}",
+      "region": "PASS: {\"baseline:centre\":{\"admitted\":true,\"rect\":{\"x\":768,\"y\":480,\"w\":544,\"h\":448},\"worst\":1,\"mean\":0.00008739175339636132,\"previewWorst\":1,\"previewMean\":0.07603082545483435},\"baseline:corner\":{\"admitted\":true,\"rect\":{\"x\":0,\"y\":0,\"w\":544,\"h\":448},\"worst\":0,\"mean\":0,\"previewWorst\":1,\"previewMean\":0.07288074998013824},\"baseline:edge\":{\"admitted\":true,\"rect\":{\"x\":1728,\"y\":1056,\"w\":573,\"h\":477},\"worst\":1,\"mean\":0.00021450703106379597,\"previewWorst\":1,\"previewMean\":0.07815206165090967},\"clarity:centre\":{\"admitted\":true,\"rect\":{\"x\":704,\"y\":416,\"w\":672,\"h\":576},\"worst\":1,\"mean\":0.0709064908238659,\"previewWorst\":1,\"previewMean\":0.15604989274648448},\"clarity:corner\":{\"admitted\":true,\"rect\":{\"x\":0,\"y\":0,\"w\":672,\"h\":576},\"worst\":1,\"mean\":0.06281878128227536,\"previewWorst\":1,\"previewMean\":0.17240009533645825},\"clarity:edge\":{\"admitted\":true,\"rect\":{\"x\":1600,\"y\":928,\"w\":701,\"h\":605},\"worst\":1,\"mean\":0.08397155795662191,\"previewWorst\":1,\"previewMean\":0.13003495670135853},\"texture:centre\":{\"admitted\":true,\"rect\":{\"x\":640,\"y\":352,\"w\":800,\"h\":704},\"worst\":1,\"mean\":0.0002303964407722253,\"previewWorst\":1,\"previewMean\":0.07661078890919203},\"texture:corner\":{\"admitted\":true,\"rect\":{\"x\":0,\"y\":0,\"w\":800,\"h\":704},\"worst\":1,\"mean\":0.000007944704854214666,\"previewWorst\":1,\"previewMean\":0.0730237546675141},\"texture:edge\":{\"admitted\":true,\"rect\":{\"x\":1472,\"y\":800,\"w\":829,\"h\":733},\"worst\":1,\"mean\":0.00013903233494875664,\"previewWorst\":1,\"previewMean\":0.07811233812663859},\"retouch:centre\":{\"admitted\":true,\"rect\":{\"x\":736,\"y\":448,\"w\":704,\"h\":480},\"worst\":1,\"mean\":0.00008739175339636132,\"previewWorst\":1,\"previewMean\":0.07600699134027171},\"retouch:corner\":{\"admitted\":true,\"rect\":{\"x\":0,\"y\":0,\"w\":576,\"h\":480},\"worst\":0,\"mean\":0,\"previewWorst\":1,\"previewMean\":0.07288074998013824},\"retouch:edge\":{\"admitted\":true,\"rect\":{\"x\":1664,\"y\":992,\"w\":637,\"h\":541},\"worst\":1,\"mean\":0.00014300468737586398,\"previewWorst\":1,\"previewMean\":0.07814411694605546},\"emptyRetouchScales:centre\":{\"admitted\":true,\"rect\":{\"x\":768,\"y\":480,\"w\":544,\"h\":448},\"worst\":1,\"mean\":0.00008739175339636132,\"previewWorst\":1,\"previewMean\":0.07603082545483435},\"emptyRetouchScales:corner\":{\"admitted\":true,\"rect\":{\"x\":0,\"y\":0,\"w\":544,\"h\":448},\"worst\":0,\"mean\":0,\"previewWorst\":1,\"previewMean\":0.07288074998013824},\"emptyRetouchScales:edge\":{\"admitted\":true,\"rect\":{\"x\":1728,\"y\":1056,\"w\":573,\"h\":477},\"worst\":1,\"mean\":0.00021450703106379597,\"previewWorst\":1,\"previewMean\":0.07815206165090967},\"combined:centre\":{\"admitted\":true,\"rect\":{\"x\":544,\"y\":256,\"w\":960,\"h\":864},\"worst\":1,\"mean\":0.06129339795026615,\"previewWorst\":1,\"previewMean\":0.14925319774370382},\"combined:corner\":{\"admitted\":true,\"rect\":{\"x\":0,\"y\":0,\"w\":960,\"h\":864},\"worst\":1,\"mean\":0.06347819178517518,\"previewWorst\":1,\"previewMean\":0.18152061650909668},\"combined:edge\":{\"admitted\":true,\"rect\":{\"x\":1280,\"y\":608,\"w\":1021,\"h\":925},\"worst\":1,\"mean\":0.08543735600222452,\"previewWorst\":1,\"previewMean\":0.127460872328593},\"maskedDetail:centre\":{\"admitted\":true,\"rect\":{\"x\":576,\"y\":288,\"w\":928,\"h\":832},\"worst\":1,\"mean\":0.0003138158417414793,\"previewWorst\":1,\"previewMean\":0.10928735997457695},\"maskedDetail:corner\":{\"admitted\":true,\"rect\":{\"x\":0,\"y\":0,\"w\":928,\"h\":832},\"worst\":0,\"mean\":0,\"previewWorst\":1,\"previewMean\":0.1809962659887185},\"maskedDetail:edge\":{\"admitted\":true,\"rect\":{\"x\":1344,\"y\":672,\"w\":957,\"h\":861},\"worst\":1,\"mean\":0.00014697703980297132,\"previewWorst\":1,\"previewMean\":0.08751489632160166},\"refinedMask:centre\":{\"admitted\":true,\"rect\":{\"x\":576,\"y\":288,\"w\":928,\"h\":832},\"worst\":1,\"mean\":0.06843171526177802,\"previewWorst\":1,\"previewMean\":0.14342972908556448},\"refinedMask:corner\":{\"admitted\":true,\"rect\":{\"x\":0,\"y\":0,\"w\":928,\"h\":832},\"worst\":1,\"mean\":0.065766266783189,\"previewWorst\":1,\"previewMean\":0.21663621196472552},\"refinedMask:edge\":{\"admitted\":true,\"rect\":{\"x\":1344,\"y\":672,\"w\":957,\"h\":861},\"worst\":1,\"mean\":0.11309287359974576,\"previewWorst\":1,\"previewMean\":0.10807976483673631},\"maskedDehaze:centre\":{\"admitted\":true,\"rect\":{\"x\":736,\"y\":416,\"w\":640,\"h\":544},\"worst\":1,\"mean\":0.0002820370223246206,\"previewWorst\":1,\"previewMean\":0.1548701040756336},\"maskedDehaze:corner\":{\"admitted\":true,\"rect\":{\"x\":0,\"y\":0,\"w\":640,\"h\":544},\"worst\":1,\"mean\":0.000003972352427107333,\"previewWorst\":1,\"previewMean\":0.1821681099547152},\"maskedDehaze:edge\":{\"admitted\":true,\"rect\":{\"x\":1632,\"y\":960,\"w\":669,\"h\":573},\"worst\":1,\"mean\":0.000011917057281321999,\"previewWorst\":1,\"previewMean\":0.11627472789385875},\"maskedCombined:centre\":{\"admitted\":true,\"rect\":{\"x\":320,\"y\":32,\"w\":1440,\"h\":1312},\"worst\":1,\"mean\":0.0004091522999920553,\"previewWorst\":2,\"previewMean\":0.366099944387066},\"maskedCombined:corner\":{\"admitted\":true,\"rect\":{\"x\":0,\"y\":0,\"w\":1472,\"h\":1312},\"worst\":1,\"mean\":0.000003972352427107333,\"previewWorst\":3,\"previewMean\":0.7518193374116151},\"maskedCombined:edge\":{\"admitted\":true,\"rect\":{\"x\":800,\"y\":160,\"w\":1501,\"h\":1373},\"worst\":1,\"mean\":0.00011917057281321999,\"previewWorst\":1,\"previewMean\":0.22412409628982283},\"log:clarity:centre\":{\"admitted\":true,\"rect\":{\"x\":704,\"y\":416,\"w\":672,\"h\":576},\"worst\":1,\"mean\":0.060677683324064514,\"previewWorst\":1,\"previewMean\":0.1583459124493525},\"log:clarity:corner\":{\"admitted\":true,\"rect\":{\"x\":0,\"y\":0,\"w\":672,\"h\":576},\"worst\":1,\"mean\":0.05838960832605069,\"previewWorst\":1,\"previewMean\":0.171021689044252},\"log:clarity:edge\":{\"admitted\":true,\"rect\":{\"x\":1600,\"y\":928,\"w\":701,\"h\":605},\"worst\":1,\"mean\":0.0914951934535632,\"previewWorst\":1,\"previewMean\":0.1335822674187654},\"log:texture:centre\":{\"admitted\":true,\"rect\":{\"x\":640,\"y\":352,\"w\":800,\"h\":704},\"worst\":1,\"mean\":0.00023436879319933265,\"previewWorst\":1,\"previewMean\":0.07661476126161913},\"log:texture:corner\":{\"admitted\":true,\"rect\":{\"x\":0,\"y\":0,\"w\":800,\"h\":704},\"worst\":0,\"mean\":0,\"previewWorst\":1,\"previewMean\":0.07270993882577262},\"log:texture:edge\":{\"admitted\":true,\"rect\":{\"x\":1472,\"y\":800,\"w\":829,\"h\":733},\"worst\":1,\"mean\":0.000154921744657186,\"previewWorst\":1,\"previewMean\":0.07782235639945977},\"log:combined:centre\":{\"admitted\":true,\"rect\":{\"x\":544,\"y\":256,\"w\":960,\"h\":864},\"worst\":1,\"mean\":0.06119806149201557,\"previewWorst\":1,\"previewMean\":0.16209581314054183},\"log:combined:corner\":{\"admitted\":true,\"rect\":{\"x\":0,\"y\":0,\"w\":960,\"h\":864},\"worst\":1,\"mean\":0.060490982759990465,\"previewWorst\":1,\"previewMean\":0.188082942718678},\"log:combined:edge\":{\"admitted\":true,\"rect\":{\"x\":1280,\"y\":608,\"w\":1021,\"h\":925},\"worst\":1,\"mean\":0.09249225391276714,\"previewWorst\":1,\"previewMean\":0.1311909112576468},\"log:maskedDetail:centre\":{\"admitted\":true,\"rect\":{\"x\":576,\"y\":288,\"w\":928,\"h\":832},\"worst\":1,\"mean\":0.000321760546595694,\"previewWorst\":1,\"previewMean\":0.12189560657821562},\"log:maskedDetail:corner\":{\"admitted\":true,\"rect\":{\"x\":0,\"y\":0,\"w\":928,\"h\":832},\"worst\":0,\"mean\":0,\"previewWorst\":1,\"previewMean\":0.16353380471915469},\"log:maskedDetail:edge\":{\"admitted\":true,\"rect\":{\"x\":1344,\"y\":672,\"w\":957,\"h\":861},\"worst\":1,\"mean\":0.00015094939223007865,\"previewWorst\":1,\"previewMean\":0.09839914197187574},\"log:maskedCombined:centre\":{\"admitted\":true,\"rect\":{\"x\":320,\"y\":32,\"w\":1440,\"h\":1312},\"worst\":1,\"mean\":0.0003853181854294113,\"previewWorst\":2,\"previewMean\":0.4365059188051164},\"log:maskedCombined:corner\":{\"admitted\":true,\"rect\":{\"x\":0,\"y\":0,\"w\":1472,\"h\":1312},\"worst\":1,\"mean\":0.000007944704854214666,\"previewWorst\":3,\"previewMean\":0.7130889012473186},\"log:maskedCombined:edge\":{\"admitted\":true,\"rect\":{\"x\":800,\"y\":160,\"w\":1501,\"h\":1373},\"worst\":1,\"mean\":0.000131087630094542,\"previewWorst\":1,\"previewMean\":0.23410661793914356},\"histogramCacheReused\":true,\"pans\":{\"0.004,0\":0,\"0.004,0.004\":0,\"-0.004,0.006\":0,\"-0.006,-0.002\":0,\"kept\":4},\"live\":{\"edgeWorst\":1,\"innerWorst\":0,\"innerFromScreenPx\":61,\"exactAfterLive\":0},\"previewMaps_darktable:exposure\":{\"liveVsExact\":5,\"exactAfterLive\":0},\"previewMaps_darktable:dehaze\":{\"liveVsExact\":3,\"exactAfterLive\":0},\"previewMaps_darktable:masked\":{\"liveVsExact\":5,\"exactAfterLive\":0},\"previewMaps_log:exposure\":{\"liveVsExact\":5,\"exactAfterLive\":0},\"previewMaps_log:dehaze\":{\"liveVsExact\":3,\"exactAfterLive\":0},\"previewMaps_log:masked\":{\"liveVsExact\":5,\"exactAfterLive\":0},\"previewDehaze\":{\"liveVsExact\":2,\"exactAfterLive\":0,\"placed\":1.150756189300563e-7},\"held_region:exposure\":{\"liveWorst\":1,\"liveMean\":0.078,\"exactAfterLive\":0},\"held_region:dehaze\":{\"liveWorst\":4,\"liveMean\":0.507,\"exactAfterLive\":0},\"held_region:texture\":{\"liveWorst\":2,\"liveMean\":0.118,\"exactAfterLive\":0},\"held_region:clarity\":{\"liveWorst\":1,\"liveMean\":0.077,\"exactAfterLive\":0},\"held_region:sharpen\":{\"liveWorst\":1,\"liveMean\":0,\"exactAfterLive\":0},\"held_region:maskExposure\":{\"liveWorst\":1,\"liveMean\":0.067,\"exactAfterLive\":0},\"held_region:maskMoved\":{\"liveWorst\":3,\"liveMean\":0.457,\"exactAfterLive\":0},\"held_fit:exposure\":{\"liveWorst\":1,\"liveMean\":0.046,\"exactAfterLive\":0},\"held_fit:dehaze\":{\"liveWorst\":1,\"liveMean\":0.133,\"exactAfterLive\":0},\"held_fit:texture\":{\"liveWorst\":1,\"liveMean\":0.018,\"exactAfterLive\":0},\"held_fit:clarity\":{\"liveWorst\":0,\"liveMean\":0,\"exactAfterLive\":0},\"held_fit:sharpen\":{\"liveWorst\":0,\"liveMean\":0,\"exactAfterLive\":0},\"held_fit:maskExposure\":{\"liveWorst\":1,\"liveMean\":0.22,\"exactAfterLive\":0},\"held_fit:maskMoved\":{\"liveWorst\":0,\"liveMean\":0,\"exactAfterLive\":0},\"warm_region:dehaze\":{\"coldDraws\":26,\"warmDraws\":13,\"clipGrew\":true,\"liveVsExact\":4,\"exactVsCold\":0,\"exactVsFresh\":1,\"coldVsFresh\":1},\"warm_region:texture\":{\"coldDraws\":20,\"warmDraws\":12,\"clipGrew\":true,\"liveVsExact\":2,\"exactVsCold\":0,\"exactVsFresh\":0,\"coldVsFresh\":0},\"warm_region:color\":{\"coldDraws\":12,\"warmDraws\":9,\"clipGrew\":false,\"liveVsExact\":16,\"exactVsCold\":0,\"exactVsFresh\":1,\"coldVsFresh\":1},\"warm_region:clarity\":{\"coldDraws\":44,\"warmDraws\":9,\"clipGrew\":true,\"liveVsExact\":1,\"exactVsCold\":0,\"exactVsFresh\":0,\"coldVsFresh\":0},\"warm_fit:dehaze\":{\"coldDraws\":15,\"warmDraws\":2,\"clipGrew\":false,\"liveVsExact\":1,\"exactVsCold\":0,\"exactVsFresh\":0,\"coldVsFresh\":0},\"warm_fit:texture\":{\"coldDraws\":8,\"warmDraws\":2,\"clipGrew\":false,\"liveVsExact\":1,\"exactVsCold\":0,\"exactVsFresh\":0,\"coldVsFresh\":0},\"warm_fit:color\":{\"coldDraws\":7,\"warmDraws\":4,\"clipGrew\":false,\"liveVsExact\":1,\"exactVsCold\":0,\"exactVsFresh\":0,\"coldVsFresh\":0},\"warm_fit:clarity\":{\"coldDraws\":26,\"warmDraws\":1,\"clipGrew\":false,\"liveVsExact\":0,\"exactVsCold\":0,\"exactVsFresh\":0,\"coldVsFresh\":0},\"draft\":{\"worst\":0}}",
+      "zoom": "PASS: zoom preserves in-flight detail; preparation keeps Fit stable; prepared zoom reuses its exact decode; held inputs wait, and pointer-up, blur and cancellation settle their final input in stages",
+      "check": {
+        "command": "npm run check",
+        "frontend": 585,
+        "rust": 70,
+        "rustIgnored": 10,
+        "result": "pass"
+      },
+      "browserTypecheck": "pass"
+    }
   }
 }

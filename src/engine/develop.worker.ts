@@ -16,7 +16,7 @@ self.onmessage = (e: MessageEvent<Init | ToLoop>) => {
   if (m.type === 'init') {
     try {
       const retouch = new Worker(new URL('./retouch.worker.ts', import.meta.url), { type: 'module' });
-      loop = new DevelopLoop(m.canvas, post, retouch);
+      loop = new DevelopLoop(m.canvas, post, retouch, m.stats);
       loop.stats = m.stats;
       // Short GPU submissions, so the page's painting fits between them (Gpu.flushEach).
       loop.engine.gpu.flushEach = true;

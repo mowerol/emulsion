@@ -10,7 +10,7 @@
 // had: frames skipped rather than queued while dragging, drafts when held frames miss the
 // display's pace, a stand-in while the view moves, preparation stepped between GPU fences, and an
 // exact render once nothing changes.
-import { Engine, type HalfImage, type Source, type View } from './engine';
+import { Engine, type HalfImage, type Source, type View, type CaptureWork } from './engine';
 import { InputMode } from './params';
 import type { Recipe } from '../film/recipe';
 import type { Xy } from './whitebalance';
@@ -21,6 +21,7 @@ import { framePixels } from '../film/crop';
 import type { WarmStage } from './warm';
 import { adoptProfileSnapshot, type ProfileSnapshot } from './profilestore';
 import { provideLut, type LoadedLut } from './lutstore';
+import { trackTextures } from '../dev/gpumemory';
 
 /** How long the view must stay still before a zoom or pan builds the full-resolution region it needs. */
 export const VIEW_SETTLE_MS = 180;
@@ -28,6 +29,9 @@ export const VIEW_SETTLE_MS = 180;
 const SLOW_FRAME_MS = 25;
 const SLOW_FRAMES = 3;
 const FRAME_MS = 16;
+/** Keep preparation cancellable while avoiding a CPU/GPU round trip for every tiny pass. */
+const PREPARE_BATCH_PASSES = 4;
+const PREPARE_BATCH_MS = 4;
 /** Long edge of the small render the histogram is counted from. */
 const HISTOGRAM_EDGE = 384;
 /** Wait this long after the last change before counting, so dragging stays smooth. */
@@ -90,6 +94,7 @@ export type ToLoop =
   | { type: 'uploadBitmap'; key: number; bitmap: ImageBitmap; white: Xy | null }
   | { type: 'release'; key: number }
   | { type: 'capture'; key: number; radius: number; toCam: number[]; mask: Uint8Array }
+  | { type: 'prepareCapture'; key: number }
   | { type: 'state'; state: FrameState }
   | { type: 'pointer'; held: boolean; brush: boolean; dpr: number }
   | { type: 'motion' }
@@ -98,10 +103,15 @@ export type ToLoop =
   | { type: 'request'; id: number; call: 'sampleScene'; key: number; u: number; v: number; recipe: Recipe | null }
   | { type: 'request'; id: number; call: 'sampleMaskInput'; key: number; recipe: Recipe; mask: number; box: View }
   | { type: 'request'; id: number; call: 'readPixels'; key: number; recipe: Recipe | null; w: number; h: number; seed: number }
+  | { type: 'request'; id: number; call: 'captureState' }
   | { type: 'dispose' };
 
+/** Time spent preparing exact detail, separate from the final cached screen draw. */
+export interface PreparationStat { steps: number; cpuMs: number; elapsedMs: number; resumeMs: number; maxStepMs: number; capture?: CaptureWork }
 /** A finished screen render, for the perf driver: times are this realm's performance.now(). */
-export interface FrameStat { seq: number; start: number; cpu: number; done: number; srcW: number; detail: boolean; draft: boolean }
+export interface FrameStat { seq: number; start: number; cpu: number; done: number; srcW: number; detail: boolean; draft: boolean; preparation?: PreparationStat;
+  captureCache?: Engine['captureCacheStat']; memory?: { retainedMiB: number; peakMiB: number } }
+export interface CaptureState { cache: Engine['captureCacheStat']; work: CaptureWork; memory?: FrameStat['memory'] }
 
 export type FromLoop =
   | { type: 'ready'; maxTextureSize: number; timeOrigin: number }
@@ -111,7 +121,9 @@ export type FromLoop =
   | { type: 'reply'; id: number; ok: true; value: unknown }
   | { type: 'reply'; id: number; ok: false; error: string }
   | { type: 'frame'; stat: FrameStat }
-  | { type: 'busy'; busy: boolean };
+  | { type: 'busy'; busy: boolean }
+  /** Exact detail is being prepared for the latest view, its stand-in still on screen. */
+  | { type: 'sharpening'; pending: boolean };
 
 const raf: (f: () => void) => number = typeof requestAnimationFrame === 'function'
   ? (f) => requestAnimationFrame(() => f())
@@ -135,16 +147,40 @@ export class DevelopLoop {
   private cancel: () => void = () => {};
   private histogramCancel: () => void = () => {};
   private prepareCancel: () => void = () => {};
+  private captureCancel: () => void = () => {};
+  private captureSource: number | null = null;
   private lastPrepare: string | null = null;
   private lastHistogram: string | null = null;
   /** The perf driver's frame stats (VITE_PERF): set by the host. */
   stats = false;
   private busyShown = false;
+  private sharpeningShown = false;
+  /** Message tasks yield to input without nested timers' minimum delay between GPU passes. */
+  private workChannel: MessageChannel;
+  private workId = 0;
+  private work: { id: number; run: () => void } | null = null;
+  private memory: ReturnType<typeof trackTextures> | null = null;
 
-  constructor(private canvas: HTMLCanvasElement | OffscreenCanvas, private post: (m: FromLoop, transfer?: Transferable[]) => void, retouchWorker?: Worker) {
+  constructor(private canvas: HTMLCanvasElement | OffscreenCanvas, private post: (m: FromLoop, transfer?: Transferable[]) => void, retouchWorker?: Worker, stats = false) {
+    if (stats) this.memory = trackTextures();
     this.engine = new Engine(canvas);
+    this.engine.cacheCapture = (import.meta as { env?: Record<string, string> }).env?.VITE_CAPTURE_CACHE !== '0';
+    this.workChannel = new MessageChannel();
+    this.workChannel.port1.onmessage = ({ data }: MessageEvent<number>) => {
+      const work = this.work;
+      if (work?.id !== data) return;
+      this.work = null;
+      work.run();
+    };
     if (retouchWorker) this.engine.useRetouchWorker(retouchWorker, () => this.restart());
     post({ type: 'ready', maxTextureSize: this.engine.maxTextureSize, timeOrigin: performance.timeOrigin });
+  }
+
+  private queueWork(run: () => void): () => void {
+    const id = ++this.workId;
+    this.work = { id, run };
+    this.workChannel.port2.postMessage(id);
+    return () => { if (this.work?.id === id) this.work = null; };
   }
 
   handle(m: ToLoop) {
@@ -156,6 +192,7 @@ export class DevelopLoop {
           finally { m.bitmap.close(); }
           break;
         case 'release': {
+          if (this.captureSource === m.key) { this.captureCancel(); this.captureSource = null; }
           const s = this.sources.get(m.key);
           this.sources.delete(m.key);
           if (s) this.engine.release(s);
@@ -166,6 +203,7 @@ export class DevelopLoop {
           if (s) { this.engine.attachCapture(s, m.radius, m.toCam, m.mask); this.restart(); }
           break;
         }
+        case 'prepareCapture': this.captureSource = m.key; this.prepareCaptureIdle(); break;
         case 'state': this.setState(m.state); break;
         case 'pointer': m.held ? this.down(m.brush, m.dpr) : this.up(); break;
         case 'motion': this.viewMotion = performance.now(); break;
@@ -184,6 +222,13 @@ export class DevelopLoop {
   }
 
   private request(m: Extract<ToLoop, { type: 'request' }>) {
+    if (m.call === 'captureState') {
+      const memory = this.memory?.();
+      const value: CaptureState = { cache: this.engine.captureCacheStat, work: { ...this.engine.captureWork },
+        memory: memory ? { retainedMiB: memory.bytes / 2 ** 20, peakMiB: memory.peakBytes / 2 ** 20 } : undefined };
+      this.post({ type: 'reply', id: m.id, ok: true, value });
+      return;
+    }
     const src = this.sources.get(m.key);
     if (!src) { this.post({ type: 'reply', id: m.id, ok: false, error: 'source released' }); return; }
     try {
@@ -226,8 +271,15 @@ export class DevelopLoop {
 
   private setState(next: FrameState, again = false) {
     const prev = this.state;
+    this.captureCancel();
     this.cancel();
+    if (prev && prev.histogramFor !== next.histogramFor) {
+      this.captureSource = null;
+      this.engine.clearCaptureCache();
+    }
     this.state = next;
+    this.engine.validateCaptureCache(next.saved);
+    if (next.full) this.captureSource = next.source;
     // The main thread can't size a canvas it handed over: the loop does (only on a change, which clears it).
     if (next.width && (this.canvas.width !== next.width || this.canvas.height !== next.height)) {
       this.canvas.width = next.width;
@@ -243,13 +295,47 @@ export class DevelopLoop {
     this.schedule(next, moving);
     if (again || next.histogram !== this.lastHistogram) { this.lastHistogram = next.histogram; this.countHistogram(next); }
     if (next.prepare !== this.lastPrepare) { this.lastPrepare = next.prepare; this.prepareIdle(next); }
+    this.prepareCaptureIdle();
+  }
+
+  /** Idle GPU work uses the foreground's bounded batches and yields to any new input. */
+  private prepareCaptureIdle() {
+    this.captureCancel();
+    const st = this.state, source = this.captureSource === null ? null : this.sources.get(this.captureSource);
+    const active = st && this.sources.get(st.source);
+    if (!this.engine.cacheCapture || !st || !source?.capture || !st.saved.captureSharpening || !active || source.origin !== active.origin) return;
+    let timer = 0, cancelled = false, cancelWork = () => {};
+    const steps = this.engine.prepareCapture(source, st.saved);
+    const next = () => {
+      if (cancelled) return;
+      if (this.held || this.renderPending || !this.engine.idle()) {
+        timer = setTimeout(next, 16) as unknown as number;
+        return;
+      }
+      try {
+        const started = performance.now();
+        for (let n = 0; n < PREPARE_BATCH_PASSES; n++) {
+          if (steps.next().done) return;
+          if (performance.now() - started >= PREPARE_BATCH_MS) break;
+        }
+        cancelWork = this.queueWork(next);
+      } catch (err) {
+        steps.return(undefined);
+        this.post({ type: 'warn', message: `Capture preparation: ${String(err)}` });
+      }
+    };
+    timer = setTimeout(next, 50) as unknown as number;
+    this.captureCancel = () => { cancelled = true; clearTimeout(timer); cancelWork(); steps.return(undefined); };
   }
 
   /** The render effect of ui/Develop.tsx, for one state. */
   private schedule(st: FrameState, startMoving: boolean) {
     const engine = this.engine;
     let id = 0, workTimer = 0, settle = 0, cancelled = false;
+    let cancelWork = () => {};
     let preparation: ReturnType<Engine['prepareFrame']> | null = null;
+    let preparationStart = 0, lastStep = 0;
+    const preparationStat = { steps: 0, cpuMs: 0, elapsedMs: 0, resumeMs: 0, maxStepMs: 0 };
     const opts = (moving: boolean, draft: number | undefined, live: boolean) => ({
       target: 'screen' as const, width: st.width, height: st.height, seed: st.seed, compare: st.compare, view: st.view,
       clipping: st.clipping, split: st.split, frame: st.frame, outside: st.outside, sharpenMask: st.sharpenMask,
@@ -294,14 +380,36 @@ export class DevelopLoop {
       try {
         const renderOpts = opts(moving, draft, live);
         const refining = settled || (!live && !moving && (st.full || this.releasePending || engine.inexact || preparation !== null));
-        if (refining && !preparation) preparation = engine.prepareFrame(source, st.recipe, renderOpts);
-        if (refining && preparation && !preparation.next().done) {
-          workTimer = setTimeout(() => tick(false, true), 0) as unknown as number;
-          return;
+        if (refining && !preparation) {
+          preparation = engine.prepareFrame(source, st.recipe, renderOpts);
+          preparationStart = performance.now();
+          this.sharpening(true);
+        }
+        if (refining && preparation) {
+          const stepStart = performance.now();
+          if (lastStep) preparationStat.resumeMs += stepStart - lastStep;
+          let done = false;
+          for (let pass = 0; pass < PREPARE_BATCH_PASSES; pass++) {
+            const started = performance.now();
+            done = !!preparation.next().done;
+            const cpu = performance.now() - started;
+            preparationStat.steps++;
+            preparationStat.maxStepMs = Math.max(cpu, preparationStat.maxStepMs);
+            if (done || performance.now() - stepStart >= PREPARE_BATCH_MS) break;
+          }
+          const cpu = performance.now() - stepStart;
+          preparationStat.cpuMs += cpu;
+          lastStep = performance.now();
+          preparationStat.elapsedMs = lastStep - preparationStart;
+          if (!done) {
+            cancelWork = this.queueWork(() => tick(false, true));
+            return;
+          }
         }
         const t0 = performance.now();
         engine.render(source, st.recipe, renderOpts);
-        if (this.stats) this.frameStat(st.seq, t0, source, !!draft);
+        if (this.stats) this.frameStat(st.seq, t0, source, !!draft, preparationStat.steps ? { ...preparationStat, capture: { ...engine.captureWork } } : undefined);
+        this.sharpening(false);
         if (!live) this.releasePending = false;
         Object.assign(pace, { submitted: performance.now(), full: !draft, waited: false });
         this.renderPending = !!(live || moving || draft || engine.inexact);
@@ -310,6 +418,7 @@ export class DevelopLoop {
       } catch (err) {
         this.renderPending = false;
         this.busy(false);
+        this.sharpening(false);
         this.post({ type: 'error', message: `Rendering failed. ${String(err)}` });
       }
     };
@@ -321,6 +430,7 @@ export class DevelopLoop {
       caf(id);
       preparation?.return(undefined);
       clearTimeout(workTimer);
+      cancelWork();
       clearTimeout(settle);
       this.onRelease.delete(afterRelease);
     };
@@ -332,17 +442,27 @@ export class DevelopLoop {
     this.post({ type: 'busy', busy: b });
   }
 
+  /** For the stage's "Loading full resolution" status (ui/FullResolutionStatus.tsx); posted on change only. */
+  private sharpening(pending: boolean) {
+    if (pending === this.sharpeningShown) return;
+    this.sharpeningShown = pending;
+    this.post({ type: 'sharpening', pending });
+  }
+
   /** When the GPU finishes a screen frame (fence polled), for the perf driver. */
-  private frameStat(seq: number, start: number, source: Source, draft: boolean) {
+  private frameStat(seq: number, start: number, source: Source, draft: boolean, preparation?: FrameStat['preparation']) {
     const gl = this.engine.gpu.gl;
     const cpu = performance.now() - start;
-    const detail = !this.engine.stoodIn && !draft && (source.mode !== InputMode.SceneLinear || !this.state?.recipe?.captureSharpening || !!source.capture);
+    const detail = !this.engine.stoodIn && !this.engine.inexact && !draft && (source.mode !== InputMode.SceneLinear || !this.state?.recipe?.captureSharpening || !!source.capture);
+    const storage = this.memory?.();
+    const memory = storage ? { retainedMiB: storage.bytes / 2 ** 20, peakMiB: storage.peakBytes / 2 ** 20 } : undefined;
+    const captureCache = this.engine.captureCacheStat;
     const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)!;
     gl.flush();
     const poll = () => {
       if (gl.getSyncParameter(sync, gl.SYNC_STATUS) !== gl.SIGNALED) { setTimeout(poll, 1); return; }
       gl.deleteSync(sync);
-      this.post({ type: 'frame', stat: { seq, start, cpu, done: performance.now(), srcW: source.w, detail, draft } });
+      this.post({ type: 'frame', stat: { seq, start, cpu, done: performance.now(), srcW: source.w, detail, draft, preparation, captureCache, memory } });
     };
     setTimeout(poll, 1);
   }
@@ -428,7 +548,11 @@ export class DevelopLoop {
   }
 
   dispose() {
+    this.captureCancel();
     this.cancel();
+    this.work = null;
+    this.workChannel.port1.close();
+    this.workChannel.port2.close();
     this.histogramCancel();
     this.prepareCancel();
     for (const s of this.sources.values()) this.engine.release(s);
