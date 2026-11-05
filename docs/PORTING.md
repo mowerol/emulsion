@@ -56,3 +56,6 @@ Paths are as of darktable 5.x; check the current tree before porting.
 | Colour balance | darktable `src/iop/colorbalancergb.c` | **Ported** (contrast, vibrance, saturation). Still to bring over: the shadows, midtones and highlights wheels, brilliance and chroma |
 | Input (film scans) | darktable `src/iop/negadoctor.c` | Invert real colour negative scans |
 | Input (RAW) | LibRaw | Decoding, including Fuji X-Trans and OM System files |
+| Noise reduction | darktable `src/iop/denoiseprofile.c` | **Planned**, wavelets with the camera noise profiles first; see [plans/noise-reduction.md](plans/noise-reduction.md) |
+| Hot pixels | darktable `src/iop/hotpixels.c` | **Planned**, in the RAW decode before demosaic |
+| Raw denoise | darktable `src/iop/rawdenoise.c` | **Planned**, five-band wavelet denoise on the CFA |
