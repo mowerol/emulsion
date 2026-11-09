@@ -26,6 +26,12 @@ import { trackTextures } from '../dev/gpumemory';
 
 /** How long the view must stay still before a zoom or pan builds the full-resolution region it needs. */
 export const VIEW_SETTLE_MS = 180;
+/** A render error for the screen, with where it was thrown (the first frames of its stack, file:line only). */
+const failure = (err: unknown) => {
+  const at = ((err as Error)?.stack ?? '').split('\n').map((l) => l.match(/([\w.-]+\.ts)[^:]*:(\d+)/)).filter(Boolean).slice(0, 3).map((m) => `${m![1]}:${m![2]}`);
+  return `Rendering failed. ${String(err)}${at.length ? ` (at ${at.join(' < ')})` : ''}`;
+};
+
 /** A held full-size frame slower than this, SLOW_FRAMES in a row, makes the rest of the drag a draft. */
 const SLOW_FRAME_MS = 25;
 const SLOW_FRAMES = 3;
@@ -224,7 +230,7 @@ export class DevelopLoop {
         case 'dispose': this.dispose(); break;
       }
     } catch (err) {
-      this.post({ type: 'error', message: `Rendering failed. ${String(err)}` });
+      this.post({ type: 'error', message: failure(err) });
     }
   }
 
@@ -436,7 +442,7 @@ export class DevelopLoop {
         this.renderPending = false;
         this.busy(false);
         this.sharpening(false);
-        this.post({ type: 'error', message: `Rendering failed. ${String(err)}` });
+        this.post({ type: 'error', message: failure(err) });
       }
     };
     const afterRelease = () => { id = raf(() => tick(false, true)); };

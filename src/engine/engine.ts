@@ -1830,6 +1830,10 @@ export class Engine {
 
   private *colorEqSteps(w: number, h: number, roi: number, color: ColorAdjust, u: Uniforms, drawInput: (t: Target) => void, scene?: { tex: WebGLTexture; key: string } | null, into?: Target): Generator<void, Target> {
     const g = this.gpu;
+    // darktable's roi scale never exceeds 1 (full resolution). A zoomed-in region's source can
+    // come out a hair denser than the photo through rounding, which would widen the kernels past
+    // the shader's 7 taps.
+    roi = Math.min(roi, 1);
     if (!this.L.ce || this.L.ce.w !== w || this.L.ce.h !== h)
       yield* this.reserveSteps(Array.from({ length: 5 }, (): SpareSpec => [w, h, true, true, false]));
     const [t0, t1, t2, t3, t4] = this.ceTargets(w, h);

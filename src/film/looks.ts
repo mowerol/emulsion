@@ -171,7 +171,7 @@ function put(pack: UserPack, id: StockId, look: PackLook) {
   const name = look.name ?? 'Look';
   registerStock({
     id, name, maker: PACK[pack].name, edge: name.toUpperCase(), bw: false,
-    halation: 0, halationColor: [1, 0.36, 0.14], iso: 400, grainIso: 400, grain: 0,
+    halation: 0, halationColor: [1, 0.36, 0.14], iso: 200, grainIso: 200, grain: 0,
   });
 }
 

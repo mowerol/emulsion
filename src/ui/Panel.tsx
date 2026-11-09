@@ -208,7 +208,6 @@ function GrainSpeed({ recipe }: { recipe: Recipe | null }) {
         {isos.map((iso) => (
           <option key={iso} value={iso}>
             ISO {iso}
-            {iso === stockIso ? ' (the stock)' : ''}
           </option>
         ))}
         {!match && <option value="custom">Custom</option>}

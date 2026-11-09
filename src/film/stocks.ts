@@ -46,7 +46,7 @@ export interface Stock {
 const RAW_STOCKS: Omit<Stock, 'grainIso'>[] = [
   {
     // No film: the camera profile's rendering and nothing else. The default for every photo.
-    id: 'neutral', iso: 400, name: 'Neutral', maker: 'No film look', edge: 'EMULSION', bw: false,
+    id: 'neutral', iso: 200, name: 'Neutral', maker: 'No film look', edge: 'EMULSION', bw: false,
     halation: 0, halationColor: [1, 0.36, 0.14], grain: 0,
   },
   {
