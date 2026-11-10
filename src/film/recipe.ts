@@ -1,4 +1,4 @@
-import { normalizeNoiseReduction } from './noisereduction';
+import { normalizeNoiseReduction, normalizeProfiledDenoise } from './noisereduction';
 // SPDX-License-Identifier: GPL-3.0-or-later
 // A recipe is everything Emulsion knows about how one frame is developed.
 // It is what gets saved to the photo's sidecar.
@@ -26,6 +26,8 @@ export type LookBlend = 'normal' | 'color';
 
 export interface Recipe {
   noiseReduction: import('./noisereduction').NoiseReduction | null;
+  /** denoise (profiled): a setting, null (off) or 'auto' (the photo kind's default; see noisereduction.ts). */
+  profiledDenoise?: import('./noisereduction').ProfiledSetting;
   v: typeof RECIPE_VERSION;
   lookSnapshot?: { id: string; name: string; revision: number; kind?: 'lut' | 'look'; settings: ProfileSettings };
   /** Base camera rendering. Missing in older sidecars: preserve their original pipeline. */
@@ -146,7 +148,7 @@ export function normalizeColor(input: unknown): ColorAdjust | null {
   return tidyColor({ hue: list(o.hue, -HUE_MAX, HUE_MAX), sat: list(o.sat, -100, 100), bright: list(o.bright, -100, 100) });
 }
 
-export type SliderKey = Exclude<keyof Recipe, 'noiseReduction' | 'v' | 'profile' | 'autoProfile' | 'lookEnabled' | 'stock' | 'pack' | 'lookBlend' | 'push' | 'scanner' | 'scannerFromLook' | 'curve' | 'wb' | 'crop' | 'color' | 'grading' | 'lens' | 'transform' | 'masks' | 'retouch' | 'retouchScales' | 'lookSnapshot'>;
+export type SliderKey = Exclude<keyof Recipe, 'noiseReduction' | 'profiledDenoise' | 'v' | 'profile' | 'autoProfile' | 'lookEnabled' | 'stock' | 'pack' | 'lookBlend' | 'push' | 'scanner' | 'scannerFromLook' | 'curve' | 'wb' | 'crop' | 'color' | 'grading' | 'lens' | 'transform' | 'masks' | 'retouch' | 'retouchScales' | 'lookSnapshot'>;
 
 export interface SliderDef {
   key: SliderKey;
@@ -219,6 +221,7 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
   return {
     v: RECIPE_VERSION,
     noiseReduction: null,
+    profiledDenoise: 'auto',
     profile: 'auto',
     lookEnabled: stock !== 'neutral',
     stock,
@@ -284,7 +287,7 @@ export function resetAdjustments(recipe: Recipe): Recipe {
 export const withSettingsFrom = (from: Recipe, target: Recipe | null): Recipe => ({ ...from, profile: target?.profile ?? 'auto', autoProfile: target?.autoProfile, crop: target?.crop ?? null, transform: target?.transform ?? null, masks: target?.masks ?? [], retouch: target?.retouch ?? [], retouchScales: target?.retouchScales ?? { scales: 0, mergeFrom: 0 } });
 
 /** Panel sections that can be reset on their own. */
-export type SectionId = 'masks' | 'development' | 'scanner' | 'crop' | 'transform' | 'adjust' | 'curve' | 'color' | 'grading' | 'lens' | 'whitebalance' | 'colour-basics' | 'tone' | 'exposure' | 'hdr' | 'refine-optics' | 'detail' | 'optics' | 'grain';
+export type SectionId = 'masks' | 'development' | 'scanner' | 'crop' | 'transform' | 'adjust' | 'curve' | 'color' | 'grading' | 'lens' | 'whitebalance' | 'colour-basics' | 'tone' | 'exposure' | 'hdr' | 'refine-optics' | 'detail' | 'optics' | 'grain' | 'noise';
 
 const SECTION_FIELDS: Record<SectionId, (keyof Recipe)[]> = {
   masks: ['masks'],
@@ -303,7 +306,8 @@ const SECTION_FIELDS: Record<SectionId, (keyof Recipe)[]> = {
   'refine-optics': ['fade', ...SLIDERS.filter(d => d.group === 'optics').map(d => d.key)],
   'colour-basics': ['vibrance', 'saturation'],
   tone: SLIDERS.filter(d => d.group === 'adjust' && d.key !== 'vibrance' && d.key !== 'saturation').map(d => d.key),
-  detail: ['noiseReduction', ...SLIDERS.filter((d) => d.group === 'detail').map((d) => d.key)],
+  detail: SLIDERS.filter((d) => d.group === 'detail').map((d) => d.key),
+  noise: ['noiseReduction', 'profiledDenoise'],
   optics: SLIDERS.filter((d) => d.group === 'optics').map((d) => d.key),
   grain: SLIDERS.filter((d) => d.group === 'grain').map((d) => d.key),
 };
@@ -357,6 +361,8 @@ export function normalizeRecipe(input: unknown): Recipe | null {
     const v = read(def.key);
     if (typeof v === 'number' && Number.isFinite(v)) out[def.key] = clamp(v, def.min, def.max);
   }
+  // Sidecars from before it existed have no field: off, so they render as they did.
+  out.profiledDenoise = normalizeProfiledDenoise(o.profiledDenoise);
   if (typeof o.scannerFromLook === 'boolean') out.scannerFromLook = o.scannerFromLook;
   const snap = o.lookSnapshot as Recipe['lookSnapshot'];
   if (snap && typeof snap.id === 'string' && typeof snap.name === 'string' && Number.isSafeInteger(snap.revision)) {

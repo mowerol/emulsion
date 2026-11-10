@@ -8,7 +8,11 @@
 // darktable), drag its source to choose where the pixels come from, and an ellipse's handles to
 // size and turn it. While dragging only the outline moves: the photo is healed once, on release.
 
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { TriangleAlert } from 'lucide-react';
+import { activePhoto, useApp } from '../library/store';
+import { photoId } from '../library/copies';
+import { useRemoveUi } from './removemodel';
 import { geometryMatrix, project, type Perspective } from '../engine/perspective';
 import { invert3 } from '../engine/color';
 import { simplify, strokeEpsilon } from '../engine/brush';
@@ -16,9 +20,9 @@ import { FULL, type Crop, type Rect } from '../film/crop';
 import { ellipseHandles, ellipseLocal, ellipseOutline, featherFor } from '../film/maskgeometry';
 import type { BrushNode } from '../film/masks';
 import type { View } from '../engine/engine';
-import { moveShape, spotAnchor, usesSource, type RetouchEllipse, type RetouchShape, type RetouchSpot } from '../film/retouch';
+import { brushStrokes, moveShape, spotAnchor, usesSource, type RetouchEllipse, type RetouchShape, type RetouchSpot } from '../film/retouch';
 import { imagePoint } from './zoom';
-import { TOOL_NAMES, addSpot, brushNode, commitDraft, draftSpot, nextShape, nextSource, placeSource, setRetouchUi, useRetouchUi, withDraft } from './retouchui';
+import { TOOL_NAMES, addPendingStroke, retouchMode, spotMode, addSpot, brushNode, cancelPending, commitDraft, draftSpot, nextShape, nextSource, placeSource, setRetouchUi, useRetouchUi, withDraft } from './retouchui';
 
 type Pt = [number, number];
 type Handle = 'spot' | 'source' | 'e-a' | 'e-b' | 'e-feather';
@@ -31,12 +35,20 @@ export function RetouchOverlay({ spots: saved, transform, frame, W, H, view, css
   transform?: Perspective | null;
   frame: Rect & { angle: number }; W: number; H: number; view: View; cssW: number; cssH: number;
 }) {
+  const photo = useApp(activePhoto);
+  const removal = useRemoveUi();
+  const id = photo ? photoId(photo) : null;
+  const states = removal.photo === id ? removal.states : [];
+  const pending = useRetouchUi((s) => (s.pending && s.pending.photo === id ? s.pending.strokes : null));
+  // Strokes waiting on the photo left behind are let go.
+  useEffect(() => { if (useRetouchUi.getState().pending?.photo !== id) cancelPending(); }, [id]);
   const selected = useRetouchUi((s) => s.selected);
   const draft = useRetouchUi((s) => s.draft);
   // Subscribed so the preview redraws when the next spot's shape, size or source changes.
   const ui = useRetouchUi((s) => s);
-  // Only the current wavelet scale's spots show, as in darktable (rt_show_forms_for_current_scale).
-  const spots = withDraft(saved, draft).filter((s) => s.scale === ui.settings.scale);
+  // The held tool's spots alone: Remove's, or Heal's on the current wavelet scale, as in darktable (rt_show_forms_for_current_scale).
+  const mode = retouchMode(ui);
+  const spots = withDraft(saved, draft).filter((s) => spotMode(s) === mode && (mode === 'remove' || s.scale === ui.settings.scale));
   const ref = useRef<SVGSVGElement>(null);
   const drag = useRef<{ what: Handle | 'add'; spot: RetouchSpot | null; start: Pt; startScreen: Pt; from: Pt } | null>(null);
   /** A brush stroke being painted. */
@@ -87,15 +99,18 @@ export function RetouchOverlay({ spots: saved, transform, frame, W, H, view, css
       <path d={polygon(ellipseOutline(s, W, H))} className="mask-line" />
       <path d={polygon(ellipseOutline(s, W, H, true))} className="mask-line dashed" />
     </g>;
-    const w = 2 * screenLength([s.nodes[0].x, s.nodes[0].y], s.nodes[0].border);
+    const strokes = brushStrokes(s);
     return <g key={key} className={cls}>
-      <path d={line(s.nodes)} className="retouch-band" style={{ strokeWidth: w }} />
-      <path d={line(s.nodes)} className="mask-line" />
+      {/* The bands' opacity is the group's, so overlapping strokes show as one area. */}
+      <g className="retouch-bands">
+        {strokes.map((st, i) => <path key={i} d={line(st)} className="retouch-band" style={{ strokeWidth: 2 * screenLength([st[0].x, st[0].y], st[0].border) }} />)}
+      </g>
+      {strokes.map((st, i) => <path key={`l${i}`} d={line(st)} className="mask-line" />)}
     </g>;
   };
   /** An invisible target covering the shape, for dragging it. */
   const hitArea = (s: RetouchShape, onDown: (e: React.PointerEvent) => void, title: string) => {
-    const d = s.kind === 'circle' ? circle(s.center, s.radius) : s.kind === 'ellipse' ? polygon(ellipseOutline(s, W, H)) : line(s.nodes);
+    const d = s.kind === 'circle' ? circle(s.center, s.radius) : s.kind === 'ellipse' ? polygon(ellipseOutline(s, W, H)) : brushStrokes(s).map(line).join('');
     const style = s.kind === 'brush' ? { strokeWidth: Math.max(10, 2 * screenLength([s.nodes[0].x, s.nodes[0].y], s.nodes[0].border)) } : undefined;
     return <path d={d} className={`retouch-hit${s.kind === 'brush' ? ' line' : ''}`} style={style} onPointerDown={onDown}><title>{title}</title></path>;
   };
@@ -106,7 +121,7 @@ export function RetouchOverlay({ spots: saved, transform, frame, W, H, view, css
     e.preventDefault();
     setHover(null);
     const p = toSource(e);
-    if (what === 'add' && e.shiftKey) {
+    if (what === 'add' && e.shiftKey && ui.settings.tool !== 'remove') {
       // darktable's source placement: ⇧-click relative, Ctrl+⇧ (⌘⇧ here) absolute.
       placeSource(p, e.metaKey || e.ctrlKey);
       return;
@@ -160,7 +175,10 @@ export function RetouchOverlay({ spots: saved, transform, frame, W, H, view, css
       stroke.current = null;
       setPainting(null);
       // darktable's node elimination at its medium smoothing.
-      addSpot({ kind: 'brush', nodes: simplify(st.nodes, strokeEpsilon(st.nodes[0].border)) }, saved);
+      const nodes = simplify(st.nodes, strokeEpsilon(st.nodes[0].border));
+      // Remove after each stroke off: the stroke waits for the others and Apply.
+      if (ui.settings.tool === 'remove' && !ui.eachStroke && id) addPendingStroke(id, W, H, nodes);
+      else addSpot({ kind: 'brush', nodes }, saved);
       return;
     }
     const d = drag.current;
@@ -185,12 +203,22 @@ export function RetouchOverlay({ spots: saved, transform, frame, W, H, view, css
     <svg ref={ref} className="mask-overlay drawing retouch-overlay" width={cssW} height={cssH} onPointerMove={move} onPointerUp={end}
       onPointerCancel={() => { drag.current = null; stroke.current = null; setPainting(null); commitDraft(); }} onPointerLeave={() => setHover(null)}>
       <rect className="mask-capture" width={cssW} height={cssH} onPointerDown={(e) => begin(e, 'add', null)} />
-      {spots.map((s) => (
-        <g key={s.id} className={`mask-shape-outline${s.id === selected ? ' active' : ''}`}>
+      {/* The selected spot last, so its outline sits above the others. */}
+      {[...spots.filter((s) => s.id !== selected), ...spots.filter((s) => s.id === selected)].map((s) => {
+        const state = s.tool === 'remove' && s.opacity > 0 ? states.find(r => r.spot === s.id) : undefined;
+        const [x, y] = toScreen(spotAnchor(s.shape));
+        return <g key={s.id} data-spot={s.id} data-remove-state={state?.status}
+          className={`mask-shape-outline${s.id === selected ? ' active' : ''}${state?.status === 'pending' ? ' remove-pending' : ''}`}>
+          {state?.status === 'pending' && <title>Removing…</title>}
           {outline(s.shape, 'o')}
           {hitArea(s.shape, (e) => begin(e, 'spot', s), `${TOOL_NAMES[s.tool]} spot: drag to move`)}
-        </g>
-      ))}
+          {state?.status === 'failed' && <g className="remove-warning" transform={`translate(${x + 8} ${y - 24})`} role="img" aria-label="Remove spot could not be filled">
+            <title>{state.error ?? 'Remove spot could not be filled. Retry in the retouch bar.'}</title>
+            <rect x="-3" y="-3" width="24" height="24" rx="4" />
+            <TriangleAlert size={18} />
+          </g>}
+        </g>;
+      })}
       {sel && usesSource(sel.tool) && (() => {
         const a = toScreen(spotAnchor(sel.shape));
         const b = toScreen(sel.source);
@@ -214,6 +242,7 @@ export function RetouchOverlay({ spots: saved, transform, frame, W, H, view, css
           </g>
         );
       })()}
+      {pending && outline({ kind: 'brush', nodes: pending[0], more: pending.slice(1) }, 'pending', 'mask-shape-outline active retouch-cursor retouch-waiting')}
       {painting && outline({ kind: 'brush', nodes: painting }, 'paint', 'mask-shape-outline active retouch-cursor')}
       {painting && toolUsesSource && cross(nextSource({ kind: 'brush', nodes: painting }), 'paint-src')}
       {preview && (

@@ -20,6 +20,8 @@ export type RetouchTool = 'clone' | 'heal' | 'blur' | 'fill' | 'remove';
 
 /** The inpainting model a Remove spot's patch comes from: big-lama, Carve's ONNX export (lama_fp32.onnx). */
 export const REMOVE_MODEL = 'lama-fp32';
+/** Pinned native LaMa artifact; part of every patch key. */
+export const REMOVE_MODEL_HASH = '1faef5301d78db7dda502fe59966957ec4b79dd64e16f03ed96913c7a4eb68d6';
 
 /** darktable's circle (dt_masks_point_circle_t): radius and feather in units of the shorter side. */
 export interface RetouchCircle {
@@ -47,6 +49,21 @@ export interface RetouchEllipse {
 export interface RetouchBrush {
   kind: 'brush';
   nodes: BrushNode[];
+  /**
+   * Emulsion's own: further strokes in the same spot, so a Remove painted over several strokes
+   * ("Remove after each stroke" off) is one mask, filled once. Absent on a single stroke, so
+   * single strokes keep their saved form and their Remove patch keys.
+   */
+  more?: BrushNode[][];
+}
+
+/** Every stroke of a brush spot, the first one first. */
+export const brushStrokes = (b: RetouchBrush): BrushNode[][] => (b.more?.length ? [b.nodes, ...b.more] : [b.nodes]);
+
+/** A brush with each node changed (size, hardness, a move), across all its strokes. */
+export function mapBrushNodes(b: RetouchBrush, change: (n: BrushNode) => BrushNode): RetouchBrush {
+  const nodes = b.nodes.map(change);
+  return b.more?.length ? { ...b, nodes, more: b.more.map((st) => st.map(change)) } : { ...b, nodes };
 }
 
 export type RetouchShape = RetouchCircle | RetouchEllipse | RetouchBrush;
@@ -117,7 +134,7 @@ export const spotAnchor = (s: RetouchShape): [number, number] =>
 export function moveShape(s: RetouchShape, to: [number, number]): RetouchShape {
   if (s.kind !== 'brush') return { ...s, center: to };
   const [x0, y0] = spotAnchor(s);
-  return { ...s, nodes: s.nodes.map((n) => ({ ...n, x: n.x + to[0] - x0, y: n.y + to[1] - y0 })) };
+  return mapBrushNodes(s, (n) => ({ ...n, x: n.x + to[0] - x0, y: n.y + to[1] - y0 }));
 }
 
 /** Whether the algorithm reads a source (clone and heal); blur, fill and remove work in place. */
@@ -158,6 +175,9 @@ const num = (v: unknown, fallback: number, lo: number, hi: number) => (typeof v 
 const pair = (v: unknown, lo: number, hi: number): [number, number] | null =>
   Array.isArray(v) && v.length === 2 && v.every((x) => typeof x === 'number' && Number.isFinite(x)) ? [clamp(v[0], lo, hi), clamp(v[1], lo, hi)] : null;
 
+/** The most brush nodes a spot keeps from a sidecar, over all its strokes. */
+const MAX_BRUSH_NODES = 5000;
+
 function normalizeShape(input: unknown): RetouchShape | null {
   if (!input || typeof input !== 'object') return null;
   const o = input as Record<string, unknown>;
@@ -173,13 +193,22 @@ function normalizeShape(input: unknown): RetouchShape | null {
     return { kind: 'ellipse', center, radius, rotation: num(o.rotation, ELLIPSE_DEFAULTS.rotation, -360, 360), border: num(o.border, ELLIPSE_DEFAULTS.border, 0.0005, proportional ? 1000 : 0.5), proportional };
   }
   if (o.kind === 'brush' && Array.isArray(o.nodes)) {
-    const nodes = o.nodes.slice(0, 5000).flatMap((n): BrushNode[] => {
-      if (!n || typeof n !== 'object') return [];
-      const q = n as Record<string, unknown>;
-      if (typeof q.x !== 'number' || typeof q.y !== 'number' || !Number.isFinite(q.x) || !Number.isFinite(q.y)) return [];
-      return [{ x: clamp(q.x, -2, 3), y: clamp(q.y, -2, 3), border: num(q.border, BRUSH_DEFAULTS.border, 0.00005, 1), hardness: num(q.hardness, BRUSH_DEFAULTS.hardness, 0, 1), density: num(q.density, BRUSH_DEFAULTS.density, 0, 1) }];
-    });
-    return nodes.length ? { kind: 'brush', nodes } : null;
+    // At most MAX_BRUSH_NODES across all strokes.
+    let budget = MAX_BRUSH_NODES;
+    const stroke = (input: unknown[]) => {
+      const nodes = input.slice(0, budget).flatMap((n): BrushNode[] => {
+        if (!n || typeof n !== 'object') return [];
+        const q = n as Record<string, unknown>;
+        if (typeof q.x !== 'number' || typeof q.y !== 'number' || !Number.isFinite(q.x) || !Number.isFinite(q.y)) return [];
+        return [{ x: clamp(q.x, -2, 3), y: clamp(q.y, -2, 3), border: num(q.border, BRUSH_DEFAULTS.border, 0.00005, 1), hardness: num(q.hardness, BRUSH_DEFAULTS.hardness, 0, 1), density: num(q.density, BRUSH_DEFAULTS.density, 0, 1) }];
+      });
+      budget -= nodes.length;
+      return nodes;
+    };
+    const nodes = stroke(o.nodes);
+    if (!nodes.length) return null;
+    const more = (Array.isArray(o.more) ? o.more : []).flatMap((st) => (Array.isArray(st) && budget > 0 ? [stroke(st)] : [])).filter((st) => st.length);
+    return more.length ? { kind: 'brush', nodes, more } : { kind: 'brush', nodes };
   }
   return null;
 }

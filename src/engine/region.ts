@@ -39,6 +39,8 @@ export function visibleSource(view: View, frame: Crop, transform: Perspective | 
 
 /** What a region's stages are, for their reach (all in the source's pixels). */
 export interface ReachSetup {
+  /** denoise (profiled): its number of wavelet scales (0 off). */
+  denoise?: number;
   /** Capture sharpening: the kernel's sigma at this scale and its iterations (0 off). */
   capture?: { sigma: number; iterations: number };
   lens?: { spline: LensSpline; W: number; H: number } | null;
@@ -82,12 +84,15 @@ export function lensReach(l: LensSpline, W: number, H: number): number {
  */
 export function regionReach(s: ReachSetup): number {
   const o = own(s);
-  return Math.ceil(o.capture + o.lens + o.dehaze + o.texture + o.color + o.clarity + o.usm + o.scanner);
+  return Math.ceil(o.denoise + o.capture + o.lens + o.dehaze + o.texture + o.color + o.clarity + o.usm + o.scanner);
 }
 
 /** Each stage's own reach, unrounded (see regionReach). */
 function own(s: ReachSetup) {
-  const o = { capture: 0, lens: 0, dehaze: 0, texture: 0, color: 0, clarity: 0, usm: 0, scanner: 0 };
+  const o = { denoise: 0, capture: 0, lens: 0, dehaze: 0, texture: 0, color: 0, clarity: 0, usm: 0, scanner: 0 };
+  // denoiseprofile.c tiling_callback: overlap 1 << max_scale (its thresholds come from the
+  // region's own statistics, as from each tile's upstream).
+  if (s.denoise) o.denoise = 1 << s.denoise;
   if (s.capture && s.capture.iterations > 0) {
     const k = kernelFor(s.capture.sigma);
     o.capture = s.capture.iterations * k.half + borderFor(s.capture.sigma, s.capture.iterations) + (gaussian1d(2).length - 1) / 2;

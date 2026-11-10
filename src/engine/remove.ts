@@ -27,6 +27,10 @@
 //   spot must not blend that in.
 // - IOPaint finds one box per contour (cv2.findContours, RETR_EXTERNAL); a spot's shape (a
 //   circle, an ellipse, or one brush path) is one connected area, so its one box is that box.
+//   Strokes painted together and applied at once ("Remove after each stroke" off) are split by
+//   removeGroups into the 8-connected areas of their mask, a spot each, so this still holds. A
+//   stroke lying wholly inside a hole of another (a ring) becomes its own spot, where
+//   RETR_EXTERNAL would leave it inside the ring's box.
 // - The model reads 8-bit sRGB made from the retouch step's scene-linear Rec.2020 by a fixed
 //   encode (clipped to [0, 1]); the patch is decoded by the matching decode.
 // - The crop is planned on the full-size photo, so the preview and the full source share one
@@ -36,6 +40,7 @@
 
 import type { Recipe } from '../film/recipe';
 import type { RetouchShape, RetouchSpot } from '../film/retouch';
+import type { BrushNode } from '../film/masks';
 import { REC2020_TO_SRGB, SRGB_TO_REC2020, srgbEotf, srgbOetf } from './color';
 import type { RetouchSetup, Roi } from './retouch';
 import { retouchInputs, spotMask } from './retouch';
@@ -60,6 +65,56 @@ export function fullMask(shape: RetouchShape, W: number, H: number): ReturnType<
 
 /** Whether a mask value (0 to 1) is in the model's binary mask: over 0 once made 8-bit (see the header). */
 export const masked = (v: number) => Math.round(v * 255) > 0;
+
+/**
+ * Strokes painted to be removed together, grouped as IOPaint's boxes_from_mask splits one mask:
+ * the 8-connected areas of their union within the photo (cv2.findContours), each to be one spot
+ * with one box. Strokes keep their order within a group; groups are in the order of their first
+ * stroke. A stroke that touches no pixel of the photo is dropped.
+ */
+export function removeGroups(strokes: BrushNode[][], W: number, H: number): BrushNode[][][] {
+  if (!strokes.length) return [];
+  const { roi, mask } = spotMask({ kind: 'brush', nodes: strokes[0], more: strokes.slice(1) }, W, H);
+  const inside = (x: number, y: number) => x >= 0 && y >= 0 && x < W && y < H;
+  // Label the union's 8-connected areas over the photo.
+  const label = new Int32Array(roi.w * roi.h).fill(-1);
+  let areas = 0;
+  const queue: number[] = [];
+  for (let start = 0; start < label.length; start++) {
+    if (label[start] >= 0 || !masked(mask[start]) || !inside(roi.x + (start % roi.w), roi.y + Math.floor(start / roi.w))) continue;
+    label[start] = areas;
+    queue.length = 0;
+    queue.push(start);
+    while (queue.length) {
+      const i = queue.pop()!;
+      const x = i % roi.w, y = (i - x) / roi.w;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const nx = x + dx, ny = y + dy;
+        if (nx < 0 || ny < 0 || nx >= roi.w || ny >= roi.h) continue;
+        const n = ny * roi.w + nx;
+        if (label[n] >= 0 || !masked(mask[n]) || !inside(roi.x + nx, roi.y + ny)) continue;
+        label[n] = areas;
+        queue.push(n);
+      }
+    }
+    areas++;
+  }
+  // Each stroke is one path, so all of it lies in one area: find it from any pixel it covers.
+  const groups = new Map<number, BrushNode[][]>();
+  for (const st of strokes) {
+    const own = spotMask({ kind: 'brush', nodes: st }, W, H);
+    let area = -1;
+    for (let i = 0; i < own.mask.length && area < 0; i++) {
+      if (!masked(own.mask[i])) continue;
+      const x = own.roi.x + (i % own.roi.w), y = own.roi.y + Math.floor(i / own.roi.w);
+      if (inside(x, y)) area = label[(y - roi.y) * roi.w + (x - roi.x)];
+    }
+    if (area < 0) continue;
+    const g = groups.get(area);
+    if (g) g.push(st); else groups.set(area, [st]);
+  }
+  return [...groups.values()];
+}
 
 /**
  * The full-size crop the model sees for a Remove spot: IOPaint's boxes_from_mask then _crop_box,
@@ -245,9 +300,12 @@ export const digest = (s: string) => cyrb53(s, 0) + cyrb53(s, 0x9e3779b9);
  * decode settings, which the caller names), capture sharpening, lens correction, the camera
  * profile, white balance and noise reduction. Nothing after the step (Exposure, tones, the look).
  */
-export function preRetouchKey(source: string, recipe: Pick<Recipe, 'profile' | 'autoProfile' | 'lens' | 'wb' | 'noiseReduction' | 'captureSharpening'>): string {
+export function preRetouchKey(source: string, recipe: Pick<Recipe, 'profile' | 'autoProfile' | 'lens' | 'wb' | 'noiseReduction' | 'profiledDenoise' | 'captureSharpening'>): string {
   const nr = recipe.noiseReduction?.enabled ? recipe.noiseReduction : null;
-  return JSON.stringify([source, recipe.captureSharpening, recipe.lens, recipe.profile, recipe.profile === 'auto' ? recipe.autoProfile ?? null : null, recipe.wb, nr]);
+  const key: unknown[] = [source, recipe.captureSharpening, recipe.lens, recipe.profile, recipe.profile === 'auto' ? recipe.autoProfile ?? null : null, recipe.wb, nr];
+  // Appended only when present, so keys (and the native patch cache) made before it stay valid.
+  if (recipe.profiledDenoise != null) key.push(recipe.profiledDenoise);
+  return JSON.stringify(key);
 }
 
 /**
@@ -260,5 +318,26 @@ export function patchKey(base: string, model: string, spots: RetouchSpot[], inde
   const spot = spots[index];
   const earlier = retouchInputs(spots.slice(0, index), crop, W, H, 1, W, H, setup).spots.map(({ id: _id, ...rest }) => rest);
   const scales = earlier.some((s) => s.scale > 0) ? [setup.scales, setup.mergeFrom] : null;
-  return digest(JSON.stringify([base, model, W, H, spot.shape, earlier, scales]));
+  return digest(JSON.stringify([base, model, W, H, spot.model ?? 'lama-fp32', spot.shape, earlier, scales]));
+}
+
+/** Retouch's display inputs retain their native encoding until the later input shader. */
+export type RetouchEncoding = 'scene' | 'linear-srgb' | 'srgb';
+export function encodeRetouchInput(px: Float32Array, encoding: RetouchEncoding = 'scene'): Uint8Array {
+  if (encoding === 'scene') return encodeModelInput(px);
+  const out = new Uint8Array(px.length);
+  for (let i = 0; i < px.length; i += 4) {
+    for (let c = 0; c < 3; c++) out[i + c] = encoding === 'srgb' ? Math.round(255 * Math.min(1, Math.max(0, px[i + c]))) : srgbEncode8(px[i + c]);
+    out[i + 3] = 255;
+  }
+  return out;
+}
+export function decodeRetouchPatch(px: Uint8Array, encoding: RetouchEncoding = 'scene'): Float32Array {
+  if (encoding === 'scene') return decodePatch(px);
+  const out = new Float32Array(px.length);
+  for (let i = 0; i < px.length; i += 4) {
+    for (let c = 0; c < 3; c++) out[i + c] = encoding === 'srgb' ? px[i + c] / 255 : srgbDecode8(px[i + c]);
+    out[i + 3] = 1;
+  }
+  return out;
 }

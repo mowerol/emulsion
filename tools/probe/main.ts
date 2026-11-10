@@ -1,3 +1,4 @@
+import { planRemovals, removeContext, removeSetup, removalIdentity } from '../../src/engine/removequeue';
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Engine probe: renders a synthetic frame through the real engine in any
 // browser and reports pixel values, so stage changes and ports can be checked
@@ -10,7 +11,7 @@ import lensFixtures from '../../src/engine/fixtures/lens-metadata.json';
 import { LENS_DEFAULTS, lensCenter, lensColourUniforms, lensCorrectPixels, lensSpline, lensUniforms, type LensMetadata } from '../../src/engine/lenscorrection';
 import { setPrefs } from '../../src/ui/prefs';
 import { setWorkspace } from '../../src/ui/workspace';
-import { setLookBrowserView, toggleLookFavourite, useLookBrowser } from '../../src/ui/lookbrowser';
+import { setHiddenLookGroups, setLookBrowserView, toggleLookFavourite, useLookBrowser } from '../../src/ui/lookbrowser';
 import App from '../../src/App';
 import { Engine, colorEqParams, type Source } from '../../src/engine/engine';
 import { updateGrade } from '../../src/film/grading';
@@ -42,6 +43,10 @@ import { StageMenu } from '../../src/ui/StageMenu';
 import { Panel } from '../../src/ui/Panel';
 import { startLookEdit, useApp } from '../../src/library/store';
 import { bandFactors, bandGains, correction, luminance, toneEqualize } from '../../src/engine/toneequalizer';
+import denoiseFixture from '../../src/engine/fixtures/denoiseprofile-reference.json';
+import { denoiseSetup, denoiseWavelets, domainMatrices } from '../../src/engine/denoiseprofile';
+import { ProfiledDenoiser, tilesFor } from '../../src/engine/denoisegpu';
+import { NoiseReductionControls, ProfiledDenoiseControls } from '../../src/ui/NoiseReduction';
 import { LOG_GAMMAS, clarityParams, clarityScale, lightness, localLaplacian, withLightness } from '../../src/engine/locallaplacian';
 import { unsharpMask, usmParams } from '../../src/engine/usm';
 import { colorEqualize } from '../../src/engine/colorequal';
@@ -342,7 +347,20 @@ function probeRetouch(eng: Engine) {
   const plain = eng.readPixels(src, base, w, h, 1);
   const healed = eng.readPixels(src, { ...base, retouch: spots }, w, h, 1);
   const before = eng.readPixels(src, { ...base, retouch: spots }, w, h, 1, true);
-  return { region, changedValues: changed, worstRelative: worst, blemish: at(plain, 120, 80), healed: at(healed, 120, 80), beside: at(plain, 132, 80), compareKeepsBlemish: at(before, 120, 80), untouched: [at(plain, 230, 150), at(healed, 230, 150)], wavelets: { region: wRegion, changedValues: wChanged, worstRelative: wWorst }, glError: gl.getError() };
+  const removal = { ...base, retouch: [newCircleSpot([0.5, 0.5], 'remove', 0.06, 0.03)] };
+  const context = removeContext(removalIdentity(src), removal, 1);
+  const request = planRemovals(context, removal, w, h)[0];
+  const patch = new Uint8Array(512 * 512 * 4);
+  for (let i = 0; i < patch.length; i += 4) patch.set([160, 120, 90, 255], i);
+  context.patches.set(request.spot, { key: request.key, crop: request.crop, pixels: patch });
+  eng.removeContext = context;
+  const removeGpu = readSource(removal), removeRef = copy.slice();
+  retouchRef(removeRef, { x: 0, y: 0, w, h }, w, h, 1, removal.retouch, undefined, undefined, undefined,
+    { scales: 0, mergeFrom: 0, show: 0, remove: { ...removeSetup(context, removal), encoding: 'srgb' } });
+  let removeError = 0;
+  for (let i = 0; i < removeRef.length; i++) removeError = Math.max(removeError, Math.abs(removeGpu[i] - removeRef[i]));
+  eng.removeContext = null;
+  return { remove: { maxAbsolute: removeError }, region, changedValues: changed, worstRelative: worst, blemish: at(plain, 120, 80), healed: at(healed, 120, 80), beside: at(plain, 132, 80), compareKeepsBlemish: at(before, 120, 80), untouched: [at(plain, 230, 150), at(healed, 230, 150)], wavelets: { region: wRegion, changedValues: wChanged, worstRelative: wWorst }, glError: gl.getError() };
 }
 
 function probeColorBalance(eng: Engine) {
@@ -859,7 +877,264 @@ view.width = W; view.height = H;
 document.body.append(view);
 const out: Record<string, unknown> = {};
 try {
-  if (new URLSearchParams(location.search).has('healtiming')) {
+  if (new URLSearchParams(location.search).has('nrpanel')) {
+    // The Detail section's noise rows, for a screenshot: an OM-3 RAW at ISO 4000, a JPEG below.
+    const host = document.createElement('aside');
+    host.className = 'panel';
+    host.style.cssText = 'position:fixed;left:0;top:0;width:320px;height:100%;padding:16px;display:grid;gap:28px;align-content:start';
+    document.body.append(host);
+    const camera = { make: 'Olympus', model: 'OM-3', cameraToWorking: [[1, 0, 0], [0, 1, 0], [0, 0, 1]] as [Vec3, Vec3, Vec3], neutral: [0.5, 1, 0.7] as Vec3, baselineGain: 1.8,
+      noise: { name: 'interpolated ISO 4000', iso: 4000, a: [1e-4, 4.7e-5, 1e-4] as Vec3, b: [1e-7, 1e-7, 1e-7] as Vec3, generic: false } };
+    const r = recipeDefaults('neutral', 'straight');
+    createRoot(host).render(createElement('div', { style: { display: 'grid', gap: '28px' } },
+      createElement('div', null, createElement(ProfiledDenoiseControls, { recipe: r, raw: true, camera }), createElement(NoiseReductionControls, { recipe: r, path: '/probe/a.ORF', raw: true })),
+      createElement('div', null, createElement(ProfiledDenoiseControls, { recipe: r, raw: false, camera: null }))));
+  } else if (new URLSearchParams(location.search).has('profiled')) {
+    // denoise (profiled): the GLSL passes against the TypeScript reference (itself checked against
+    // darktable's process_wavelets in denoiseprofile.test.ts), on darktable's fixtures and on a
+    // larger image through a camera matrix.
+    const eng = new Engine(view);
+    const gl = eng.gpu.gl;
+    const dn = new ProfiledDenoiser(eng.gpu);
+    const upload = (px: Float32Array, w: number, h: number) => {
+      const tex = gl.createTexture()!;
+      eng.gpu.scratch(); gl.bindTexture(gl.TEXTURE_2D, tex);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, w, h, 0, gl.RGBA, gl.FLOAT, px);
+      eng.gpu.params(false);
+      return tex;
+    };
+    const read = (t: { fbo: WebGLFramebuffer }, w: number, h: number) => {
+      const px = new Float32Array(w * h * 4);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo); gl.readPixels(0, 0, w, h, gl.RGBA, gl.FLOAT, px); gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      return px;
+    };
+    const id: [Vec3, Vec3, Vec3] = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    const compare = (got: Float32Array, want: Float32Array, input: Float32Array) => {
+      let worst = 0, moved = 0, abs = 0, at = 0;
+      for (let i = 0; i < want.length; i++) {
+        if (i % 4 === 3) continue;
+        abs = Math.max(abs, Math.abs(got[i] - want[i]));
+        const r = Math.abs(got[i] - want[i]) / Math.max(1e-3, Math.abs(want[i]));
+        if (r > worst) { worst = r; at = want[i]; }
+        moved = Math.max(moved, Math.abs(want[i] - input[i]));
+      }
+      return { worstRelative: worst, worstAbsolute: abs, worstAtValue: at, largestChange: moved };
+    };
+    const cases: Record<string, unknown> = {};
+    for (const c of denoiseFixture.cases) {
+      const s = denoiseSetup({ a: [c.a, c.a, c.a], b: [c.b, c.b, c.b] }, c.wb as Vec3, { strength: c.strength, luma: c.luma, chroma: c.chroma, shadows: c.shadows, bias: c.bias }, c.scale, c.fullW, c.fullH);
+      const input = Float32Array.from(c.input);
+      const tex = upload(input, c.w, c.h);
+      const t = dn.run(tex, c.w, c.h, s, id, id, true);
+      cases[c.name] = { vsDarktable: compare(read(t, c.w, c.h), Float32Array.from(c.out), input).worstRelative, scales: s.scales };
+      if (c === denoiseFixture.cases[0]) {
+        // Idle and foreground jobs share this program: every resumed draw must restore its
+        // uniforms, samplers and full-image clip, even after another denoise has drawn.
+        const other = denoiseSetup({ a: [c.a, c.a, c.a], b: [c.b, c.b, c.b] }, [2, 1, 1.5], { strength: 2, luma: 0, chroma: 1 }, c.scale, c.fullW, c.fullH);
+        const reference = dn.run(tex, c.w, c.h, other, id, id, true);
+        const a = dn.steps(tex, c.w, c.h, s, id, id, true);
+        const b = dn.steps(tex, c.w, c.h, other, id, id, true);
+        const clip = { x: 1, y: 1, w: 2, h: 2, tw: c.w, th: c.h };
+        eng.gpu.clip = clip;
+        let ra = a.next(), rb = b.next(), restored = eng.gpu.clip === clip;
+        while (!ra.done || !rb.done) {
+          if (!ra.done) ra = a.next();
+          if (!rb.done) rb = b.next();
+          restored &&= eng.gpu.clip === clip;
+        }
+        eng.gpu.clip = null;
+        cases.interleaved = { firstError: compare(read(ra.value, c.w, c.h), read(t, c.w, c.h), input).worstAbsolute,
+          secondError: compare(read(rb.value, c.w, c.h), read(reference, c.w, c.h), input).worstAbsolute, clipRestored: restored };
+        eng.gpu.free(ra.value); eng.gpu.free(rb.value); eng.gpu.free(reference);
+        // Cancellation returns borrowed targets to the pool; disposing the driver deletes them.
+        const lifecycle = new ProfiledDenoiser(eng.gpu), allocated: WebGLTexture[] = [];
+        const target = eng.gpu.target.bind(eng.gpu);
+        eng.gpu.target = (...args: Parameters<typeof target>) => { const out = target(...args); allocated.push(out.tex); return out; };
+        try {
+          const cancelled = (function* () { yield* lifecycle.steps(tex, c.w, c.h, s, id, id, true); })();
+          cancelled.next(); cancelled.return();
+          const retained = allocated.length > 0 && allocated.every(texture => gl.isTexture(texture));
+          lifecycle.dispose();
+          cases.cancelled = { retainedForReuse: retained, freedOnDispose: allocated.every(texture => !gl.isTexture(texture)) };
+        } finally { eng.gpu.target = target; lifecycle.dispose(); }
+      }
+      eng.gpu.free(t); gl.deleteTexture(tex);
+    }
+    // A 640 × 427 piece of a quarter-size preview, through a camera matrix, as the engine runs it.
+    {
+      const w = 640, h = 427;
+      let seed = 5;
+      const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+      const gauss = () => Math.sqrt(-2 * Math.log(rnd() + 1e-12)) * Math.cos(2 * Math.PI * rnd());
+      const m: [Vec3, Vec3, Vec3] = [[1.62, -0.48, -0.14], [-0.17, 1.39, -0.22], [0.02, -0.41, 1.39]];
+      const neutral: Vec3 = [0.48, 1, 0.66];
+      const { toDt, fromDt } = domainMatrices(m, neutral, 1.8);
+      const wb: Vec3 = [neutral[1] / neutral[0], 1, neutral[1] / neutral[2]];
+      const a = 4.6565532e-5, b = 1.02e-7;
+      const dt = new Float32Array(w * h * 4);
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+        const base = [0.04 + 0.4 * (x / w), y > h / 2 ? 0.3 : 0.06, (x >> 3) & 1 ? 0.2 : 0.08];
+        const i = (y * w + x) * 4;
+        for (let c = 0; c < 3; c++) { const raw = base[c] / wb[c]; dt[i + c] = (raw + Math.sqrt(40 * (a * raw + b)) * gauss()) * wb[c]; }
+        dt[i + 3] = 1;
+      }
+      const working = new Float32Array(dt.length);
+      for (let i = 0; i < dt.length; i += 4) { const v = mulVec(fromDt, [dt[i], dt[i + 1], dt[i + 2]]); working.set([...v, 1], i); }
+      const s = denoiseSetup({ a: [a, a, a], b: [b, b, b] }, wb, { strength: 1, luma: 0.5, chroma: 0.5 }, 0.25, w * 4, h * 4);
+      const wantDt = denoiseWavelets(dt, w, h, s);
+      const want = new Float32Array(dt.length);
+      for (let i = 0; i < dt.length; i += 4) { const v = mulVec(fromDt, [wantDt[i], wantDt[i + 1], wantDt[i + 2]]); want.set([...v, 1], i); }
+      const tex = upload(working, w, h);
+      const t0 = performance.now();
+      const t = dn.run(tex, w, h, s, toDt, fromDt, true);
+      const got = read(t, w, h);
+      const ms = performance.now() - t0;
+      cases.cameraPreview = { ...compare(got, want, working), scales: s.scales, ms: +ms.toFixed(1) };
+      eng.gpu.free(t);
+      const half = dn.run(tex, w, h, s, toDt, fromDt);
+      cases.cameraPreviewHalfFloat = compare(read(half, w, h), want, working);
+      eng.gpu.free(half);
+      // The same through the engine: a RAW source with this camera, its profile and the recipe.
+      const camera = { make: 'Probe', model: 'Camera', cameraToWorking: m, neutral, baselineGain: 1.8, noise: { name: 'found ISO 4000', iso: 4000, a: [a, a, a] as Vec3, b: [b, b, b] as Vec3, generic: false } };
+      const src = { tex, w, h, mode: InputMode.SceneLinear, white: null, fullW: w * 4, fullH: h * 4, camera } as Source;
+      const profiled = { enabled: true, strength: 1, luma: 50, chroma: 50 };
+      const recipe: Recipe = { ...recipeDefaults('neutral', 'straight'), profiledDenoise: profiled };
+      const any = eng as unknown as { noiseReduced(s: Source, r: Recipe): Source; L: { profMade: { out: { fbo: WebGLFramebuffer } } | null } };
+      const reduced = any.noiseReduced(src, recipe);
+      const madeTex = any.L.profMade;
+      cases.engine = madeTex ? compare(read(madeTex.out, w, h), want, working) : 'not made';
+      cases.engineCached = any.noiseReduced(src, recipe).tex === reduced.tex;
+      cases.engineOff = any.noiseReduced(src, { ...recipe, profiledDenoise: { ...profiled, enabled: false } }).tex === tex;
+      cases.engineRebuilt = any.noiseReduced(src, { ...recipe, profiledDenoise: { ...profiled, chroma: 80 } }).tex !== reduced.tex;
+      // Whole renders: on differs from off, Compare shows the undenoised photo, split works.
+      const off = eng.readPixels(src, { ...recipe, profiledDenoise: null }, 320, 214, 1);
+      const on = eng.readPixels(src, recipe, 320, 214, 1);
+      const compared = eng.readPixels(src, recipe, 320, 214, 1, true);
+      const split = eng.readPixels(src, recipe, 320, 214, 1, false, undefined, 0.5);
+      const diff = (x: Uint8Array, y: Uint8Array, from = 0, to = 320) => { let d = 0; for (let yy = 0; yy < 214; yy++) for (let xx = from; xx < to; xx++) for (let c = 0; c < 3; c++) d = Math.max(d, Math.abs(x[(yy * 320 + xx) * 4 + c] - y[(yy * 320 + xx) * 4 + c])); return d; };
+      const comparedOff = eng.readPixels(src, { ...recipe, profiledDenoise: null }, 320, 214, 1, true);
+      // A screen render of a source with no result yet shows it at once and owes the denoise;
+      // the refining render (prepareFrame) builds it.
+      {
+        const fresh = new Engine(view);
+        const s2 = { ...src, tex: upload(working, w, h) } as Source;
+        const fany = fresh as unknown as { L: { profMade: unknown } };
+        fresh.render(s2, recipe, { target: 'screen', width: 320, height: 214, seed: 1 });
+        const owed = fresh.inexact && !fany.L.profMade;
+        const steps = fresh.prepareFrame(s2, recipe, { target: 'screen', width: 320, height: 214, seed: 1 });
+        let n = 0;
+        while (!steps.next().done) n++;
+        fresh.render(s2, recipe, { target: 'screen', width: 320, height: 214, seed: 1 });
+        cases.deferred = { owedFirst: owed, builtInSteps: n, madeAfter: !!fany.L.profMade, exactAfter: !fresh.inexact };
+        // A held drag shown at a quarter of the source's density: made at that density, then exact.
+        const changed = { ...recipe, profiledDenoise: { ...recipe.profiledDenoise as object, chroma: 70 } } as Recipe;
+        fresh.render(s2, changed, { target: 'screen', width: 160, height: 107, seed: 1, live: true });
+        const live = fany.L.profMade as { approx?: boolean; out: { w: number; h: number } } | null;
+        cases.liveReduced = { approx: !!live?.approx, size: live ? `${live.out.w}x${live.out.h}` : null, owed: fresh.inexact, glError: gl.getError() };
+        const steps2 = fresh.prepareFrame(s2, changed, { target: 'screen', width: 160, height: 107, seed: 1 });
+        while (!steps2.next().done) { /* settle */ }
+        cases.liveSettled = { approx: !!(fany.L.profMade as { approx?: boolean })?.approx };
+        fresh.release(s2); fresh.dispose();
+      }
+      cases.render = { onVsOff: diff(on, off), compareVsOff: diff(compared, off), compareVsCompareOff: diff(compared, comparedOff), splitLeftVsOff: diff(split, off, 0, 150), splitRightVsOn: diff(split, on, 170, 320) };
+      eng.release(src);
+    }
+    // An ordinary photo: darktable denoises its encoded values with the generic profile.
+    {
+      const w = 200, h = 150;
+      let seed = 9;
+      const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+      const lin = new Float32Array(w * h * 4);
+      for (let i = 0; i < lin.length; i += 4) { const v = 0.05 + 0.3 * ((i / 4) % w) / w; lin.set([v * (1 + 0.2 * (rnd() - 0.5)), v * 0.8 * (1 + 0.2 * (rnd() - 0.5)), v * 0.6, 1], i); }
+      const enc = (v: number) => (v <= 0.0031308 ? 12.92 * v : 1.055 * v ** (1 / 2.4) - 0.055);
+      const dec = (v: number) => (v <= 0.04045 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4);
+      const encoded = lin.map((v, i) => (i % 4 === 3 ? v : enc(Math.max(0, v))));
+      const s = denoiseSetup({ a: [1e-4, 1e-4, 1e-4], b: [0, 0, 0] }, [1, 1, 1], { strength: 1, luma: 0.5, chroma: 0.5 }, 1, w, h);
+      const want = denoiseWavelets(encoded, w, h, s).map((v, i) => (i % 4 === 3 ? 1 : dec(Math.max(0, v))));
+      const tex = upload(lin, w, h);
+      const src = { tex, w, h, mode: InputMode.DisplayLinear, white: null, fullW: w, fullH: h } as Source;
+      const any = eng as unknown as { noiseReduced(s: Source, r: Recipe): Source; L: { profMade: { out: { fbo: WebGLFramebuffer } } | null } };
+      any.noiseReduced(src, { ...recipeDefaults('neutral', 'straight'), profiledDenoise: { enabled: true, strength: 1, luma: 50, chroma: 50 } });
+      cases.ordinaryPhoto = any.L.profMade ? compare(read(any.L.profMade.out, w, h), want, lin) : 'not made';
+      eng.release(src);
+    }
+    // Tiled as a full-resolution photo is: each tile against the reference run on that tile alone.
+    {
+      const w = 600, h = 400;
+      let seed = 3;
+      const rnd = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32);
+      const px = new Float32Array(w * h * 4);
+      for (let i = 0; i < px.length; i += 4) { const x = (i / 4) % w; px.set([0.05 + 0.3 * x / w + 0.02 * rnd(), 0.1 + 0.02 * rnd(), (x >> 4) & 1 ? 0.2 : 0.05, 1], i); }
+      const s = denoiseSetup({ a: [4.6e-5, 4.6e-5, 4.6e-5], b: [1e-7, 1e-7, 1e-7] }, [2, 1, 1.5], { strength: 1.2, luma: 0.3, chroma: 0.5 }, 1, 6000, 4000);
+      const reach = 1 << s.scales;
+      dn.tiling = { oneTile: 1, core: 256 };
+      const tex = upload(px, w, h);
+      const t = dn.run(tex, w, h, s, id, id, true);
+      dn.tiling = { oneTile: 4.5e6, core: 2048 };
+      const got = read(t, w, h);
+      const want = new Float32Array(px.length);
+      const tiles = tilesFor(w, h, reach, 1, 256);
+      for (const tl of tiles) {
+        const sub = new Float32Array(tl.pw * tl.ph * 4);
+        for (let y = 0; y < tl.ph; y++) sub.set(px.subarray(((tl.py + y) * w + tl.px) * 4, ((tl.py + y) * w + tl.px + tl.pw) * 4), y * tl.pw * 4);
+        const r = denoiseWavelets(sub, tl.pw, tl.ph, s);
+        for (let y = tl.cy; y < tl.cy + tl.ch; y++) for (let x = tl.cx; x < tl.cx + tl.cw; x++) want.set(r.subarray(((y - tl.py) * tl.pw + x - tl.px) * 4, ((y - tl.py) * tl.pw + x - tl.px + 1) * 4), (y * w + x) * 4);
+      }
+      cases.tiled = { tiles: tiles.length, reach, ...compare(got, want, px) };
+      eng.gpu.free(t); gl.deleteTexture(tex);
+    }
+    // Cost at a 2560 × 1707 preview of a 24 MP photo.
+    {
+      const w = 2560, h = 1707;
+      const px = new Float32Array(w * h * 4).map((_, i) => (i % 4 === 3 ? 1 : 0.1 + 0.05 * Math.sin(i)));
+      const tex = upload(px, w, h);
+      const s = denoiseSetup({ a: [4.6e-5, 4.6e-5, 4.6e-5], b: [1e-7, 1e-7, 1e-7] }, [2, 1, 1.5], { strength: 1, luma: 0.5, chroma: 0.5 }, w / 6000, 6000, 4000);
+      const times: number[] = [];
+      for (let k = 0; k < 4; k++) {
+        const t0 = performance.now();
+        const t = dn.run(tex, w, h, s, id, id);
+        const one = new Float32Array(4);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.FLOAT, one); gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        times.push(+(performance.now() - t0).toFixed(1));
+        eng.gpu.free(t);
+      }
+      cases.preview2560Ms = times;
+      // As the worker draws: every large pass in flushed 1 MP bands, at the app's preview size.
+      {
+        const pw = 1664, ph = 1247;
+        const ptex = upload(new Float32Array(pw * ph * 4).map((_, i) => (i % 4 === 3 ? 1 : 0.1 + 0.05 * Math.sin(i))), pw, ph);
+        const ps = denoiseSetup({ a: [4.6e-5, 4.6e-5, 4.6e-5], b: [1e-7, 1e-7, 1e-7] }, [2, 1, 1.5], { strength: 1.2, luma: 0, chroma: 0.5, shadows: 0, bias: 0 }, pw / 5220, 5220, 3912);
+        for (const flush of [false, true]) {
+          eng.gpu.flushEach = flush;
+          const ts: number[] = [];
+          for (let k = 0; k < 4; k++) {
+            const t0 = performance.now();
+            const t = dn.run(ptex, pw, ph, ps, id, id);
+            const one = new Float32Array(4);
+            gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.FLOAT, one); gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+            ts.push(+(performance.now() - t0).toFixed(1));
+            eng.gpu.free(t);
+          }
+          cases[flush ? 'preview1664FlushedMs' : 'preview1664Ms'] = ts;
+        }
+        eng.gpu.flushEach = false;
+        gl.deleteTexture(ptex);
+      }
+      for (const n of [0, 1, 3]) {
+        const t0 = performance.now();
+        const t = dn.run(tex, w, h, { ...s, scales: n }, id, id);
+        const one = new Float32Array(4);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.FLOAT, one); gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        cases[`preview2560Scales${n}Ms`] = +(performance.now() - t0).toFixed(1);
+        eng.gpu.free(t);
+      }
+      cases.preview2560Scales = s.scales;
+      gl.deleteTexture(tex);
+    }
+    dn.dispose();
+    cases.glError = gl.getError();
+    out.profiledDenoise = cases;
+  } else if (new URLSearchParams(location.search).has('healtiming')) {
     // The Heal tool's cost per pointer move, as in the app: a 2560 px preview of a 24 MP photo,
     // Neutral at its defaults, one render per move with the spot somewhere new.
     const eng = new Engine(view);
@@ -893,7 +1168,7 @@ try {
         // same reference. Main-thread cost per move, then how long the photo takes to catch up.
         const veng = new Engine(view);
         const cache = new RetouchCache();
-        let queued: { id: number; px: Float32Array; region: Roi; W: number; H: number; scale: number; spots: RetouchSpot[]; k: number } | null = null;
+        let queued: { id: number; px: Float32Array; region: Roi; W: number; H: number; scale: number; spots: RetouchSpot[]; k: number; setup?: Parameters<typeof retouchReduced>[8] } | null = null;
         const fake = { postMessage: (m: typeof queued) => { queued = m; }, onmessage: null as null | ((e: MessageEvent) => void), terminate() {} };
         let redraws = 0;
         veng.useRetouchWorker(fake as unknown as Worker, () => { redraws++; });
@@ -1811,6 +2086,9 @@ try {
         for (const k of ['t3mujinpack:portra400', 't3mujinpack:superia400']) if (!useLookBrowser.getState().favourites.includes(k)) toggleLookFavourite(k);
         setTimeout(() => (appHost.querySelector('.look-browse-button') as HTMLElement | null)?.click(), 600);
       }
+      // &folders opens the Look browser's folder menu; &hide=slides hides Pat David's slides.
+      if (params.get('hide') === 'slides') setHiddenLookGroups(['gmic-film:Colour slide']);
+      if (params.has('folders')) setTimeout(() => (appHost.querySelector('.look-folders-button') as HTMLElement | null)?.click(), 1600);
       if (new URLSearchParams(location.search).has('viewmenu')) setTimeout(() => (appHost.querySelector('.image-view-toggle') as HTMLElement | null)?.click(), 500);
     }
     // The workspace's right-click menu, open over a mid-grey stage.

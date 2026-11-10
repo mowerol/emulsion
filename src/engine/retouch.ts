@@ -37,14 +37,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { RetouchEllipse, RetouchShape, RetouchSpot } from '../film/retouch';
-import { spotAnchor, usesSource } from '../film/retouch';
-import { brushSegments, segmentValue } from './brush';
+import { brushStrokes, spotAnchor, usesSource } from '../film/retouch';
+import { strokeSegments, segmentValue, type Segment } from './brush';
 import { heal, MAX_HEAL_ITER } from './heal';
 import { gaussianBlur } from './maskrefine';
 import { BilateralGrid } from './bilateral';
 import { REC2020_XYZ_D50, XYZ_REC2020_D50 } from './dcp';
 import { dwtDecompose, dwtReach, type DwtParams } from './dwt';
-import { PATCH_SIZE, axisWeights, decodePatch, encodeModelInput, fullMask, modelMask, patchKey, patchSource, removeCrop, resample, type Patch, type PatchRequest } from './remove';
+import { PATCH_SIZE, axisWeights, decodeRetouchPatch, encodeRetouchInput, fullMask, modelMask, patchKey, patchSource, removeCrop, resample, type Patch, type PatchRequest, type RetouchEncoding } from './remove';
 
 /** darktable's dt_iop_roi_t without the scale: a rectangle of pixels. */
 export interface Roi {
@@ -119,6 +119,18 @@ export function ellipseArea(e: RetouchEllipse, W: number, H: number): Roi {
   return { x: int(xmin), y: int(ymin), w: int(f(xmax - xmin)), h: int(f(ymax - ymin)) };
 }
 
+/** Bounds of the sampled brush, shared by mask generation and ROI planning. */
+function brushArea(segs: Segment[]): Roi {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const s of segs) {
+    const r = Math.max(s[4], s[5]);
+    x0 = Math.min(x0, s[0] - r, s[2] - r); x1 = Math.max(x1, s[0] + r, s[2] + r);
+    y0 = Math.min(y0, s[1] - r, s[3] - r); y1 = Math.max(y1, s[1] + r, s[3] + r);
+  }
+  if (!segs.length) return { x: 0, y: 0, w: 0, h: 0 };
+  return { x: Math.floor(x0), y: Math.floor(y0), w: Math.ceil(x1) - Math.floor(x0) + 1, h: Math.ceil(y1) - Math.floor(y0) + 1 };
+}
+
 /** A spot's mask over its area in full-size pixels (darktable's dt_masks_get_mask). */
 export function spotMask(shape: RetouchShape, W: number, H: number): { roi: Roi; mask: Float32Array } {
   if (shape.kind === 'ellipse') {
@@ -159,20 +171,31 @@ export function spotMask(shape: RetouchShape, W: number, H: number): { roi: Roi;
     }
     return { roi, mask };
   }
-  const segs = brushSegments({ id: '', kind: 'brush', mode: 'add', invert: false, opacity: 1, strokes: [shape.nodes] }, W, H);
-  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
-  for (const s of segs) {
-    const r = Math.max(s[4], s[5]);
-    x0 = Math.min(x0, s[0] - r, s[2] - r); x1 = Math.max(x1, s[0] + r, s[2] + r);
-    y0 = Math.min(y0, s[1] - r, s[3] - r); y1 = Math.max(y1, s[1] + r, s[3] + r);
-  }
-  if (!segs.length) return { roi: { x: 0, y: 0, w: 0, h: 0 }, mask: new Float32Array(0) };
-  const roi = { x: Math.floor(x0), y: Math.floor(y0), w: Math.ceil(x1) - Math.floor(x0) + 1, h: Math.ceil(y1) - Math.floor(y0) + 1 };
+  // A brush spot's strokes are one mask, their union (as a mask's brush strokes, brushSegments).
+  const segs = brushStrokes(shape).flatMap((st) => strokeSegments(st, W, H));
+  const roi = brushArea(segs);
   const mask = new Float32Array(roi.w * roi.h);
-  for (let i = 0; i < roi.h; i++) for (let j = 0; j < roi.w; j++) {
-    let best = 0;
-    for (const s of segs) best = Math.max(best, segmentValue(s, roi.x + j, roi.y + i));
-    mask[i * roi.w + j] = best;
+  let ceiling = 0;
+  const bounded = segs.map(s => {
+    const r = Math.max(s[4], s[5]);
+    ceiling = Math.max(ceiling, s[8], s[9]);
+    // A pixel outside this box has zero coverage. Keep one extra pixel for rounding.
+    return { s, left: Math.min(s[0], s[2]) - r - 1, right: Math.max(s[0], s[2]) + r + 1,
+      top: Math.min(s[1], s[3]) - r - 1, bottom: Math.max(s[1], s[3]) + r + 1 };
+  });
+  for (let i = 0; i < roi.h; i++) {
+    const y = roi.y + i, row = bounded.filter(b => y >= b.top && y <= b.bottom);
+    for (let j = 0; j < roi.w; j++) {
+      const x = roi.x + j;
+      let best = 0;
+      for (const b of row) {
+        if (x < b.left || x > b.right) continue;
+        best = Math.max(best, segmentValue(b.s, x, y));
+        // The union cannot exceed the largest endpoint density of any segment.
+        if (best >= ceiling) break;
+      }
+      mask[i * roi.w + j] = best;
+    }
   }
   return { roi, mask };
 }
@@ -311,9 +334,11 @@ export function blurRect(px: Float32Array, w: number, h: number, type: 'gaussian
   return true;
 }
 
-/** A spot's area in full-size pixels: the circle's from its outline, a brush's from its mask. */
+/** A spot's area in full-size pixels, measured from its outline without rasterizing a mask. */
 function spotArea(shape: RetouchShape, W: number, H: number): Roi {
-  return shape.kind === 'circle' ? circleArea(shape.center, shape.radius + shape.border, W, H) : shape.kind === 'ellipse' ? ellipseArea(shape, W, H) : spotMask(shape, W, H).roi;
+  if (shape.kind === 'circle') return circleArea(shape.center, shape.radius + shape.border, W, H);
+  if (shape.kind === 'ellipse') return ellipseArea(shape, W, H);
+  return brushArea(brushStrokes(shape).flatMap((st) => strokeSegments(st, W, H)));
 }
 
 /** A 32-bit FNV-1a hash of float pixels, by their bits. */
@@ -400,6 +425,7 @@ export interface RemoveSetup {
    * spot) is shown as a stand-in while the spot's own is made.
    */
   patches: ReadonlyMap<string, Patch>;
+  encoding?: RetouchEncoding;
   /**
    * Filled by the step: a request for every spot whose patch is missing or was made for another
    * key, on every run until it arrives (so the caller starts each key's inference once). Give a
@@ -513,7 +539,7 @@ function retouchSpot(img: Float32Array, roiIn: Roi, W: number, H: number, scale:
   }
 }
 
-const decoded = new WeakMap<Uint8Array, Float32Array>();
+const decoded = new WeakMap<Uint8Array, Map<RetouchEncoding, Float32Array>>();
 
 /**
  * A Remove spot (engine/remove.ts): its patch, resampled to this scale and blended in by the
@@ -533,7 +559,7 @@ function removeSpot(img: Float32Array, roiIn: Roi, W: number, H: number, scale: 
   const patch = r.patches.get(spot.id);
   if (patch?.key !== key) {
     const source = patchSource(crop, r.previewScale);
-    r.requests.push({ key, spot: spot.id, crop, source, input: modelInput(img, roiIn, W, H, scale, spot, crop, source, r.previewScale) });
+    r.requests.push({ key, spot: spot.id, crop, source, input: modelInput(img, roiIn, W, H, scale, spot, crop, source, r.previewScale, r.encoding) });
   }
   if (!patch) return;
   // spotMask's rectangle is spotArea.
@@ -543,8 +569,11 @@ function removeSpot(img: Float32Array, roiIn: Roi, W: number, H: number, scale: 
   if (roi.w <= 2 || roi.h <= 2) return;
   const scaled = scaledMask(mask, roiMask, roiIn, scale, 0, 0, 0)!;
   const m = scaled.roi, pc = patch.crop, P = PATCH_SIZE;
-  let px = decoded.get(patch.pixels);
-  if (!px) { px = decodePatch(patch.pixels); decoded.set(patch.pixels, px); }
+  let variants = decoded.get(patch.pixels);
+  if (!variants) { variants = new Map(); decoded.set(patch.pixels, variants); }
+  const encoding = r.encoding ?? 'scene';
+  let px = variants.get(encoding);
+  if (!px) { px = decodeRetouchPatch(patch.pixels, encoding); variants.set(encoding, px); }
   // Pixel x's centre is at (x + 0.5) / scale in full-size pixels.
   const xs = axisWeights(m.w, (j) => ((m.x + j + 0.5) / scale - pc.x) * P / pc.w - 0.5, P / (pc.w * scale), 0, P - 1);
   const ys = axisWeights(m.h, (j) => ((m.y + j + 0.5) / scale - pc.y) * P / pc.h - 0.5, P / (pc.h * scale), 0, P - 1);
@@ -573,14 +602,14 @@ function removeSpot(img: Float32Array, roiIn: Roi, W: number, H: number, scale: 
  * the model, at its own scale, with the whole crop in `roiIn`. The crop's pixels at this scale
  * are resampled to PATCH_SIZE² and encoded.
  */
-function modelInput(img: Float32Array, roiIn: Roi, W: number, H: number, scale: number, spot: RetouchSpot, crop: Roi, source: 'preview' | 'full', previewScale: number): { image: Uint8Array; mask: Uint8Array } | undefined {
+function modelInput(img: Float32Array, roiIn: Roi, W: number, H: number, scale: number, spot: RetouchSpot, crop: Roi, source: 'preview' | 'full', previewScale: number, encoding?: RetouchEncoding): { image: Uint8Array; mask: Uint8Array } | undefined {
   if (scale !== (source === 'full' ? 1 : f(previewScale))) return undefined;
   const x0 = int(crop.x * scale), y0 = int(crop.y * scale), x1 = int((crop.x + crop.w) * scale), y1 = int((crop.y + crop.h) * scale);
   if (x1 <= x0 || y1 <= y0 || x0 < roiIn.x || y0 < roiIn.y || x1 > roiIn.x + roiIn.w || y1 > roiIn.y + roiIn.h) return undefined;
   const P = PATCH_SIZE;
   const xs = axisWeights(P, (j) => (crop.x + (j + 0.5) * crop.w / P) * scale - 0.5, crop.w * scale / P, x0, x1 - 1);
   const ys = axisWeights(P, (j) => (crop.y + (j + 0.5) * crop.h / P) * scale - 0.5, crop.h * scale / P, y0, y1 - 1);
-  return { image: encodeModelInput(resample(img, roiIn.w, roiIn.x, roiIn.y, xs, ys)), mask: modelMask(spot.shape, crop, W, H) };
+  return { image: encodeRetouchInput(resample(img, roiIn.w, roiIn.x, roiIn.y, xs, ys), encoding), mask: modelMask(spot.shape, crop, W, H) };
 }
 
 /**

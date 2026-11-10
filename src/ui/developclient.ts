@@ -4,6 +4,9 @@
 // photo costs (docs/research/engine-worker.md); `mode: 'main'` runs the same loop on this thread
 // (localStorage `emulsion.engine` = `main`, or no OffscreenCanvas WebGL2), which the perf driver's
 // engine-level scenarios also use.
+import { captureInfo, removeCachedPatch, removeInpaint, type CaptureInfo } from '../backend/api';
+import { loadCachedImage } from '../library/thumbs';
+import type { RemoveState } from '../engine/removequeue';
 import type { HalfImage, View } from '../engine/engine';
 import { DevelopLoop, type FrameState, type FrameStat, type FromLoop, type SourceRef, type ToLoop, type CaptureState } from '../engine/developloop';
 import type { Recipe } from '../film/recipe';
@@ -19,11 +22,13 @@ export type { SourceRef } from '../engine/developloop';
 export type EngineMode = 'worker' | 'main';
 
 export interface ClientEvents {
+  presented?: (photo: string) => void;
   error: (message: string) => void;
   warn: (message: string) => void;
   histogram: (path: string, data: Histogram) => void;
   /** Whether the latest view's exact detail is still being prepared. */
   sharpening?: (pending: boolean) => void;
+  removals?: (states: RemoveState[], photo: string) => void;
 }
 
 /** Which realm the develop engine runs in: the worker unless asked otherwise or unavailable. */
@@ -117,6 +122,12 @@ export class DevelopClient {
 
   private receive(m: FromLoop) {
     switch (m.type) {
+      case 'presented': this.events.presented?.(m.photo); break;
+      case 'removeState': this.events.removals?.(m.states, m.photo); break;
+      case 'removeCached':
+      case 'removeInfer':
+      case 'removeSource':
+      case 'removeCapture': void this.removal(m); break;
       case 'ready': this.offset = m.timeOrigin - performance.timeOrigin; break;
       case 'error': this.events.error(m.message); break;
       case 'warn': this.events.warn(m.message); break;
@@ -137,6 +148,25 @@ export class DevelopClient {
         break;
       }
     }
+  }
+
+  private async removal(m: Extract<FromLoop, { type: 'removeCached' | 'removeInfer' | 'removeSource' | 'removeCapture' }>) {
+    try {
+      let value: Uint8Array | null | CaptureInfo | { img: HalfImage; capture?: Awaited<ReturnType<typeof captureInfo>> };
+      if (m.type === 'removeCached') value = await removeCachedPatch(m.key);
+      else if (m.type === 'removeInfer') {
+        const r = m.request;
+        if (!r.input) throw Error('Remove crop is missing.');
+        value = await removeInpaint(r.key, r.input.image, r.input.mask);
+      } else if (m.type === 'removeCapture') value = await captureInfo(m.path, m.width, m.height);
+      else {
+        const img = await loadCachedImage(m.path, this.maxTextureSize, m.noise);
+        const capture = m.capture && img.mode === InputMode.SceneLinear ? await captureInfo(m.path, img.width, img.height) : undefined;
+        value = { img, capture };
+      }
+      // Decoded pixels belong to the shared cache; structured clone preserves that ownership.
+      this.send({ type: 'removeReply', id: m.id, value });
+    } catch (error) { this.send({ type: 'removeReply', id: m.id, error: String(error) }); }
   }
 
   private ask<T>(m: Record<string, unknown>): Promise<T> {
@@ -232,6 +262,9 @@ export class DevelopClient {
   pointer(held: boolean, brush = false) {
     this.send({ type: 'pointer', held, brush, dpr: Math.min(window.devicePixelRatio || 1, 2) });
   }
+
+  /** Retry only the still-active photo, without changing its saved edits. */
+  retryRemovals(photo: string) { this.send({ type: 'retryRemovals', photo }); }
 
   /** A zoom or pan has just moved the view (the loop shows the preview until it settles). */
   motion() { this.send({ type: 'motion' }); }

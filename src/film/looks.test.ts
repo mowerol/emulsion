@@ -30,8 +30,9 @@ describe('bundled look catalogues', () => {
   });
 
   it('offers only supported presets and selects an actual look when changing packs', () => {
-    // Custom looks are empty until the user makes one (tested below).
-    for (const pack of PACKS.filter((p) => !p.user)) {
+    // Custom looks are empty until the user makes one (tested below); Emulsion's own looks are
+    // settings without a LUT (builtin-looks.test.ts).
+    for (const pack of PACKS.filter((p) => !p.user && p.id !== 'emulsion-looks')) {
       const choices = stocksForPack(pack.id);
       expect(choices.length).toBeGreaterThan(0);
       for (const s of choices) {
@@ -61,6 +62,13 @@ describe('bundled look catalogues', () => {
       expect(stocksForPack('fuji-test')).toHaveLength(fuji.length);
       expect(new Set(fuji.map(s => s.id)).size).toBe(fuji.length);
       expect(fuji.map(s => s.name)).toContain('Acros');
+    }
+    const xtrans = LOCAL_LOOKS.filter(s => s.pack === 'fuji-xtrans-iii');
+    if (xtrans.length) {
+      expect(isPackId('fuji-xtrans-iii')).toBe(true);
+      expect(PACK['fuji-xtrans-iii'].hidden).toBe(false);
+      expect(stocksForPack('fuji-xtrans-iii')).toHaveLength(xtrans.length);
+      expect(xtrans.map(s => s.name)).toEqual(expect.arrayContaining(['Classic Chrome', 'Acros', 'Provia', 'Velvia']));
     }
     const spectral = LOCAL_LOOKS.filter(s => s.pack === 'spektrafilm');
     if (spectral.length) {

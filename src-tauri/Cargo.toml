@@ -11,11 +11,17 @@ default-run = "emulsion"
 [features]
 # The CLI adds process memory measurements; the app loads AI only on demand.
 denoise-probe = []
+inpaint-probe = []
 
 [[bin]]
 name = "denoise-probe"
 path = "src/bin/denoise_probe.rs"
 required-features = ["denoise-probe"]
+
+[[bin]]
+name = "inpaint-probe"
+path = "src/bin/inpaint_probe.rs"
+required-features = ["inpaint-probe"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -51,6 +57,10 @@ sha2 = "0.10"
 libc = "0.2"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["NSApplication"] }
+
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
@@ -67,6 +77,10 @@ opt-level = 2
 # Image resize/conversion runs while a zoom decode is in flight. Leaving this
 # dependency unoptimized makes small previews spend seconds on CPU in tauri dev.
 [profile.dev.package.image]
+opt-level = 3
+
+# Verify the 208 MB Remove model on demand without debug-mode SHA-256 latency.
+[profile.dev.package.sha2]
 opt-level = 3
 
 [dev-dependencies]

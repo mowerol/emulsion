@@ -8,39 +8,10 @@
 
 use crate::segment::{Encoding, Point, Sam};
 use serde::Serialize;
-use sha2::{Digest, Sha256};
-use std::io::Read;
-use std::path::{Path, PathBuf};
-use std::process::Command;
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 use tauri::ipc::{InvokeBody, Request, Response};
-use tauri::{Emitter, Manager};
-
-#[derive(Clone, Copy, PartialEq)]
-enum Archive {
-    Zip,
-    Tgz,
-}
-
-struct Package {
-    id: &'static str,
-    url: &'static str,
-    sha256: &'static str,
-    bytes: u64,
-    archive: Archive,
-    /// A file inside the unpacked package that shows it is complete.
-    check: &'static str,
-}
-
-/// ONNX Runtime, as the denoise tools pin it (tools/denoise/setup.py). Apple silicon only.
-const RUNTIME: Package = Package {
-    id: "onnxruntime-1.23.2",
-    url: "https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-osx-arm64-1.23.2.tgz",
-    sha256: "b4d513ab2b26f088c66891dbbc1408166708773d7cc4163de7bdca0e9bbb7856",
-    bytes: 9_999_931,
-    archive: Archive::Tgz,
-    check: "onnxruntime-osx-arm64-1.23.2/lib/libonnxruntime.1.23.2.dylib",
-};
+use tauri::Emitter;
+use crate::ai_models::{Archive, Package, RUNTIME, root, installed, supported, install, runtime};
 
 /// darktable's default mask model, from darktable-ai release-5.6.0 (Apache-2.0 weights, Meta).
 const SAM: Package = Package {
@@ -50,17 +21,10 @@ const SAM: Package = Package {
     bytes: 169_639_526,
     archive: Archive::Zip,
     check: "mask-object-sam21-small/encoder.onnx",
+    license: None,
 };
 
 const PACKAGES: [&Package; 2] = [&RUNTIME, &SAM];
-
-fn root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    app.path().app_data_dir().map(|p| p.join("ai-models")).map_err(|e| e.to_string())
-}
-
-fn installed(root: &Path, p: &Package) -> bool {
-    root.join(p.id).join(p.check).is_file()
-}
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -71,83 +35,11 @@ pub struct Status {
     pub download: u64,
 }
 
-fn supported() -> bool {
-    cfg!(all(target_os = "macos", target_arch = "aarch64"))
-}
-
 #[tauri::command]
 pub fn ai_mask_status(app: tauri::AppHandle) -> Result<Status, String> {
     let root = root(&app)?;
     let missing: Vec<_> = PACKAGES.iter().filter(|p| !installed(&root, p)).collect();
     Ok(Status { supported: supported(), installed: missing.is_empty(), download: missing.iter().map(|p| p.bytes).sum() })
-}
-
-fn sha256_file(path: &Path) -> Result<String, String> {
-    let mut f = std::fs::File::open(path).map_err(|e| e.to_string())?;
-    let mut h = Sha256::new();
-    let mut buf = vec![0u8; 1 << 20];
-    loop {
-        let n = f.read(&mut buf).map_err(|e| e.to_string())?;
-        if n == 0 {
-            break;
-        }
-        h.update(&buf[..n]);
-    }
-    Ok(format!("{:x}", h.finalize()))
-}
-
-fn run(cmd: &mut Command, what: &str) -> Result<(), String> {
-    let out = cmd.output().map_err(|e| format!("{what}: {e}"))?;
-    if out.status.success() {
-        Ok(())
-    } else {
-        Err(format!("{what} failed: {}", String::from_utf8_lossy(&out.stderr).trim()))
-    }
-}
-
-/// Download, check and unpack one package; `progress` gets the bytes so far.
-fn install(root: &Path, p: &Package, progress: impl Fn(u64)) -> Result<(), String> {
-    std::fs::create_dir_all(root).map_err(|e| e.to_string())?;
-    let part = root.join(format!("{}.part", p.id));
-    let _ = std::fs::remove_file(&part);
-    let mut child = Command::new("curl")
-        .args(["-fsSL", "--retry", "2", "-o"])
-        .arg(&part)
-        .arg(p.url)
-        .spawn()
-        .map_err(|e| format!("Download: {e}"))?;
-    let status = loop {
-        if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
-            break status;
-        }
-        progress(std::fs::metadata(&part).map(|m| m.len()).unwrap_or(0));
-        std::thread::sleep(std::time::Duration::from_millis(200));
-    };
-    if !status.success() {
-        let _ = std::fs::remove_file(&part);
-        return Err(format!("Could not download {} (curl exit {})", p.id, status.code().unwrap_or(-1)));
-    }
-    progress(p.bytes);
-    let actual = sha256_file(&part)?;
-    if actual != p.sha256 {
-        let _ = std::fs::remove_file(&part);
-        return Err(format!("{} did not match its pinned checksum", p.id));
-    }
-    let tmp = root.join(format!("{}.unpack", p.id));
-    let _ = std::fs::remove_dir_all(&tmp);
-    std::fs::create_dir_all(&tmp).map_err(|e| e.to_string())?;
-    match p.archive {
-        Archive::Zip => run(Command::new("unzip").arg("-q").arg(&part).arg("-d").arg(&tmp), "Unzip")?,
-        Archive::Tgz => run(Command::new("tar").arg("-xzf").arg(&part).arg("-C").arg(&tmp), "Untar")?,
-    }
-    if !tmp.join(p.check).is_file() {
-        return Err(format!("{} is not laid out as expected", p.id));
-    }
-    let dest = root.join(p.id);
-    let _ = std::fs::remove_dir_all(&dest);
-    std::fs::rename(&tmp, &dest).map_err(|e| e.to_string())?;
-    let _ = std::fs::remove_file(&part);
-    Ok(())
 }
 
 #[tauri::command]
@@ -170,21 +62,6 @@ pub async fn ai_mask_install(app: tauri::AppHandle) -> Result<(), String> {
     })
     .await
     .map_err(|e| e.to_string())?
-}
-
-/// ONNX Runtime is set up once per process. The denoise worker may already have done it with
-/// the same version, in which case this one is a no-op.
-fn runtime(root: &Path) -> Result<(), String> {
-    static INIT: OnceLock<Result<(), String>> = OnceLock::new();
-    INIT.get_or_init(|| {
-        let lib = root.join(RUNTIME.id).join(RUNTIME.check);
-        if !lib.is_file() {
-            return Err("ONNX Runtime is not installed".into());
-        }
-        ort::init_from(lib).map_err(|e| e.to_string())?.commit();
-        Ok(())
-    })
-    .clone()
 }
 
 /// The model, kept loaded, and the last photo's encoding.
@@ -309,7 +186,7 @@ mod tests {
     #[test]
     #[ignore]
     fn install_runtime() {
-        let root = PathBuf::from(std::env::var("EMULSION_AI_ROOT").unwrap());
+        let root = std::path::PathBuf::from(std::env::var("EMULSION_AI_ROOT").unwrap());
         let seen = std::cell::Cell::new(0u64);
         install(&root, &RUNTIME, |n| seen.set(seen.get().max(n))).unwrap();
         assert!(installed(&root, &RUNTIME));

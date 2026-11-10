@@ -4,7 +4,7 @@
 
 export interface LocalLook {
   id: `lut:${string}`;
-  pack: 'fuji-test' | 'spektrafilm';
+  pack: 'fuji-test' | 'fuji-xtrans-iii' | 'spektrafilm';
   name: string;
   category: string;
   file: string;

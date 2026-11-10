@@ -4,13 +4,13 @@
 import { create } from 'zustand';
 import { setStageColor } from '../library/store';
 
-export type Theme = 'mid' | 'dark';
+export type Theme = 'light' | 'mid' | 'dark';
 export type CropOverlayId = 'thirds' | 'golden' | 'diagonal' | 'grid' | 'none';
 export const CROP_OVERLAYS: { id: CropOverlayId; label: string }[] = [
   { id: 'thirds', label: 'Thirds' }, { id: 'golden', label: 'Golden ratio' }, { id: 'diagonal', label: 'Diagonal' }, { id: 'grid', label: 'Grid' }, { id: 'none', label: 'None' },
 ];
 export interface InterfacePreferences {
-  /** Mid grey (the default) or dark surround. */
+  /** Light (off-white), mid grey (the default) or dark surround. */
   theme: Theme;
   /** Capture settings under Library thumbnails. */
   libraryExif: boolean;
@@ -26,7 +26,7 @@ export const INTERFACE_DEFAULTS: InterfacePreferences = { theme: 'mid', libraryE
 export function normalizePrefs(input: unknown): InterfacePreferences {
   const p = input && typeof input === 'object' ? (input as Partial<InterfacePreferences>) : {};
   return {
-    theme: p.theme === 'dark' ? 'dark' : 'mid',
+    theme: p.theme === 'dark' || p.theme === 'light' ? p.theme : 'mid',
     libraryExif: p.libraryExif !== false,
     histogramSmall: p.histogramSmall === true,
     filtersOpen: p.filtersOpen !== false,
@@ -45,8 +45,9 @@ export function setPrefs(patch: Partial<InterfacePreferences>) {
   try { localStorage.setItem(KEY, JSON.stringify(next)); } catch { /* still applies for this session */ }
 }
 
-export const THEMES: { id: Theme; label: string }[] = [{ id: 'mid', label: 'Mid grey' }, { id: 'dark', label: 'Dark' }];
-/** Switch the interface, and the canvas round the photo with it (it can still be chosen separately). */
+export const THEMES: { id: Theme; label: string }[] = [{ id: 'light', label: 'Light' }, { id: 'mid', label: 'Mid grey' }, { id: 'dark', label: 'Dark' }];
+/** Switch the interface, and the canvas round the photo with it (it can still be chosen separately).
+ * Light keeps the 18% mid grey round the photo, so the interface's brightness doesn't sway it. */
 export function setTheme(theme: Theme) {
   setPrefs({ theme });
   setStageColor(theme === 'dark' ? 'dark' : 'grey');

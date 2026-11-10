@@ -6,19 +6,19 @@ import { create } from 'zustand';
 export const CONTROL_GROUPS = [
   { id: 'develop', name: 'Develop', sections: ['profile', 'stock', 'whitebalance', 'exposure', 'hdr', 'curve'] },
   { id: 'colour', name: 'Colour Grading', sections: ['color', 'grading'] },
-  { id: 'refine', name: 'Refine', sections: ['detail', 'optics', 'grain', 'lens', 'transform'] },
+  { id: 'refine', name: 'Refine', sections: ['detail', 'optics', 'grain', 'noise', 'lens'] },
   { id: 'masks', name: 'Masks', sections: ['masks'] },
   { id: 'presets', name: 'Presets', sections: ['presets'] },
 ] as const;
 export type ControlGroupId = typeof CONTROL_GROUPS[number]['id'];
 export type ControlSectionId = typeof CONTROL_GROUPS[number]['sections'][number];
-export interface WorkspacePreferences { layout: 'workflow'; imageColumns: 1 | 2; group: ControlGroupId }
+export interface WorkspacePreferences { layout: 'workflow'; imageColumns: 1 | 2 | 3; group: ControlGroupId }
 export const WORKSPACE_DEFAULTS: WorkspacePreferences = { layout: 'workflow', imageColumns: 2, group: 'develop' };
 export function normalizeWorkspace(input: unknown): WorkspacePreferences {
   const p = input && typeof input === 'object' ? input as Partial<Omit<WorkspacePreferences, 'group'>> & { group?: string } : {};
   const group = p.group === 'finish' ? 'refine' : ['prepare', 'look', 'tone'].includes(p.group ?? '') ? 'develop' : p.group;
   // Classic is retired. Keep independent preferences when opening older settings.
-  return { layout: 'workflow', imageColumns: p.imageColumns === 1 ? 1 : 2, group: CONTROL_GROUPS.find(g => g.id === group)?.id ?? WORKSPACE_DEFAULTS.group };
+  return { layout: 'workflow', imageColumns: p.imageColumns === 1 || p.imageColumns === 3 ? p.imageColumns : 2, group: CONTROL_GROUPS.find(g => g.id === group)?.id ?? WORKSPACE_DEFAULTS.group };
 }
 const KEY = 'emulsion.workspace';
 function read(): WorkspacePreferences {

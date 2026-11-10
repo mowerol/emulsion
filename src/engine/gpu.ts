@@ -333,6 +333,13 @@ export class Gpu {
   draw(program: Program, target: Target | null, w: number, h: number, flipY = false) {
     const gl = this.gl;
     program.set({ uFlipY: flipY ? 1 : 0 });
+    // Resizing clears the displayed photo. Keep it through preparation, readbacks and
+    // offscreen passes; change the drawing buffer only for the final screen draw.
+    const canvas = gl.canvas;
+    if (!target && (canvas.width !== w || canvas.height !== h)) {
+      canvas.width = w;
+      canvas.height = h;
+    }
     gl.bindFramebuffer(gl.FRAMEBUFFER, target ? target.fbo : null);
     gl.viewport(0, 0, w, h);
     gl.bindVertexArray(this.vao);

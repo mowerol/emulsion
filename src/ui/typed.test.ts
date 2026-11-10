@@ -22,13 +22,15 @@ describe('typed slider values', () => {
 });
 
 describe('canvas tools', () => {
-  const t = { pointer: 'select' as const, straighten: false, spacePan: false, beforeMask: 'develop' as const, preview: null };
+  const t = { pointer: 'select' as const, straighten: false, transform: false, spacePan: false, beforeMask: 'develop' as const, preview: null };
   it('shows crop and straighten while cropping, then pick, then the masks tab, then the pointer', () => {
     expect(activeTool({ ...t, straighten: true }, true, true, true)).toBe('straighten');
     expect(activeTool(t, true, false, false)).toBe('crop');
     expect(activeTool(t, false, true, true)).toBe('pick');
     expect(activeTool(t, false, false, true)).toBe('mask');
     expect(activeTool(t, false, false, true, true)).toBe('heal');
+    expect(activeTool({ ...t, transform: true }, false, false, true, true)).toBe('transform');
+    expect(activeTool({ ...t, transform: true }, true, false, false)).toBe('crop');
     expect(activeTool(t, false, true, false, true)).toBe('pick');
     expect(activeTool({ ...t, spacePan: true }, false, false, false)).toBe('pan');
     expect(activeTool({ ...t, pointer: 'pan' }, false, false, false)).toBe('pan');
@@ -43,5 +45,6 @@ describe('interface preferences', () => {
     expect(normalizePrefs({ theme: 'neon', histogramSmall: 'yes', filtersOpen: false })).toEqual({ theme: 'mid', libraryExif: true, histogramSmall: false, filtersOpen: false, cropOverlay: 'thirds' });
     expect(normalizePrefs({ cropOverlay: 'golden' }).cropOverlay).toBe('golden');
     expect(normalizePrefs({ theme: 'dark' }).theme).toBe('dark');
+    expect(normalizePrefs({ theme: 'light' }).theme).toBe('light');
   });
 });

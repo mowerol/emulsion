@@ -1,27 +1,32 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { useEffect, useRef, useState } from 'react';
-import { Bandage, ChevronDown, Crop, Hand, Minus, MousePointer2, Pipette, Plus, Slash, SquareDashedMousePointer, type LucideIcon } from 'lucide-react';
-import { finishCrop, useApp } from '../library/store';
+import { useEffect, useRef, useState, type ComponentType } from 'react';
+import { Bandage, ChevronDown, Columns2, Crop, Eraser, Eye, Hand, Minus, MousePointer2, Pipette, Plus, Slash, SquareDashedMousePointer, type LucideIcon } from 'lucide-react';
+import { setCompare, useApp } from '../library/store';
 import { CropBar } from './CropBar';
 import { activePhoto } from '../library/store';
 import { MOD } from './common';
 import { TOOLS, activeTool, chooseTool, useTools, type ToolId } from './tools';
 import { useWorkspace } from './workspace';
-import { useRetouchUi } from './retouchui';
+import { retouchMode, useRetouchUi } from './retouchui';
 import { RetouchBar } from './RetouchBar';
+import { TransformBar } from './TransformControls';
 
 type Before = 'off' | 'full' | 'split';
-const BEFORE: { value: Before; label: string; title: string }[] = [
-  { value: 'off', label: 'Off', title: 'The developed photo' },
-  { value: 'full', label: 'Before', title: 'Show the original (or hold \\)' },
-  { value: 'split', label: 'Split', title: 'Before and after side by side (Y)' },
-];
+/** A press on Original longer than this is a peek: the edit comes back on release. */
+const PEEK_MS = 250;
 
-const ICONS: Record<ToolId, LucideIcon> = {
-  select: MousePointer2, pan: Hand, crop: Crop, straighten: Slash, mask: SquareDashedMousePointer, heal: Bandage, pick: Pipette,
+type IconProps = { size?: number; strokeWidth?: number; 'aria-hidden'?: boolean | 'true' };
+/** Lucide has no keystone: a frame narrowing to the top over an upright line, drawn on its 24px grid. */
+function Keystone({ size = 24, strokeWidth = 2, ...rest }: IconProps) {
+  return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round" {...rest}>
+    <path d="M7 4h10l4 16H3z" /><path d="M12 8v8" />
+  </svg>;
+}
+const ICONS: Record<ToolId, LucideIcon | ComponentType<IconProps>> = {
+  select: MousePointer2, pan: Hand, crop: Crop, straighten: Slash, transform: Keystone, mask: SquareDashedMousePointer, heal: Bandage, remove: Eraser, pick: Pipette,
 };
-/** Tools in the pill, a 1px separator between groups. */
-const TOOL_GROUPS: ToolId[][] = [['select', 'pan'], ['crop'], ['mask', 'heal', 'pick']];
+/** Tools in the pill, evenly spaced: the photo's geometry, then its local edits. */
+const TOOL_ORDER: ToolId[] = ['select', 'pan', 'crop', 'transform', 'mask', 'heal', 'remove', 'pick'];
 const ZOOMS: { scale: number | null; label: string; key?: string }[] = [
   { scale: null, label: 'Fit', key: `${MOD}0` }, { scale: 0.5, label: '50%' }, { scale: 1, label: '100%', key: 'Z' }, { scale: 2, label: '200%' }, { scale: 4, label: '400%' },
 ];
@@ -38,10 +43,14 @@ export function PhotoTools({ scale, zoomLabel, onZoom, onStep, before, onBefore,
   const masksOpen = useWorkspace(s => s.group === 'masks');
   const tools = useTools();
   const healing = useRetouchUi(s => s.on);
-  const tool = activeTool(tools, cropping, picking, masksOpen, healing);
+  const removing = useRetouchUi(s => retouchMode(s) === 'remove');
+  const transforming = tools.transform;
+  const tool = activeTool(tools, cropping, picking, masksOpen, healing, removing);
   const [zoomMenu, setZoomMenu] = useState(false);
   const zoomRef = useRef<HTMLDivElement>(null);
   const zoomOff = !ready || cropping;
+  const pressedAt = useRef<number | null>(null);
+  const toggle = (b: Before) => onBefore(before === b ? 'off' : b);
 
   useEffect(() => {
     if (!zoomMenu) return;
@@ -52,29 +61,37 @@ export function PhotoTools({ scale, zoomLabel, onZoom, onStep, before, onBefore,
     return () => { document.removeEventListener('pointerdown', outside); window.removeEventListener('keydown', esc, true); };
   }, [zoomMenu]);
 
-  const disabled = (id: ToolId) => id === 'crop' || id === 'heal' ? !canCrop : id === 'pick' ? !photo : false;
+  const disabled = (id: ToolId) => id === 'crop' || id === 'heal' || id === 'remove' || id === 'transform' ? !canCrop : id === 'pick' ? !photo : false;
 
   return <>
   <div className="photo-tools" role="toolbar" aria-label="Photo tools">
-    {/* Comparing isn't useful mid-crop; the space goes to Cancel and Done. */}
-    {cropping ? <span className="tool-mode">Crop</span> : <div className="tool-seg" role="group" aria-label="Before and after">
-      {BEFORE.map(b => <button key={b.value} type="button" disabled={!ready} aria-pressed={before === b.value} title={b.title} onClick={() => onBefore(b.value)}>{b.label}</button>)}
-    </div>}
+    {/* Comparing isn't useful mid-crop, so it's disabled there (kept in place, so the bar doesn't
+        change shape). With neither toggle lit, the photo shows the edit. A long press on Original
+        peeks like holding \; a click stays. */}
+    <div className="tool-pill tool-compare" role="group" aria-label="Before and after">
+      <button type="button" className="tool-icon" disabled={!ready || cropping} aria-label="Original" data-tip={'Original: click to keep, hold to peek (\\)'} aria-pressed={before === 'full'}
+        onPointerDown={e => { if (e.button === 0) { pressedAt.current = performance.now(); setCompare(true); } }}
+        onPointerUp={() => setCompare(false)} onPointerCancel={() => { pressedAt.current = null; setCompare(false); }} onPointerLeave={() => { pressedAt.current = null; setCompare(false); }}
+        onClick={() => {
+          const at = pressedAt.current;
+          pressedAt.current = null;
+          if (at === null || performance.now() - at < PEEK_MS) toggle('full');
+        }}>
+        <Eye size={18} strokeWidth={1.75} aria-hidden="true" />
+      </button>
+      <button type="button" className="tool-icon" disabled={!ready || cropping} aria-label="Split" data-tip="Split before and after (Y)" aria-pressed={before === 'split'} onClick={() => toggle('split')}>
+        <Columns2 size={18} strokeWidth={1.75} aria-hidden="true" />
+      </button>
+    </div>
 
     <div className="tool-pill" role="group" aria-label="Tools">
-      {TOOL_GROUPS.map((group, i) => <span className="tool-pill-group" key={i}>
-        {group.map(id => {
-          const t = TOOLS.find(x => x.id === id)!;
-          const Icon = ICONS[id];
-          return <button key={id} type="button" className="tool-icon" aria-label={t.name} data-tip={`${t.name} (${t.key})`} aria-pressed={tool === id || (id === 'crop' && tool === 'straighten')} disabled={disabled(id)} onClick={() => chooseTool(id)}>
-            <Icon size={18} strokeWidth={1.75} aria-hidden="true" />
-          </button>;
-        })}
-      </span>)}
-      {cropping && <span className="tool-pill-group tool-crop-actions">
-        <button type="button" className="tool-text" onClick={() => finishCrop(false)} data-tip="Cancel (Esc)">Cancel</button>
-        <button type="button" className="tool-text tool-done" onClick={() => finishCrop(true)} data-tip="Done (Enter)">Done</button>
-      </span>}
+      {TOOL_ORDER.map(id => {
+        const t = TOOLS.find(x => x.id === id)!;
+        const Icon = ICONS[id];
+        return <button key={id} type="button" className="tool-icon" aria-label={t.name} data-tip={`${t.name} (${t.key})`} aria-pressed={tool === id || (id === 'crop' && tool === 'straighten')} disabled={disabled(id)} onClick={() => chooseTool(id)}>
+          <Icon size={18} strokeWidth={1.75} aria-hidden="true" />
+        </button>;
+      })}
     </div>
 
     <div className="tool-zoom" role="group" aria-label="Zoom" ref={zoomRef}>
@@ -92,6 +109,7 @@ export function PhotoTools({ scale, zoomLabel, onZoom, onStep, before, onBefore,
   </div>
   {/* Crop's options dock as a second row under the bar, never over the photo. */}
   {cropping && <CropBar />}
-  {healing && !cropping && <RetouchBar />}
+  {transforming && !cropping && <TransformBar />}
+  {healing && !cropping && !transforming && <RetouchBar />}
   </>;
 }

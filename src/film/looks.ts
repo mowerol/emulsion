@@ -7,8 +7,9 @@ import type { ProfileSettings } from './creative';
 import { STOCK, registerStock, type StockId } from './stocks';
 import catalogue from './lut-catalogue.json';
 import { LOCAL_LOOKS } from './local-looks';
+import emulsionLooks from './emulsion-looks.json';
 
-export type PackId = 'custom' | 'files' | 't3mujinpack' | 'gmic-film' | 'picturefx' | 'fuji-test' | 'spektrafilm';
+export type PackId = 'custom' | 'files' | 'emulsion-looks' | 't3mujinpack' | 'gmic-film' | 'picturefx' | 'fuji-test' | 'fuji-xtrans-iii' | 'spektrafilm';
 
 /** A stock's LUT in a pack: a file under public/looks/<pack>/, one per push step if it has them. */
 export interface PackLook {
@@ -23,6 +24,8 @@ export interface PackLook {
   missing?: boolean;
   /** A custom look's hidden settings and its LUT. */
   settings?: ProfileSettings;
+  /** Reference photo's display name for a generated LUT file. */
+  photoMatch?: string;
 }
 
 export interface LookPack {
@@ -53,15 +56,35 @@ const bundledLooks = (pack: PackId): LookPack['looks'] => Object.fromEntries(
   [...catalogue, ...LOCAL_LOOKS].filter(s => s.pack === pack).map(s => [s.id, { file: s.file, category: s.category, name: s.name, kind: 'look' as const }]),
 );
 
-/** A pack served from the ignored local-looks folder, only in development. */
-const localPack = (id: PackId, name: string, hint: string): LookPack[] =>
+/** A pack served from the ignored local-looks folder, only in development. Hidden unless asked. */
+const localPack = (id: PackId, name: string, hint: string, hidden = true): LookPack[] =>
   import.meta.env.DEV && LOCAL_LOOKS.some((l) => l.pack === id)
-    ? [{ id, name, hint, looks: bundledLooks(id), local: true, hidden: true }]
+    ? [{ id, name, hint, looks: bundledLooks(id), local: true, hidden }]
     : [];
+
+/** Emulsion's own looks: hidden settings with no LUT, edited in development (library/builtinlooks.ts). */
+export interface BuiltinLook { id: string; name: string; bw: boolean; revision: number; settings: ProfileSettings }
+export const BUILTIN_LOOKS = emulsionLooks as BuiltinLook[];
+for (const l of BUILTIN_LOOKS) registerBuiltinStock(l);
+
+/** The stock entry a built-in look is chosen by (its name and whether it is black and white). */
+export function registerBuiltinStock(l: Pick<BuiltinLook, 'id' | 'name' | 'bw'>) {
+  registerStock({
+    id: l.id as StockId, name: l.name, maker: 'Emulsion', edge: l.name.toUpperCase(), bw: l.bw,
+    halation: 0, halationColor: [1, 0.36, 0.14], iso: 200, grainIso: 200, grain: 0,
+  });
+}
+
+export const builtinEntry = (l: BuiltinLook): PackLook =>
+  ({ file: '', name: l.name, category: 'Emulsion', kind: 'look', revision: l.revision, settings: l.settings });
 
 export const PACKS: LookPack[] = [
   { id: 'custom', name: 'Custom looks', hint: 'Your own looks: a LUT and hidden colour and tone settings, with one Amount.', looks: {}, user: true },
   { id: 'files', name: 'Imported LUTs', hint: 'LUT files available as a look’s optional base.', looks: {}, user: true, hidden: true },
+  {
+    id: 'emulsion-looks', name: 'Emulsion', hint: 'Emulsion’s own looks: colour and tone settings, no LUT.',
+    looks: Object.fromEntries(BUILTIN_LOOKS.map((l) => [l.id, builtinEntry(l)])),
+  },
   {
     id: 't3mujinpack',
     name: 't3mujinpack',
@@ -78,6 +101,8 @@ export const PACKS: LookPack[] = [
   },
   ...localPack('fuji-test', 'Fujifilm (local test)',
     'Ten official Fujifilm simulations adapted for Emulsion’s sRGB LUT stage. Local test versions.'),
+  ...localPack('fuji-xtrans-iii', 'Fuji X-Trans III (local test)',
+    'Fifteen Fujifilm X-Trans III camera simulations from the G’MIC Film LUTs collection. Local test versions.', false),
   ...localPack('spektrafilm', 'Spektrafilm (local test)',
     'Negs/spektrafilm renders: negatives on Kodak Portra Endura or Fujifilm Crystal Archive Type II, slides as direct scans. Local test versions.'),
 ];
@@ -90,14 +115,14 @@ export const isPackId = (v: unknown): v is PackId => typeof v === 'string' && Ob
 export function lookFile(pack: PackId, stock: StockId, push: Push): string | null {
   const l = PACK[pack].looks[stock];
   if (!l) return null;
-  if (PACK[pack].user) {
-    if (!l.settings) return l.file ? `${USER_LOOKS_DIR}${l.file}` : null;
-    // A custom look uses its LUT file, or the system look it refers to.
+  if (l.settings) {
+    // A custom or built-in look uses its LUT file, or the system look it refers to.
     const lut = l.settings.lut;
     if (!lut) return null;
     if (lut.kind === 'file') return `${USER_LOOKS_DIR}${lut.hash}`;
-    return isPackId(lut.pack) && !PACK[lut.pack].user ? lookFile(lut.pack, lut.stock as StockId, push) : null;
+    return isPackId(lut.pack) && !PACK[lut.pack].user && lut.pack !== pack ? lookFile(lut.pack, lut.stock as StockId, push) : null;
   }
+  if (PACK[pack].user) return l.file ? `${USER_LOOKS_DIR}${l.file}` : null;
   const file = `${pack}/${l.push?.[push] ?? l.file}`;
   return PACK[pack].local ? `/local-looks/${file}` : file;
 }
@@ -178,7 +203,7 @@ function put(pack: UserPack, id: StockId, look: PackLook) {
 /** Add a custom look (or update it); without settings it holds the place of one not installed. */
 export function registerCustomLook(id: string, name: string, settings: ProfileSettings | null, _legacyKind?: 'lut' | 'look', revision = 1) {
   put('custom', customLookId(id), settings ? { file: '', name, category: PACK.custom.name, settings, kind: 'look', revision } : { file: '', name, missing: true });
-  if (settings?.lut?.kind === 'file') registerFileLut(settings.lut.hash, name);
+  if (settings?.lut?.kind === 'file') registerFileLut(settings.lut.hash, name, settings.lut.photoMatch);
 }
 
 export function unregisterCustomLook(id: string) {
@@ -186,8 +211,10 @@ export function unregisterCustomLook(id: string) {
 }
 
 /** A LUT file of the user's own, chosen directly while a look is edited or after one is detached. */
-export function registerFileLut(hash: string, name?: string) {
-  if (!PACK.files.looks[fileLutId(hash)] || name) put('files', fileLutId(hash), { file: hash, name: name ?? `LUT ${hash.slice(0, 8)}`, kind: 'lut' });
+export function registerFileLut(hash: string, name?: string, photoMatch?: string) {
+  const existing = PACK.files.looks[fileLutId(hash)];
+  if (!existing || name || photoMatch && photoMatch !== existing.photoMatch) put('files', fileLutId(hash), { file: hash, name: name ?? existing?.name ?? `LUT ${hash.slice(0, 8)}`, kind: 'lut',
+    ...((photoMatch ?? existing?.photoMatch) ? { photoMatch: photoMatch ?? existing?.photoMatch } : {}) });
 }
 
 /**
@@ -221,7 +248,7 @@ export function lookSettings(pack: PackId, stock: StockId): ProfileSettings | nu
   if (entry.settings) return entry.settings;
   if (!entry.file) return null;
   return { colorBalance: null, curve: null, lut: pack === 'files'
-    ? { kind: 'file', hash: entry.file, amount: 1 }
+    ? { kind: 'file', hash: entry.file, amount: 1, ...(entry.photoMatch ? { photoMatch: entry.photoMatch } : {}) }
     : { kind: 'pack', pack, stock, amount: 1 } };
 }
 

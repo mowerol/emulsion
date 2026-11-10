@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { photoId } from '../library/copies';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { photoId, photoName } from '../library/copies';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { EXPORT_DIR_NAME, exportPhotos } from '../library/export';
@@ -41,7 +41,13 @@ export function ExportDialog() {
   const [dir, setDir] = useState<string | null>(null);
   const [progress, setProgress] = useState<{ done: number; total: number; current: string } | null>(null);
   const cancel = useRef({ canceled: false });
+  const [unfilled, setUnfilled] = useState<{ name: string; error: string } | null>(null);
+  const answer = useRef<((proceed: boolean) => void) | null>(null);
+  const warningRef = useRef<HTMLButtonElement>(null);
   const firstRef = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => { if (unfilled) warningRef.current?.focus(); }, [unfilled]);
+  useEffect(() => () => { cancel.current.canceled = true; answer.current?.(false); }, []);
+  useEffect(() => { if (!isOpen) { cancel.current.canceled = true; answer.current?.(false); } }, [isOpen]);
 
   const lists = useMemo(() => {
     const scoped = sourcePhotos(useApp.getState());
@@ -75,7 +81,11 @@ export function ExportDialog() {
     cancel.current = { canceled: false };
     setProgress({ done: 0, total: chosen.length, current: '' });
     try {
-      const res = await exportPhotos(chosen, { dir: dest, longEdge: size, quality }, (done, total, current) => setProgress({ done, total, current }), cancel.current);
+      const res = await exportPhotos(chosen, { dir: dest, longEdge: size, quality }, (done, total, current) => setProgress({ done, total, current }), cancel.current,
+        (photo, error) => new Promise<boolean>(resolve => {
+          answer.current = resolve;
+          setUnfilled({ name: photoName(photo), error });
+        }));
       setExportOpen(false);
       const n = res.written.length;
       const msg = res.canceled
@@ -87,7 +97,17 @@ export function ExportDialog() {
     } catch (err) {
       setProgress(null);
       showToast(`Export failed. ${String(err)}`);
+    } finally {
+      answer.current = null;
+      setUnfilled(null);
     }
+  };
+
+  const resolveWarning = (proceed: boolean) => {
+    if (!proceed) cancel.current.canceled = true;
+    answer.current?.(proceed);
+    answer.current = null;
+    setUnfilled(null);
   };
 
   const option = (value: Scope, label: string) => (
@@ -141,7 +161,23 @@ export function ExportDialog() {
           </div>
           <p className="hint">Existing files are never overwritten. Exports get a number added instead.</p>
         </fieldset>
-        {progress && (
+        {unfilled && <div className="export-remove-warning" role="alertdialog" aria-modal="true" aria-labelledby="unfilled-title" aria-describedby="unfilled-description"
+          onKeyDown={e => {
+            if (e.key === 'Escape') { e.stopPropagation(); resolveWarning(false); }
+            if (e.key === 'Tab') {
+              const buttons = Array.from(e.currentTarget.querySelectorAll('button'));
+              if (e.shiftKey && document.activeElement === buttons[0]) { e.preventDefault(); buttons[buttons.length - 1]?.focus(); }
+              else if (!e.shiftKey && document.activeElement === buttons[buttons.length - 1]) { e.preventDefault(); buttons[0]?.focus(); }
+            }
+          }}>
+          <p id="unfilled-title"><strong>Unfilled Remove spots in {unfilled.name}</strong></p>
+          <p id="unfilled-description">{unfilled.error.replace(/^(?:Error:\s*)+/, '')} Continue exporting this frame with those objects still visible?</p>
+          <div className="dialog-actions">
+            <button type="button" className="btn" ref={warningRef} onClick={() => resolveWarning(false)}>Stop export</button>
+            <button type="button" className="btn primary" onClick={() => resolveWarning(true)}>Export this frame anyway</button>
+          </div>
+        </div>}
+        {progress && !unfilled && (
           <div className="progress" role="status">
             <div className="bar"><span style={{ width: `${(100 * progress.done) / Math.max(1, progress.total)}%` }} /></div>
             <span className="muted">
@@ -149,7 +185,7 @@ export function ExportDialog() {
             </span>
           </div>
         )}
-        <div className="dialog-actions">
+        {!unfilled && <div className="dialog-actions">
           {running ? (
             <button type="button" className="btn" onClick={() => (cancel.current.canceled = true)}>
               Stop
@@ -162,7 +198,7 @@ export function ExportDialog() {
           <button type="button" className="btn primary" disabled={running || !chosen.length} onClick={run}>
             Export {chosen.length} {chosen.length === 1 ? 'frame' : 'frames'}
           </button>
-        </div>
+        </div>}
       </div>
     </div>
   );

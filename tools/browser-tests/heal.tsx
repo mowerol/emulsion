@@ -6,13 +6,19 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { InputMode } from '../../src/engine/engine';
 import { defaultRecipe } from '../../src/film/recipe';
-import { activePhoto, useApp } from '../../src/library/store';
-import { useRetouchUi } from '../../src/ui/retouchui';
+import { activePhoto, useApp, undo, redo } from '../../src/library/store';
+import { useRetouchUi, setScales, setRetouchUi, setRetouchTool } from '../../src/ui/retouchui';
+import { useRemoveUi } from '../../src/ui/removemodel';
 import { Develop } from '../../src/ui/Develop';
 import '../../src/styles.css';
 
 const assert = (ok: unknown, why: string) => { if (!ok) throw Error(why); };
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+async function visualPause(state: string) {
+  if (new URLSearchParams(location.search).get('visual') !== state) return;
+  document.body.dataset.visual = state;
+  await new Promise<void>(() => {});
+}
 const W = 600, H = 400;
 window.createImageBitmap = (async () => {
   const canvas = document.createElement('canvas');
@@ -26,11 +32,22 @@ function payload() {
   for (let i = 0; i < values.length; i += 4) values.set([0x3400, 0x3400, 0x3400, 0x3c00], i);
   return bytes;
 }
+let installed = false, installs = 0, failRemove = false;
+let releaseInstall: (() => void) | null = null, releasePatch: (() => void) | null = null;
+(window as any).__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener() {} };
 (window as any).__TAURI_INTERNALS__ = { transformCallback: () => 1, invoke: async (command: string) => {
   if (command === 'thumbnail') throw Error('No camera preview');
   if (command === 'load_image') return payload();
   if (command === 'plugin:event|listen') return 1;
   if (command === 'camera_profiles') return [];
+  if (command === 'remove_status') return { supported: true, installed, download: 208_000_000, model: 'lama' };
+  if (command === 'remove_install') { installs++; await new Promise<void>(r => { releaseInstall = r; }); installed = true; }
+  if (command === 'remove_inpaint') {
+    if (!installed) throw Error('Remove model missing');
+    await new Promise<void>(r => { releasePatch = r; });
+    if (failRemove) throw Error('Fixture inference failed');
+    return new Uint8Array(512 * 512 * 4).fill(128).buffer;
+  }
 } };
 
 // Count the retouch worker's answers, to see the view's work done off this thread.
@@ -50,7 +67,7 @@ function pointer(el: Element, type: string, x: number, y: number) {
 }
 
 async function main() {
-  const recipe = defaultRecipe('neutral', 'straight');
+  const recipe = { ...defaultRecipe('neutral', 'straight'), captureSharpening: 0, profiledDenoise: null };
   const photo = { path: '/test.ORF', name: 'test.ORF', rel: 'test.ORF', size: 1, modified: 0, recipe, seed: 1, white: null, rating: 0, label: null, heart: false, raw: true, pair: null };
   useApp.setState({ photos: [photo], active: 0, view: 'develop', selected: new Set([photo.path]) });
   createRoot(document.getElementById('root')!).render(<Develop />);
@@ -109,15 +126,22 @@ async function main() {
   const r = (spots()[0].shape as { radius: number }).radius;
   assert(Math.abs(r - 0.02 / 0.97) < 1e-9, `Scroll left the radius at ${r}`);
 
-  // The bar switches the spot to clone.
-  (Array.from(document.querySelectorAll('.retouch-bar .tool-seg button')).find(b => b.textContent === 'Clone') as HTMLButtonElement).click();
-  await wait(50);
-  assert(spots()[0].tool === 'clone', 'Clone in the bar did not change the selected spot');
+  const barButton = (label: string) => (Array.from(document.querySelectorAll('.retouch-bar button')).find(b => b.textContent === label || b.getAttribute('aria-label')?.startsWith(label)) as HTMLButtonElement);
+  // Clone in the bar is for the next spot and lets the selected one go; ⌘-click switches the selected spot to clone.
+  const cloneButton = () => Array.from(document.querySelectorAll('.retouch-bar .tool-seg button')).find(b => b.textContent === 'Clone') as HTMLButtonElement;
+  const healed = spots()[0].id;
+  cloneButton().click(); await wait(50);
+  assert(spots()[0].tool === 'heal' && useRetouchUi.getState().selected === null, 'Clone in the bar changed the selected spot');
+  assert(useRetouchUi.getState().settings.tool === 'clone', 'Clone in the bar did not set the next spot');
+  setRetouchUi({ selected: healed }); await wait(50);
+  cloneButton().dispatchEvent(new MouseEvent('click', { bubbles: true, metaKey: true })); await wait(50);
+  assert(spots()[0].tool === 'clone' && useRetouchUi.getState().selected === healed, '⌘-click on Clone did not change the selected spot');
+  barButton('Heal').click(); await wait(50);
+  setRetouchUi({ selected: healed }); await wait(50);
 
   key('Backspace'); await wait(50);
   assert(spots().length === 0, 'Backspace did not remove the selected spot');
 
-  const barButton = (label: string) => (Array.from(document.querySelectorAll('.retouch-bar button')).find(b => b.textContent === label || b.getAttribute('aria-label')?.startsWith(label)) as HTMLButtonElement);
   const click = (x: number, y: number, extra: PointerEventInit = {}) => {
     capture.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: x, clientY: y, button: 0, pointerId: 1, isPrimary: true, ...extra }));
     capture.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: x, clientY: y, button: 0, pointerId: 1, isPrimary: true, ...extra }));
@@ -139,17 +163,24 @@ async function main() {
   assert(Math.abs(e.source[0] - es.center[0] - 0.02) < 1e-9 && Math.abs(e.source[1] - es.center[1] + 0.01414) < 1e-9, `Ellipse source ${e.source}`);
   assert(document.querySelectorAll('.retouch-overlay .mask-handle').length === 3, 'The selected ellipse has no handles');
 
-  // Fill: the selected spot changes, its source is no longer shown, and the fill controls appear.
-  barButton('Fill').click(); await wait(50);
-  assert(spots()[0].tool === 'fill', 'Fill did not change the selected spot');
+  // Fill and Blur are hidden from the picker; a spot that uses one still shows it and its options.
+  const picker = () => Array.from(document.querySelectorAll('.retouch-bar .tool-seg[aria-label="Spot tool"] button')).map(b => b.textContent);
+  assert(!picker().includes('Fill') && !picker().includes('Blur'), `Fill or Blur still in the picker: ${picker()}`);
+  setRetouchTool('fill', spots(), true); await wait(50);
+  assert(spots()[0].tool === 'fill' && picker().includes('Fill'), 'A fill spot does not show Fill');
   assert(!document.querySelector('.retouch-source'), 'A fill spot shows a source');
+  assert(!document.querySelector('.retouch-bar input[type=color]'), 'Fill options show in the row before the popover opens');
+  barButton('Fill options').click(); await wait(50);
   barButton('Colour').click(); await wait(50);
   assert(spots()[0].fillMode === 'color' && document.querySelector('.retouch-swatch'), 'Colour fill shows no swatch');
-  barButton('Blur').click(); await wait(50);
+  setRetouchTool('blur', spots(), true); await wait(50);
+  assert(!document.querySelector('.retouch-scales-pop'), 'The options popover stayed open across a tool change');
+  barButton('Blur options').click(); await wait(50);
   assert(spots()[0].tool === 'blur' && barButton('Bilateral'), 'Blur shows no blur type');
   barButton('Bilateral').click(); await wait(50);
   assert(spots()[0].blurType === 'bilateral', 'Bilateral did not change the spot');
   barButton('Heal').click(); await wait(50);
+  assert(!picker().includes('Blur'), 'Blur stayed in the picker after the spot left it');
 
   // ⇧-click sets the next source without adding a spot; the next spot takes it, the one after keeps the offset.
   barButton('Circle').click(); await wait(50);
@@ -182,7 +213,7 @@ async function main() {
   assert(spots().length === n1 + 1, 'A brush stroke did not make one spot');
   const br = spots()[spots().length - 1];
   assert(br.shape.kind === 'brush' && br.shape.nodes.length >= 2, 'The stroke is not a brush spot');
-  assert(br.shape.nodes[0].border === 0.05 && br.shape.nodes[0].hardness === 0.66, "The brush is not at darktable's spot defaults");
+  assert(br.shape.kind === 'brush' && br.shape.nodes[0].border === 0.05 && br.shape.nodes[0].hardness === 0.66, "The brush is not at darktable's spot defaults");
   await wait(300);
 
   // Detail scales: the popover sets them, new spots go on the current scale, and only its spots show.
@@ -210,8 +241,127 @@ async function main() {
   show.click(); await wait(50);
   scaleButtons[0].click(); await wait(50);
 
+  // Remove is its own tool (E): Brush on Photo, no algorithms, source or scales, and Heal's spots don't show.
+  setScales({ scales: 0 }, 'Reset detail scales');
+  assert(!picker().includes('Remove'), 'Remove is still one of the Heal algorithms');
+  const healShape = useRetouchUi.getState().shape, healTool = useRetouchUi.getState().settings.tool, healSpots = spots().length;
+  key('e'); await wait(100);
+  assert(useRetouchUi.getState().on && useRetouchUi.getState().settings.tool === 'remove' && document.querySelector('.retouch-bar[aria-label="Remove options"]'), 'E did not hold Remove');
+  assert(useRetouchUi.getState().shape === 'brush' && useRetouchUi.getState().settings.scale === 0, 'Remove did not default to Brush on Photo');
+  assert(!picker().length, 'Remove shows the Heal algorithms');
+  assert(!document.querySelector('.retouch-overlay [data-spot]'), "Heal's spots show while Remove is held");
+  assert(!document.querySelector('.retouch-scales') && !document.querySelector('.retouch-source'), 'Remove shows source or scales');
+  pointer(capture, 'pointerdown', cx - 60, cy + 40);
+  pointer(capture, 'pointermove', cx - 30, cy + 40);
+  pointer(capture, 'pointerup', cx - 30, cy + 40); await wait(50);
+  assert(spots().length === healSpots + 1 && spots().at(-1)?.tool === 'remove' && spots().at(-1)?.scale === 0, 'Painting with Remove did not add a Remove spot');
+  assert(document.querySelector('.remove-controls')?.textContent?.includes('208 MB'), 'No sized download prompt');
+  assert(installs === 0, 'Selecting Remove installed the model without consent');
+  await visualPause('setup');
+  const removeButton = (label: string) => Array.from(document.querySelectorAll('.remove-controls button')).find(b => b.textContent === label) as HTMLButtonElement;
+  removeButton('Not now').click(); await wait(50);
+  assert(useRemoveUi.getState().phase === 'declined' && installs === 0, 'Declining downloaded a model');
+  for (let i = 0; i < 200 && !document.querySelector('.remove-warning'); i++) await wait(25);
+  assert(document.querySelector('.remove-warning'), 'An unfilled Remove has no warning marker');
+  removeButton('Set up Remove').click(); await wait(50);
+  removeButton('Download 208 MB').click(); await wait(50);
+  assert(installs === 1 && useRemoveUi.getState().phase === 'downloading', 'Download did not start after consent');
+  assert(document.querySelector('progress[aria-label="Remove model download"]'), 'Download shows no progress');
+  releaseInstall!();
+  for (let i = 0; i < 200 && !releasePatch; i++) await wait(25);
+  assert(releasePatch && document.querySelector('.remove-pending'), `No pending outline while inference waits: release=${!!releasePatch}, states=${JSON.stringify(useRemoveUi.getState())}`);
+  await visualPause('pending');
+  releasePatch!(); releasePatch = null;
+  for (let i = 0; i < 100 && document.querySelector('.remove-pending'); i++) await wait(25);
+  assert(!document.querySelector('.remove-warning') && !document.querySelector('.remove-pending'), 'Ready Remove kept its pending/warning marker');
+  // A new painted Remove, with no source cursor (including shift-click).
+  pointer(capture, 'pointermove', cx, cy);
+  await wait(20);
+  assert(!document.querySelector('.retouch-cursor .retouch-cross'), 'Remove previews a source');
+  const beforeRemove = spots().length;
+  pointer(capture, 'pointerdown', cx + 60, cy - 40);
+  pointer(capture, 'pointermove', cx + 90, cy - 40);
+  pointer(capture, 'pointerup', cx + 90, cy - 40);
+  await wait(50);
+  assert(spots().length === beforeRemove + 1 && spots().at(-1)?.tool === 'remove' && spots().at(-1)?.shape.kind === 'brush', 'Painting did not add a Remove brush');
+  for (let i = 0; i < 200 && !releasePatch; i++) await wait(25);
+  failRemove = true; releasePatch!(); releasePatch = null;
+  for (let i = 0; i < 100 && !document.querySelector('.remove-warning'); i++) await wait(25);
+  assert(document.querySelector('.remove-warning') && removeButton('Retry Remove'), 'Failed Remove has no warning/retry');
+  await visualPause('failed');
+  failRemove = false; removeButton('Retry Remove').click();
+  for (let i = 0; i < 200 && !releasePatch; i++) await wait(25);
+  assert(releasePatch, 'Retry did not restart unchanged Remove');
+  releasePatch!(); releasePatch = null; await wait(100);
+  // Same drag, size, delete and undo/redo path as other spots.
+  const last = spots().at(-1)!;
+  const lastHit = document.querySelector(`[data-spot="${last.id}"] .retouch-hit`)!;
+  const startX = last.shape.kind === 'brush' ? last.shape.nodes[0].x : 0;
+  pointer(lastHit, 'pointerdown', cx + 60, cy - 40);
+  pointer(lastHit, 'pointermove', cx + 80, cy - 40);
+  pointer(lastHit, 'pointerup', cx + 80, cy - 40); await wait(50);
+  const movedRemove = spots().at(-1)!;
+  assert(movedRemove.shape.kind === 'brush' && movedRemove.shape.nodes[0].x > startX, 'Remove did not move');
+  const sizeInput = document.querySelector('.retouch-field input') as HTMLInputElement;
+  const oldSize = movedRemove.shape.kind === 'brush' ? movedRemove.shape.nodes[0].border : 0;
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(sizeInput, '0.08');
+  sizeInput.dispatchEvent(new Event('input', { bubbles: true })); await wait(350);
+  const resizedRemove = spots().at(-1)!;
+  assert(resizedRemove.shape.kind === 'brush' && resizedRemove.shape.nodes[0].border !== oldSize && resizedRemove.shape.nodes[0].border === .08, 'Remove did not resize');
+  key('Backspace'); await wait(50);
+  assert(spots().length === beforeRemove, 'Remove did not delete');
+  undo(); await wait(50); assert(spots().at(-1)?.id === last.id, 'Undo did not restore Remove');
+  redo(); await wait(50); assert(spots().length === beforeRemove, 'Redo did not delete Remove');
+
+  // Remove after each stroke off: strokes wait; on Apply, touching ones are one spot and a separate one its own.
+  const each = () => document.querySelector('.retouch-each input') as HTMLInputElement | null;
+  assert(each()?.checked && useRetouchUi.getState().eachStroke, 'Remove after each stroke is not on by default');
+  each()!.click(); await wait(50);
+  assert(!useRetouchUi.getState().eachStroke && localStorage.getItem('emulsion.removeEachStroke') === 'off', 'After each stroke did not turn off and stay off');
+  const paint = (x0: number, x1: number, y: number) => {
+    pointer(capture, 'pointerdown', x0, y);
+    pointer(capture, 'pointermove', (x0 + x1) / 2, y);
+    pointer(capture, 'pointermove', x1, y);
+    pointer(capture, 'pointerup', x1, y);
+  };
+  const waiting = () => useRetouchUi.getState().pending?.strokes.length ?? 0;
+  const batchStart = spots().length;
+  paint(cx - 150, cx - 120, cy + 80); await wait(30);
+  paint(cx - 112, cx - 90, cy + 80); await wait(30);
+  paint(cx + 150, cx + 170, cy + 100); await wait(50);
+  assert(spots().length === batchStart && waiting() === 3 && document.querySelector('.retouch-waiting') && barButton('Apply'), `Strokes did not wait: ${waiting()} waiting, ${spots().length - batchStart} spots`);
+  await visualPause('waiting');
+  key('Backspace'); await wait(30);
+  assert(waiting() === 2 && spots().length === batchStart, 'Backspace did not let go of the last stroke');
+  paint(cx + 150, cx + 170, cy + 100); await wait(30);
+  barButton('Apply').click(); await wait(50);
+  const made = spots().slice(batchStart);
+  assert(made.length === 2 && made.every(s => s.tool === 'remove' && s.shape.kind === 'brush'), `Apply made ${made.length} spots`);
+  assert(made[0].shape.kind === 'brush' && made[0].shape.more?.length === 1 && !('more' in made[1].shape), 'Touching strokes were not one spot, or the separate one joined them');
+  assert(waiting() === 0 && !document.querySelector('.retouch-waiting') && useRetouchUi.getState().selected === made[1].id, 'Apply left strokes waiting or selected no spot');
+  undo(); await wait(50);
+  assert(spots().length === batchStart, 'Apply was not one undoable edit');
+  paint(cx - 150, cx - 120, cy + 80); await wait(30);
+  key('Escape'); await wait(30);
+  assert(waiting() === 0 && spots().length === batchStart && useRetouchUi.getState().on, 'Escape did not let the strokes go (or put the tool down)');
+  paint(cx - 150, cx - 120, cy + 80); await wait(30);
+  key('Enter'); await wait(50);
+  assert(waiting() === 0 && spots().length === batchStart + 1, 'Enter did not apply');
+  each()!.click(); await wait(50);
+  assert(useRetouchUi.getState().eachStroke && localStorage.getItem('emulsion.removeEachStroke') === 'on', 'After each stroke did not turn back on');
+
   key('Escape'); await wait(50);
-  assert(!useRetouchUi.getState().on && !document.querySelector('.retouch-overlay'), 'Escape did not put the Heal tool down');
-  document.body.dataset.result = 'PASS: Q holds Heal; a click adds a heal circle with darktable\'s first source; dragging the source moves only it, as an outline until released; scroll sizes by 3%, saved once it pauses; the bar switches to clone; Backspace removes; hover previews the spot and its source; ellipses at darktable defaults with handles; fill, colour, blur and bilateral change the spot; ⇧-click and ⌘⇧-click place sources; a brush stroke makes a brush spot; detail scales set, new spots go on the current scale and only its spots show, Show this scale toggles; Escape puts it down; the view retouches in a worker';
+  assert(!useRetouchUi.getState().on && !document.querySelector('.retouch-overlay'), 'Escape did not put Remove down');
+  // Q brings Heal back as it was left, showing only its own spots; Clear all leaves Remove's.
+  key('q'); await wait(50);
+  const ui = useRetouchUi.getState();
+  assert(ui.on && ui.settings.tool === healTool && ui.shape === healShape, `Heal did not come back as it was: ${ui.settings.tool} ${ui.shape}`);
+  const shown = Array.from(document.querySelectorAll('.retouch-overlay [data-spot]')).map(g => g.getAttribute('data-spot'));
+  assert(shown.length > 0 && shown.every(id => spots().find(s => s.id === id)?.tool !== 'remove'), "Remove's spots show while Heal is held");
+  const removes = spots().filter(s => s.tool === 'remove').length;
+  barButton('Clear all').click(); await wait(50);
+  assert(spots().length === removes && spots().every(s => s.tool === 'remove'), "Heal's Clear all touched Remove's spots");
+  key('Escape'); await wait(50);
+  document.body.dataset.result = 'PASS: Remove is its own tool (E) with only its spots, Heal comes back as left (Q) and clears only its own; Remove consent, sized download, decline, pending outline, warning, retry, brush, move, resize, delete and undo/redo; with After each stroke off, strokes wait, ⌫ drops the last, Apply/Enter makes one spot per touching group as one edit, Esc lets them go; Q holds Heal; a click adds a heal circle with darktable\'s first source; dragging the source moves only it, as an outline until released; scroll sizes by 3%, saved once it pauses; a tool click is for the next spot and ⌘-click switches the selected one; Backspace removes; hover previews the spot and its source; ellipses at darktable defaults with handles; fill, colour, blur and bilateral change the spot; ⇧-click and ⌘⇧-click place sources; a brush stroke makes a brush spot; detail scales set, new spots go on the current scale and only its spots show, Show this scale toggles; Escape puts it down; the view retouches in a worker';
 }
 main().catch(error => { document.body.dataset.result = `FAIL: ${String(error)}`; });

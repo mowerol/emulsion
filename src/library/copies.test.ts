@@ -220,6 +220,26 @@ it('marks a look draft unsaved only while it differs from where it started', () 
   endLookEdit();
 });
 
+it('undoes a slider drag in a look draft as one step, as the photo history does', () => {
+  startLookEdit(photoId(activePhoto()!), 'draft', 'Draft', defaultRecipe());
+  editActive(r => ({ ...r!, exposure: 0.5 }), 'Exposure');
+  // A drag hands the app one value per frame, all under the slider's continuous key.
+  for (let v = 1; v <= 40; v++) editActive(r => ({ ...r!, contrast: v }), 'Contrast', { key: 'slider:contrast', continuous: true });
+  expect(activePhoto()!.recipe!.contrast).toBe(40);
+  undo();
+  expect(activePhoto()!.recipe!).toMatchObject({ contrast: 0, exposure: 0.5 });
+  redo();
+  expect(activePhoto()!.recipe!.contrast).toBe(40);
+  undo();
+  // After an undo the next drag starts a step of its own.
+  editActive(r => ({ ...r!, contrast: 10 }), 'Contrast', { key: 'slider:contrast', continuous: true });
+  undo();
+  expect(activePhoto()!.recipe!).toMatchObject({ contrast: 0, exposure: 0.5 });
+  undo();
+  expect(activePhoto()!.recipe!.exposure).toBe(0);
+  endLookEdit();
+});
+
 it('undoes and redoes a look draft locally without persisting or consuming photo history', async () => {
   editActive(() => ({ ...defaultRecipe(), exposure: 1 }));
   await flushSaves();

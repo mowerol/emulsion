@@ -6,7 +6,9 @@ import { geometrySourcePoint, PERSPECTIVE_DEFAULTS } from '../../src/engine/pers
 import { FULL } from '../../src/film/crop';
 import { defaultRecipe } from '../../src/film/recipe';
 import { activePhoto, editActive, redo, undo, useApp } from '../../src/library/store';
-import { Panel } from '../../src/ui/Panel';
+import { PhotoTools } from '../../src/ui/PhotoTools';
+import { chooseTool, useTools } from '../../src/ui/tools';
+import { CONTROL_GROUPS } from '../../src/ui/workspace';
 import { setWorkspace } from '../../src/ui/workspace';
 import '../../src/styles.css';
 
@@ -67,13 +69,26 @@ async function gpuCheck() {
 
 const photo={path:'/perspective.jpg',name:'Perspective.jpg',rel:'Perspective.jpg',size:1,modified:1,recipe:defaultRecipe(),seed:1,white:null,rating:0,label:null,heart:false,raw:false,pair:null};
 useApp.setState({photos:[photo,{...photo,path:'/other.jpg'}],active:0,selected:new Set([photo.path]),view:'develop',folder:{root:'/',name:'Test',unreadable:0}});
+useApp.setState({developSize:{path:photo.path,W:64,H:48}});
 setWorkspace({layout:'workflow',group:'refine'});
-createRoot(document.getElementById('root')!).render(<Panel/>);
-const button=(text:string)=>[...document.querySelectorAll<HTMLButtonElement>('#section-transform button')].find(b=>b.textContent===text)!;
+createRoot(document.getElementById('root')!).render(<div className="photo-tools-host"><PhotoTools scale={null} zoomLabel="Fit" onZoom={()=>{}} onStep={()=>{}} before="off" onBefore={()=>{}} ready /></div>);
+const button=(text:string)=>[...document.querySelectorAll<HTMLButtonElement>('.transform-bar button')].find(b=>(b.getAttribute('aria-label')??b.textContent)===text)!;
+const toolButton=()=>document.querySelector<HTMLButtonElement>('.tool-icon[aria-label="Transform"]')!;
 
 setTimeout(async()=>{try {
   const worst=await gpuCheck(); await pause();
-  assert(!!button('Vertical'),'Transform missing from Refine');
+  assert(!(CONTROL_GROUPS.find(g=>g.id==='refine')!.sections as readonly string[]).includes('transform'),'Transform still in Refine');
+  assert(!!toolButton()&&!toolButton().disabled,'Transform missing from the toolbar');
+  assert(!document.querySelector('.transform-bar'),'Transform options shown before the tool is held');
+  toolButton().click();await pause();
+  assert(toolButton().getAttribute('aria-pressed')==='true'&&!!button('Vertical'),'Transform tool did not open its options');
+  if(new URLSearchParams(location.search).has('look')) {
+    editActive(r=>({...r!,transform:{...PERSPECTIVE_DEFAULTS,vertical:12.4,rotation:-1.5}}),'Transform');await pause();
+    document.body.dataset.result='PASS: showing';return;
+  }
+  chooseTool('crop');await pause();
+  assert(!useTools.getState().transform&&!document.querySelector('.transform-bar'),'Crop must put Transform down');
+  chooseTool('select');chooseTool('transform');await pause();
   button('Vertical').click(); await waitFor(()=>!!complete);
   assert(button('Both').disabled,'Automatic correction must disable controls while fitting');
   assert(lastHeaders['x-emulsion-axis']==='vertical','Wrong fit direction');
@@ -93,5 +108,8 @@ setTimeout(async()=>{try {
   assert(!activePhoto()!.recipe!.transform,'Result leaked to the next photo');
   await pause();
   assert(saved.some(s=>s.recipe?.transform?.vertical===15),'Transform missing from sidecar save');
-  document.body.dataset.result=`PASS: GPU/CPU error ${worst.toFixed(3)} levels, analysis-map cache, auto directions, metadata, undo/redo, sidecar save, stale-result protection`;
+  useApp.setState({active:0});await pause();
+  toolButton().click();await pause();
+  assert(!useTools.getState().transform&&!document.querySelector('.transform-bar'),'Pressing Transform again must put it down');
+  document.body.dataset.result=`PASS: GPU/CPU error ${worst.toFixed(3)} levels, analysis-map cache, auto directions, metadata, undo/redo, sidecar save, stale-result protection, toolbar tool`;
 }catch(err){document.body.dataset.result=`FAIL: ${String(err)}`;}},300);

@@ -1067,6 +1067,8 @@ dependencies = [
  "kamadak-exif",
  "libc",
  "natord",
+ "objc2",
+ "objc2-app-kit",
  "ort",
  "percent-encoding",
  "rayon",

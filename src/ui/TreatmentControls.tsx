@@ -3,6 +3,7 @@ import { PACK, customLookOf, lookName, lookSettings, withLook, type PackId } fro
 import { defaultRecipe, type Recipe } from '../film/recipe';
 import { recipeFromSettings, type ProfileSettings } from '../film/creative';
 import { deleteLook, useUserLooksVersion, uuid } from '../library/userlooks';
+import { builtinEditId, canEditBuiltins } from '../library/builtinlooks';
 import { editRecipes, startLookEdit, targets, type Photo } from '../library/store';
 import { photoId } from '../library/copies';
 import { LookChooser } from './LookChooser';
@@ -29,6 +30,8 @@ export function TreatmentControls({ photo }: { photo: Photo }) {
     onRemove={() => apply(r => ({ ...r, lookEnabled: false, lookSnapshot: undefined }))}
     onEdit={() => {
       if (currentId && entry?.settings && !entry.missing) begin(photo, currentId, entry.name ?? 'Look', entry.settings);
+      // In development a built-in look is edited in place, from its current settings.
+      else if (canEditBuiltins() && r.pack === 'emulsion-looks' && entry?.settings) begin(photo, builtinEditId(r.stock), entry.name ?? 'Look', entry.settings);
       else if (selectedSettings) begin(photo, uuid(), `${r.lookSnapshot?.name ?? lookName(r.pack, r.stock)} copy`, selectedSettings);
     }}
     onDuplicate={(pack, stock) => { const settings=lookSettings(pack, stock); if(settings)begin(photo, uuid(), `${lookName(pack,stock)} copy`, settings); }}

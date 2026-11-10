@@ -201,6 +201,16 @@ pub fn catalog_camera(path: &Path) -> Option<String> {
     (!name.is_empty()).then_some(name)
 }
 
+/// darktable's noise profile for the file's camera and ISO, read without decoding.
+pub fn noise_profile(path: &Path) -> Option<crate::noiseprofiles::NoiseProfile> {
+    let path = c_path(path).ok()?;
+    let mut info = EmuRawInfo::empty();
+    let mut err = [0 as c_char; 256];
+    openmp_root();
+    let rc = unsafe { emu_raw_info(path.as_ptr(), &mut info, err.as_mut_ptr(), err.len()) };
+    (rc == 0).then(|| crate::noiseprofiles::for_camera(&error_text(&info.make), &error_text(&info.model), info.iso))
+}
+
 /// Profile metadata is independent of lens-profile availability.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -210,6 +220,9 @@ pub struct CameraMetadata {
     pub camera_to_working: Mat3,
     pub neutral: Option<[f32; 3]>,
     pub baseline_gain: f32,
+    /// darktable's noise profile for this camera at the shot's ISO (denoise, profiled).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub noise: Option<crate::noiseprofiles::NoiseProfile>,
 }
 
 /// A decoded RAW.
@@ -331,7 +344,9 @@ pub fn decode(path: &Path, half: bool) -> Result<Decoded, String> {
         n.iter_mut().for_each(|v| *v /= maximum);
         Some(n)
     } else { None };
-    let camera = CameraMetadata { make: error_text(&info.make), model, camera_to_working: m, neutral, baseline_gain: BASELINE_GAIN };
+    let make = error_text(&info.make);
+    let noise = Some(crate::noiseprofiles::for_camera(&make, &model, info.iso));
+    let camera = CameraMetadata { make, model, camera_to_working: m, neutral, baseline_gain: BASELINE_GAIN, noise };
     Ok(Decoded { image: DynamicImage::ImageRgb32F(buf), white: white_for(&info), full_size, camera_to_working: m, camera })
 }
 

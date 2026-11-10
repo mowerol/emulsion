@@ -6,7 +6,8 @@ import { defaultRecipe, resetSection } from '../film/recipe';
 describe('workspace preferences', () => {
   it('recovers from invalid saved choices while retaining valid independent preferences', () => {
     expect(normalizeWorkspace(null)).toEqual(WORKSPACE_DEFAULTS);
-    expect(normalizeWorkspace({ layout:'missing', imageColumns:3, group:'unknown' })).toEqual(WORKSPACE_DEFAULTS);
+    expect(normalizeWorkspace({ layout:'missing', imageColumns:4, group:'unknown' })).toEqual(WORKSPACE_DEFAULTS);
+    expect(normalizeWorkspace({ imageColumns:3 }).imageColumns).toBe(3);
     expect(normalizeWorkspace({ layout:'classic', imageColumns:1, group:'colour' })).toEqual({layout:'workflow',imageColumns:1,group:'colour'});
   });
   it('migrates saved stage selections to the new three-tab layout', () => {

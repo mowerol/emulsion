@@ -10,7 +10,7 @@ import { CURVE_RES, curveTable, isIdentity, normalizeCurve, type ToneCurve } fro
 import { isScannerId, type ScannerId } from './scanners';
 import { normalizeGrading } from './grading';
 import { normalizeColor, tidyColor, type ColorAdjust, type Recipe } from './recipe';
-import { profileSettingsFor } from './looks';
+import { profileSettingsFor, registerFileLut } from './looks';
 
 /**
  * A custom look's LUT, with how much of it applies (0 to 1): a system look it refers to, or a LUT
@@ -22,6 +22,8 @@ export type LutSource = (
 ) & {
   /** 'color' takes only the LUT's hue and saturation (darktable's color blend mode); absent is normal. */
   blend?: 'color';
+  /** File LUT generated from a reference photo; only its display name is kept. */
+  photoMatch?: string;
 };
 
 export interface ProfileSettings {
@@ -63,6 +65,7 @@ export function settingsFromRecipe(r: Recipe, lut: LutSource | null): ProfileSet
  * the photo's own colour sliders are at rest, which `colourAtRest` tells.
  */
 export function recipeFromSettings(r: Recipe, s: ProfileSettings): Recipe {
+  if (s.lut?.kind === 'file' && s.lut.photoMatch) registerFileLut(s.lut.hash, undefined, s.lut.photoMatch);
   const cb = s.colorBalance ?? {};
   const out: Recipe = {
     ...r,
@@ -198,7 +201,8 @@ function normalizeLut(input: unknown): LutSource | null {
   const amount = finite(o.amount) ? Math.min(Math.max(o.amount as number, 0), 1) : 1;
   const blend = o.blend === 'color' ? { blend: 'color' as const } : {};
   if (o.kind === 'pack' && typeof o.pack === 'string' && typeof o.stock === 'string') return { kind: 'pack', pack: o.pack, stock: o.stock, amount, ...blend };
-  if (o.kind === 'file' && typeof o.hash === 'string' && /^[0-9a-f]{64}$/.test(o.hash)) return { kind: 'file', hash: o.hash, amount, ...blend };
+  if (o.kind === 'file' && typeof o.hash === 'string' && /^[0-9a-f]{64}$/.test(o.hash)) return { kind: 'file', hash: o.hash, amount, ...blend,
+    ...(typeof o.photoMatch === 'string' && o.photoMatch.trim() ? { photoMatch: o.photoMatch.trim().slice(0, 200) } : {}) };
   return null;
 }
 

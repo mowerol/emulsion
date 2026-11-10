@@ -1,19 +1,21 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The Look Creator: a full-window workspace for building a look (an optional base
-// LUT plus tone and colour settings) on the current photo. A header bar holds the
-// name and the save actions, the LUT browser has its own column on the left, the
+// LUT or photo match plus tone and colour settings) on the current photo. A header bar holds the
+// name and the save actions, the source chooser has its own column on the left, the
 // preview sits between, and the look's adjustments are in the panel on the right.
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, Redo2, Undo2 } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
-import { PACK, PACKS, lookName, lutBase, type PackId } from '../film/looks';
+import { PACK, PACKS, lookName, lutBase, withLook, type PackId } from '../film/looks';
 import { defaultRecipe, withStock, type Recipe } from '../film/recipe';
 import { settingsFromRecipe, withLutBase } from '../film/creative';
 import { importLutFile, lutSourceOf, saveLook } from '../library/userlooks';
+import { builtinOfEditId, saveBuiltinLook } from '../library/builtinlooks';
 import { activePhoto, editActive, endLookEdit, lookEditDirty, redo, renameLookEdit, showToast, undo, useApp } from '../library/store';
 import { LutBrowser, lutPacks, type LutCollection } from './TreatmentBrowser';
 import type { StockId } from '../film/stocks';
 import { LiveRange } from './LiveRange';
+import { PhotoMatchPanel } from './PhotoMatchPanel';
 
 const MOD = navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl+';
 const DEFAULT_NAME = 'My look';
@@ -27,10 +29,19 @@ async function saveDraft(apply: boolean): Promise<void> {
   const s = useApp.getState();
   const editing = s.lookEdit;
   const photo = activePhoto(s);
-  if (!editing || !photo?.recipe) return;
-  const isNew = !PACK.custom.looks[editing.id as StockId];
+  if (!editing || editing.matching || !photo?.recipe) return;
+  const builtin = builtinOfEditId(editing.id);
+  const isNew = !builtin && !PACK.custom.looks[editing.id as StockId];
   if (!editing.name.trim() || isNew && editing.name.trim() === DEFAULT_NAME) { askForName?.(); return; }
-  const id = await saveLook(editing.id, editing.name.trim(), settingsFromRecipe(photo.recipe, lutSourceOf(photo.recipe)));
+  const settings = settingsFromRecipe(photo.recipe, lutSourceOf(photo.recipe));
+  if (builtin) {
+    await saveBuiltinLook(builtin, editing.name.trim(), settings);
+    endLookEdit();
+    if (apply) editActive(r => withLook(r ?? defaultRecipe(), 'emulsion-looks', builtin), 'Apply saved look');
+    showToast(apply ? 'Built-in look saved and applied' : 'Built-in look saved');
+    return;
+  }
+  const id = await saveLook(editing.id, editing.name.trim(), settings);
   endLookEdit();
   if (apply) {
     const entry = PACK.custom.looks[id]!;
@@ -76,13 +87,15 @@ function SaveButton({ saving, onSave }: { saving: boolean; onSave: (apply: boole
 
 /** The workspace's header: Cancel, the look's name, Undo/Redo and Save & apply. ⌘S saves, Esc cancels. */
 export function LookCreatorHeader() {
+  const matching = useApp(s => !!s.lookEdit?.matching);
   const dirty = useApp(lookEditDirty);
   const canUndo = useApp(s => !!s.lookEdit?.past.length);
   const canRedo = useApp(s => !!s.lookEdit?.future.length);
+  const builtin = useApp(s => !!s.lookEdit && !!builtinOfEditId(s.lookEdit.id));
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const save = async (apply: boolean) => {
-    if (saving) return;
+    if (saving || matching) return;
     setSaving(true);
     try { await saveDraft(apply); } catch (e) { fail(e); } finally { setSaving(false); }
   };
@@ -111,20 +124,24 @@ export function LookCreatorHeader() {
     <span className="look-header-sep" aria-hidden="true" />
     <span className="look-header-label">Look</span>
     <NameField />
+    {builtin && <span className="look-builtin" title="Saving writes this look into Emulsion's built-in collection (src/film/emulsion-looks.json). Development only.">Built-in · dev</span>}
     {dirty && <span className="look-unsaved"><span aria-hidden="true" />Unsaved</span>}
     <span className="look-header-spacer" />
     <div className="look-history">
       <button type="button" className="icon-btn" aria-label="Undo" data-tip={`Undo ${MOD}Z`} disabled={!canUndo} onClick={undo}><Undo2 size={16} aria-hidden="true" /></button>
       <button type="button" className="icon-btn" aria-label="Redo" data-tip={`Redo ⇧${MOD}Z`} disabled={!canRedo} onClick={redo}><Redo2 size={16} aria-hidden="true" /></button>
     </div>
-    <SaveButton saving={saving} onSave={apply => void save(apply)} />
+    <SaveButton saving={saving || matching} onSave={apply => void save(apply)} />
   </header>;
 }
 
-/** The left column: the optional base LUT, browsed by collection or searched across all of them. */
+/** The left column: a base LUT or a reference-photo match; both fill the same optional slot. */
 export function LookLutColumn() {
   const photo = useApp(activePhoto);
   const r = photo?.recipe ?? null;
+  const photoMatch = r?.lookEnabled ? PACK[r.pack]?.looks[r.stock]?.photoMatch : undefined;
+  const [source, setSource] = useState<'lut' | 'photo'>(() => photoMatch ? 'photo' : 'lut');
+  useEffect(() => { if (photoMatch) setSource('photo'); }, [photoMatch]);
   const [collection, setCollection] = useState<LutCollection>(() => r?.lookEnabled && (r.pack === 'files' || lutPacks().some(p => p.id === r.pack)) ? r.pack : lutPacks()[0]?.id ?? 'files');
   const [query, setQuery] = useState('');
   const chips: { id: LutCollection; name: string }[] = [...lutPacks().map(p => ({ id: p.id as LutCollection, name: p.name })), { id: 'favourites', name: 'Favourites' }, { id: 'files', name: 'Imported' }];
@@ -138,16 +155,23 @@ export function LookLutColumn() {
       setCollection('files');
     } catch (e) { fail(e); }
   };
-  return <aside className="look-luts" aria-label="Base LUT">
+  return <aside className="look-luts" aria-label="Look source">
     <div className="look-luts-top">
-      <div className="look-luts-title"><h2>Base LUT</h2><span>Optional</span></div>
+      <div className="look-luts-title"><h2>Look source</h2><span>Optional</span></div>
+      <div className="seg look-source-choice" role="group" aria-label="Look source type">
+        <button type="button" aria-pressed={source === 'lut'} onClick={() => setSource('lut')}>LUT</button>
+        <button type="button" aria-pressed={source === 'photo'} onClick={() => setSource('photo')}>Photo match</button>
+      </div>
+      {source === 'lut' && <>
       <input type="search" className="look-luts-search" aria-label="Search LUTs" placeholder="Search LUTs" value={query} onChange={e => setQuery(e.target.value)} />
       <div className="look-chips" role="group" aria-label="LUT collections">
         {chips.map(c => <button key={c.id} type="button" className="look-chip" aria-pressed={!query.trim() && collection === c.id} onClick={() => { setQuery(''); setCollection(c.id); }}>{c.name}</button>)}
         <button type="button" className="look-chip" onClick={() => void importFile()}>+ Import .cube</button>
       </div>
+      </>}
     </div>
-    <LutBrowser photo={photo} collection={collection} query={query} onPick={pick => editActive(r => withLutBase(r ?? defaultRecipe(), pick ? lutBase(pick.pack, pick.id) : null), pick ? 'Base LUT' : 'Remove base LUT')} />
+    {source === 'photo' ? <PhotoMatchPanel photo={photo} current={photoMatch} />
+      : <LutBrowser photo={photo} collection={collection} query={query} onPick={pick => editActive(r => withLutBase(r ?? defaultRecipe(), pick ? lutBase(pick.pack, pick.id) : null), pick ? 'Base LUT' : 'Remove base LUT')} />}
   </aside>;
 }
 
@@ -160,19 +184,20 @@ export function LookPreviewFooter() {
   </footer>;
 }
 
-/** The right panel's first block: the base LUT chosen on the left, its intensity and blend. */
+/** The right panel's first block: the selected source, its intensity and blend. */
 export function LookLutSummary({ recipe }: { recipe: Recipe }) {
-  if (!recipe.lookEnabled) return <div className="look-lut-summary look-lut-none">No base LUT · choose one on the left</div>;
+  if (!recipe.lookEnabled) return <div className="look-lut-summary look-lut-none">Choose a LUT or match a photo on the left</div>;
+  const photoMatch = PACK[recipe.pack]?.looks[recipe.stock]?.photoMatch;
   const name = PACKS.some(p => p.id === recipe.pack) ? lookName(recipe.pack as PackId, recipe.stock) : recipe.stock;
   const set = (patch: Partial<Recipe>, label: string) => editActive(r => ({ ...(r ?? defaultRecipe()), ...patch }), label);
   return <div className="look-lut-summary">
     <div className="look-lut-row">
-      <span className="look-lut-name"><strong>{name}</strong><small>Base LUT</small></span>
+      <span className="look-lut-name"><strong>{photoMatch ?? name}</strong><small>{photoMatch ? 'Photo match' : 'Base LUT'}</small></span>
       <button type="button" className="look-lut-remove" onClick={() => editActive(r => withLutBase(r ?? defaultRecipe(), null), 'Remove base LUT')}>Remove</button>
     </div>
     <label className="look-lut-slider">
       <span>Intensity</span>
-      <LiveRange aria-label="Base LUT intensity" min="0" max="100" value={recipe.lookAmount} style={{ '--t': recipe.lookAmount / 100 } as React.CSSProperties}
+      <LiveRange aria-label={photoMatch ? 'Photo match intensity' : 'Base LUT intensity'} min="0" max="100" value={recipe.lookAmount} style={{ '--t': recipe.lookAmount / 100 } as React.CSSProperties}
         onChange={(v) => set({ lookAmount: v }, 'Base LUT intensity')} />
       <output>{Math.round(recipe.lookAmount)}%</output>
     </label>

@@ -1,10 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { strokeSegments, segmentValue } from './brush';
 import { NO_SCALES, RetouchCache, circleArea, reducedRegion, retouch, retouchInputs, retouchReduced, retouchRegion, spotDelta, spotMask, type RetouchSetup } from './retouch';
 import { PATCH_SIZE, preRetouchKey, type Patch, type PatchRequest } from './remove';
 import { defaultRecipe } from '../film/recipe';
 import { applyPreset } from '../film/presets';
 import { initialSource, newCircleSpot, normalizeRetouch, type RetouchSpot } from '../film/retouch';
+
+const brushWork = vi.hoisted(() => ({ evaluations: 0 }));
+vi.mock('./brush', async importOriginal => {
+  const real = await importOriginal<typeof import('./brush')>();
+  return { ...real, segmentValue: (...args: Parameters<typeof real.segmentValue>) => {
+    brushWork.evaluations++;
+    return real.segmentValue(...args);
+  } };
+});
 
 /** A w × h RGBA test photo: a ramp with stripes, and a dark blemish at (bx, by). */
 function photo(w: number, h: number, bx = -99, by = -99, br = 3) {
@@ -134,6 +144,48 @@ describe('retouch spots (darktable retouch.c)', () => {
     expect(out[1].tool).toBe('heal');
     expect(out[1].opacity).toBe(1);
     expect(normalizeRetouch(undefined)).toEqual([]);
+  });
+});
+
+describe('brush region planning', () => {
+  it('skips brush segments that cannot change a saved Remove mask', () => {
+    const shape = { kind: 'brush' as const, nodes: [.35, .45, .55].map(y => ({ x: .3, y, border: .05, hardness: .66, density: 1 })) };
+    const before = brushWork.evaluations;
+    const result = spotMask(shape, 600, 400);
+    expect(result.mask.some(v => v === 1)).toBe(true);
+    const bruteForce = result.mask.length * strokeSegments(shape.nodes, 600, 400).length;
+    // Count real falloff evaluations, not wall time under parallel test/GPU load.
+    expect(brushWork.evaluations - before).toBeLessThan(bruteForce / 2);
+  });
+
+  it('keeps every brush mask pixel identical to the complete segment union', () => {
+    const node = (x: number, y: number, border: number, hardness = .66, density = 1) => ({ x, y, border, hardness, density });
+    for (const nodes of [[], [node(.5, .5, .2)],
+      [node(-.05, .2, .1, 0, .4), node(.3, .7, .2, 1, 1), node(.7, .2, .05, .2, .7), node(.4, .4, .15, .8, .3)],
+      [node(.2, .2, .05), node(.8, .8, .05), node(.2, .2, .05)],
+      [node(.2, .4, .15, .5, .4), node(.7, .6, .2, .8, .4)],
+    ]) {
+      const { roi, mask } = spotMask({ kind: 'brush', nodes }, 180, 120);
+      const segments = strokeSegments(nodes, 180, 120), reference = new Float32Array(mask.length);
+      for (let y = 0; y < roi.h; y++) for (let x = 0; x < roi.w; x++) {
+        let best = 0;
+        for (const segment of segments) best = Math.max(best, segmentValue(segment, roi.x + x, roi.y + y));
+        reference[y * roi.w + x] = best;
+      }
+      expect(mask).toEqual(reference);
+    }
+  });
+
+  it('plans a full-resolution Remove brush without rasterizing its mask', () => {
+    const brush: RetouchSpot = { ...newCircleSpot([.3, .4], 'remove'),
+      shape: { kind: 'brush', nodes: [.35, .45, .55].map(y => ({ x: .3, y, border: .05, hardness: .66, density: 1 })) } };
+    const started = performance.now();
+    const output = { x: 1000, y: 1000, w: 2000, h: 1800 };
+    expect(retouchInputs([brush], output, 6000, 4000, 1, 6000, 4000)).toEqual({ region: output, spots: [brush] });
+    expect(reducedRegion([brush], 6000, 4000, .25, 1500, 1000, 2)).not.toBeNull();
+    // The old bounds path spent seconds visiting every pixel against every segment, even
+    // for an already completed Remove. Leave a wide margin for shared/slow test runners.
+    expect(performance.now() - started).toBeLessThan(500);
   });
 });
 

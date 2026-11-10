@@ -1,0 +1,66 @@
+{
+  "cpu": {
+    "crop": "/tmp/emulsion-lama-cases-v2/whole-object-bottle.png",
+    "load_seconds": 1.399145625,
+    "mask": "/tmp/emulsion-lama-cases-v2/whole-object-bottle-mask.png",
+    "model_sha256": "1faef5301d78db7dda502fe59966957ec4b79dd64e16f03ed96913c7a4eb68d6",
+    "onnx_runtime": "1.23.2",
+    "provider": "cpu",
+    "runs_seconds": [
+      2.230896875,
+      2.21310175,
+      2.178248166,
+      2.166662625
+    ],
+    "status": "complete",
+    "threads": 4,
+    "warm_pass_2s": false
+  },
+  "coreml_static": {
+    "crop": "/tmp/emulsion-lama-cases-v2/whole-object-bottle.png",
+    "elapsed_seconds": 3.749205375,
+    "error": "Non-zero status code returned while running 642420103668567275_CoreML_642420103668567275_0 node. Name:'CoreMLExecutionProvider_642420103668567275_CoreML_642420103668567275_0_0' Status Message: Error executing model: Feature _generator_model_model_5_conv1_ffc_convg2g_fu_rttn_Gather_output_0 is required but not specified.",
+    "load_seconds": 3.672039041,
+    "mask": "/tmp/emulsion-lama-cases-v2/whole-object-bottle-mask.png",
+    "model_sha256": "1faef5301d78db7dda502fe59966957ec4b79dd64e16f03ed96913c7a4eb68d6",
+    "onnx_runtime": "1.23.2",
+    "provider": "coreml",
+    "runs_seconds": [],
+    "status": "error",
+    "threads": 4
+  },
+  "coreml_symbolic_initial": {
+    "crop": "/tmp/emulsion-lama-cases-v2/whole-object-bottle.png",
+    "load_seconds": 34.187422375,
+    "mask": "/tmp/emulsion-lama-cases-v2/whole-object-bottle-mask.png",
+    "model_sha256": "1faef5301d78db7dda502fe59966957ec4b79dd64e16f03ed96913c7a4eb68d6",
+    "onnx_runtime": "1.23.2",
+    "provider": "coreml",
+    "runs_seconds": [
+      2.465443792,
+      3.8451865,
+      2.662839042,
+      2.685506666
+    ],
+    "status": "complete",
+    "threads": 4,
+    "warm_pass_2s": false
+  },
+  "cpu_final": {
+    "crop": "/tmp/emulsion-lama-cases-v2/whole-object-bottle.png",
+    "load_seconds": 1.4225375,
+    "mask": "/tmp/emulsion-lama-cases-v2/whole-object-bottle-mask.png",
+    "model_sha256": "1faef5301d78db7dda502fe59966957ec4b79dd64e16f03ed96913c7a4eb68d6",
+    "onnx_runtime": "1.23.2",
+    "provider": "cpu",
+    "runs_seconds": [
+      2.178320375,
+      2.154063708,
+      2.14306775,
+      2.110245792
+    ],
+    "status": "complete",
+    "threads": 4,
+    "warm_pass_2s": false
+  }
+}

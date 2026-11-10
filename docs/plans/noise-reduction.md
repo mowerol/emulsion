@@ -1,7 +1,25 @@
 # Noise reduction: darktable ports
 
-Status: agreed 2026-11-04; nothing here is implemented yet. The existing linear **RawNIND**
-AI pass is unchanged by this plan.
+Status: agreed 2026-11-04. Phase 1 built and browser/GPU checked 2026-11-05
+(uncommitted; see HANDOFF.md). Real-photo profile-scale checks, full-resolution export memory
+and a full darktable-export comparison remain open. The existing linear **RawNIND** AI pass
+is unchanged by this plan.
+
+### Final phase-1 controls and defaults (2026-11-05)
+
+The implemented panel has two sliders, **Luminance** and **Colour**, above the existing AI
+option. Oli confirmed this simpler panel on 2026-11-05; it supersedes section 1.5's proposed
+toggle, Strength slider and preset button. Stored strength/shadows/bias remain supported.
+New RAW edits use darktable's chroma-only preset: strength 1.2, Luminance 0, Colour 50,
+shadows 0 and bias 0. Other image formats start off. The recipe value `auto` preserves this
+photo-dependent default; old sidecars without the field normalize to off. Resetting Detail
+returns to `auto`, and double-clicking a slider resets it to the photo kind's default.
+
+An uncached screen first displays its source and requests exact idle refinement. Preparation
+yields through denoise, including before full-photo capture sharpening. Exports and other
+offscreen renders drain the same passes synchronously. Scratch targets are reused for four
+seconds and freed on disposal. Browser regressions cover edits/undo, cancellation and staged
+capture preparation; the GPU probe covers interleaved runs and scratch cleanup.
 
 Upstream pin for the non-AI modules: darktable
 `20891f6c6fa7be995e5bf9dff9d1ee5062051773` (release 5.6.2), the same pin as the sigmoid,

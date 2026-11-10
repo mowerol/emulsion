@@ -1,15 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
+import { Eye } from 'lucide-react';
 import { ScannerFinishControls } from './ScannerFinish';
 import type { ScannerId } from '../film/scanners';
-import { PACK, PACKS, lookName, withLook, type PackId } from '../film/looks';
+import { PACKS, lookName, withLook, type PackId } from '../film/looks';
 import type { StockId } from '../film/stocks';
 import { defaultRecipe, type Recipe } from '../film/recipe';
 import type { Photo } from '../library/store';
 import { useTileRenders } from './tilerenders';
 import { useUserLooksVersion } from '../library/userlooks';
-import { choiceKey, lookChoices, setLookBrowserView, toggleLookFavourite, useLookBrowser, type LookChoice } from './lookbrowser';
+import { choiceKey, lookChoices, lookGroups, setHiddenLookGroups, setLookBrowserView, toggleLookFavourite, toggleLookGroup, useLookBrowser, type LookChoice } from './lookbrowser';
 import { LiveRange } from './LiveRange';
 
 function Swatch({ name, bw = false }: { name: string; bw?: boolean }) {
@@ -67,10 +68,12 @@ export function LookChooser({ photo, recipe, onPick, onAmount, onEdit, onNew, on
   const preferences = useLookBrowser();
   const [quick, setQuick] = useState(false);
   const [browse, setBrowse] = useState(false);
+  const [folders, setFolders] = useState(false);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState<'all' | 'colour' | 'bw'>('all');
   const host = useRef<HTMLDivElement>(null);
   const dialog = useRef<HTMLDivElement>(null);
+  const foldersBox = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement | null>(null);
   // Every look in every pack: made again only when custom looks change, not on every edit.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -79,31 +82,26 @@ export function LookChooser({ photo, recipe, onPick, onAmount, onEdit, onNew, on
   const name = recipe.lookEnabled ? recipe.lookSnapshot?.name ?? lookName(recipe.pack, recipe.stock) : 'None';
   const active = items.find(i => i.key === key);
   const favourites = items.filter(i => preferences.favourites.includes(i.key));
-  const matches = items.filter(i => i.name.toLowerCase().includes(query.trim().toLowerCase()) && (filter === 'all' || (filter === 'bw' ? i.bw : !i.bw)));
-  const groups: { id: string; title: string; entries: LookChoice[] }[] = !browse ? [] : [
-    { id: 'favourites', title: 'Favourites', entries: matches.filter(i => preferences.favourites.includes(i.key)) },
-    { id: 'custom', title: 'My looks', entries: matches.filter(i => i.custom) },
+  const q = query.trim().toLowerCase();
+  const matches = items.filter(i => i.name.toLowerCase().includes(q) && (filter === 'all' || (filter === 'bw' ? i.bw : !i.bw)));
+  const hidden = preferences.hiddenGroups;
+  const catalogue = useMemo(() => lookGroups(items, preferences.favourites), [items, preferences.favourites]);
+  // A search shows every folder, so a hidden look can always be found again.
+  const groups = !browse ? [] : catalogue
+    .map(g => ({ ...g, entries: g.entries.filter(i => matches.includes(i)) }))
+    .filter(g => q || !hidden.includes(g.id));
+  // Folders offered in the visibility menu: the browser's own, plus any hidden one still worth showing.
+  const folderChoices = catalogue.filter(g => g.entries.length > 0 || hidden.includes(g.id));
+  const sections = [
+    { id: 'built-in', title: '', groups: folderChoices.filter(g => g.pack === null || g.pack === 'custom') },
     ...PACKS.filter(p => !p.hidden && !p.user).flatMap(p => {
-      const entries = matches.filter(i => i.pack === p.id);
-      if (p.id !== 'gmic-film') return [{ id: p.id, title: p.name, entries }];
-      const categories = [
-        ['Colour negative', 'Negative'],
-        ['Colour slide', 'Slide'],
-        ['Black & white', 'Black & white'],
-        ['Instant consumer', 'Instant consumer'],
-        ['Instant professional', 'Instant professional'],
-        ['Negative — newer', 'Negative (newer)'],
-        ['Negative — older', 'Negative (older)'],
-      ];
-      return categories.map(([category, label]) => ({
-        id: `${p.id}:${category}`, title: `${p.name} - ${label}`,
-        entries: entries.filter(i => PACK[i.pack].looks[i.stock]?.category === category),
-      }));
+      const list = folderChoices.filter(g => g.pack === p.id);
+      return list.length ? [{ id: p.id, title: p.name, groups: list }] : [];
     }),
   ];
-  const quickItems = query.trim() ? items.filter(i => i.name.toLowerCase().includes(query.trim().toLowerCase())) : favourites;
-  const close = () => { setBrowse(false); setQuick(false); setQuery(''); trigger.current?.focus(); };
-  const openBrowser = (button?: HTMLButtonElement) => { if(button) trigger.current=button; setQuick(false); setQuery(''); setBrowse(true); };
+  const quickItems = query.trim() ? items.filter(i => i.name.toLowerCase().includes(q)) : favourites;
+  const close = () => { setBrowse(false); setQuick(false); setFolders(false); setQuery(''); trigger.current?.focus(); };
+  const openBrowser = (button?: HTMLButtonElement) => { if(button) trigger.current=button; setQuick(false); setFolders(false); setQuery(''); setBrowse(true); };
   const pick = (item: LookChoice, closeQuick = false) => { onPick(item.pack, item.stock); if(closeQuick)close(); };
   useEffect(() => {
     if (!quick) return;
@@ -112,6 +110,12 @@ export function LookChooser({ photo, recipe, onPick, onAmount, onEdit, onNew, on
     host.current?.querySelector<HTMLInputElement>('input[type="search"]')?.focus();
     return () => document.removeEventListener('pointerdown', outside);
   }, [quick]);
+  useEffect(() => {
+    if (!folders) return;
+    const outside = (e: PointerEvent) => { if (!foldersBox.current?.contains(e.target as Node)) setFolders(false); };
+    document.addEventListener('pointerdown', outside);
+    return () => document.removeEventListener('pointerdown', outside);
+  }, [folders]);
   useEffect(() => { if (browse && !dialog.current?.contains(document.activeElement)) dialog.current?.querySelector<HTMLButtonElement>('button')?.focus(); }, [browse, preferences.favourites]);
   const amount = <label className="look-amount"><span>Amount</span><LiveRange aria-label="Look amount" style={{ '--look-fill': `${recipe.lookAmount}%` } as CSSProperties} min="0" max="100" value={recipe.lookAmount} disabled={!recipe.lookEnabled} onChange={(v) => onAmount(v)}/><output>{Math.round(recipe.lookAmount)}%</output></label>;
   const fullBrowser = browse && <div ref={dialog} className="look-browser-panel" role="dialog" aria-label="Browse looks" aria-modal="true" onKeyDown={e => {
@@ -126,9 +130,35 @@ export function LookChooser({ photo, recipe, onPick, onAmount, onEdit, onNew, on
   }}>
     <header className="look-browser-heading"><div><strong>{name}</strong><button className="btn" onClick={close}>Close</button></div>{amount}</header>
     <div className="look-browser-toolbar"><div className="look-colour-filters" role="group" aria-label="Look colour filter">{(['all','colour','bw'] as const).map(f=><button key={f} aria-pressed={filter===f} onClick={()=>setFilter(f)}>{f==='all'?'All':f==='colour'?'Colour':'B&W'}</button>)}</div><div className="look-view-buttons" role="group" aria-label="Look browser layout"><button aria-label="List view" aria-pressed={preferences.view==='list'} onClick={()=>setLookBrowserView('list')}>☰</button><button aria-label="Grid view" aria-pressed={preferences.view==='grid'} onClick={()=>setLookBrowserView('grid')}><GridIcon/></button></div></div>
-    <input className="look-search" type="search" aria-label="Search looks" placeholder="Search looks…" value={query} onChange={e=>setQuery(e.target.value)}/>
+    <div className="look-browser-search">
+      <input className="look-search" type="search" aria-label="Search looks" placeholder="Search looks…" value={query} onChange={e=>setQuery(e.target.value)}/>
+      <div className="look-folders" ref={foldersBox} onKeyDown={e => { if (e.key === 'Escape' && folders) { e.preventDefault(); e.stopPropagation(); setFolders(false); } }}>
+        <button type="button" className="look-folders-button" aria-expanded={folders} aria-controls="look-folders-menu" title="Choose which look folders show" onClick={() => setFolders(!folders)}>
+          <Eye size={14} aria-hidden="true" />Folders
+          {hidden.length > 0 && <span className="look-folders-count">{hidden.length}</span>}
+        </button>
+        {folders && <div id="look-folders-menu" className="look-folders-menu" role="group" aria-label="Look folders">
+          <div className="look-folders-head"><strong>Look folders</strong>{hidden.length > 0 && <button type="button" onClick={() => setHiddenLookGroups([])}>Show all</button>}</div>
+          <div className="look-folders-list">
+            {sections.map(section => {
+              const ids = section.groups.map(g => g.id);
+              const allHidden = ids.length > 0 && ids.every(id => hidden.includes(id));
+              return <div key={section.id} className="look-folder-section">
+                {section.title && section.groups.length > 1 && <div className="look-folder-section-head"><span>{section.title}</span><button type="button" onClick={() => setHiddenLookGroups(allHidden ? hidden.filter(id => !ids.includes(id)) : [...hidden, ...ids.filter(id => !hidden.includes(id))])}>{allHidden ? 'Show all' : 'Hide all'}</button></div>}
+                {section.groups.map(g => <label key={g.id} className="look-folder-row">
+                  <input type="checkbox" checked={!hidden.includes(g.id)} onChange={() => toggleLookGroup(g.id)} />
+                  <span title={g.title}>{g.label}</span><span className="look-folder-count">{g.entries.length}</span>
+                </label>)}
+              </div>;
+            })}
+          </div>
+          <p className="look-folders-note">Hidden folders still show when you search.</p>
+        </div>}
+      </div>
+    </div>
     <LookGroups photo={photo} groups={groups} view={preferences.view} selected={key} favourites={preferences.favourites} onPick={item=>pick(item)} onDelete={item=>onDelete(item.stock)} onDuplicate={item=>{close();onDuplicate(item.pack,item.stock);}}/>
     {!matches.length && <p className="look-empty">{query ? 'No matching looks.' : 'No looks in this category.'}</p>}
+    {matches.length > 0 && !groups.some(g => g.entries.length) && !q && hidden.length > 0 && <p className="look-empty">All look folders are hidden. <button type="button" className="link" onClick={() => setHiddenLookGroups([])}>Show all</button></p>}
     <footer><button onClick={()=>{close();onNew();}}>＋ New look…</button></footer>
   </div>;
   const portalHost = host.current?.closest('.panel');

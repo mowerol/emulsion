@@ -9,6 +9,7 @@ import type { HalfImage } from '../engine/engine';
 import type { Photo } from './store';
 import { framePixels } from '../film/crop';
 import { ensureCapture, offscreenEngine } from './thumbs';
+import { prepareRemovals } from './removal';
 
 export interface ExportOptions {
   dir: string;
@@ -36,7 +37,8 @@ export const stemOf = (name: string) => name.replace(/\.[^.]+$/, '') || name;
 export async function decodeFor(p: Photo, longEdge: number | null, maxTexture: number): Promise<[number, number, HalfImage]> {
   const crop = p.recipe?.crop ?? null;
   const decodeEdge = longEdge === null ? maxTexture : Math.min(maxTexture, Math.ceil(longEdge / Math.min(crop?.w ?? 1, crop?.h ?? 1)));
-  const img = await loadImage(p.path, decodeEdge, p.raw && noiseEnabled(p.recipe));
+  const hasRemove = p.recipe?.retouch.some(s => s.tool === 'remove' && s.opacity > 0);
+  const img = await loadImage(p.path, hasRemove ? maxTexture : decodeEdge, p.raw && noiseEnabled(p.recipe));
   // The frame in the photo's full-resolution pixels, then scaled to what was decoded and asked for.
   const [fw, fh] = framePixels(crop, img.fullWidth || img.width, img.fullHeight || img.height);
   const decoded = img.width / (img.fullWidth || img.width);
@@ -49,6 +51,7 @@ export async function exportPhotos(
   opts: ExportOptions,
   onProgress: (done: number, total: number, current: string) => void,
   signal: { canceled: boolean },
+  onUnfilled?: (photo: Photo, error: string) => Promise<boolean>,
 ): Promise<ExportResult> {
   const engine = offscreenEngine();
   if (!engine) throw new Error('Emulsion could not start the GPU for exporting.');
@@ -64,20 +67,27 @@ export async function exportPhotos(
     try {
       const [w, h, img] = await decodeFor(p, opts.longEdge, engine.maxTextureSize);
       const src = engine.sourceFromHalf(img);
+      src.origin = p.path;
       // An unedited photo exports as Neutral at its defaults, default sharpening included.
       const recipe = p.recipe ?? defaultRecipe();
       let px: Uint8Array;
+      let releaseRemovals: (() => void) | undefined;
       // Everything after the upload is guarded, so a failed capture or profile still frees the source and its targets.
       try {
         if (recipe.captureSharpening > 0) await ensureCapture(engine, src, p.path);
         await engine.prepare(recipe, src.camera);
+        if (recipe.retouch.some(s => s.tool === 'remove' && s.opacity > 0)) releaseRemovals = await prepareRemovals(engine, src, recipe, () => signal.canceled,
+          JSON.stringify([p.size, p.modified]), onUnfilled ? error => onUnfilled(p, error) : undefined);
+        if (signal.canceled) { result.canceled = true; break; }
         px = engine.readPixels(src, recipe, w, h, p.seed);
       } finally {
+        releaseRemovals?.();
         engine.release(src);
         engine.dropBuffers(img.width, img.height);
       }
       result.written.push(await writeExport(opts.dir, exportStem(p), px, w, h, opts.quality));
     } catch (err) {
+      if (signal.canceled) { result.canceled = true; break; }
       result.failed.push({ name: photoName(p), error: String(err) });
     }
   }

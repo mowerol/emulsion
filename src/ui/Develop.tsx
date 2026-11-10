@@ -8,7 +8,8 @@ import { useWorkspace } from './workspace';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { activeTool, chooseTool, toolHint, useTools } from './tools';
 import { RetouchOverlay } from './RetouchOverlay';
-import { removeSpot, scrollSpot, useRetouchUi } from './retouchui';
+import { useRemoveUi } from './removemodel';
+import { KEY_STEPS, applyPending, cancelPending, removeSpot, scrollSpot, useRetouchUi } from './retouchui';
 import { cycleCropOverlay } from './prefs';
 import { profilePending, useProfileVersion } from '../engine/profilestore';
 import { lutPending, useLutVersion } from '../engine/lutstore';
@@ -34,6 +35,7 @@ import { ensureCapture, loadCachedImage, prepareFullImage, thumbs } from '../lib
 import { Filmstrip } from './Filmstrip';
 import { FullResolutionStatus } from './FullResolutionStatus';
 import { FIT, imagePoint, label, layout, pan, step, zoomAt, type Layout, type Zoom } from './zoom';
+import { firstOf, onViewCommand, type ViewCommand } from './menubridge';
 import { MaskOverlay } from './MaskOverlay';
 import { setMaskUi, updateMask, useMaskUi } from './maskui';
 import { ENCODE_EDGE, setObjectRenderer } from './objectselect';
@@ -46,8 +48,6 @@ const UNEDITED = defaultRecipe();
 const WARM_REST_MS = 80;
 /** A pointer that moves less than this many CSS pixels is a click, not a drag. */
 const CLICK_SLOP = 4;
-/** Clear space round the photo while cropping, in CSS pixels, on top of the stage's padding. */
-const CROP_MARGIN = 24;
 
 const sourceKey = (path: string, res: string, noise = false) => `${path}:${res}:${noise}`;
 /** The long edge each preview was asked for (a photo smaller than that decodes smaller). */
@@ -140,6 +140,7 @@ export function Develop() {
   const sourceCacheRef = useRef(new Map<string, SourceRef>());
   const [error, setError] = useState<string | null>(null);
   const [loadedVersion, setLoadedVersion] = useState(0);
+  const [presentedPhoto, setPresentedPhoto] = useState<string | null>(null);
   /** Bumped when the engine has started, so the effects that need it run. */
   const [engineReady, setEngineReady] = useState(0);
   const [box, setBox] = useState({ w: 0, h: 0 });
@@ -184,9 +185,12 @@ export function Develop() {
   const maskShow = masksOpen && maskOverlay && maskIndex >= 0 ? maskIndex : null;
   const tools = useTools();
   const healing = useRetouchUi((s) => s.on) && workflow;
+  const removing = useRetouchUi(s => s.settings.tool === 'remove');
   /** The wavelet scale shown in place of the photo while healing (darktable's display wavelet scale). */
-  const showScale = useRetouchUi((s) => (s.showScale ? s.settings.scale : 0));
-  const tool = workflow ? activeTool(tools, cropping, picking, masksOpen, healing) : 'select';
+  const showScale = useRetouchUi((s) => (s.showScale && s.settings.tool !== 'remove' ? s.settings.scale : 0));
+  const removeRetry = useRemoveUi(s => s.retry);
+  useEffect(() => { if (frameId && removeRetry) engineRef.current?.retryRemovals(frameId); }, [removeRetry, engineReady]);
+  const tool = workflow ? activeTool(tools, cropping, picking, masksOpen, healing, removing) : 'select';
   useEffect(() => { if (!masksOpen) setMaskUi({ tool: null, pick: null }); }, [masksOpen]);
 
   // Start the GPU engine for this canvas (in a worker: ui/developclient.ts).
@@ -200,6 +204,11 @@ export function Develop() {
         warn: (message) => logToTerminal('warn', message),
         histogram: (path, data) => useApp.setState({ histogram: { path, data } }),
         sharpening: setSharpeningDetail,
+        presented: setPresentedPhoto,
+        removals: (states, photo) => {
+          useRemoveUi.setState({ states, photo });
+          if (states.length && states.every(s => s.status === 'ready')) thumbs.removalsReady(photo.split('\0')[0]);
+        },
       });
       clients.set(canvas, { client, dispose: 0 });
       engineRef.current = client;
@@ -288,7 +297,7 @@ export function Develop() {
         if (cached) {
           swap(cached, 'preview');
           previewShown = true;
-        } else {
+        } else if (!photo?.recipe?.retouch.some(s => s.tool === 'remove' && s.opacity > 0)) {
           const orig = await thumbs.original(path);
           if (!cancelled && loadedRef.current?.path !== path) {
             const src = await engine.uploadBlob(orig.blob, useApp.getState().photos.find((p) => p.path === path)?.white ?? null);
@@ -365,10 +374,10 @@ export function Develop() {
     : (recipe?.crop ?? FULL);
   // The shown frame's full-resolution size, which zoom and pan measure in.
   const [frameW, frameH] = src ? orientedSize(frame, src.fullW, src.fullH).map((v, i) => v * (i ? frame.h : frame.w)) : [1, 1];
-  // While cropping the photo fits with a margin: the handles stay reachable, and dragging outside the photo turns it.
-  const margin = cropping ? CROP_MARGIN : 0;
+  // Cropping fits the photo at the size every tool shows it, so it doesn't jump: the stage's padding
+  // holds the handles (they reach 12 px past the photo) and catches the drags outside it that turn it.
   const current: Layout | null =
-    src && box.w > 2 + 2 * margin && box.h > 2 + 2 * margin ? layout(cropping ? FIT : zoom, box.w - 2 * margin, box.h - 2 * margin, dpr(), frameW, frameH) : null;
+    src && box.w > 2 && box.h > 2 ? layout(cropping ? FIT : zoom, box.w, box.h, dpr(), frameW, frameH) : null;
   const viewKey = current ? `${current.pxW}x${current.pxH}:${current.view.x},${current.view.y},${current.view.w},${current.view.h}` : '';
 
   // Capture sharpening needs the RAW's sensor data, read once per loaded source.
@@ -533,6 +542,7 @@ export function Develop() {
     const whole = wholeOf(l);
     engine.render({
       source: l.source.key, whole: whole?.key ?? null, sizeKnown, full: l.res === 'full', recipe, saved, seed, compare, viewKey,
+      sourceVersion: JSON.stringify([photo?.size, photo?.modified]),
       width: current.pxW, height: current.pxH, view: current.view, clipping, split, frame, outside: rgb(stage.hex), sharpenMask, maskShow,
       retouchShow: healing ? showScale : 0, detailOrder,
       histogram: `${recipeId(recipe)}|${seed}|${compare}|${loadedVersion}|${path}|${lutVersion}|${profileVersion}`, histogramFor: frameId!,
@@ -575,11 +585,11 @@ export function Develop() {
       if (e.ctrlKey || e.metaKey) {
         const [fx, fy] = fraction(e);
         zoomTo(current.scale * Math.exp(-e.deltaY * 0.01), fx, fy);
-      } else if (healing && !compare) {
-        // The Heal tool: scrolling sizes the spot (⇧: its feather or hardness; ⌥: turns an
-        // ellipse), as in darktable, where Ctrl+⇧ turns (Ctrl and ⌘ zoom here).
+      } else if (healing && !compare && e.altKey) {
+        // Heal and Remove: ⌥+scroll sizes the spot, ⌥⇧+scroll turns an ellipse (darktable sizes on a
+        // plain scroll; here plain scroll keeps panning, so zooming in to work stays easy).
         const d = e.deltaY || e.deltaX;
-        if (d) scrollSpot(d < 0, e.altKey ? 'rotation' : e.shiftKey ? 'feather' : 'size', photo?.recipe?.retouch ?? []);
+        if (d) scrollSpot(d < 0, e.shiftKey ? 'rotation' : 'size', photo?.recipe?.retouch ?? []);
       } else if (zoom.scale !== null) {
         setZoom(pan(zoom, current, -e.deltaX, -e.deltaY, dpr(), frameW, frameH));
       }
@@ -602,8 +612,8 @@ export function Develop() {
       const plain = !mod && !e.altKey;
       const k = e.key.toLowerCase();
       if (workflow && !editingLook) {
-        // The toolbar's tools: V select, C (or R) crop, M mask, Q heal, W pick neutral. C and R don't leave crop mode.
-        const id = plain ? ({ v: 'select', c: 'crop', r: 'crop', m: 'mask', q: 'heal', w: 'pick' } as const)[k as 'v'] : undefined;
+        // The toolbar's tools: V select, C (or R) crop, T transform, M mask, Q heal, E remove, W pick neutral. C and R don't leave crop mode.
+        const id = plain ? ({ v: 'select', c: 'crop', r: 'crop', t: 'transform', m: 'mask', q: 'heal', e: 'remove', w: 'pick' } as const)[k as 'v'] : undefined;
         if (id && !(cropping && (id === 'select' || id === 'crop'))) {
           e.preventDefault();
           chooseTool(id);
@@ -615,8 +625,19 @@ export function Develop() {
         else startCrop();
         return;
       }
+      if (workflow && tools.transform && !cropping && e.key === 'Escape') {
+        e.preventDefault();
+        chooseTool('transform');
+        return;
+      }
       if (healing && !cropping) {
-        const selected = useRetouchUi.getState().selected;
+        const { selected, pending } = useRetouchUi.getState();
+        // Remove strokes waiting for Apply: Enter applies, Esc lets them go, ⌫ the last one.
+        if (pending && plain) {
+          if (e.key === 'Enter') { e.preventDefault(); applyPending(); return; }
+          if (e.key === 'Escape') { e.preventDefault(); cancelPending(); return; }
+          if ((e.key === 'Backspace' || e.key === 'Delete') && !selected) { e.preventDefault(); cancelPending(true); return; }
+        }
         if ((e.key === 'Backspace' || e.key === 'Delete') && selected) {
           e.preventDefault();
           removeSpot(selected);
@@ -624,7 +645,14 @@ export function Develop() {
         }
         if (e.key === 'Escape') {
           e.preventDefault();
-          chooseTool('heal');
+          chooseTool(removing ? 'remove' : 'heal');
+          return;
+        }
+        // [ and ] size the spot, ⇧[ and ⇧] its feather (a brush's hardness), as the mask brush and
+        // Photoshop do. By the code, so ⇧ (which types { and }) and other layouts still work.
+        if (!mod && !e.altKey && (e.code === 'BracketLeft' || e.code === 'BracketRight')) {
+          e.preventDefault();
+          scrollSpot(e.code === 'BracketRight', e.shiftKey ? 'feather' : 'size', photo?.recipe?.retouch ?? [], KEY_STEPS);
           return;
         }
       }
@@ -646,13 +674,13 @@ export function Develop() {
         zoomTo(step(current.scale, fit, e.key === '-' ? -1 : 1), 0.5, 0.5);
       } else if (mod && (e.key === '=' || e.key === '+')) {
         e.preventDefault();
-        zoomTo(step(current.scale, fit, 1), 0.5, 0.5);
+        if (firstOf('zoom-in', 'key')) zoomTo(step(current.scale, fit, 1), 0.5, 0.5);
       } else if (mod && e.key === '-') {
         e.preventDefault();
-        zoomTo(step(current.scale, fit, -1), 0.5, 0.5);
+        if (firstOf('zoom-out', 'key')) zoomTo(step(current.scale, fit, -1), 0.5, 0.5);
       } else if (mod && e.key === '0') {
         e.preventDefault();
-        setZoom(FIT);
+        if (firstOf('zoom-fit', 'key')) setZoom(FIT);
       } else if (!mod && !e.altKey && e.key.toLowerCase() === 'z') {
         zoomTo(zoom.scale === null ? 1 : null);
       } else if (!mod && !e.altKey && e.key.toLowerCase() === 'j') {
@@ -663,7 +691,19 @@ export function Develop() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [current, src, box.w, box.h, zoom.scale, zoomTo, picking, cropping, cropEdit?.W, cropEdit?.H, workflow, editingLook, tools.straighten, frameW, frameH]);
+  }, [current, src, box.w, box.h, zoom.scale, zoomTo, picking, cropping, cropEdit?.W, cropEdit?.H, workflow, editingLook, tools.straighten, tools.transform, removing, frameW, frameH, photo]);
+
+  // The View menu's zoom and before/after items (appmenu.ts), acting as their keys do.
+  const viewCommandRef = useRef<(c: ViewCommand) => void>(() => {});
+  viewCommandRef.current = (c) => {
+    if (!current || cropping) return;
+    const fit = layout(FIT, box.w, box.h, dpr(), frameW, frameH).scale;
+    if (c === 'zoom-in' || c === 'zoom-out') zoomTo(step(current.scale, fit, c === 'zoom-in' ? 1 : -1), 0.5, 0.5);
+    else if (c === 'zoom-fit') setZoom(FIT);
+    else if (c === 'zoom-100') zoomTo(1, 0.5, 0.5);
+    else if (c === 'split') setBefore((b) => (b === 'split' ? 'off' : 'split'));
+  };
+  useEffect(() => onViewCommand((c) => viewCommandRef.current(c)), []);
 
   // Hold Space to pan, whatever tool is held.
   useEffect(() => {
@@ -797,7 +837,7 @@ export function Develop() {
               setPanning(false);
             }}
             aria-label={photo ? `Developed preview of ${photo.name}` : 'Preview'}
-            style={{ visibility: showing ? 'visible' : 'hidden', cursor }}
+            style={{ visibility: showing && presentedPhoto === frameId ? 'visible' : 'hidden', cursor }}
           />
           {split !== undefined && showing && <SplitDivider at={splitAt} onMove={setSplitAt} />}
           {masksOpen && !cropping && !compare && showing && current && (maskIndex >= 0 || maskTool) && (
@@ -818,7 +858,7 @@ export function Develop() {
         {!workflow && compare && <span className="badge">{held ? 'Original' : 'Before'}</span>}
         {!workflow && clipping && <span className="badge clip-badge">Clipping shown (J)</span>}
         {!workflow && cropping && <span className="badge">Cropping: Enter to keep, Esc to cancel, X turns the frame</span>}
-        {photo && !showing && !error && <span className="stage-status">Opening {photo.name}</span>}
+        {photo && (!showing || presentedPhoto !== frameId) && !error && <span className="stage-status">Opening {photo.name}</span>}
         {photo && showing && loaded!.res === 'thumb' && <span className="stage-status">Loading preview</span>}
         {photo && showing && loaded!.res !== 'thumb' && (
           <FullResolutionStatus pending={loadingFull || (sharpeningDetail && zoom.scale !== null && !cropping)} />

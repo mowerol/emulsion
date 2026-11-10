@@ -2,7 +2,7 @@
 //! Tauri commands: thin async wrappers that run blocking work off the main thread.
 
 use percent_encoding::percent_decode_str;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tauri::ipc::{InvokeBody, Request, Response};
 use tauri::State;
@@ -10,6 +10,32 @@ use tauri::State;
 use rayon::prelude::*;
 
 use crate::{decode, export, library, raw, sidecar, thumbs, AppPaths};
+
+#[derive(Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TextEdit { Copy, Paste }
+
+/// The custom Edit menu routes photo shortcuts through the webview. For text, use the same
+/// native responder actions as macOS's predefined Copy/Paste items; DOM paste is restricted.
+#[tauri::command]
+pub fn native_text_edit(action: TextEdit) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        use objc2::{sel, MainThreadMarker};
+        use objc2_app_kit::NSApplication;
+        let main = MainThreadMarker::new().ok_or("Text editing requires the main thread")?;
+        let selector = match action { TextEdit::Copy => sel!(copy:), TextEdit::Paste => sel!(paste:) };
+        // SAFETY: these are the standard, argument-compatible responder selectors. With no
+        // target Cocoa resolves the focused responder, exactly as a native menu item does.
+        unsafe { NSApplication::sharedApplication(main).sendAction_to_from(selector, None, None); }
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = action;
+        Err("Native text editing is only needed on macOS".into())
+    }
+}
 
 async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, String> + Send + 'static) -> Result<T, String> {
     tauri::async_runtime::spawn_blocking(f).await.map_err(|e| e.to_string())?

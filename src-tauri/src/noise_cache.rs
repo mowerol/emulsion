@@ -348,7 +348,11 @@ fn load_cached(
         white: m.white,
         full_size: m.full_size,
         camera_to_working: m.camera.camera_to_working,
-        camera: m.camera.clone(),
+        camera: raw::CameraMetadata {
+            // Entries written before noise profiles were sent lack one; read the ISO again.
+            noise: m.camera.noise.clone().or_else(|| raw::noise_profile(path)),
+            ..m.camera.clone()
+        },
     };
     let mut bytes = decode::raw_for_engine(path, raw, None)?;
     let flags = u32::from_le_bytes(bytes[12..16].try_into().unwrap()) | 8;

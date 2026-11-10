@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Crop mode's options row (Workflow): ratio, lock and orientation; quarter
-// turns and flips; straighten, auto-level and the level line; the overlay; reset.
+// turns and flips; straighten, auto-level and the level line; the overlay; reset; Cancel and Done.
 import { useEffect, useRef, useState } from 'react';
 import {
   Check, ChevronDown, Grid3x3, Lock, LockOpen, RectangleHorizontal, RectangleVertical,
@@ -13,7 +13,7 @@ import {
   type AspectId, type Crop,
 } from '../film/crop';
 import { fitPhotoLevel } from '../library/perspective';
-import { activePhoto, setCropDraft, showToast, useApp } from '../library/store';
+import { activePhoto, finishCrop, setCropDraft, showToast, useApp } from '../library/store';
 import { CROP_OVERLAYS, cycleCropOverlay, usePrefs } from './prefs';
 import { useTools } from './tools';
 import { LiveRange } from './LiveRange';
@@ -168,6 +168,11 @@ export function CropBar() {
       <span className="crop-sep" aria-hidden="true" />
       <button type="button" className="tool-icon small" aria-label={`Overlay: ${overlayName}`} data-tip={`Overlay: ${overlayName} (O)`} onClick={cycleCropOverlay}><Grid3x3 size={16} aria-hidden="true" /></button>
       <button type="button" className="tool-icon small" aria-label="Reset crop" data-tip="Reset crop" disabled={pristine} onClick={() => change(() => FULL)}><RotateCcw size={16} aria-hidden="true" /></button>
+      {/* At the row's end, as Remove's Cancel and Apply are. */}
+      <span className="crop-end tool-crop-actions">
+        <button type="button" className="tool-text" onClick={() => finishCrop(false)} data-tip="Cancel (Esc)">Cancel</button>
+        <button type="button" className="tool-text tool-done" onClick={() => finishCrop(true)} data-tip="Done (Enter)">Done</button>
+      </span>
     </div>
   );
 }

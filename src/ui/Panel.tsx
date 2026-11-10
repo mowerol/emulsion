@@ -1,4 +1,4 @@
-import { NoiseReductionControls } from './NoiseReduction';
+import { NoiseReductionControls, ProfiledDenoiseControls } from './NoiseReduction';
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { TreatmentControls } from './TreatmentControls';
 import { LookLutSummary } from './LookCreator';
@@ -21,7 +21,7 @@ import type { ScannerId } from '../film/scanners';
 import { ScannerFinishControls } from './ScannerFinish';
 import { STOCK } from '../film/stocks';
 import {
-  activePhoto, copySettings, editActive, editRecipes, pasteSettings, redo, showToast, targets, undo, useApp,
+  activePhoto, openCopySettings, editActive, editRecipes, pasteSettings, redo, showToast, targets, undo, useApp,
 } from '../library/store';
 import { MOD, Segmented } from './common';
 import { PhotoInfo } from './PhotoInfo';
@@ -417,17 +417,21 @@ export function Panel() {
     color: <Section id="color" title={grouped ? 'HSL' : 'Colour'} summary={recipe?.color ? 'Edited' : 'As shot'} onReset={resetFor('color', 'Colour')}><ColorControls recipe={base} /></Section>,
     grading: <Section id="grading" title={grouped ? 'Colour wheels' : 'Colour Grading'} summary={sectionChanged(recipe, 'grading') ? 'Edited' : 'Neutral'} onReset={resetFor('grading', 'Colour Grading')}><ColourGradingControls recipe={base} /></Section>,
     detail: <Section id="detail" title="Detail" onReset={resetFor('detail', 'Detail')}>
-      {!editing && <NoiseReductionControls recipe={base} path={photo.path} raw={photo.raw} />}{rows(sliderGroup('detail'))}
+      {rows(sliderGroup('detail'))}
       <DetailOrderToggle />
     </Section>,
     optics: <Section id="optics" title="Optics" onReset={resetFor(grouped ? 'refine-optics' : 'optics', 'Optics')}>{rows(grouped ? [...sliderGroup('optics'), 'fade'] : sliderGroup('optics'))}</Section>,
     grain: <Section id="grain" title="Grain" onReset={resetFor('grain', 'Grain')}><GrainSpeed recipe={base} />{rows(sliderGroup('grain'))}</Section>,
+    noise: !editing && <Section id="noise" title="Noise reduction" onReset={resetFor('noise', 'Noise reduction')}>
+      <ProfiledDenoiseControls recipe={base} raw={photo.raw} camera={photo.camera} />
+      <NoiseReductionControls recipe={base} path={photo.path} raw={photo.raw} />
+    </Section>,
     lens: photo.raw && <Section id="lens" title="Lens corrections" summary={photo.lens?.correction ? (base.lens?.enabled === false ? 'Off' : 'Embedded profile') : 'No profile'} onReset={resetFor('lens', 'Lens')}><LensControls recipe={base} metadata={photo.lens} /></Section>,
     transform: <Section id="transform" title="Transform" summary={transformSummary(base.transform)} onReset={resetFor('transform', 'Transform')}><TransformControls recipe={base} /></Section>,
     masks: <Section id="masks" title="Masks" summary={recipe?.masks.length ? `${recipe.masks.length} ${recipe.masks.length === 1 ? 'mask' : 'masks'}` : 'None'} onReset={resetFor('masks', 'Masks')}><MaskControls /></Section>,
     crop: !grouped && <Section id="crop" title="Crop" summary={cropSummary(recipe?.crop ?? null)} onReset={resetFor('crop', 'Crop')}><CropControls recipe={recipe} /></Section>,
   };
-  const classic = view === 'develop' ? ['profile', 'stock', 'presets', 'lens', 'crop', 'transform', 'adjust', 'curve', 'color', 'grading', 'masks', 'detail', 'optics', 'grain'] : ['profile', 'stock', 'presets'];
+  const classic = view === 'develop' ? ['profile', 'stock', 'presets', 'lens', 'crop', 'transform', 'adjust', 'curve', 'color', 'grading', 'masks', 'detail', 'optics', 'grain', 'noise'] : ['profile', 'stock', 'presets'];
   const visible: readonly string[] = editing ? ['look-editor', 'look-tone', 'curve', 'color', 'grading', 'scanner'] : grouped ? CONTROL_GROUPS.find(g => g.id === workspace.group)!.sections : classic;
   // Group configuration owns both membership and ordering. Keep other sections mounted so
   // switching tabs preserves each colour module's local view state.
@@ -457,8 +461,8 @@ export function Panel() {
         <button type="button" className="icon-btn action" onClick={undo} disabled={!history.undo} aria-label="Undo" data-tip={history.undo ? `Undo ${history.undo} (${MOD}Z)` : 'Nothing to undo'}><Undo2 size={16} aria-hidden="true" /></button>
         <button type="button" className="icon-btn action" onClick={redo} disabled={!history.redo} aria-label="Redo" data-tip={history.redo ? `Redo ${history.redo} (⇧${MOD}Z)` : 'Nothing to redo'}><Redo2 size={16} aria-hidden="true" /></button>
         <span className="action-sep" aria-hidden="true" />
-        <button type="button" className="icon-btn action" onClick={copySettings} disabled={!recipe} aria-label="Copy settings" data-tip={`Copy settings (⇧${MOD}C)`}><Copy size={16} aria-hidden="true" /></button>
-        <button type="button" className="icon-btn action" onClick={pasteSettings} disabled={!clipboard} aria-label={multi ? `Paste to ${selectedCount}` : 'Paste settings'} data-tip={`${multi ? `Paste to ${selectedCount} photos` : 'Paste settings'} (⇧${MOD}V)`}><ClipboardPaste size={16} aria-hidden="true" /></button>
+        <button type="button" className="icon-btn action" onClick={openCopySettings} aria-label="Copy settings" data-tip={`Copy settings (${MOD}C)`}><Copy size={16} aria-hidden="true" /></button>
+        <button type="button" className="icon-btn action" onClick={pasteSettings} disabled={!clipboard} aria-label={multi ? `Paste to ${selectedCount}` : 'Paste settings'} data-tip={`${multi ? `Paste to ${selectedCount} photos` : 'Paste settings'} (${MOD}V)`}><ClipboardPaste size={16} aria-hidden="true" /></button>
         <span className="action-sep" aria-hidden="true" />
         <button type="button" className="icon-btn action" disabled={!recipe} onClick={() => editActive((r) => (r ? resetAdjustments(r) : r), 'Reset sliders')} aria-label="Reset sliders" data-tip="Reset sliders (keeps look, crop and masks)"><RotateCcw size={16} aria-hidden="true" /></button>
         <ResetPhotoButton multi={multi} count={selectedCount} />
@@ -482,10 +486,10 @@ export function Panel() {
         <button type="button" className="btn" onClick={redo} disabled={!history.redo} title={history.redo ? `Redo ${history.redo} (${MOD}Shift+Z)` : 'Nothing to redo'}>
           Redo
         </button>
-        <button type="button" className="btn" onClick={copySettings} disabled={!recipe} title={`${MOD}Shift+C`}>
+        <button type="button" className="btn" onClick={openCopySettings} title={`${MOD}C`}>
           Copy settings
         </button>
-        <button type="button" className="btn" onClick={pasteSettings} disabled={!clipboard} title={`${MOD}Shift+V`}>
+        <button type="button" className="btn" onClick={pasteSettings} disabled={!clipboard} title={`${MOD}V`}>
           {multi ? `Paste to ${selectedCount}` : 'Paste settings'}
         </button>
         {view === 'develop' && (

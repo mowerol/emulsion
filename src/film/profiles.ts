@@ -15,5 +15,7 @@ export interface CameraMetadata {
   cameraToWorking: Mat3;
   neutral: Vec3 | null;
   baselineGain: number;
+  /** darktable's noise profile at the shot's ISO (src-tauri/src/noiseprofiles.rs); absent from older payloads. */
+  noise?: import('../engine/denoiseprofile').NoiseProfile | null;
 }
 export const cameraKey = (camera: Pick<CameraMetadata, 'make' | 'model'>): string => `${camera.make} ${camera.model}`.trim();

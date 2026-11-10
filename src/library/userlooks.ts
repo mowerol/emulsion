@@ -11,6 +11,7 @@ import { PACK, USER_LOOKS_DIR, customLookId, customLookOf, lookName, registerCus
 import { hasSettings, normalizeSettings, type LutSource, type ProfileSettings } from '../film/creative';
 import type { Recipe } from '../film/recipe';
 import type { StockId } from '../film/stocks';
+import { writeCube, type Clut } from '../engine/lut3d';
 
 interface CustomLookFile {
   version: number;
@@ -26,6 +27,9 @@ const changed = () => {
   version++;
   listeners.forEach((l) => l());
 };
+
+/** Tell the interface the looks changed (a built-in look edited in development). */
+export const notifyLooksChanged = () => changed();
 
 /** Re-renders when custom looks are added, edited or removed. */
 export function useUserLooksVersion() {
@@ -88,6 +92,19 @@ export async function importLutFile(path: string): Promise<string> {
   return hash;
 }
 
+/** Keep a photo match through the same content-addressed file store as imported LUTs. */
+export async function storePhotoMatch(lut: Clut, referenceName: string): Promise<string> {
+  const name = referenceName.slice(0, 200);
+  const bytes = new TextEncoder().encode(writeCube(lut, `Photo match: ${name.replace(/["\r\n]/g, ' ')}`));
+  // Cache the parsed file, so the preview and a later reload use identical rounded values.
+  const parsed = await readLut('match.cube', new Blob([bytes]));
+  const hash = await invoke<string>('store_look_lut', bytes, { headers: { 'x-emulsion-lut-ext': 'cube' } });
+  provideLut(`${USER_LOOKS_DIR}${hash}`, parsed);
+  registerFileLut(hash, `Match: ${name}`, name);
+  changed();
+  return hash;
+}
+
 /** Create or update a custom look. Returns its stock id. */
 export async function saveLook(id: string, name: string, settings: ProfileSettings): Promise<StockId> {
   const saved = await invoke<CustomLookFile>('save_custom_look', {
@@ -134,8 +151,9 @@ export function lutSourceOf(r: Recipe): LutSource | null {
   const look = r.lookSnapshot ? { settings: r.lookSnapshot.settings, file: '', missing: false } : PACK[r.pack]?.looks[r.stock];
   if (!look || look.missing) return null;
   const blend = r.lookBlend === 'color' ? { blend: 'color' as const } : {};
-  if (r.pack === 'files') return { kind: 'file', hash: look.file, amount, ...blend };
-  if (r.pack === 'custom') {
+  if (r.pack === 'files') return { kind: 'file', hash: look.file, amount, ...blend,
+    ...('photoMatch' in look && typeof look.photoMatch === 'string' ? { photoMatch: look.photoMatch } : {}) };
+  if (r.pack === 'custom' || look.settings) {
     if (hasSettings(look.settings) || !look.settings?.lut) return null;
     return { ...look.settings.lut, amount: look.settings.lut.amount * amount };
   }

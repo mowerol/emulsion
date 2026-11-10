@@ -8,7 +8,7 @@ import { Develop } from '../../src/ui/Develop';
 import { Panel } from '../../src/ui/Panel';
 import { setWorkspace } from '../../src/ui/workspace';
 import { parsePayload } from '../../src/backend/api';
-import { NOISE_DEFAULTS } from '../../src/film/noisereduction';
+import { CHROMA_ONLY, NOISE_DEFAULTS, effectiveProfiled } from '../../src/film/noisereduction';
 import lensFixtures from '../../src/engine/fixtures/lens-metadata.json';
 import type { LensMetadata } from '../../src/engine/lenscorrection';
 import '../../src/styles.css';
@@ -41,8 +41,28 @@ async function main() {
   setWorkspace({ group: 'refine' });
   createRoot(document.getElementById('root')!).render(<Panel />);
   await pause();
+  const luminance = document.querySelector<HTMLInputElement>('#profiled-luma')!;
+  const colour = document.querySelector<HTMLInputElement>('#profiled-chroma')!;
+  assert(luminance.value === '0' && colour.value === '50', 'New RAW did not start with colour-only noise reduction');
+  colour.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+  for (const value of ['31', '32']) {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(colour, value);
+    colour.dispatchEvent(new Event('input', { bubbles: true })); await pause();
+  }
+  colour.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
+  assert(effectiveProfiled(useApp.getState().photos[0].recipe, true)?.chroma === 32, 'Colour drag did not edit the recipe');
+  undo(); await pause();
+  assert(useApp.getState().photos[0].recipe?.profiledDenoise === 'auto' && colour.value === '50', 'Colour drag was not one undo step back to auto');
+  const lumaValue = document.querySelector<HTMLInputElement>('#profiled-luma-value')!;
+  lumaValue.focus(); await pause();
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(lumaValue, '27');
+  lumaValue.dispatchEvent(new Event('input', { bubbles: true })); await pause();
+  lumaValue.blur(); await pause();
+  assert(effectiveProfiled(useApp.getState().photos[0].recipe, true)?.luma === 27, 'Typed Luminance did not commit');
+  assert(effectiveProfiled(useApp.getState().photos[0].recipe, true)?.strength === CHROMA_ONLY.strength, 'Editing a force changed the preset strength');
+  undo(); await pause();
   const toggle = document.querySelector<HTMLInputElement>('[aria-label="AI Noise Reduction"]')!;
-  assert(toggle && !toggle.checked, 'Noise control missing from Detail or enabled by default');
+  assert(toggle && !toggle.checked, 'Noise control missing from Noise reduction or enabled by default');
   toggle.click(); await pause();
   assert(useApp.getState().photos[0].recipe?.noiseReduction?.enabled, 'Enable did not edit the photo');
   assert(!document.querySelector<HTMLInputElement>('#noise-amount')?.disabled, 'Amount remained disabled');
@@ -111,6 +131,14 @@ async function main() {
       assert(actual.every((v, i) => Math.abs(v - wanted[i]) <= 1), 'Capture/lens cache did not refresh after Amount changed');
       referenceEngine.release(reference); referenceEngine.dispose();
     }
+    // Full-photo capture preparation must yield during denoise as well as sharpening.
+    src.camera = { make: 'Probe', model: 'Camera', cameraToWorking: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], neutral: [1, 1, 1], baselineGain: 1 };
+    const preparation = engine.prepareCapture(src, { ...recipe, captureSharpening: 10 });
+    assert(!preparation.next().done, 'Capture preparation did not yield');
+    const internal = engine as unknown as { fullCapture: { profMade: unknown; csOut: unknown } };
+    assert(!internal.fullCapture.profMade && !internal.fullCapture.csOut, 'Capture preparation drained all denoise passes before yielding');
+    preparation.return(undefined);
+    assert(!internal.fullCapture.profMade && !internal.fullCapture.csOut, 'Cancelled preparation retained partial output');
     assert(engine.gpu.gl.getError() === 0, 'WebGL error');
   } finally { engine.release(src); engine.dispose(); }
   useApp.setState(s => ({ photos: [{ ...s.photos[0], raw: false }] })); await pause();
@@ -130,6 +158,6 @@ async function main() {
   for (let i = 0; i < 25 && !loads.includes(false); i++) await pause();
   assert(loads.includes(false), 'Disabling did not restore ordinary decoding');
   root.unmount();
-  document.body.dataset.result = 'PASS: Detail enable/amount, undo/redo, RAW gating, paired payload, GPU blend/cache at 0/25/50/100, Before/Split, Develop source switching and no inference on amount edits';
+  document.body.dataset.result = 'PASS: Luminance/Colour defaults, drag/typed edits and undo; AI enable/amount, RAW gating, paired payload, GPU blend/cache, Before/Split, cancellable staged denoise before capture, Develop source switching and no inference on amount edits';
 }
 main().catch(error => { document.body.dataset.result = `FAIL: ${String(error)}`; });

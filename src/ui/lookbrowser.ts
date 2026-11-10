@@ -4,6 +4,8 @@ import { PACK, PACKS, lookName, stocksForPack, type PackId } from '../film/looks
 import type { StockId } from '../film/stocks';
 import { getSetting, setSetting } from '../library/appsettings';
 export interface LookChoice { key: string; pack: PackId; stock: StockId; name: string; bw: boolean; custom: boolean }
+/** A folder in the Look browser: a pack, one of Pat David's categories, or a built-in list. */
+export interface LookGroup { id: string; title: string; label: string; pack: PackId | null; entries: LookChoice[] }
 export const choiceKey = (pack: PackId, stock: StockId) => `${pack}:${stock}`;
 const monochrome = /b&w|black\s*(?:&|and)?\s*white|monochrome|\bmono\b|tri-x|hp5|acros|ilford/i;
 export function lookChoices(): LookChoice[] {
@@ -18,11 +20,38 @@ export function lookChoices(): LookChoice[] {
       custom: p.id === 'custom' };
   }));
 }
-interface BrowserPreferences { favourites: string[]; view: 'list' | 'grid' }
+/** Pat David's pack is browsed by category, in this order. */
+const GMIC_CATEGORIES: [string, string][] = [
+  ['Colour negative', 'Negative'],
+  ['Colour slide', 'Slide'],
+  ['Black & white', 'Black & white'],
+  ['Instant consumer', 'Instant consumer'],
+  ['Instant professional', 'Instant professional'],
+  ['Negative — newer', 'Negative (newer)'],
+  ['Negative — older', 'Negative (older)'],
+];
+/** The browser's folders before search and folder visibility are applied. */
+export function lookGroups(items: LookChoice[], favourites: string[]): LookGroup[] {
+  const groups: LookGroup[] = [
+    { id: 'favourites', title: 'Favourites', label: 'Favourites', pack: null, entries: items.filter(i => favourites.includes(i.key)) },
+    { id: 'custom', title: 'My looks', label: 'My looks', pack: 'custom', entries: items.filter(i => i.custom) },
+  ];
+  for (const p of PACKS.filter(p => !p.hidden && !p.user)) {
+    const entries = items.filter(i => i.pack === p.id);
+    if (p.id !== 'gmic-film') { groups.push({ id: p.id, title: p.name, label: p.name, pack: p.id, entries }); continue; }
+    for (const [category, label] of GMIC_CATEGORIES) groups.push({
+      id: `${p.id}:${category}`, title: `${p.name} - ${label}`, label, pack: p.id,
+      entries: entries.filter(i => PACK[i.pack].looks[i.stock]?.category === category),
+    });
+  }
+  return groups;
+}
+interface BrowserPreferences { favourites: string[]; view: 'list' | 'grid'; hiddenGroups: string[] }
 const KEY = 'emulsion.lookBrowser' as const;
+const strings = (v: unknown) => Array.isArray(v) ? v.filter((k: unknown): k is string => typeof k === 'string') : [];
 function read(): BrowserPreferences {
-  const p = getSetting(KEY) as { favourites?: unknown; view?: unknown } | null | undefined;
-  return { favourites: Array.isArray(p?.favourites) ? p.favourites.filter((k: unknown): k is string => typeof k === 'string') : [], view: p?.view === 'grid' ? 'grid' : 'list' };
+  const p = getSetting(KEY) as { favourites?: unknown; view?: unknown; hiddenGroups?: unknown } | null | undefined;
+  return { favourites: strings(p?.favourites), view: p?.view === 'grid' ? 'grid' : 'list', hiddenGroups: strings(p?.hiddenGroups) };
 }
 export const useLookBrowser = create<BrowserPreferences>(() => read());
 function save(next: BrowserPreferences) {
@@ -34,3 +63,12 @@ export function toggleLookFavourite(key: string) {
   save({ ...p, favourites: p.favourites.includes(key) ? p.favourites.filter(k => k !== key) : [...p.favourites, key] });
 }
 export function setLookBrowserView(view: BrowserPreferences['view']) { save({ ...useLookBrowser.getState(), view }); }
+/** Show or hide one folder in the Look browser. */
+export function toggleLookGroup(id: string) {
+  const p = useLookBrowser.getState();
+  save({ ...p, hiddenGroups: p.hiddenGroups.includes(id) ? p.hiddenGroups.filter(k => k !== id) : [...p.hiddenGroups, id] });
+}
+/** Replace the hidden set, for hiding or showing every folder in a pack at once. */
+export function setHiddenLookGroups(ids: string[]) {
+  save({ ...useLookBrowser.getState(), hiddenGroups: [...new Set(ids)] });
+}

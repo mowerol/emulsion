@@ -188,6 +188,32 @@ export interface AiMaskStatus { supported: boolean; installed: boolean; download
 export const aiMaskStatus = () => invoke<AiMaskStatus>('ai_mask_status');
 export const aiMaskInstall = () => invoke<void>('ai_mask_install');
 
+/** Local Remove model (src-tauri/src/inpaint_commands.rs); download needs explicit UI consent. */
+export interface RemoveStatus { supported: boolean; installed: boolean; download: number; model: string }
+export const removeStatus = () => invoke<RemoveStatus>('remove_status');
+export const removeInstall = () => invoke<void>('remove_install');
+
+/** Restore a completed patch without decoding/preparing its crop or loading a model. */
+export async function removeCachedPatch(key: string): Promise<Uint8Array | null> {
+  if (!/^[0-9a-f]{28}$/.test(key)) throw new Error('Invalid Remove patch key.');
+  const pixels = new Uint8Array(await invoke<ArrayBuffer>('remove_cached_patch', { key }));
+  if (!pixels.length) return null;
+  if (pixels.length !== 512 * 512 * 4) throw new Error('Invalid Remove patch size.');
+  return pixels;
+}
+
+/** Fill a 512² sRGB crop. Positive mask bytes select the area to remove. */
+export async function removeInpaint(key: string, image: Uint8Array, mask: Uint8Array): Promise<Uint8Array> {
+  const pixels = 512 * 512;
+  if (!/^[0-9a-f]{28}$/.test(key) || image.length !== pixels * 4 || mask.length !== pixels) throw new Error('Invalid Remove crop, mask or patch key.');
+  const body = new Uint8Array(pixels * 5);
+  body.set(image);
+  body.set(mask, image.length);
+  const result = new Uint8Array(await invoke<ArrayBuffer>('remove_inpaint', body, { headers: { 'x-emulsion-key': key } }));
+  if (result.length !== pixels * 4) throw new Error('Invalid Remove patch size.');
+  return result;
+}
+
 /** Encode a photo for object selection: RGBA8, top row first, of the whole uncropped source. */
 export function segmentEncode(key: string, rgba: Uint8Array, width: number, height: number) {
   return invoke<void>('segment_encode', rgba, {

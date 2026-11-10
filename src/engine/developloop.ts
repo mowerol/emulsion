@@ -10,6 +10,10 @@
 // had: frames skipped rather than queued while dragging, drafts when held frames miss the
 // display's pace, a stand-in while the view moves, preparation stepped between GPU fences, and an
 // exact render once nothing changes.
+import { RemoveQueue, removeContext, removalIdentity, type RemoveState, type RemoveContext } from './removequeue';
+import type { PatchRequest } from './remove';
+import type { CaptureInfo } from '../backend/api';
+import { noiseEnabled } from '../film/noisereduction';
 import { Engine, type HalfImage, type Source, type View, type CaptureWork } from './engine';
 import { InputMode } from './params';
 import type { Recipe } from '../film/recipe';
@@ -67,6 +71,8 @@ export interface FrameState {
   /** Counts states; frames report the one they showed. */
   seq: number;
   source: number;
+  /** Original file's size/mtime; independent of preview dimensions and virtual-copy identity. */
+  sourceVersion?: string;
   /** With the full resolution showing, the same photo's preview (the whole photo's products). */
   whole: number | null;
   /** Whether the source is the photo's own size (not a camera thumbnail standing in). */
@@ -111,16 +117,24 @@ export type ToLoop =
   | { type: 'request'; id: number; call: 'sampleMaskInput'; key: number; recipe: Recipe; mask: number; box: View }
   | { type: 'request'; id: number; call: 'readPixels'; key: number; recipe: Recipe | null; w: number; h: number; seed: number }
   | { type: 'request'; id: number; call: 'captureState' }
+  | { type: 'retryRemovals'; photo: string }
+  | { type: 'removeReply'; id: number; value?: Uint8Array | null | CaptureInfo | { img: HalfImage; capture?: CaptureInfo }; error?: string }
   | { type: 'dispose' };
 
 /** Time spent preparing exact detail, separate from the final cached screen draw. */
 export interface PreparationStat { steps: number; cpuMs: number; elapsedMs: number; resumeMs: number; maxStepMs: number; capture?: CaptureWork }
 /** A finished screen render, for the perf driver: times are this realm's performance.now(). */
 export interface FrameStat { seq: number; start: number; cpu: number; done: number; srcW: number; detail: boolean; draft: boolean; preparation?: PreparationStat;
-  captureCache?: Engine['captureCacheStat']; memory?: { retainedMiB: number; peakMiB: number } }
+  captureCache?: Engine['captureCacheStat']; memory?: { retainedMiB: number; peakMiB: number }; denoise?: Engine['profiledWork'] }
 export interface CaptureState { cache: Engine['captureCacheStat']; work: CaptureWork; memory?: FrameStat['memory'] }
 
 export type FromLoop =
+  | { type: 'removeSource'; id: number; path: string; noise: boolean; capture: boolean }
+  | { type: 'removeInfer'; id: number; request: PatchRequest }
+  | { type: 'removeCached'; id: number; key: string }
+  | { type: 'removeCapture'; id: number; path: string; width: number; height: number }
+  | { type: 'removeState'; photo: string; states: RemoveState[] }
+  | { type: 'presented'; photo: string }
   | { type: 'ready'; maxTextureSize: number; timeOrigin: number }
   | { type: 'error'; message: string }
   | { type: 'warn'; message: string }
@@ -168,9 +182,22 @@ export class DevelopLoop {
   private workChannel: MessageChannel;
   private workId = 0;
   private work = new Map<number, () => void>();
+  private removalCancels = new Set<() => void>();
+  private removalIds = 0;
+  private removalReplies = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
+  private removalContext: RemoveContext | null = null;
+  private disposed = false;
+  private presentedPhoto: string | null = null;
+  private removalStates: RemoveState[] = [];
+  private removals = new RemoveQueue((r, c, recipe) => this.prepareRemoval(r, c, recipe),
+    r => this.removalCall<Uint8Array>({ type: 'removeInfer', request: r }), states => {
+      this.removalStates = states;
+      this.post({ type: 'removeState', photo: this.state?.histogramFor ?? '', states });
+      if (!this.disposed) this.queueWork(() => { if (!this.disposed) this.restart(); });
+    }, r => this.removalCall<Uint8Array | null>({ type: 'removeCached', key: r.key }));
   private memory: ReturnType<typeof trackTextures> | null = null;
 
-  constructor(private canvas: HTMLCanvasElement | OffscreenCanvas, private post: (m: FromLoop, transfer?: Transferable[]) => void, retouchWorker?: Worker, stats = false) {
+  constructor(canvas: HTMLCanvasElement | OffscreenCanvas, private post: (m: FromLoop, transfer?: Transferable[]) => void, retouchWorker?: Worker, stats = false) {
     if (stats) this.memory = trackTextures();
     this.engine = new Engine(canvas);
     this.engine.cacheCapture = (import.meta as { env?: Record<string, string> }).env?.VITE_CAPTURE_CACHE !== '0';
@@ -227,11 +254,89 @@ export class DevelopLoop {
           this.restart();
           break;
         case 'request': this.request(m); break;
+        case 'retryRemovals': if (m.photo === this.state?.histogramFor) this.removals.retry(); break;
+        case 'removeReply': {
+          const reply = this.removalReplies.get(m.id);
+          this.removalReplies.delete(m.id);
+          if (m.error) reply?.reject(new Error(m.error)); else reply?.resolve(m.value);
+          break;
+        }
         case 'dispose': this.dispose(); break;
       }
     } catch (err) {
       this.post({ type: 'error', message: failure(err) });
     }
+  }
+
+  private removalCall<T>(message: Omit<Extract<FromLoop, { type: 'removeCached' }>, 'id'> | Omit<Extract<FromLoop, { type: 'removeSource' }>, 'id'> | Omit<Extract<FromLoop, { type: 'removeInfer' }>, 'id'> | Omit<Extract<FromLoop, { type: 'removeCapture' }>, 'id'>): Promise<T> {
+    const id = ++this.removalIds;
+    return new Promise<T>((resolve, reject) => {
+      this.removalReplies.set(id, { resolve: value => resolve(value as T), reject });
+      this.post({ ...message, id });
+    });
+  }
+
+  private updateRemovals(st: FrameState) {
+    const src = this.sources.get(st.source), recipe = st.recipe;
+    if (!src || !st.sizeKnown || !recipe?.retouch.some(s => s.tool === 'remove' && s.opacity > 0)) {
+      if (this.removalContext) { this.removalContext = this.engine.removeContext = null; this.removals.clear(); }
+      return;
+    }
+    const preview = (st.whole !== null ? this.sources.get(st.whole) : undefined) ?? src;
+    const identity = removalIdentity(src, st.histogramFor, st.sourceVersion);
+    const patches = this.removalContext?.identity === identity ? this.removalContext.patches : new Map();
+    const context = removeContext(identity, recipe, preview.w / preview.fullW, patches);
+    this.removalContext = this.engine.removeContext = context;
+    this.removals.update(context, recipe, src.fullW, src.fullH);
+  }
+
+  private async prepareRemoval(request: PatchRequest, context: RemoveContext, recipe: Recipe): Promise<PatchRequest['input']> {
+    // Even a small spot must get the full crop, independent of the visible region and its k.
+    const st = this.state!, active = this.sources.get(st.source)!;
+    const preview = (st.whole !== null ? this.sources.get(st.whole) : undefined) ?? active;
+    let src = preview, owned = false;
+    const available = [...this.sources.values()].find(s => s.origin === active.origin && s.w === s.fullW && s.h === s.fullH && s.mode === active.mode && !!s.denoised === !!active.denoised);
+    if (request.source === 'full') {
+      if (available) src = available;
+      else {
+        if (!active.origin) throw Error('Remove needs the original photo.');
+        const result = await this.removalCall<{ img: HalfImage; capture?: CaptureInfo }>({ type: 'removeSource', path: active.origin,
+          noise: noiseEnabled(recipe), capture: recipe.captureSharpening > 0 });
+        if (!this.removals.wants(context, request)) return undefined;
+        src = { ...this.engine.sourceFromHalf(result.img), origin: active.origin };
+        owned = true;
+        if (result.capture) this.engine.attachCapture(src, result.capture.radius, result.capture.toCam, result.capture.mask);
+      }
+    }
+    const source = src;
+    try {
+      if (recipe.captureSharpening > 0 && src.mode === InputMode.SceneLinear && !src.capture && src.origin) {
+        const cap = await this.removalCall<CaptureInfo>({ type: 'removeCapture', path: src.origin, width: src.w, height: src.h });
+        if (!this.removals.wants(context, request) || !owned && ![...this.sources.values()].includes(src)) {
+          return undefined;
+        }
+        this.engine.attachCapture(src, cap.radius, cap.toCam, cap.mask);
+      }
+      const steps = this.engine.prepareRemove(source, recipe, request, context);
+      return await new Promise<PatchRequest['input']>((resolve, reject) => {
+        let timer: ReturnType<typeof setTimeout>, cancelWork = () => {};
+        const clean = () => { clearTimeout(timer); cancelWork(); this.removalCancels.delete(cancel); };
+        const cancel = () => { clean(); steps.return(undefined); resolve(undefined); };
+        this.removalCancels.add(cancel);
+        const next = () => {
+          if (this.disposed || !this.removals.wants(context, request) || !owned && ![...this.sources.values()].includes(source)) {
+            cancel(); return;
+          }
+          if (this.held || this.renderPending || !this.engine.idle()) { timer = setTimeout(next, 16); return; }
+          try {
+            const step = steps.next();
+            if (step.done) { clean(); resolve(step.value); }
+            else cancelWork = this.queueWork(next);
+          } catch (error) { clean(); steps.return(undefined); reject(error); }
+        };
+        timer = setTimeout(next, 0);
+      });
+    } finally { if (owned) this.engine.release(source); }
   }
 
   private request(m: Extract<ToLoop, { type: 'request' }>) {
@@ -291,12 +396,8 @@ export class DevelopLoop {
       this.engine.clearCaptureCache();
     }
     this.state = next;
+    this.updateRemovals(next);
     if (next.full) this.captureSource = next.source;
-    // The main thread can't size a canvas it handed over: the loop does (only on a change, which clears it).
-    if (next.width && (this.canvas.width !== next.width || this.canvas.height !== next.height)) {
-      this.canvas.width = next.width;
-      this.canvas.height = next.height;
-    }
     Engine.detailOrder = next.detailOrder;
     this.engine.retouchShow = next.retouchShow;
     this.warmed.clear();
@@ -372,6 +473,14 @@ export class DevelopLoop {
         this.onRelease.add(afterRelease);
         return;
       }
+      // A saved removal is part of the first frame. Do not publish the original while
+      // restoring it; yield foreground admission so a genuine miss can prepare its crop.
+      if (!st.compare && this.presentedPhoto !== st.histogramFor && st.recipe?.retouch.some(s => s.tool === 'remove' && s.opacity > 0) &&
+        (!st.sizeKnown || this.removalStates.some(s => s.status === 'pending'))) {
+        this.renderPending = false;
+        id = raf(() => tick(moving, settled));
+        return;
+      }
       const motionLeft = VIEW_SETTLE_MS - (performance.now() - this.viewMotion);
       if (settled && motionLeft > 0) {
         settle = setTimeout(() => { id = raf(() => tick(false, true)); }, motionLeft) as unknown as number;
@@ -431,6 +540,8 @@ export class DevelopLoop {
         }
         const t0 = performance.now();
         engine.render(source, st.recipe, renderOpts);
+        this.presentedPhoto = st.histogramFor;
+        this.post({ type: 'presented', photo: st.histogramFor });
         if (this.stats) this.frameStat(st.seq, t0, source, !!draft, preparationStat.steps ? { ...preparationStat, capture: { ...engine.captureWork } } : undefined);
         this.sharpening(false);
         if (!live) this.releasePending = false;
@@ -485,7 +596,7 @@ export class DevelopLoop {
     const poll = () => {
       if (gl.getSyncParameter(sync, gl.SYNC_STATUS) !== gl.SIGNALED) { setTimeout(poll, 1); return; }
       gl.deleteSync(sync);
-      this.post({ type: 'frame', stat: { seq, start, cpu, done: performance.now(), srcW: source.w, detail, draft, preparation, captureCache, memory } });
+      this.post({ type: 'frame', stat: { seq, start, cpu, done: performance.now(), srcW: source.w, detail, draft, preparation, captureCache, memory, denoise: this.engine.profiledWork } });
     };
     setTimeout(poll, 1);
   }
@@ -571,6 +682,11 @@ export class DevelopLoop {
   }
 
   dispose() {
+    this.disposed = true;
+    this.removals.clear();
+    for (const cancel of this.removalCancels) cancel();
+    for (const reply of this.removalReplies.values()) reply.reject(new Error('engine closed'));
+    this.removalReplies.clear();
     this.captureCancel();
     this.cancel();
     this.work.clear();

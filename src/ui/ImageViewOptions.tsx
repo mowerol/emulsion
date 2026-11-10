@@ -24,8 +24,8 @@ export function ImageViewOptions() {
   }}>
     <button ref={button} type="button" className="image-view-toggle" aria-expanded={open} aria-controls="image-view-settings" onClick={() => setOpen(!open)}>View <span aria-hidden="true">▾</span></button>
     {open && <div id="image-view-settings" className="image-view-settings" role="group" aria-label="Image view options">
-      <label className="image-view-columns">Photo columns <select aria-label="Photo columns" value={columns} onChange={e => setWorkspace({ imageColumns: e.target.value === '1' ? 1 : 2 })}>
-        <option value={1}>1 column</option><option value={2}>2 columns</option>
+      <label className="image-view-columns">Photo columns <select aria-label="Photo columns" value={columns} onChange={e => setWorkspace({ imageColumns: Number(e.target.value) as 1 | 2 | 3 })}>
+        <option value={1}>1 column</option><option value={2}>2 columns</option><option value={3}>3 columns</option>
       </select></label>
       <label className="image-view-fold"><input type="checkbox" checked={fold} disabled={!pairs} onChange={e => setFoldJpegs(e.target.checked)} /> Fold JPEGs</label>
     </div>}

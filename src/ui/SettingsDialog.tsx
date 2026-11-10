@@ -1,0 +1,106 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Emulsion › Settings… (⌘,): the app's preferences in one place. Each control writes the same store
+// its menu item or in-place control does, so the View menu, the photo menu and the Remove row stay
+// in step. Nothing here belongs to a photo.
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
+import { exportSettings, importSettings, restoreSettings, showBackups } from '../library/backups';
+import { setFoldJpegs, setStageColor, STAGE_COLORS, useApp, type State } from '../library/store';
+import { CROP_OVERLAYS, setPrefs, setTheme, THEMES, usePrefs, type InterfacePreferences } from './prefs';
+import { setWorkspace, useWorkspace } from './workspace';
+import { setEachStroke, useRetouchUi } from './retouchui';
+import { onOpenSettings } from './menubridge';
+
+function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+  return <div className="settings-row">
+    <div className="settings-label"><span>{label}</span>{hint && <small>{hint}</small>}</div>
+    <div className="settings-control">{children}</div>
+  </div>;
+}
+
+function Seg<T extends string | number>({ label, value, options, onChange }: {
+  label: string; value: T; options: { id: T; label: string }[]; onChange: (v: T) => void;
+}) {
+  return <div className="seg" role="group" aria-label={label}>
+    {options.map(o => <button key={o.id} type="button" aria-pressed={o.id === value} onClick={() => onChange(o.id)}>{o.label}</button>)}
+  </div>;
+}
+
+function Sheet({ onClose }: { onClose: () => void }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const prefs = usePrefs();
+  const columns = useWorkspace(w => w.imageColumns);
+  const stageColor = useApp(s => s.stageColor);
+  const foldJpegs = useApp(s => s.foldJpegs);
+  const eachStroke = useRetouchUi(u => u.eachStroke);
+  useLayoutEffect(() => {
+    const dialog = ref.current!;
+    dialog.showModal();
+    return () => dialog.close();
+  }, []);
+  // The backup actions open native dialogs and may reload the window: close the sheet first.
+  const then = (run: () => Promise<unknown>) => () => { onClose(); void run(); };
+
+  return <dialog ref={ref} className="dialog settings-dialog" aria-labelledby="settings-title"
+    onCancel={e => { e.preventDefault(); onClose(); }} onKeyDown={e => e.stopPropagation()}
+    onClick={e => { if (e.target === ref.current) onClose(); }}>
+    <header>
+      <h2 id="settings-title">Settings</h2>
+      <button type="button" className="btn" onClick={onClose}>Done</button>
+    </header>
+    <div className="settings-sections">
+      <section aria-labelledby="settings-appearance">
+        <h3 id="settings-appearance">Appearance</h3>
+        <Row label="Theme" hint="Also sets the workspace colour to match">
+          <Seg label="Theme" value={prefs.theme} options={THEMES} onChange={setTheme} />
+        </Row>
+        <Row label="Workspace colour" hint="Round the photo in Develop">
+          <select aria-label="Workspace colour" value={stageColor} onChange={e => setStageColor(e.target.value as State['stageColor'])}>
+            {STAGE_COLORS.map(c => <option key={c.id} value={c.id}>{c.label}</option>)}
+          </select>
+        </Row>
+      </section>
+
+      <section aria-labelledby="settings-library">
+        <h3 id="settings-library">Library</h3>
+        <Row label="Fold JPEGs into RAWs" hint="A RAW and a JPEG of the same shot show as one photo">
+          <input type="checkbox" aria-label="Fold JPEGs into RAWs" checked={foldJpegs} onChange={e => setFoldJpegs(e.target.checked)} />
+        </Row>
+        <Row label="Capture settings under thumbnails">
+          <input type="checkbox" aria-label="Capture settings under thumbnails" checked={prefs.libraryExif} onChange={e => setPrefs({ libraryExif: e.target.checked })} />
+        </Row>
+        <Row label="Photo columns" hint="In Develop's Images pane">
+          <Seg label="Photo columns" value={columns} options={[1, 2, 3].map(n => ({ id: n as 1 | 2 | 3, label: String(n) }))} onChange={n => setWorkspace({ imageColumns: n })} />
+        </Row>
+      </section>
+
+      <section aria-labelledby="settings-tools">
+        <h3 id="settings-tools">Tools</h3>
+        <Row label="Crop overlay" hint="O steps through them while cropping">
+          <select aria-label="Crop overlay" value={prefs.cropOverlay} onChange={e => setPrefs({ cropOverlay: e.target.value as InterfacePreferences['cropOverlay'] })}>
+            {CROP_OVERLAYS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+          </select>
+        </Row>
+        <Row label="Remove after each stroke" hint="Off: strokes wait for Apply (↵)">
+          <input type="checkbox" aria-label="Remove after each stroke" checked={eachStroke} onChange={e => setEachStroke(e.target.checked)} />
+        </Row>
+      </section>
+
+      <section aria-labelledby="settings-data">
+        <h3 id="settings-data">Looks, presets and profiles</h3>
+        <p className="settings-note">Your looks, presets, camera profiles and these settings are backed up every day.</p>
+        <div className="settings-actions">
+          <button type="button" className="btn" onClick={then(exportSettings)}>Export…</button>
+          <button type="button" className="btn" onClick={then(importSettings)}>Import…</button>
+          <button type="button" className="btn" onClick={then(restoreSettings)}>Restore from Backup…</button>
+          <button type="button" className="btn" onClick={then(showBackups)}>Show Backups</button>
+        </div>
+      </section>
+    </div>
+  </dialog>;
+}
+
+export function SettingsDialog() {
+  const [open, setOpen] = useState(false);
+  useEffect(() => onOpenSettings(() => setOpen(true)), []);
+  return open ? <Sheet onClose={() => setOpen(false)} /> : null;
+}

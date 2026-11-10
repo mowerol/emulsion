@@ -9,7 +9,7 @@ export const PRESET_GROUPS = {
   Curve: ['curve'],
   Colour: ['vibrance', 'saturation', 'color'],
   'Colour Grading': ['grading'],
-  Detail: ['noiseReduction', 'texture', 'clarity', 'dehaze', 'dehazeDistance', 'captureSharpening', 'sharpen', 'sharpenRadius', 'sharpenMasking'],
+  Detail: ['noiseReduction', 'profiledDenoise', 'texture', 'clarity', 'dehaze', 'dehazeDistance', 'captureSharpening', 'sharpen', 'sharpenRadius', 'sharpenMasking'],
   Effects: ['fade', 'halation', 'glow', 'vignette'],
   Grain: ['push', 'grain', 'grainIso', 'grainMidtones'],
   'Film options': ['scanner', 'scannerFromLook'],

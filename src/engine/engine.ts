@@ -1,5 +1,9 @@
+import { removeSetup, type RemoveContext } from './removequeue';
+import type { PatchRequest } from './remove';
 import noiseShader from './shaders/noise.frag.glsl?raw';
-import { noiseEnabled } from '../film/noisereduction';
+import { effectiveProfiled, noiseEnabled, profiledEnabled } from '../film/noisereduction';
+import { ProfiledDenoiser } from './denoisegpu';
+import { denoiseSetup, domainMatrices, GENERIC_NOISE, wbFromNeutral, type DenoiseSetup } from './denoiseprofile';
 import { RetouchCache, reducedRegion, retouchReduced, retouchInputs, type RetouchSetup, type Roi } from './retouch';
 import { BrushGpu, brushShapes, brushSize } from './brushgpu';
 import { ObjectGpu, objectLayers, objectShapes } from './objectgpu';
@@ -37,7 +41,7 @@ import { DEFAULTS as CE, SAT_SHIFT, WHITE, colorEqLuts, pixelUvl, type ColorEqLu
 import { BRIGHT_RANGE, HUE_DEGREES, HUE_MAX, SAT_RANGE, type ColorAdjust } from '../film/recipe';
 import { autoContrast, borderFor, gaussian1d, iterationsFor, kernelFor, TILE } from './capture';
 import { columnMajor } from './color';
-import type { Mat3 } from '../film/stocks';
+import type { Mat3, Vec3 } from '../film/stocks';
 import { CURVE_RES } from '../film/curve';
 import { composedCurveTable, lookColorFor } from '../film/creative';
 import { profileSettingsFor } from '../film/looks';
@@ -330,9 +334,12 @@ class Lane {
   /** Bounded live colour keeps its working images when the exact preview is rendered. */
   ceDraft: ColorCache | null = null;
   noiseMade: { input: WebGLTexture; amount: number; out: Target } | null = null;
+  /** denoise (profiled), after the AI blend: its input, settings key and output. */
+  /** `approx`: made smaller during a drag; `live`: made while a pointer was held (capture sharpening waits). */
+  profMade: { input: WebGLTexture; key: string; out: Target; approx?: boolean; live?: boolean } | null = null;
   lensMade: { input: WebGLTexture; key: string; out: Target } | null = null;
   /** The retouched source: made from `input` at 1/k for `spots`; `src` is the source it stands for. */
-  retouchMade: { input: WebGLTexture; spots: string; k: number; out: Target; src: Source } | null = null;
+  retouchMade: { input: WebGLTexture; spots: string; removeKey: string; k: number; out: Target; src: Source } | null = null;
   /** The camera profile's early pass, kept per source. */
   profileEarly: ProfileEarly = { early: null };
   /** Haze removal's targets for the latest source size (see dehazeMap), and what they were made from. */
@@ -384,7 +391,7 @@ export class Engine {
   captureWork: CaptureWork = { builds: 0, hits: 0, steps: 0, cpuMs: 0, elapsedMs: 0, thresholdMs: 0 };
   /** One full-resolution result, independent of preview/histogram lane ownership. */
   cacheCapture = true;
-  private fullCapture: Pick<Lane, 'csOut' | 'csMade' | 'noiseMade'> = { csOut: null, csMade: null, noiseMade: null };
+  private fullCapture: Pick<Lane, 'csOut' | 'csMade' | 'noiseMade' | 'profMade'> = { csOut: null, csMade: null, noiseMade: null, profMade: null };
   private captureOwner: Source | null = null;
   private captureInputs: ReturnType<Engine['captureKey']> = null;
   private captureBuilding = false;
@@ -401,6 +408,8 @@ export class Engine {
     }
     const noise = this.fullCapture.noiseMade?.out;
     if (noise) bytes += noise.w * noise.h * 8;
+    const prof = this.fullCapture.profMade?.out;
+    if (prof) bytes += prof.w * prof.h * 8;
     return { generation: this.captureGeneration, ready: !!this.fullCapture.csMade, preparing: !!out && !this.fullCapture.csMade, steps: this.capturePasses, buildMs: this.captureBuildMs, retainedMiB: bytes / 2 ** 20 };
   }
   /** The lane for the whole photo, the lane for a region shown at full resolution, and the one in use. */
@@ -442,7 +451,14 @@ export class Engine {
    *  remakes it, as its key no longer matches. */
   private mapsHeld = false;
   /** Whether the last screen render was live and narrowed a map, so an exact one is owed. */
-  get inexact() { return this.regionLive || this.regionClarityScaled || this.regionFromPreview || this.mapsHeld; }
+  get inexact() { return this.regionLive || this.regionClarityScaled || this.regionFromPreview || this.mapsHeld || this.profiledOwed; }
+  /**
+   * A screen render showed a source without its denoise (profiled), which it had no result for
+   * yet (a photo just opened, a region just made): the refining render builds it in steps.
+   */
+  private profiledOwed = false;
+  /** This render's denoise (profiled) builds, for the perf driver: sizes made (× the reduction). */
+  profiledWork = { builds: 0, cpuMs: 0, sizes: [] as string[] };
   /**
    * Whether the last screen render showed the preview in place of a region it would have had to
    * build (`moving`): render again once the view settles to show the full resolution.
@@ -481,12 +497,14 @@ export class Engine {
   private outs: Lru<Target>;
   private store: number;
   private noiseP: Program;
+  private denoiser: ProfiledDenoiser | null = null;
   private lensP: Program;
   /** Each spot's last result, so moving one spot does not heal the others again. */
   private retouchCache = new RetouchCache();
-  private retouchAsync: { worker: Worker; onDone: () => void; job: { id: number; src: Source; spots: string; k: number; region: Roi; lane: Lane; released: boolean } | null } | null = null;
+  private retouchAsync: { worker: Worker; onDone: () => void; job: { id: number; src: Source; spots: string; removeKey: string; k: number; region: Roi; lane: Lane; released: boolean } | null } | null = null;
   private retouchJobs = 0;
   private retouchFbo: WebGLFramebuffer | null = null;
+  private removalLane: Lane;
   private dehazeGfP: Program;
 
   constructor(canvas: HTMLCanvasElement | OffscreenCanvas) {
@@ -510,6 +528,7 @@ export class Engine {
     this.whole = new Lane(this.gpu, programs);
     this.region = new Lane(this.gpu, programs);
     this.display = new Lane(this.gpu, programs);
+    this.removalLane = new Lane(this.gpu, programs);
     this.L = this.whole;
     this.sampleP = this.gpu.program(SHADERS.vertex, SHADERS.sample);
     this.blurP = this.gpu.program(SHADERS.vertex, SHADERS.blur);
@@ -664,6 +683,8 @@ export class Engine {
     this.gpu.gl.deleteTexture(src.tex);
     if (src.denoised) this.gpu.gl.deleteTexture(src.denoised);
     this.eachLane(() => {
+      const prof = this.L.profMade;
+      if (prof && (prof.input === src.tex || prof.input === src.denoised || prof.input === this.L.noiseMade?.out.tex && this.L.noiseMade.input === src.tex)) { this.gpu.free(prof.out); this.L.profMade = null; }
       if (this.L.noiseMade?.input === src.tex) { this.gpu.free(this.L.noiseMade.out); this.L.noiseMade = null; }
       if (this.L.dh?.input === src.tex || this.L.dhLive?.input === src.tex || this.L.dhMasked.some((d) => d.input === src.tex)) this.freeDehaze();
       if (this.L.dhAmbient?.input === src.tex) this.L.dhAmbient = null;
@@ -679,7 +700,7 @@ export class Engine {
   private eachLane(f: () => void) {
     const was = this.L;
     try {
-      for (const lane of [this.whole, this.region, this.display]) {
+      for (const lane of [this.whole, this.region, this.display, this.removalLane]) {
         this.L = lane;
         f();
       }
@@ -700,6 +721,7 @@ export class Engine {
     this.freeDehaze();
     L.dhAmbient = null;
     if (L.noiseMade) g.free(L.noiseMade.out);
+    if (L.profMade) g.free(L.profMade.out);
     if (L.lensMade) g.free(L.lensMade.out);
     if (L.retouchMade) g.free(L.retouchMade.out);
     if (L.csOut) g.free(L.csOut);
@@ -720,7 +742,7 @@ export class Engine {
     L.stack.release();
     L.brushes.reset();
     L.objects.reset();
-    L.noiseMade = L.lensMade = L.retouchMade = L.eq = L.usm = L.ce = null;
+    L.noiseMade = L.profMade = L.lensMade = L.retouchMade = L.eq = L.usm = L.ce = null;
     L.csOut = null;
     L.profileEarly.early = null;
     L.csMade = L.eqMade = L.eqPhoto = L.usmMade = L.ceMade = L.ceScene = L.ceLookMade = L.llMade = L.refineMade = null;
@@ -1130,7 +1152,8 @@ export class Engine {
       this.gpu.free(c.csOut);
     }
     if (c.noiseMade) this.gpu.free(c.noiseMade.out);
-    c.csOut = c.csMade = c.noiseMade = null;
+    if (c.profMade) this.gpu.free(c.profMade.out);
+    c.csOut = c.csMade = c.noiseMade = c.profMade = null;
     this.captureOwner = null;
     this.captureInputs = null;
     this.captureBuildMs = 0;
@@ -1148,7 +1171,7 @@ export class Engine {
     const iterations = this.captureIterations(src, recipe);
     if (!iterations) return null;
     const amount = noiseEnabled(recipe) && src.denoised ? recipe!.noiseReduction!.amount / 100 : 0;
-    return [src.tex, src.capture, src.denoised, amount, iterations, src.w, src.h] as const;
+    return [src.tex, src.capture, src.denoised, amount, iterations, src.w, src.h, this.profiledJob(src, recipe)?.key ?? null] as const;
   }
 
   private captureInputsMatch(src: Source, recipe: Recipe | null) {
@@ -1186,7 +1209,7 @@ export class Engine {
     let complete = false;
     this.captureBuilding = true;
     try {
-      const input = this.noiseReduced(src, recipe, this.fullCapture);
+      const input = yield* this.profiledSteps(this.aiBlended(src, recipe, this.fullCapture), recipe, this.fullCapture, false);
       const tex = yield* this.captureSteps(input, iterations, this.fullCapture);
       if (building) this.captureBuildMs = performance.now() - started;
       complete = true;
@@ -1223,7 +1246,9 @@ export class Engine {
     const lens = src.mode === InputMode.SceneLinear && src.lens?.correction ? lensSpline(src.lens.correction, src.w, src.h, recipe.lens ?? null) : null;
     const usm = usmParams(recipe.sharpen ?? 0, recipe.sharpenRadius ?? 0.5, recipe.sharpenMasking ?? 0);
     const dehazeCount = Number(recipe.dehaze !== 0) + recipe.masks.filter(m => maskActive(m) && m.dehaze !== 0).length;
+    const profiled = compare ? null : this.profiledJob(src, recipe);
     const setup = {
+      denoise: profiled?.setup.scales ?? 0,
       capture: iterations > 0 ? { sigma: src.capture!.radius * scale, iterations } : undefined,
       lens: lens ? { spline: lens, W: src.w, H: src.h } : null,
       dehaze: !compare && dehazeCount > 0 ? scale : null,
@@ -1502,6 +1527,7 @@ export class Engine {
       this.L.ceMade = null;
     }
     if (this.L.noiseMade?.out.w === w && this.L.noiseMade.out.h === h) { this.gpu.free(this.L.noiseMade.out); this.L.noiseMade = null; }
+    if (this.L.profMade?.out.w === w && this.L.profMade.out.h === h) { this.gpu.free(this.L.profMade.out); this.L.profMade = null; }
   }
 
   private chain(w: number, h: number): Chain {
@@ -2235,9 +2261,15 @@ export class Engine {
 
   /** Correct the RAW once, before all analysis maps, crop and creative adjustments. Camera
    * JPEG previews already have manufacturer corrections and never enter this pass. */
-  /** Cached RAW strength blend, before capture sharpening and lens correction. */
-  private noiseReduced(src: Source, recipe: Recipe | null, cache: Pick<Lane, 'noiseMade'> = this.L): Source {
-    if (src.captureApplied || !noiseEnabled(recipe) || !src.denoised) return src;
+  /** Noise reduction, before capture sharpening and lens correction: the AI blend, then denoise (profiled). */
+  private noiseReduced(src: Source, recipe: Recipe | null, cache: Pick<Lane, 'noiseMade' | 'profMade'> = this.L): Source {
+    if (src.captureApplied) return src;
+    return this.profiledDenoised(this.aiBlended(src, recipe, cache), recipe, cache);
+  }
+
+  /** Cached RAW strength blend of the AI result. */
+  private aiBlended(src: Source, recipe: Recipe | null, cache: Pick<Lane, 'noiseMade'>): Source {
+    if (!noiseEnabled(recipe) || !src.denoised) return src;
     const amount = recipe!.noiseReduction!.amount / 100;
     if (amount === 0) return src;
     if (amount === 1) return { ...src, tex: src.denoised };
@@ -2251,6 +2283,81 @@ export class Engine {
       cache.noiseMade = { input: src.tex, amount, out };
     }
     return { ...src, tex: cache.noiseMade.out.tex };
+  }
+
+  /**
+   * What denoise (profiled) would run on this source, or null when it is off or cannot run. A RAW
+   * runs in darktable's camera domain with the camera's profile; another image, as darktable
+   * opens it, on its encoded sRGB values with the generic profile and no white balance.
+   */
+  profiledJob(src: Source, recipe: Recipe | null): { setup: DenoiseSetup; toDt: Mat3; fromDt: Mat3; encode: boolean; key: string } | null {
+    const raw = src.mode === InputMode.SceneLinear;
+    const d = effectiveProfiled(recipe, raw);
+    if (!profiledEnabled(d) || !this.gpu.float32) return null;
+    if (raw && !src.camera) return null;
+    const profile = raw ? src.camera!.noise ?? GENERIC_NOISE : GENERIC_NOISE;
+    const id: Mat3 = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    const { toDt, fromDt } = raw ? domainMatrices(src.camera!.cameraToWorking, src.camera!.neutral, src.camera!.baselineGain) : { toDt: id, fromDt: id };
+    const wb = raw ? wbFromNeutral(src.camera!.neutral) : [1, 1, 1] as Vec3;
+    // darktable's roi_in->scale / iscale: this texture's pixels per full-resolution pixel.
+    const inScale = Math.min(1, pxScale(src));
+    const setup = denoiseSetup(profile, wb, { strength: d.strength, luma: d.luma / 100, chroma: d.chroma / 100, shadows: d.shadows, bias: d.bias }, inScale, src.fullW, src.fullH);
+    const encode = src.mode === InputMode.DisplayLinear;
+    const key = JSON.stringify([setup, toDt, encode, src.w, src.h]);
+    return { setup, toDt, fromDt, encode, key };
+  }
+
+  private profiledDenoised(src: Source, recipe: Recipe | null, cache: Pick<Lane, 'profMade'>): Source {
+    return this.drain(this.profiledSteps(src, recipe, cache, false));
+  }
+
+  /**
+   * denoise (profiled), cached per lane. With `defer`, a source it has no result for at all is
+   * returned as it is and the render marked inexact; a settings change (a slider drag) rebuilds
+   * at once, so the photo follows the slider.
+   */
+  private *profiledSteps(src: Source, recipe: Recipe | null, cache: Pick<Lane, 'profMade'>, defer: boolean, reduce = 1, live = false): Generator<void, Source> {
+    const job = this.profiledJob(src, recipe);
+    if (!job) return src;
+    const made = cache.profMade;
+    // A result made smaller during a drag stands in only while the pointer is still held.
+    if (made?.input === src.tex && made.key === job.key && (!made.approx || reduce > 1)) {
+      if (made.approx) this.profiledOwed = true;
+      // Once the pointer is up the exact result stands, and capture sharpening runs on it again.
+      if (!live) made.live = false;
+      return { ...src, tex: made.out.tex };
+    }
+    if (defer && made?.input !== src.tex) { this.profiledOwed = true; return src; }
+    if (made) this.gpu.free(made.out);
+    cache.profMade = null;
+    this.denoiser ??= new ProfiledDenoiser(this.gpu);
+    const started = performance.now();
+    this.profiledWork.builds++;
+    this.profiledWork.sizes.push(`${src.w}x${src.h}${reduce > 1 ? `/${reduce}` : ''}${src.roi ? ' region' : ''}`);
+    if (reduce > 1 && src.w / reduce >= 64 && src.h / reduce >= 64) {
+      // darktable's darkroom denoises at the zoom's scale (in_scale); so does this, with the
+      // copy's own scale, then scales it back up to the source. The settle makes it exact.
+      const d = this.denoiser;
+      const small = d.reduce(src.tex, src.w, src.h, reduce);
+      const smallSrc: Source = { ...src, tex: small.tex, w: small.w, h: small.h };
+      const sj = this.profiledJob(smallSrc, recipe)!;
+      let denoised: Target | null = null;
+      try {
+        denoised = d.run(small.tex, small.w, small.h, sj.setup, sj.toDt, sj.fromDt, false, sj.encode);
+        const out = d.enlarge(denoised.tex, src.w, src.h);
+        cache.profMade = { input: src.tex, key: job.key, out, approx: true, live };
+      } finally {
+        this.gpu.free(small);
+        if (denoised) this.gpu.free(denoised);
+      }
+      this.profiledOwed = true;
+      this.profiledWork.cpuMs += performance.now() - started;
+      return { ...src, tex: cache.profMade!.out.tex };
+    }
+    const out = yield* this.denoiser.steps(src.tex, src.w, src.h, job.setup, job.toDt, job.fromDt, false, job.encode);
+    cache.profMade = { input: src.tex, key: job.key, out, live };
+    this.profiledWork.cpuMs += performance.now() - started;
+    return { ...src, tex: out.tex };
   }
 
   private lensCorrected(src: Source, recipe: Recipe | null): Source {
@@ -2286,6 +2393,56 @@ export class Engine {
    * scale"), 0 for the photo. Only the interactive view sets it.
    */
   retouchShow = 0;
+  /** Active photo only; the queue replaces this context before a changed recipe renders. */
+  removeContext: RemoveContext | null = null;
+
+  private removalSetup(src: Source, recipe: Recipe, context = this.removeContext) {
+    if (!context) return undefined;
+    return { ...removeSetup(context, recipe), encoding: src.mode === InputMode.SceneLinear ? 'scene' as const
+      : src.mode === InputMode.DisplayEncoded ? 'srgb' as const : 'linear-srgb' as const };
+  }
+
+  /** Prepare all early stages, then read the complete crop with preceding spots at source scale.
+   * No view reduction, region source, asynchronous retouch stand-in or later edits are used. */
+  *prepareRemove(src: Source, recipe: Recipe, request: PatchRequest, context: RemoveContext): Generator<void, PatchRequest['input']> {
+    const job = { request, context, result: undefined as PatchRequest['input'] };
+    const steps = this.renderSteps(src, recipe, { target: 'screen', width: src.w, height: src.h, seed: 0, prepare: 'frame', removeInput: job });
+    // A suspended foreground region owns this.L and its clip until its next step. Restore
+    // them after every submission; removal has a separate lane and never takes over capture's
+    // retained full-source job. The denoiser's scratch belongs to each generator invocation.
+    const advance = (close = false) => {
+      const lane = this.L, clip = this.gpu.clip, inject = this.inject, cacheCapture = this.cacheCapture;
+      this.L = this.removalLane; this.gpu.clip = null; this.inject = null; this.cacheCapture = false;
+      try { return close ? steps.return(undefined) : steps.next(); }
+      finally { this.L = lane; this.gpu.clip = clip; this.inject = inject; this.cacheCapture = cacheCapture; }
+    };
+    try {
+      let next = advance();
+      while (!next.done) { this.fenceWork(); yield; next = advance(); }
+      return job.result;
+    } finally {
+      advance(true);
+      const lane = this.L;
+      this.L = this.removalLane;
+      try { this.freeLaneTargets(); } finally { this.L = lane; }
+    }
+  }
+
+  private collectRemoveInput(src: Source, recipe: Recipe, request: PatchRequest, context: RemoveContext): PatchRequest['input'] {
+    const scale = pxScale(src);
+    const at = recipe.retouch.findIndex(s => s.id === request.spot);
+    const crop = request.crop;
+    const x = Math.max(0, Math.floor(crop.x * scale)), y = Math.max(0, Math.floor(crop.y * scale));
+    const output = { x, y, w: Math.min(src.w, Math.ceil((crop.x + crop.w) * scale)) - x,
+      h: Math.min(src.h, Math.ceil((crop.y + crop.h) * scale)) - y };
+    const setup: RetouchSetup = { ...(recipe.retouchScales ?? { scales: 0, mergeFrom: 0 }), show: 0,
+      remove: this.removalSetup(src, recipe, context) };
+    const prefix = recipe.retouch.slice(0, at + 1);
+    const { region, spots } = retouchInputs(prefix, output, src.fullW, src.fullH, scale, src.w, src.h, setup);
+    const px = this.retouchRead(src, region);
+    retouchReduced(px, region, src.fullW, src.fullH, scale, spots, 1, this.retouchCache, setup);
+    return setup.remove?.requests.find(r => r.key === request.key)?.input;
+  }
 
   useRetouchWorker(worker: Worker, onDone: () => void) {
     this.retouchAsync = { worker, onDone, job: null };
@@ -2296,7 +2453,7 @@ export class Engine {
       a.job = null;
       if (!job.released) {
         const lane = this.L;
-        try { this.L = job.lane; this.retouchStore(job.src, job.spots, job.k, job.region, e.data.px); }
+        try { this.L = job.lane; this.retouchStore(job.src, job.spots, job.k, job.region, e.data.px, job.removeKey); }
         finally { this.L = lane; }
       }
       onDone();
@@ -2334,7 +2491,7 @@ export class Engine {
   }
 
   /** A copy of the source with `px` (the retouched region) written in, kept as the retouched source. */
-  private retouchStore(src: Source, spots: string, k: number, region: Roi, px: Float32Array): Target {
+  private retouchStore(src: Source, spots: string, k: number, region: Roi, px: Float32Array, removeKey: string): Target {
     const g = this.gpu;
     const gl = g.gl;
     if (this.L.retouchMade) g.free(this.L.retouchMade.out);
@@ -2348,7 +2505,7 @@ export class Engine {
     gl.texSubImage2D(gl.TEXTURE_2D, 0, region.x, region.y, region.w, region.h, gl.RGBA, gl.FLOAT, px);
     gl.generateMipmap(gl.TEXTURE_2D);
     g.params(true);
-    this.L.retouchMade = { input: src.tex, spots, k, out, src };
+    this.L.retouchMade = { input: src.tex, spots, removeKey, k, out, src };
     this.L.eqMade = null; this.L.eqPhoto = null; this.L.llMade = null; this.L.usmMade = null; this.L.ceMade = null; this.L.ceScene = null; this.L.ceLookMade = null;
     return out;
   }
@@ -2362,7 +2519,8 @@ export class Engine {
   private retouched(src: Source, recipe: Recipe | null, k = 1): Source {
     let spots = recipe?.retouch ?? [];
     const scales = recipe?.retouchScales ?? { scales: 0, mergeFrom: 0 };
-    const setup: RetouchSetup = { ...scales, show: scales.scales > 0 ? this.retouchShow : 0 };
+    const setup: RetouchSetup = { ...scales, show: scales.scales > 0 ? this.retouchShow : 0,
+      remove: recipe ? this.removalSetup(src, recipe) : undefined };
     if ((!spots.length && !setup.show) || !this.gpu.hdr) return src;
     const scale = pxScale(src);
     const [wholeW, wholeH] = wholeSize(src);
@@ -2374,7 +2532,9 @@ export class Engine {
     const region = { x, y, w: Math.min(src.w, global.x + global.w - ox) - x, h: Math.min(src.h, global.y + global.h - oy) - y };
     if (region.w <= 0 || region.h <= 0) return src;
     const inputRegion = { ...region, x: region.x + ox, y: region.y + oy };
-    const key = JSON.stringify([spots, setup]);
+    const key = JSON.stringify([spots, scales, setup.show, setup.remove && [setup.remove.base,
+      setup.remove.encoding, spots.map(s => [s.id, setup.remove!.patches.get(s.id)?.key])]]);
+    const removeKey = JSON.stringify(spots.filter(s => s.tool === 'remove').map(s => [s.id, setup.remove?.patches.get(s.id)?.key]));
     const made = this.L.retouchMade?.input === src.tex ? this.L.retouchMade : null;
     // A result made at a finer scale serves a coarser view (the histogram reuses the view's).
     if (made?.spots === key && made.k <= k) return { ...src, tex: made.out.tex };
@@ -2383,18 +2543,21 @@ export class Engine {
     // source's last result, or the same photo's other source (the preview while the full size is
     // retouched after zooming in). Only a photo with nothing to show yet is retouched in place.
     const stand = made ?? (this.L.retouchMade && src.origin && this.L.retouchMade.src.origin === src.origin ? this.L.retouchMade : null);
-    if (a && stand) {
+    // A stand-in made before a completed Remove arrived would resurrect the object.
+    // Apply changed patch pixels in this submission instead of publishing that stand-in.
+    if (a && stand && stand.removeKey === removeKey) {
       if (!a.job) {
         const id = ++this.retouchJobs;
-        a.job = { id, src, spots: key, k, region, lane: this.L, released: false };
+        a.job = { id, src, spots: key, removeKey, k, region, lane: this.L, released: false };
         const px = this.retouchRead(src, region);
         a.worker.postMessage({ id, px, region: inputRegion, W: src.fullW, H: src.fullH, scale, spots, k, setup }, [px.buffer]);
       }
       return { ...stand.src, tex: stand.out.tex };
     }
+    if (a?.job?.lane === this.L) a.job.released = true;
     const px = this.retouchRead(src, region);
     retouchReduced(px, inputRegion, src.fullW, src.fullH, scale, spots, k, this.retouchCache, setup);
-    return { ...src, tex: this.retouchStore(src, key, k, region, px).tex };
+    return { ...src, tex: this.retouchStore(src, key, k, region, px, removeKey).tex };
   }
 
   /**
@@ -2402,6 +2565,8 @@ export class Engine {
    * canvas when `target` is 'screen'.
    */
   render(src: Source, recipe: Recipe | null, opts: Parameters<Engine['renderSteps']>[2]): void {
+    this.profiledOwed = false;
+    this.profiledWork = { builds: 0, cpuMs: 0, sizes: [] };
     this.drain(this.renderSteps(src, recipe, opts));
   }
 
@@ -2474,6 +2639,7 @@ export class Engine {
       warm?: WarmStage;
       /** Internal: prepare exact maps through this stage without replacing the screen. */
       prepare?: WarmStage | 'frame';
+      removeInput?: { request: PatchRequest; context: RemoveContext; result: PatchRequest['input'] };
     },
   ): Generator<void> {
     const g = this.gpu;
@@ -2517,7 +2683,7 @@ export class Engine {
     }
     // Before/after must compare different RAW inputs when noise reduction is on.
     // Composite two finished frames; no extra texture units in the develop pass.
-    if (opts.split !== undefined && opts.split >= 0 && !opts.compare && noiseEnabled(recipe) && src.denoised) {
+    if (opts.split !== undefined && opts.split >= 0 && !opts.compare && (noiseEnabled(recipe) && src.denoised || this.profiledJob(src, recipe))) {
       const size = `${opts.width}x${opts.height}`;
       const after = this.outs.get(`noise-after:${size}`, () => g.target(opts.width, opts.height, false));
       const before = this.outs.get(`noise-before:${size}`, () => g.target(opts.width, opts.height, false));
@@ -2566,9 +2732,26 @@ export class Engine {
     // The picked mask's input: the masks before it have had their say, it and those after none.
     if (picking) recipe = { ...recipe!, masks: recipe!.masks.slice(0, opts.pick) };
     if (!opts.compare && !src.captureApplied) src = yield* this.cachedCaptureSteps(src, recipe);
-    if (!opts.compare) src = this.noiseReduced(src, recipe);
+    if (!opts.compare && !src.captureApplied) {
+      src = this.aiBlended(src, recipe, this.L);
+      // Only an interactive screen render may show a source before its denoise is made, or (while
+      // a pointer is held) a denoise made at the display's density.
+      const screen = opts.target === 'screen' && opts.prepare !== 'frame';
+      let reduce = 1;
+      if (screen && opts.live) {
+        const [sw, sh] = opts.shown ?? [opts.width, opts.height];
+        const density = displayDensity(sw, sh, opts.view ?? FULL_VIEW, { ...FULL, ...(opts.frame ?? recipe?.crop ?? FULL) }, src.fullW, src.fullH) / pxScale(src);
+        if (density > 0 && density < 0.75) reduce = Math.min(4, 2 ** Math.floor(Math.log2(1 / density) + 0.5));
+      }
+      src = yield* this.profiledSteps(src, recipe, this.L, screen, reduce, screen && !!opts.live);
+    }
+    // While a noise slider is dragged its result changes every frame, and capture sharpening's 20
+    // deconvolution steps after it would hold each frame several hundred ms: the drag shows the
+    // photo unsharpened and the settle sharpens it (as the engine's other held maps).
+    const denoiseDragged = !!opts.live && !!this.L.profMade?.live && this.L.profMade.out.tex === src.tex;
+    if (denoiseDragged) this.profiledOwed = true;
     // Capture sharpening replaces the source for everything after it.
-    const iterations = recipe && !opts.compare && !src.captureApplied && src.capture && g.hdr && g.float32 ? iterationsFor(recipe.captureSharpening) : 0;
+    const iterations = recipe && !opts.compare && !src.captureApplied && !denoiseDragged && src.capture && g.hdr && g.float32 ? iterationsFor(recipe.captureSharpening) : 0;
     if (iterations > 0) src = { ...src, tex: (yield* this.captureSteps(src, iterations, this.L)) };
     src = this.lensCorrected(src, recipe);
     // The masks' raster layers: brushes, and refined masks (drawn below, once the uniforms are
@@ -2618,6 +2801,11 @@ export class Engine {
         g.draw(this.dcpPass, out, src.w, src.h);
       });
       src = { ...src, tex: target.tex };
+    }
+    if (opts.removeInput && recipe) {
+      const job = opts.removeInput;
+      job.result = this.collectRemoveInput(src, recipe, job.request, job.context);
+      return;
     }
     const view = opts.view ?? FULL_VIEW;
     const frame = opts.frame ?? recipe?.crop ?? FULL;
@@ -3292,6 +3480,7 @@ export class Engine {
    * paces bounded batches and can discard the remaining steps when a newer edit arrives. */
   *prepareFrame(src: Source, recipe: Recipe | null, opts: Parameters<Engine['render']>[2]): Generator<void> {
     this.captureWork = { builds: 0, hits: 0, steps: 0, cpuMs: 0, elapsedMs: 0, thresholdMs: 0 };
+    this.profiledOwed = false;
     const steps = this.renderSteps(src, recipe, { ...opts, live: false, moving: false, draft: undefined, prepare: 'frame' });
     let complete = false;
     try {
@@ -3376,6 +3565,7 @@ export class Engine {
 
   dispose() {
     this.clearCaptureCache();
+    this.denoiser?.dispose();
     if (this.sharpSampler) this.gpu.gl.deleteSampler(this.sharpSampler);
     this.sharpSampler = null;
     this.freeViewSource();

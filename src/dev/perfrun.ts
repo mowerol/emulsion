@@ -26,7 +26,7 @@ const p90 = (v: number[]) => v.length ? +v.slice().sort((a, b) => a - b)[Math.fl
 
 // ---- Frames: every render to the screen, when the GPU finished it, and which input it showed.
 type Frame = { start: number; done: number; cpu: number; tag: number; srcW: number; detail: boolean; seq?: number; preparation?: PreparationStat;
-  captureCache?: FrameStat['captureCache']; memory?: FrameStat['memory'] };
+  captureCache?: FrameStat['captureCache']; memory?: FrameStat['memory']; denoise?: FrameStat['denoise'] };
 let frames: Frame[] = [];
 let tagOf: (r: Recipe | null) => number = () => -1;
 let depth = 0;
@@ -481,7 +481,7 @@ export async function run(which: string) {
       client.onFrame = (f) => {
         lastSrcW = f.srcW;
         lastScale = client.lastScale;
-        frames.push({ start: f.start, done: f.done, cpu: f.cpu, tag: tagOf(client.recipeOf(f.seq) as Recipe | null), srcW: f.srcW, detail: f.detail, seq: f.seq, preparation: f.preparation, captureCache: f.captureCache, memory: f.memory });
+        frames.push({ start: f.start, done: f.done, cpu: f.cpu, tag: tagOf(client.recipeOf(f.seq) as Recipe | null), srcW: f.srcW, detail: f.detail, seq: f.seq, preparation: f.preparation, captureCache: f.captureCache, memory: f.memory, denoise: f.denoise });
       };
     }
     const only = which.split(',');
@@ -547,6 +547,27 @@ export async function run(which: string) {
       setSliders({ texture: 0 });
       out.dehaze = await sliderDrag('dehaze', 'refine');
       setSliders({ dehaze: 0 });
+    }
+    if (only.includes('denoise')) {
+      // denoise (profiled): its own sliders, then Exposure with it on (cached, so no rebuild).
+      // A RAW starts with Colour on ('auto'): time its two sliders, then Exposure over it, then off.
+      setSliders({ profiledDenoise: 'auto' });
+      await settle(1500, 30000);
+      const builds = async <T,>(run: () => Promise<T>) => {
+        const t0 = performance.now();
+        const r = await run();
+        const fs = frames.filter(f => f.start >= t0 && f.denoise);
+        const sizes: Record<string, number> = {};
+        fs.forEach(f => f.denoise!.sizes.forEach(z => { sizes[z] = (sizes[z] ?? 0) + 1; }));
+        return { ...r, denoiseFrames: fs.length, denoiseBuilds: fs.reduce((n, f) => n + f.denoise!.builds, 0), denoiseCpuMs: Math.round(fs.reduce((n, f) => n + f.denoise!.cpuMs, 0)), denoiseSizes: sizes };
+      };
+      out.denoiseColour = await builds(() => sliderDrag('profiled-chroma', 'refine'));
+      out.denoiseLuminance = await builds(() => sliderDrag('profiled-luma', 'refine'));
+      out.denoiseExposure = await builds(() => sliderDrag('exposure', 'develop'));
+      setSliders({ profiledDenoise: null });
+      await settle(1500, 30000);
+      out.denoiseOffExposure = await sliderDrag('exposure', 'develop');
+      setSliders({ profiledDenoise: 'auto' });
     }
     if (want('again')) {
       // The same drags again in the same session: what is left once one-time costs are paid.

@@ -51,6 +51,12 @@ try {
     const { writeFile } = await import('node:fs/promises');
     await writeFile(process.env.PROFILE, JSON.stringify(m.result.profile));
   }
+  // SHOT=out.png saves what the page shows once it reports (for looking at UI it mounts).
+  if (process.env.SHOT) {
+    const m = await new Promise((r) => { const n = ++id; pending.set(n, r); ws.send(JSON.stringify({ id: n, method: 'Page.captureScreenshot', params: { format: 'png' } })); });
+    const { writeFile } = await import('node:fs/promises');
+    await writeFile(process.env.SHOT, Buffer.from(m.result.data, 'base64'));
+  }
   ws.close();
   console.log(result ?? 'FAIL: timed out');
   if (!result?.startsWith('PASS:')) process.exitCode = 1;

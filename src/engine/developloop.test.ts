@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DevelopLoop, type FrameState } from './developloop';
 import { defaultRecipe } from '../film/recipe';
 import { FULL } from '../film/crop';
+import { newCircleSpot } from '../film/retouch';
 
 const engine = vi.hoisted(() => ({
   passes: 0, finished: 0, cancelled: 0, idle: true, passMs: 0,
@@ -14,7 +15,7 @@ vi.mock('./engine', () => ({
     maxTextureSize = 8192;
     inexact = false;
     stoodIn = false;
-    sourceFromHalf() { return { w: 4000, h: 3000 }; }
+    sourceFromHalf() { return { w: 4000, h: 3000, fullW: 4000, fullH: 3000, mode: 2, white: null }; }
     idle() { return engine.idle; }
     waiting() { return false; }
     render = engine.render;
@@ -85,7 +86,7 @@ beforeEach(() => {
   tasks = [];
   Object.assign(engine, { passes: 0, finished: 0, cancelled: 0, idle: true, passMs: 0 });
   Object.assign(engine, { capturePasses: 0, captureFinished: 0, captureCancelled: 0, captureStarted: 0, captureReady: false });
-  engine.render.mockClear();
+  engine.render.mockReset();
   posted = [];
   loop = new DevelopLoop(new OffscreenCanvas(100, 100), (m) => { posted.push(m); });
   loop.handle({ type: 'upload', key: 1, img: { width: 4000, height: 3000, fullWidth: 4000, fullHeight: 3000, mode: 0, white: null, data: new Uint16Array() } });
@@ -315,4 +316,52 @@ describe('sharpening status', () => {
     drain();
     expect(sharpening()).toEqual([true, false]);
   });
+});
+
+it.each(['tool', 'zoom'])('keeps the previous photo visible when a %s resize awaits rendering', (change) => {
+  loop.dispose();
+  const canvas = new OffscreenCanvas(100, 100);
+  let displayed: 'photo' | 'black' = 'black';
+  let width = 100, height = 100;
+  // Resizing a real WebGL canvas clears its drawing buffer immediately.
+  Object.defineProperties(canvas, {
+    width: { get: () => width, set: (v: number) => { width = v; displayed = 'black'; } },
+    height: { get: () => height, set: (v: number) => { height = v; displayed = 'black'; } },
+  });
+  engine.render.mockImplementation((_src, _recipe, opts: { width: number; height: number }) => {
+    // The GPU's final screen draw owns the resize, after all offscreen processing.
+    expect(displayed).toBe(engine.render.mock.calls.length === 1 ? 'black' : 'photo');
+    canvas.width = opts.width; canvas.height = opts.height;
+    displayed = 'photo';
+  });
+  loop = new DevelopLoop(canvas, m => { posted.push(m); });
+  loop.handle({ type: 'upload', key: 1, img: { width: 4000, height: 3000, fullWidth: 4000, fullHeight: 3000, mode: 0, white: null, data: new Uint16Array() } });
+  loop.handle({ type: 'state', state: { ...state, full: false, viewKey: 'fit' } });
+  vi.advanceTimersByTime(16); drain();
+  expect(displayed).toBe('photo');
+  engine.idle = false;
+  // Hiding Remove's bar or changing zoom changes the preview's dimensions.
+  loop.handle({ type: 'state', state: { ...state, seq: 2, width: 120, height: 110, viewKey: change === 'zoom' ? 'zoom' : 'fit' } });
+  vi.advanceTimersByTime(100); turn();
+  expect(displayed).toBe('photo');
+  expect([canvas.width, canvas.height]).toEqual([100, 100]);
+  engine.idle = true;
+  vi.advanceTimersByTime(16);
+  expect(displayed).toBe('photo'); // preparation is still yielding
+  drain();
+  expect([canvas.width, canvas.height]).toEqual([120, 110]);
+  expect(displayed).toBe('photo');
+});
+
+it('does not paint the original before saved Remove patches have been restored', async () => {
+  const saved = { ...recipe, retouch: [newCircleSpot([.5, .5], 'remove', .02, .01)] };
+  loop.handle({ type: 'state', state: { ...state, sizeKnown: true, full: false, recipe: saved, saved, histogramFor: '/saved' } });
+  const lookup = posted.find(m => m.type === 'removeCached') as { type: string; id: number } | undefined;
+  expect(lookup).toBeDefined();
+  vi.advanceTimersByTime(100); drain();
+  expect(engine.render).not.toHaveBeenCalled();
+  loop.handle({ type: 'removeReply', id: lookup!.id, value: new Uint8Array(512 * 512 * 4) });
+  for (let i = 0; i < 12; i++) await Promise.resolve();
+  drain(); vi.advanceTimersByTime(20); drain();
+  expect(engine.render).toHaveBeenCalled();
 });

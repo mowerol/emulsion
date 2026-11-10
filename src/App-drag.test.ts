@@ -19,6 +19,7 @@ vi.mock('./backend/api', async importOriginal => ({
 vi.mock('./library/folders', async importOriginal => ({
   ...await importOriginal<typeof import('./library/folders')>(), lastFolder: () => null,
 }));
+vi.mock('./ui/appmenu', async importOriginal => ({ ...await importOriginal<typeof import('./ui/appmenu')>(), installAppMenu: async () => () => {} }));
 vi.mock('./ui/TopBar', () => ({ TopBar: () => null }));
 vi.mock('./ui/Develop', () => ({ Develop: () => null }));
 vi.mock('./ui/Panel', () => ({ Panel: () => null }));

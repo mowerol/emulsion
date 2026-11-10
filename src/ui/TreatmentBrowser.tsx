@@ -18,7 +18,7 @@ const NONE = 'none';
 export const lutPacks = () => PACKS.filter(p => !p.hidden && !p.user);
 
 function entriesOf(pack: PackId): LutEntry[] {
-  return stocksForPack(pack).filter(s => !!lutBase(pack, s.id)).map(s => ({
+  return stocksForPack(pack).filter(s => !!lutBase(pack, s.id) && !PACK[pack].looks[s.id]?.photoMatch).map(s => ({
     key: choiceKey(pack, s.id), pack, id: s.id, name: lookName(pack, s.id),
     maker: pack === 'files' ? 'Imported' : PACK[pack].looks[s.id]?.category ?? (s.bw ? `${s.maker} B&W` : s.maker),
   }));

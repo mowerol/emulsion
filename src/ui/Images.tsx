@@ -9,7 +9,7 @@ import { ImageViewOptions } from './ImageViewOptions';
 import { recipeLabel } from './common';
 import { MarkBadges, Thumb, useVisible } from './common';
 import { useWorkspace } from './workspace';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Pencil } from 'lucide-react';
 import { setPrefs, usePrefs } from './prefs';
 import { LABEL } from '../library/marks';
 import { EDIT_FILTERS, type Filter } from '../library/filter';
@@ -29,12 +29,12 @@ function FilterChips({ filter }: { filter: Filter }) {
 const ImageFrame = memo(function ImageFrame({ photo, index, active, selected, contextMenu }: { photo: Photo; index: number; active: boolean; selected: boolean; contextMenu: PhotoContextHandler }) {
   const [ref, visible] = useVisible<HTMLButtonElement>('300px');
   return <button ref={ref} type="button" data-index={index} aria-current={active ? 'true' : undefined} aria-pressed={selected}
-    className={`image-frame${active ? ' active' : ''}${selected ? ' selected' : ''}`} title={photo.copyId ? `${photo.rel} · ${photo.copyName}` : photo.rel}
+    className={`image-frame${active ? ' active' : ''}${selected ? ' selected' : ''}`} title={[photo.copyId ? `${photo.rel} · ${photo.copyName}` : photo.rel, photo.recipe && recipeLabel(photo), photo.pair && 'RAW+JPG'].filter(Boolean).join('\n')}
     onContextMenu={e => contextMenu(e, index)}
     onClick={e => setActive(index, e.shiftKey ? 'range' : e.metaKey || e.ctrlKey ? 'toggle' : 'single')}>
-    <span className="image-frame-picture"><Thumb photo={photo} visible={visible} /><span>{index + 1}</span></span>
+    <span className="image-frame-picture"><Thumb photo={photo} visible={visible} /><span>{index + 1}</span>
+      {photo.recipe && <span className="image-frame-edited" role="img" aria-label="Edited"><Pencil size={10} strokeWidth={2.25} aria-hidden="true" /></span>}</span>
     <span className="image-frame-name">{photoName(photo)}</span>
-    <span className="image-frame-look">{recipeLabel(photo)}{photo.pair ? ' · RAW+JPG' : ''}</span>
     <MarkBadges photo={photo} />
   </button>;
 });
@@ -61,7 +61,7 @@ export function Images() {
       <ImageViewOptions />
     </header>
     {filtersOpen ? <div id="images-filters" className="images-filters"><FilterBar summary={false} /></div> : <FilterChips filter={filter} />}
-    <div ref={ref} className="images-grid" style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
+    <div ref={ref} className={`images-grid cols-${columns}`} style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
       {shown.map(index => <ImageFrame contextMenu={context.open} key={photoId(photos[index])} photo={photos[index]} index={index} active={index === active} selected={selected.has(photoId(photos[index]))} />)}
       {!shown.length && <p className="hint">No photos match.</p>}
     </div>

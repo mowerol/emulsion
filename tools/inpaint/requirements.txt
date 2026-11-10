@@ -1,0 +1,11 @@
+# Comparison tooling only; the app will use native Rust/ONNX Runtime.
+torch==2.8.0
+onnxruntime==1.23.2
+numpy==2.2.6
+Pillow==11.3.0
+omegaconf==2.3.0
+PyYAML==6.0.3
+kornia==0.8.2
+pytorch-lightning==2.5.5
+# Conditional MI-GAN core export experiment.
+onnx==1.19.1

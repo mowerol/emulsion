@@ -1,0 +1,153 @@
+{
+  "source": {
+    "commit": "2b793c5ece43f4253e32d4afc257120a5deed6f5",
+    "sha256": "1e35a181e516742ae32af935848e6a9a4382f528ea7096db6658f14cd8b9ace0",
+    "url": "https://raw.githubusercontent.com/Picsart-AI-Research/MI-GAN/2b793c5ece43f4253e32d4afc257120a5deed6f5/lib/model_zoo/migan_inference.py"
+  },
+  "weights": {
+    "sha256": "1d6087eee0aac8923ad2606be5d8caeb4824d3e4de331995e420c74e124a466a",
+    "url": "https://drive.usercontent.google.com/download?id=1D_YCuCgo20S2256sqpedsmENNm2WMtVY&export=download&confirm=t",
+    "hash_provenance": "Computed from author's linked release; not independently published"
+  },
+  "onnx_sha256": "44f4b633c58bf3810f858a1905090b91df21a3a88246e33631ed20b3219585eb",
+  "onnx_bytes": 28028639,
+  "reference_load_seconds": 0.06813937495462596,
+  "onnx_load_seconds": 0.05866229091770947,
+  "environment": {
+    "torch": "2.8.0",
+    "onnxruntime": "1.23.2",
+    "numpy": "2.2.6",
+    "threads": 4,
+    "provider": "CPUExecutionProvider",
+    "opset": 12
+  },
+  "visual_review": {
+    "status": "pass",
+    "reviewer": "Codex",
+    "method": "Inspected all six original MI-GAN PyTorch / static ONNX pairs side by side, with LaMa shown separately for quality context; no visible MI-GAN export differences."
+  },
+  "cases": [
+    {
+      "name": "sky-pole",
+      "image_sha256": "4be2d765779b9f43aae10d8cb2d20b0fc16d1cd6e2911672090d2241233d5401",
+      "mask_sha256": "52dbf7f37723ba5606f4723069013bfdb1042845291ac6fe467b7501ae3d990a",
+      "difference_8bit": {
+        "whole": {
+          "p50": 0.0,
+          "p99": 1.52587890625e-05,
+          "max": 0.0009307861328125
+        },
+        "masked": {
+          "p50": 1.52587890625e-05,
+          "p99": 9.1552734375e-05,
+          "max": 0.0009307861328125
+        }
+      },
+      "reference_seconds": 0.43836316699162126,
+      "onnx_seconds": 0.29617404099553823,
+      "numeric_pass": true
+    },
+    {
+      "name": "foliage-leaf",
+      "image_sha256": "13aa768a00b4bd993b0142d432f851b8466a6048fef6c4288cdf7e1131f6730e",
+      "mask_sha256": "c54cb56c92795a0ccf3ca1d411c83b66954dcbf60202b8bd2a484dfb431d7e23",
+      "difference_8bit": {
+        "whole": {
+          "p50": 0.0,
+          "p99": 2.288818359375e-05,
+          "max": 0.00038909912109375
+        },
+        "masked": {
+          "p50": 2.288818359375e-05,
+          "p99": 0.0001373291015625,
+          "max": 0.00038909912109375
+        }
+      },
+      "reference_seconds": 0.4328261249465868,
+      "onnx_seconds": 0.690172583097592,
+      "numeric_pass": true
+    },
+    {
+      "name": "stone-mark",
+      "image_sha256": "c5ed1d38529a7262ad3cbd0603456320b596949f161dc267f5b523461a07ed25",
+      "mask_sha256": "d699a39526b4ae9571a0af596fb4277d79e9337dcdda892f49d1ddf771ab13bd",
+      "difference_8bit": {
+        "whole": {
+          "p50": 0.0,
+          "p99": 0.0,
+          "max": 0.000152587890625
+        },
+        "masked": {
+          "p50": 1.52587890625e-05,
+          "p99": 7.751584053039551e-05,
+          "max": 0.000152587890625
+        }
+      },
+      "reference_seconds": 0.42437420797068626,
+      "onnx_seconds": 0.2534807079937309,
+      "numeric_pass": true
+    },
+    {
+      "name": "water-reflection",
+      "image_sha256": "1777e233faeb846d996946b27aeb1f35613bb401448893e659db6c3e62d3de03",
+      "mask_sha256": "491e3f187b16ba8c92a9ea877a2fd566eb70f0ec07eb1a9bfd0b21f6d638918e",
+      "difference_8bit": {
+        "whole": {
+          "p50": 0.0,
+          "p99": 0.0,
+          "max": 9.1552734375e-05
+        },
+        "masked": {
+          "p50": 1.52587890625e-05,
+          "p99": 4.57763671875e-05,
+          "max": 9.1552734375e-05
+        }
+      },
+      "reference_seconds": 0.3873938750475645,
+      "onnx_seconds": 0.24931749992538244,
+      "numeric_pass": true
+    },
+    {
+      "name": "straight-edge-lamp",
+      "image_sha256": "5e4dc510fc41880408ec0c8f6fb677a34c5af0f878c50c9a7fa2cf54f553c642",
+      "mask_sha256": "9610aef5e41d3134067ad54416d01865f340051828ddc80b28f370e0c73f0fd6",
+      "difference_8bit": {
+        "whole": {
+          "p50": 0.0,
+          "p99": 0.0,
+          "max": 7.62939453125e-05
+        },
+        "masked": {
+          "p50": 1.52587890625e-05,
+          "p99": 4.57763671875e-05,
+          "max": 7.62939453125e-05
+        }
+      },
+      "reference_seconds": 0.3836039159214124,
+      "onnx_seconds": 0.2524514580145478,
+      "numeric_pass": true
+    },
+    {
+      "name": "whole-object-bottle",
+      "image_sha256": "a82681a7dd8e588ee069450bdf483a6bfe9298345b02b3cfbebf68f2b9d98125",
+      "mask_sha256": "133f430d1d7d658e3baeee8b18285f834c88c5fd6730414ce052ac67a93b6c8e",
+      "difference_8bit": {
+        "whole": {
+          "p50": 0.0,
+          "p99": 4.57763671875e-05,
+          "max": 0.00069427490234375
+        },
+        "masked": {
+          "p50": 1.52587890625e-05,
+          "p99": 0.00011444091796875,
+          "max": 0.00069427490234375
+        }
+      },
+      "reference_seconds": 0.39811675006058067,
+      "onnx_seconds": 0.25313616695348173,
+      "numeric_pass": true
+    }
+  ],
+  "numeric_pass": true,
+  "warm_pass_2s": true
+}

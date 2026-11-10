@@ -1,0 +1,192 @@
+{
+  "reference": {
+    "commit": "786f5936b27fb3dacd2b1ad799e4de968ea697e7",
+    "url": "https://huggingface.co/smartywu/big-lama/resolve/05cb2be7f8dbe6ca7c6e78f4fc827a4b2baaa4a9/big-lama.zip",
+    "archive_sha256": "f1b358ca24093b93a106183b98a3dea6e8ed09f3b43ea7251eb2c81e7b4575f6",
+    "checkpoint_sha256": "fccb7adffd53ec0974ee5503c3731c2c2f1e7e07856fd9228cdcc0b46fd5d423"
+  },
+  "onnx": {
+    "url": "https://huggingface.co/Carve/LaMa-ONNX/resolve/c3c0c9e468934d62e79c329e35d82dd09ff8c444/lama_fp32.onnx",
+    "sha256": "1faef5301d78db7dda502fe59966957ec4b79dd64e16f03ed96913c7a4eb68d6",
+    "inputs": [
+      {
+        "name": "image",
+        "shape": [
+          "batch",
+          3,
+          512,
+          512
+        ],
+        "type": "tensor(float)"
+      },
+      {
+        "name": "mask",
+        "shape": [
+          "batch",
+          1,
+          512,
+          512
+        ],
+        "type": "tensor(float)"
+      }
+    ],
+    "outputs": [
+      {
+        "name": "output",
+        "shape": [
+          "batch",
+          3,
+          512,
+          512
+        ],
+        "type": "tensor(float)"
+      }
+    ]
+  },
+  "environment": {
+    "platform": "macOS-26.5.1-arm64-arm-64bit",
+    "python": "3.12.13",
+    "threads": 4,
+    "torch": "2.8.0",
+    "onnxruntime": "1.23.2",
+    "numpy": "2.2.6",
+    "Pillow": "11.3.0"
+  },
+  "threshold_8bit": 2,
+  "visual_review": {
+    "status": "pass",
+    "reviewer": "Codex",
+    "method": "Viewed PyTorch/ONNX PNG pairs for all six cases; first five input hashes unchanged from initial run; final whole-bottle pair inspected separately. No visible export differences. Removal quality is not a fidelity guarantee."
+  },
+  "cases": [
+    {
+      "name": "sky-pole",
+      "image_sha256": "4be2d765779b9f43aae10d8cb2d20b0fc16d1cd6e2911672090d2241233d5401",
+      "mask_sha256": "52dbf7f37723ba5606f4723069013bfdb1042845291ac6fe467b7501ae3d990a",
+      "masked_pixels": 5374,
+      "difference_8bit": {
+        "whole": {
+          "p50": 0.0,
+          "p99": 3.0517578125e-05,
+          "max": 0.0013580322265625
+        },
+        "masked": {
+          "p50": 3.0517578125e-05,
+          "p99": 0.0003662109375,
+          "max": 0.0013580322265625
+        }
+      },
+      "reference_seconds": 3.9186062910594046,
+      "onnx_seconds": 2.768690708093345,
+      "numeric_pass": true
+    },
+    {
+      "name": "foliage-leaf",
+      "image_sha256": "13aa768a00b4bd993b0142d432f851b8466a6048fef6c4288cdf7e1131f6730e",
+      "mask_sha256": "c54cb56c92795a0ccf3ca1d411c83b66954dcbf60202b8bd2a484dfb431d7e23",
+      "masked_pixels": 5833,
+      "difference_8bit": {
+        "whole": {
+          "p50": 0.0,
+          "p99": 0.000202178955078125,
+          "max": 0.005672454833984375
+        },
+        "masked": {
+          "p50": 0.0001735687255859375,
+          "p99": 0.0017662793397903442,
+          "max": 0.005672454833984375
+        }
+      },
+      "reference_seconds": 3.3328306670300663,
+      "onnx_seconds": 2.4619694580323994,
+      "numeric_pass": true
+    },
+    {
+      "name": "stone-mark",
+      "image_sha256": "c5ed1d38529a7262ad3cbd0603456320b596949f161dc267f5b523461a07ed25",
+      "mask_sha256": "d699a39526b4ae9571a0af596fb4277d79e9337dcdda892f49d1ddf771ab13bd",
+      "masked_pixels": 2695,
+      "difference_8bit": {
+        "whole": {
+          "p50": 0.0,
+          "p99": 0.0,
+          "max": 0.00262451171875
+        },
+        "masked": {
+          "p50": 0.0001068115234375,
+          "p99": 0.000902712345123291,
+          "max": 0.00262451171875
+        }
+      },
+      "reference_seconds": 3.333199041080661,
+      "onnx_seconds": 2.591843417030759,
+      "numeric_pass": true
+    },
+    {
+      "name": "water-reflection",
+      "image_sha256": "1777e233faeb846d996946b27aeb1f35613bb401448893e659db6c3e62d3de03",
+      "mask_sha256": "491e3f187b16ba8c92a9ea877a2fd566eb70f0ec07eb1a9bfd0b21f6d638918e",
+      "masked_pixels": 4656,
+      "difference_8bit": {
+        "whole": {
+          "p50": 0.0,
+          "p99": 6.103515625e-05,
+          "max": 0.00128173828125
+        },
+        "masked": {
+          "p50": 6.103515625e-05,
+          "p99": 0.00048828125,
+          "max": 0.00128173828125
+        }
+      },
+      "reference_seconds": 3.3250405830331147,
+      "onnx_seconds": 2.5126651250757277,
+      "numeric_pass": true
+    },
+    {
+      "name": "straight-edge-lamp",
+      "image_sha256": "5e4dc510fc41880408ec0c8f6fb677a34c5af0f878c50c9a7fa2cf54f553c642",
+      "mask_sha256": "9610aef5e41d3134067ad54416d01865f340051828ddc80b28f370e0c73f0fd6",
+      "masked_pixels": 1503,
+      "difference_8bit": {
+        "whole": {
+          "p50": 0.0,
+          "p99": 0.0,
+          "max": 0.0003814697265625
+        },
+        "masked": {
+          "p50": 3.0517578125e-05,
+          "p99": 0.000152587890625,
+          "max": 0.0003814697265625
+        }
+      },
+      "reference_seconds": 3.226899291970767,
+      "onnx_seconds": 2.5828392499824986,
+      "numeric_pass": true
+    },
+    {
+      "name": "whole-object-bottle",
+      "image_sha256": "a82681a7dd8e588ee069450bdf483a6bfe9298345b02b3cfbebf68f2b9d98125",
+      "mask_sha256": "133f430d1d7d658e3baeee8b18285f834c88c5fd6730414ce052ac67a93b6c8e",
+      "masked_pixels": 37342,
+      "difference_8bit": {
+        "whole": {
+          "p50": 0.0,
+          "p99": 0.000640869140625,
+          "max": 0.01569366455078125
+        },
+        "masked": {
+          "p50": 0.00018310546875,
+          "p99": 0.0011444091796875,
+          "max": 0.01569366455078125
+        }
+      },
+      "reference_seconds": 3.4489127920242026,
+      "onnx_seconds": 2.673213333939202,
+      "numeric_pass": true
+    }
+  ],
+  "reference_load_seconds": 3.564666834077798,
+  "onnx_load_seconds": 1.7688211250351742,
+  "numeric_pass": true
+}

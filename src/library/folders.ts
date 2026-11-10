@@ -14,6 +14,42 @@ export function lastFolder(): string | null {
 
 export function rememberFolder(path: string) {
   try { localStorage.setItem(LAST_FOLDER_KEY, path); } catch { /* session only */ }
+  saveRecent([path, ...recentFolders().filter(p => p !== path)].slice(0, RECENT_LIMIT));
+}
+
+/** File › Open Recent: the folders opened most recently, newest first. */
+const RECENT_KEY = 'emulsion.recentFolders';
+const RECENT_LIMIT = 10;
+let recentMemory: string[] = [];
+const recentListeners = new Set<() => void>();
+
+export function recentFolders(): string[] {
+  try {
+    const value = JSON.parse(localStorage.getItem(RECENT_KEY) || 'null');
+    if (Array.isArray(value)) return value.filter((p: unknown): p is string => typeof p === 'string' && !!p.trim()).slice(0, RECENT_LIMIT);
+  } catch { return recentMemory; }
+  const last = lastFolder();
+  return last ? [last] : [];
+}
+
+export function clearRecentFolders() { saveRecent([]); }
+
+/** Calls `fn` whenever the recent folders change; returns the unsubscribe. */
+export function onRecentFolders(fn: () => void) {
+  recentListeners.add(fn);
+  return () => { recentListeners.delete(fn); };
+}
+
+function saveRecent(paths: string[]) {
+  recentMemory = paths;
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify(paths)); } catch { /* session only */ }
+  recentListeners.forEach(fn => fn());
+}
+
+/** Menu labels for recent folders: the folder's name, or its whole path where two share a name. */
+export function recentFolderLabels(paths: string[]): string[] {
+  const name = (p: string) => p.replace(/[\\/]+$/, '').split(/[\\/]/).pop() || p;
+  return paths.map(p => paths.filter(q => name(q) === name(p)).length > 1 ? p : name(p));
 }
 
 export function folderImport(root: string): FolderImport | null {

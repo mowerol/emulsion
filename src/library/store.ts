@@ -8,7 +8,8 @@ import type { Histogram } from '../engine/histogram';
 import type { Xy } from '../engine/whitebalance';
 import { catalogMetadata, isTauri, scanFolder, whitePoints, type Entry } from '../backend/api';
 import { folderImport, importedPaths, importedRoots, rememberFolder, saveFolderImport, type FolderImport } from './folders';
-import { defaultRecipe, normalizeRecipe, withSettingsFrom, type Recipe } from '../film/recipe';
+import { defaultRecipe, normalizeRecipe, type Recipe } from '../film/recipe';
+import { applyCopiedSettings, DEFAULT_COPY_GROUPS, normalizeCopyGroups, type CopiedSettings, type CopyGroup } from '../film/copysettings';
 import { FULL, isFull, type Crop } from '../film/crop';
 import { NO_FILTER, normalizeFilter, passes, rangeWithin, shownIndices, stepWithin, type Filter } from './filter';
 import { seedFor } from '../engine/engine';
@@ -17,7 +18,7 @@ import { withAutoProfile } from '../engine/profilestore';
 import { findPairs, foldPairs } from './pairs';
 import { cleanCopyName, expandCopies, photoId, savedFrames } from './copies';
 import { applyMark, describeMark, hasMark, normalizeMarks, type Label, type MarkKey, type Marks } from './marks';
-import { History, describe, type Change, type Step } from './history';
+import { History, MERGE_MS, describe, type Change, type Step } from './history';
 import { addToCollection, cacheEdits, cacheFolder, catalogPhotos, recordImport, sourceMatcher, sourceMatches, targetCollection, useCatalog, viewImport, type SourceSelection } from './catalog';
 
 export interface Photo {
@@ -62,7 +63,7 @@ export interface Toast {
   action?: { label: string; run: () => void };
 }
 
-interface State {
+export interface State {
   source: SourceSelection | null;
   selectedOnly: boolean;
   collectionAddIds: string[];
@@ -80,7 +81,8 @@ interface State {
   selected: Set<string>;
   anchor: number;
   compare: boolean;
-  clipboard: Recipe | null;
+  clipboard: CopiedSettings | null;
+  copySettingsSource: { name: string; recipe: Recipe } | null;
   loading: boolean;
   toast: Toast | null;
   exportOpen: boolean;
@@ -97,7 +99,11 @@ interface State {
    * sliders, as a draft kept in memory only (no sidecar write, no undo step). `original` is the
    * photo's saved recipe, which comes back when editing ends.
    */
-  lookEdit: { id: string; name: string; path: string; original: Recipe | null; past: (Recipe | null)[]; future: (Recipe | null)[]; start: { name: string; draft: Recipe } } | null;
+  lookEdit: {
+    id: string; name: string; path: string; original: Recipe | null; past: (Recipe | null)[]; future: (Recipe | null)[]; start: { name: string; draft: Recipe }; matching?: object;
+    /** The newest undo step's key and time, so a drag is one step, merged by the photo history's rule. */
+    last?: { key: string; at: number };
+  } | null;
   /** The crop being edited, for the photo at `path` of size W × H; it is saved when cropping ends. */
   cropEdit: { path: string; draft: Crop; W: number; H: number } | null;
   /** Size of the photo open in the develop view. */
@@ -216,6 +222,7 @@ export const useApp = create<State>(() => ({
   anchor: -1,
   compare: false,
   clipboard: null,
+  copySettingsSource: null,
   loading: false,
   toast: null,
   exportOpen: false,
@@ -400,7 +407,7 @@ export function closeFolder() {
   endLookEdit();
   history.clear();
   set({ source: null, folder: null, photos: [], hidden: [], candidates: [], subfolders: [], importChoice: null,
-    choosingImport: false, includeSubfolders: false, loading: false, active: -1, selected: new Set(), view: 'library', ...historyState() });
+    choosingImport: false, includeSubfolders: false, loading: false, active: -1, selected: new Set(), view: 'library', copySettingsSource: null, ...historyState() });
 }
 
 /** Load virtual sources from saved folder memberships, re-reading sidecars before showing them. */
@@ -715,7 +722,14 @@ export function editRecipes(paths: string[], change: (r: Recipe | null, p: Photo
   if (editing) {
     if (!paths.includes(editing.path)) return;
     const current = get().photos.find(p => photoId(p) === editing.path)!;
-    set({ lookEdit: { ...editing, past: [...editing.past.slice(-199), current.recipe], future: [] }, photos: get().photos.map((p) => (photoId(p) === editing.path ? { ...p, recipe: change(p.recipe, p) } : p)) });
+    const after = change(current.recipe, current);
+    if (after === current.recipe) return;
+    // Merged as History.record merges: same key, and continuous or within MERGE_MS of the last.
+    const now = performance.now();
+    const key = grouping?.key ?? `${label ?? describe(current.recipe, after)}|${editing.path}`;
+    const merge = !!editing.last && editing.last.key === key && (!!grouping?.continuous || now - editing.last.at < MERGE_MS);
+    const past = merge ? editing.past : [...editing.past.slice(-199), current.recipe];
+    set({ lookEdit: { ...editing, past, future: [], last: { key, at: now } }, photos: get().photos.map((p) => (photoId(p) === editing.path ? { ...p, recipe: after } : p)) });
     return;
   }
   const wanted = new Set(paths);
@@ -808,24 +822,43 @@ export function redo() {
   else showToast('Nothing to redo');
 }
 
-export function copySettings() {
-  const a = activePhoto();
-  if (!a?.recipe) {
-    showToast('This frame has no look to copy yet');
-    return;
-  }
-  set({ clipboard: { ...a.recipe } });
-  showToast(`Copied ${a.name}'s settings`);
+export function openCopySettings() {
+  if (get().lookEdit || get().exportOpen || get().copySettingsSource || get().choosingImport) return;
+  const photo = activePhoto();
+  if (!photo) return;
+  const crop = get().cropEdit;
+  const recipe = crop?.path === photoId(photo)
+    ? { ...(photo.recipe ?? defaultRecipe()), crop: isFull(crop.draft) ? null : crop.draft }
+    : photo.recipe ?? defaultRecipe();
+  set({ copySettingsSource: { name: photo.copyName ? `${photo.name} · ${photo.copyName}` : photo.name, recipe: structuredClone(captureLook(recipe)) } });
+}
+
+export const closeCopySettings = () => set({ copySettingsSource: null });
+
+export function copySettings(groups: readonly CopyGroup[] = DEFAULT_COPY_GROUPS) {
+  if (get().lookEdit || get().exportOpen) return;
+  const source = get().copySettingsSource ?? activePhoto();
+  if (!source) return;
+  const chosen = normalizeCopyGroups(groups);
+  if (!chosen.length) return;
+  set({ clipboard: { recipe: structuredClone(captureLook(source.recipe ?? defaultRecipe())), groups: chosen }, copySettingsSource: null });
+  showToast(`Copied ${source.name}'s settings`);
 }
 
 export function pasteSettings() {
+  if (get().lookEdit || get().exportOpen || get().copySettingsSource) return;
   const clip = get().clipboard;
   if (!clip) {
     showToast('Copy a frame\'s settings first');
     return;
   }
   const t = targets();
-  editRecipes(t.map(photoId), (r) => withSettingsFrom(clip, r), t.length === 1 ? 'Paste settings' : `Paste settings to ${t.length} photos`, undefined, { checkpoint: true });
+  if (!t.length) return;
+  editRecipes(t.map(photoId), (r) => applyCopiedSettings(clip, r), t.length === 1 ? 'Paste settings' : `Paste settings to ${t.length} photos`, undefined, { checkpoint: true });
+  const crop = get().cropEdit;
+  if (crop && clip.groups.includes('Crop') && t.some(p => photoId(p) === crop.path)) {
+    set({ cropEdit: { ...crop, draft: structuredClone(clip.recipe.crop ?? FULL) } });
+  }
   showToast(t.length === 1 ? `Pasted onto ${t[0].name}` : `Pasted onto ${t.length} frames`);
 }
 
@@ -939,5 +972,5 @@ function lookDraftHistory(side: 'past' | 'future') {
   const p = get().photos.find(p => photoId(p) === e.path)!;
   const other = side === 'past' ? 'future' : 'past';
   const recipe = e[side][e[side].length - 1];
-  set({ lookEdit: { ...e, [side]: e[side].slice(0, -1), [other]: [...e[other], p.recipe] }, photos: get().photos.map(p => photoId(p) === e.path ? { ...p, recipe } : p) });
+  set({ lookEdit: { ...e, [side]: e[side].slice(0, -1), [other]: [...e[other], p.recipe], last: undefined }, photos: get().photos.map(p => photoId(p) === e.path ? { ...p, recipe } : p) });
 }

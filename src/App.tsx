@@ -1,21 +1,27 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { useEffect, useState } from 'react';
+import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { listen } from '@tauri-apps/api/event';
+import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { isTauri, startupOptions } from './backend/api';
 import { flushSaves, onSaveError } from './library/sidecars';
 import { settingsMenuAction } from './library/backups';
 import { markForKey } from './library/marks';
-import { lastFolder } from './library/folders';
+import { clearRecentFolders, lastFolder } from './library/folders';
+import { dialogOpen, installAppMenu, RECENT_PREFIX } from './ui/appmenu';
+import { firstOf } from './ui/menubridge';
 import {
-  addToTargetCollection, copySettings, createVirtualCopies, markPhotos, openFolder, pasteSettings, redo, selectAll, setCompare, setExportOpen, setView, showToast, step, stepToEnd, undo, useApp,
+  activePhoto, addToTargetCollection, openCopySettings, createVirtualCopies, markPhotos, openFolder, pasteSettings, redo, selectAll, setCompare, setExportOpen, setView, showToast, step, stepToEnd, undo, useApp,
 } from './library/store';
 import { Images } from './ui/Images';
 import { useWorkspace } from './ui/workspace';
 import { usePrefs } from './ui/prefs';
 import { Develop } from './ui/Develop';
 import { ExportDialog } from './ui/ExportDialog';
+import { CopySettingsDialog } from './ui/CopySettingsDialog';
+import { ShortcutsDialog } from './ui/ShortcutsDialog';
+import { SettingsDialog } from './ui/SettingsDialog';
 import { Library, gridColumns } from './ui/Library';
 import { Panel } from './ui/Panel';
 import { TopBar, chooseFolder } from './ui/TopBar';
@@ -29,37 +35,73 @@ const typingIn = (t: EventTarget | null) => {
 };
 
 /**
- * On macOS the app menu owns Cmd+Z, Cmd+Shift+Z and Cmd+A (see app_menu in
- * src-tauri/src/lib.rs) and sends them here; elsewhere the keydown handler does.
+ * On macOS the app menu owns edit accelerators (see src/ui/appmenu.ts)
+ * and sends them here. Copy/paste also handle keydown, with duplicate menu events suppressed.
  */
 const MENU_OWNS_EDIT_KEYS = isTauri() && navigator.platform.startsWith('Mac');
 
-/** Undo, redo or select all from the app menu: on a focused text field, its own; otherwise Emulsion's. */
-function menuAction(id: string) {
-  if (settingsMenuAction(id)) return;
-  const el = document.activeElement as HTMLElement | null;
-  if (typingIn(el)) {
-    document.execCommand(id === 'select-all' ? 'selectAll' : id);
+/**
+ * When the keydown handler last ran undo or redo itself. In the Look Creator the menu's ⌘Z didn't
+ * reach the webview (Oli, 2026-11-09; the Undo button worked, cause not found), so there the page
+ * takes the keys; a menu event that follows the same press is then ignored.
+ */
+let keyUndoAt = -Infinity;
+let keyClipboard: { id: 'copy' | 'paste'; at: number } | null = null;
+
+/** File menu items and Edit's settings items; they never act on a text field. */
+const MENU_ACTIONS: Record<string, () => void> = {
+  'import': () => { void chooseFolder(); },
+  'export': () => setExportOpen(true),
+  'virtual-copy': () => createVirtualCopies(),
+  'show-in-finder': () => { const p = activePhoto(); if (p) void revealItemInDir(p.path).catch(() => showToast('Could not show the photo')); },
+  'copy-settings': () => openCopySettings(),
+  'paste-settings': () => pasteSettings(),
+  'recent-clear': () => clearRecentFolders(),
+};
+
+/** Native edit actions use the focused text field, or Emulsion's photo settings/selection. */
+export function menuAction(id: string) {
+  const blocked = dialogOpen();
+  if (id.startsWith('settings-')) { if (!blocked) settingsMenuAction(id); return; }
+  if (id.startsWith(RECENT_PREFIX) || id in MENU_ACTIONS) {
+    if (blocked || useApp.getState().lookEdit) return;
+    if (!firstOf(id, 'menu')) return;
+    if (id.startsWith(RECENT_PREFIX)) void openFolder(id.slice(RECENT_PREFIX.length));
+    else if (id === 'import' || useApp.getState().photos.length) MENU_ACTIONS[id]();
     return;
   }
+  const el = document.activeElement as HTMLElement | null;
+  if (typingIn(el)) {
+    if (MENU_OWNS_EDIT_KEYS && (id === 'copy' || id === 'paste')) {
+      void invoke('native_text_edit', { action: id }).catch(() => showToast('Restart Emulsion to use the updated Copy and Paste menu'));
+    } else document.execCommand(id === 'select-all' ? 'selectAll' : id);
+    return;
+  }
+  if (blocked) return;
+  if ((id === 'undo' || id === 'redo') && performance.now() - keyUndoAt < 500) return;
+  if (keyClipboard?.id === id && performance.now() - keyClipboard.at < 500) return;
   if (useApp.getState().lookEdit && id !== 'undo' && id !== 'redo') return;
   if (id === 'undo') undo();
   else if (id === 'redo') redo();
+  else if (id === 'copy') openCopySettings();
+  else if (id === 'paste') pasteSettings();
   else if (id === 'select-all' && (useApp.getState().view === 'library' || (useApp.getState().view === 'develop' && useWorkspace.getState().layout === 'workflow'))) selectAll();
 }
 
-function useShortcuts() {
+export function useShortcuts() {
   useEffect(() => {
     const down = (e: KeyboardEvent) => {
       const s = useApp.getState();
       const mod = e.metaKey || e.ctrlKey;
+      if (s.copySettingsSource || document.querySelector('[role="dialog"][aria-modal="true"], dialog[open]')) return;
       if (e.key === '\\') {
         setCompare(true);
         return;
       }
       if (typingIn(e.target) || s.exportOpen) return;
-      if (!MENU_OWNS_EDIT_KEYS && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
+      if ((!MENU_OWNS_EDIT_KEYS || s.lookEdit) && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
+        keyUndoAt = performance.now();
         if (e.shiftKey) redo();
         else undo();
         return;
@@ -72,14 +114,18 @@ function useShortcuts() {
       if (s.lookEdit) return;
       const onRange = (e.target as HTMLElement)?.tagName === 'INPUT';
       const k = e.key.toLowerCase();
-      if (mod && k === 'o') { e.preventDefault(); chooseFolder(); return; }
+      if (mod && k === 'o') { e.preventDefault(); if (firstOf('import', 'key')) chooseFolder(); return; }
       if (k === 'g' && !mod) { setView('library'); return; }
       if (s.view === 'library' && s.choosingImport) return;
       if (!s.photos.length) return;
-      if (mod && e.key === "'") { e.preventDefault(); createVirtualCopies(); return; }
-      if (mod && e.shiftKey && k === 'c') { e.preventDefault(); copySettings(); return; }
-      if (mod && e.shiftKey && k === 'v') { e.preventDefault(); pasteSettings(); return; }
-      if (mod && e.shiftKey && k === 'e') { e.preventDefault(); setExportOpen(true); return; }
+      if (mod && e.key === "'") { e.preventDefault(); if (firstOf('virtual-copy', 'key')) createVirtualCopies(); return; }
+      if (mod && !e.altKey && (k === 'c' || k === 'v')) {
+        e.preventDefault();
+        keyClipboard = { id: k === 'c' ? 'copy' : 'paste', at: performance.now() };
+        if (k === 'c') openCopySettings(); else pasteSettings();
+        return;
+      }
+      if (mod && e.shiftKey && k === 'e') { e.preventDefault(); if (firstOf('export', 'key')) setExportOpen(true); return; }
       if (!MENU_OWNS_EDIT_KEYS && mod && k === 'a' && (s.view === 'library' || (s.view === 'develop' && useWorkspace.getState().layout === 'workflow'))) { e.preventDefault(); selectAll(); return; }
       if (mod || e.altKey) return;
       if (k === 'g') setView('library');
@@ -138,7 +184,7 @@ function useDesktop() {
           if (e.payload.paths.length) openFolder(e.payload.paths[0]);
         }
       }),
-      listen<string>('menu', (e) => menuAction(e.payload)),
+      installAppMenu(menuAction).catch((e) => { console.error('[menu]', e); return () => {}; }),
       getCurrentWindow().onCloseRequested(async (event) => {
         if (useApp.getState().lookEdit) {
           event.preventDefault();
@@ -181,6 +227,9 @@ export default function App() {
         {view === 'develop' && hasFolder && <Panel key="controls" />}
       </div>}
       <ExportDialog />
+      <CopySettingsDialog />
+      <ShortcutsDialog />
+      <SettingsDialog />
       {dropping && (
         <div className="drop">
           <p>Drop a folder to open it</p>
