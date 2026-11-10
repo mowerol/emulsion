@@ -5,7 +5,7 @@ and TIFF support, and the retouch overlays went in together); "Uncommitted" note
 
 ## Speed session 6: export moved to the still-render worker (2026-11-10)
 
-Uncommitted. Finishes session 5 (below): nothing renders on the page's thread any more.
+Committed (4ff0d3a). Finishes session 5 (below): nothing renders on the page's thread any more.
 
 - **What:** `exportPhotos` uses `stillEngine()` instead of `offscreenEngine()` (removed from
   `thumbs.ts`). The decode is transferred to the worker, not copied (`upload(img, origin, true)`);
