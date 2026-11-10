@@ -1,6 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
 import { SLIDERS, defaultRecipe, normalizeRecipe, recipeKey, resetAdjustments, resetSection, sectionChanged, withSettingsFrom, withStock } from './recipe';
+import { withSlider } from './recipe';
+
+it('preserves active legacy optics across save, edits, copy, and reset', () => {
+  const old = { ...defaultRecipe(), halation: 40, glow: 30, halationVersion: undefined, glowVersion: undefined };
+  const restored = normalizeRecipe(JSON.parse(JSON.stringify(old)))!;
+  expect(restored).toMatchObject({ halation: 40, glow: 30, halationVersion: undefined, glowVersion: undefined });
+  expect(withSlider(restored, 'halation', 60).halationVersion).toBeUndefined();
+  expect(withSlider(restored, 'halationSize', 150).halationVersion).toBe(2);
+  expect(withSlider(withSlider(restored, 'halation', 0), 'halation', 30).halationVersion).toBe(2);
+  expect(normalizeRecipe({ glow: 0 })?.glowVersion).toBe(2);
+  expect(resetSection(restored, 'optics')).toMatchObject({ halation: 0, glow: 0, halationSize: 100, glowSize: 100, halationVersion: 2, glowVersion: 2 });
+});
 import { STOCK, STOCKS } from './stocks';
 import { SCANNERS } from './scanners';
 

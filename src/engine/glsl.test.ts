@@ -34,6 +34,7 @@ describe('shader assembly', () => {
     const main = SHADERS.develop.slice(SHADERS.develop.indexOf('void main()'));
     expect(main.indexOf('stageDehaze(')).toBeGreaterThan(-1);
     expect(main.indexOf('stageDehaze(')).toBeLessThan(main.indexOf('stageExposure('));
-    for (const pass of [SHADERS.extract, SHADERS.toneeqmask]) expect(pass).toContain('stageExposure(stageDehazed(uv))');
+    expect(SHADERS.toneeqmask).toContain('stageExposure(stageDehazed(uv))');
+    expect(SHADERS.extract).toContain('stageExposure(stageDehaze(x, uv))');
   });
 });

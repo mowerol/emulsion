@@ -183,6 +183,13 @@ Implemented from the papers, not from code.
 
 ## Bundled libraries
 
+### Halation and Glow (spektrafilm optics), from darktable and spektrafilm
+- Upstream: https://github.com/darktable-org/darktable, `src/common/spektra_core.c`, `src/common/spektra_core.h` and `data/kernels/spektrafilm.cl`, commit c96cf1d0de8fff468e9eddee28621e91f83bdf1a; the named still/strong halation preset from https://github.com/andreavolpato/spektrafilm, `src/spektrafilm/runtime/params_builder.py`, commit 3bb2c2d2801ff68b92019cf1dbcbb133d60832bc
+- Licence: GPL-3.0-or-later (darktable); GPL-3.0 (spektrafilm)
+- Copyright: Copyright (C) 2026 darktable developers. Film modeling by spektrafilm, © Andrea Volpato.
+- Ported to: `src/engine/optics.ts` (plans, strength curve, mixes), `src/engine/opticsgpu.ts` and `src/engine/shaders/opticsmap.frag.glsl` (the blurred fields), `src/engine/shaders/stages/optics.glsl` (`stageOpticsScene`). Upstream C fixtures: `tools/optics-reference`, `src/engine/fixtures/optics.json`.
+- Changes: translated from C/OpenCL to TypeScript and GLSL. Halation is stage 2 of `sf_halation` only (three film-base bounces, weights 4/7, 2/7, 1/7, first sigma 65 µm, per-channel renormalization; emulsion scatter off) with the still/strong strengths; the 0–100 slider maps to upstream's 0–8 amount. Glow is the Black Pro-Mist diffusion filter (nine Gaussians, base warmth .65, user warmth 0) with darktable's strength curve; 0–100 maps to strength 0–2. Size (20–400%) is upstream's spatial scale on a 36 mm virtual frame. Diffusion runs before halation, as upstream. Approved deviations (Oli, 2026-11-10): (1) both run in Emulsion's scene-linear working RGB after the tone equalizer, independent of the Look, instead of on spectral film-layer exposures; (2) each component is a truncated (3σ) separable Gaussian on a box-downsampled pyramid level instead of darktable's FIR/Young–van Vliet/decimated blurs, with the fields made at most 2048 px on the long edge. Measured against the pinned upstream C on impulse and step patches at 20 µm and 6 µm pixels (`tools/browser-tests/optics.ts`): the halo stays within 3.2% of its peak at every pixel; impulse energy within 1%; step tails 3–7% short (the 3σ truncation). Edits saved with the original Halation or Glow active keep the original renderer (`halationVersion`/`glowVersion` absent) until the effect is set to 0 or its Size is changed.
+
 ### LibRaw 0.22.3
 - Upstream: https://www.libraw.org/data/LibRaw-0.22.3.tar.gz (SHA-256 789f3c33466210a1a0907f747a97c715d21bbf4af712f257fcbbd90111b227e4)
 - Licence: LGPL-2.1, chosen from LibRaw's LGPL-2.1 or CDDL-1.0 dual licence

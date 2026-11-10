@@ -10,7 +10,7 @@ export const PRESET_GROUPS = {
   Colour: ['vibrance', 'saturation', 'color'],
   'Colour Grading': ['grading'],
   Detail: ['noiseReduction', 'profiledDenoise', 'texture', 'clarity', 'dehaze', 'dehazeDistance', 'captureSharpening', 'sharpen', 'sharpenRadius', 'sharpenMasking'],
-  Effects: ['fade', 'halation', 'glow', 'vignette'],
+  Effects: ['fade', 'halation', 'halationSize', 'halationVersion', 'glow', 'glowSize', 'glowVersion', 'vignette'],
   Grain: ['push', 'grain', 'grainIso', 'grainMidtones'],
   'Film options': ['scanner', 'scannerFromLook'],
 } as const satisfies Record<string, readonly (keyof Recipe)[]>;

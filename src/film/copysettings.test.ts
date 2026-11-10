@@ -59,3 +59,10 @@ it('recovers remembered scopes without silently selecting unknown or duplicate g
   expect(normalizeCopyGroups(['Exposure', 'obsolete', 'Exposure'])).toEqual(['Exposure']);
   expect(normalizeCopyGroups([])).toEqual([]);
 });
+
+it('copies optics versions and sizes separately, including an active legacy effect', () => {
+  const from = { ...defaultRecipe(), halation: 35, halationSize: 170, halationVersion: undefined, glow: 60, glowSize: 240 };
+  const result = applyCopiedSettings({ recipe: from, groups: ['Halation'] }, defaultRecipe());
+  expect(result).toMatchObject({ halation: 35, halationSize: 170, halationVersion: undefined, glow: 0, glowSize: 100, glowVersion: 2 });
+  expect(applyCopiedSettings({ recipe: from, groups: ['Glow'] }, result)).toEqual(from);
+});

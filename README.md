@@ -132,12 +132,14 @@ Goal (agreed 2026-11-10): make Emulsion a credible replacement for Lightroom Cla
 
 ### Follow-up on existing features
 
+- **Optics (agreed direction, 2026-11-10):** keep Halation and Glow as distinct effects, replace their early implementations with established upstream processing after photo comparisons and performance checks, and retire the separate Fade control. Preserve the rendering of saved edits when replacing or retiring effects.
 - **Noise-reduction validation:** verify profile scale on real photos, compare with darktable exports and measure full-resolution export memory. Phase 1 is implemented; phases 2–4 in [noise-reduction.md](docs/plans/noise-reduction.md) remain unbuilt (hot-pixel repair before demosaic, AI denoise for developed images, then raw denoise and RawNIND Bayer).
 - **Remove validation and speed:** real-photo seam/quality checks and large-export memory measurements remain open. The MI-GAN experiment passes its recorded fidelity checks, but an installable artifact, native adapter/benchmark and explicit model choice are not integrated. Preserve saved LaMa model identities. See [migan-fidelity.md](docs/research/migan-fidelity.md).
 - **Native interaction and polish:** verify the latest toolbar/trackpad and Look Creator shortcut changes in the app, investigate the recorded `retouch-sliders` decode regression, and review narrow-column option rows. A Transform alignment grid is not implemented. See the latest entries in [HANDOFF.md](HANDOFF.md).
 
 ### Later
 
+- **Maybe — Matte:** consider a convenient tone control that lifts the deepest blacks and tapers out through the midtones. Only add it if it earns its place alongside the tone curve; this is a possibility, not a committed replacement for Fade.
 - **Merges:** HDR merge and panorama stitching.
 - **Output and capture:** soft proofing and print, tethered capture, a map with geotagging, publish services.
 - **AI selection:** scribble selection and SAM click-to-select for Remove. See [masks.md](docs/plans/masks.md).

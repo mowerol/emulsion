@@ -20,6 +20,7 @@ import { packShapes } from './masks';
 //           └────────────────────────────────────────────── develop ─ output
 
 import type { Recipe } from '../film/recipe';
+import { OpticsGpu, opticsSize } from './opticsgpu';
 import { lensCenter, lensColourUniforms, lensSpline, lensUniforms, type LensMetadata } from './lenscorrection';
 import { geometryMatrix, hasPerspective } from './perspective';
 import { FULL, orientedSize, type Orientation, type Rect } from '../film/crop';
@@ -128,6 +129,7 @@ export interface Capture {
 export interface CaptureWork { builds: number; hits: number; steps: number; cpuMs: number; elapsedMs: number; thresholdMs: number }
 
 interface Chain {
+  optics?: OpticsGpu;
   /** Highlight pyramid; levels[0] is quarter resolution. */
   levels: Target[];
   halTmp: Target;
@@ -206,14 +208,16 @@ const MASK_UNIFORMS = uniformsOf('stages/masks.glsl').filter((n) => n !== 'uMask
 /** What a mask's refinement depends on: everything up to the masks' exposure instances. */
 // Haze removal's texture follows its instances (dehazeMap sets uDehazeKey), so that joins the keys.
 const BEFORE_MASKS = ['stages/input.glsl', 'stages/dehaze.glsl', 'stages/exposure.glsl'].flatMap(uniformsOf).concat('uSharp', 'uStore', 'uDehazeKey', ...MASK_UNIFORMS);
-const BEFORE_TEXTURE = ['stages/input.glsl', 'stages/dehaze.glsl', 'stages/exposure.glsl', 'stages/toneequalizer.glsl'].flatMap(uniformsOf).concat('uSharp', 'uStore', 'uDehazeKey', ...MASK_UNIFORMS);
+const OPTICS_INPUT = ['stages/input.glsl', 'stages/dehaze.glsl', 'stages/exposure.glsl', 'stages/toneequalizer.glsl'].flatMap(uniformsOf).concat('uSharp', 'uStore', 'uDehazeKey', ...MASK_UNIFORMS);
+const OPTICS_STAGE = ['uHalModel', 'uGlowModel', 'uHalStrength', 'uGlowFraction', 'uHalSize', 'uGlowSize', 'uHal', 'uGlow'];
+const BEFORE_TEXTURE = [...OPTICS_INPUT, ...OPTICS_STAGE];
 const TEXTURE_STAGE = uniformsOf('stages/texture.glsl').concat('uTextureMix');
 /** What Texture's input depends on with detail before Exposure (detaillog.ts): the input stage
  *  and haze removal, not Exposure, the tone equalizer or anything after. */
 const BEFORE_TEXTURE_LOG = ['stages/input.glsl', 'stages/dehaze.glsl'].flatMap(uniformsOf).concat('uSharp', 'uStore', 'uDehazeKey');
 const TEXTURE_INPUT = TEXTURE_STAGE.filter(k => k !== 'uTextureMix');
 const COLOR_STAGE = uniformsOf('stages/colorequal.glsl');
-const BEFORE_CLARITY = ['stages/colorbalance.glsl', 'stages/lens.glsl', 'stages/tone.glsl', 'stages/lut.glsl'].flatMap(uniformsOf).concat('uHal', 'uHalCol', 'uGlow', 'uLutId');
+const BEFORE_CLARITY = ['stages/colorbalance.glsl', 'stages/lens.glsl', 'stages/tone.glsl', 'stages/lut.glsl'].flatMap(uniformsOf).concat('uHalCol', 'uLutId', ...OPTICS_STAGE);
 // uClarityScale only rescales a finished map, so it is never part of one's key.
 const CLARITY_STAGE = uniformsOf('stages/clarity.glsl').filter((n) => n !== 'uClarityScale').concat('uLl');
 const pick = (u: Uniforms, names: string[]) => JSON.stringify(names.map((n) => u[n] ?? null));
@@ -532,7 +536,7 @@ export class Engine {
     this.down = this.gpu.program(SHADERS.vertex, SHADERS.down);
     this.store = this.gpu.hdr ? 1 : 0.25;
     this.lutTex = new Lru<WebGLTexture>(10, (t) => this.gpu.gl.deleteTexture(t));
-    this.chains = new Lru<Chain>(6, (c) => [...c.levels, c.halTmp, c.glowTmp, c.hA, c.hB, ...(c.teq ?? []), ...(c.teqTmp ? [c.teqTmp] : []), ...(c.teqAtlas ? [c.teqAtlas] : [])].forEach((t) => this.gpu.free(t)));
+    this.chains = new Lru<Chain>(6, (c) => { c.optics?.dispose(); [...c.levels, c.halTmp, c.glowTmp, c.hA, c.hB, ...(c.teq ?? []), ...(c.teqTmp ? [c.teqTmp] : []), ...(c.teqAtlas ? [c.teqAtlas] : [])].forEach((t) => this.gpu.free(t)); });
     this.outs = new Lru<Target>(12, (t) => this.gpu.free(t));
     this.llCurve = this.gpu.program(SHADERS.vertex, SHADERS.llcurve);
     this.llReduce = this.gpu.program(SHADERS.vertex, SHADERS.llreduce);
@@ -3061,12 +3065,12 @@ export class Engine {
       hal = this.inject.hal ?? g.blackTexture;
       glow = this.inject.glow ?? g.blackTexture;
     } else if (ch) {
-      if (highlights) {
+      if (highlights && ((u.uHal as number) > 0 && u.uHalModel !== 2 || (u.uGlow as number) > 0 && u.uGlowModel !== 2)) {
         const { levels, pyramid } = ch;
         g.bind(0, src.tex);
         g.bind(4, teq);
         g.bind(DEHAZE_UNIT, dehaze);
-        this.extract.set({ ...u, ...teqU, uSrc: 0, uDehazeTex: DEHAZE_UNIT, uTexel: [1 / src.w, 1 / src.h] });
+        this.extract.set({ ...u, ...teqU, uSrc: 0, uOpticsSource: 0, uDehazeTex: DEHAZE_UNIT, uTexel: [1 / src.w, 1 / src.h] });
         g.bindArray(MASK_UNIT, maskTex);
         g.draw(this.extract, levels[0], levels[0].w, levels[0].h);
         for (let i = 1; i < levels.length; i++) this.downsample(levels[i - 1], levels[i]);
@@ -3079,6 +3083,23 @@ export class Engine {
         hal = halLevel.tex;
         glow = glowLevel.tex;
       }
+    }
+    if (ch && ownHighlights && recipe && (u.uHalModel === 2 && recipe.halation > 0 || u.uGlowModel === 2 && recipe.glow > 0)) {
+      const [ow, oh] = opticsSize(src.w, src.h);
+      const optics = ch.optics ??= new OpticsGpu(g, ow, oh);
+      const key = `${this.L.stack.generation}|${pick(u, OPTICS_INPUT)}|${teqLocal}`;
+      const maps = optics.render(src.tex, key, {
+        halation: u.uHalModel === 2 && recipe.halation > 0,
+        glow: u.uGlowModel === 2 && recipe.glow > 0,
+        halationSize: recipe.halationSize, glowSize: recipe.glowSize, glowAmount: recipe.glow,
+      }, target => {
+        g.bind(0, src.tex); g.bind(1, sharp); g.bind(4, teq); g.bind(DEHAZE_UNIT, dehaze);
+        g.bindArray(MASK_UNIT, maskTex);
+        this.extract.set({ ...u, ...teqU, uSrc: 0, uBlurTex: 1, uOpticsSource: 1, uDehazeTex: DEHAZE_UNIT, uTexel: [.25 / target.w, .25 / target.h] });
+        g.draw(this.extract, target, target.w, target.h);
+      });
+      if (maps.halation) hal = maps.halation;
+      if (maps.glow) glow = maps.glow;
     }
     if (opts.products) {
       Object.assign(opts.products, { teq: teqLocal ? teq : undefined, hal, glow, mask: maskTex, ambient: photoDehaze ? this.dehazeAmbient(src, u) : null });

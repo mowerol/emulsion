@@ -3,6 +3,42 @@
 All work through 2026-11-10 is committed except the top section (the DCP removal, darktable camera data, app icon, DNG
 and TIFF support, and the retouch overlays went in together); "Uncommitted" notes below are out of date.
 
+## Halation and Glow: spektrafilm optics (2026-11-10)
+
+Uncommitted. Started by another agent (Codex), finished here. `npm run check` passes (739
+frontend, 84 Rust); `node tools/browser-tests/realtime.mjs optics 60` passes on the GPU.
+
+- **What:** darktable's spektrafilm optics, per [docs/research/optics.md](docs/research/optics.md).
+  Halation is the three film-base bounces with the still/strong preset (0–100 → upstream 0–8);
+  Glow is the Black Pro-Mist diffusion bank (0–100 → strength 0–2). New **Halation size** and
+  **Glow size** sliders (20–400%, upstream's spatial scale on a 36 mm frame). Both apply in
+  scene light after the tone equalizer (`stageOpticsScene`), Glow before Halation as upstream.
+  Approved deviations (Oli): working RGB instead of film-layer exposures; a Gaussian pyramid
+  instead of upstream's blurs. Recorded in file headers and NOTICE.
+- **Files:** `engine/optics.ts` (reference: plans, strength curve, mixes; `optics.test.ts`
+  checks it against `fixtures/optics.json`, made from the pinned upstream C by
+  `tools/optics-reference/generate.py`), `engine/opticsgpu.ts` + `shaders/opticsmap.frag.glsl`
+  (fields ≤2048 px, cached; Amount drags only re-mix), the extract pass's `uOpticsSource` mode.
+- **Saved edits:** `halationVersion`/`glowVersion` (2 = new). A sidecar with an active effect
+  and no version keeps the original renderer until the effect goes to 0 or its Size moves
+  (`withSlider` in recipe.ts); copy/paste and presets carry size and version.
+- **Measured** against upstream C (impulse/step, 20 µm and 6 µm pixels): halo within 3.2% of
+  its peak everywhere, impulse energy within 1%, step tails 3–7% short (3σ truncation).
+  Headless build cost at 2048 × 1365: both 1.6 ms, Halation 0.6, Glow 1.1, cached 0.3.
+- **Looked at** on two of Oli's photos (1OKK6432, 1OKK6440) against the old models: Glow is a
+  soft veil with no hot blobs; Halation is a tight warm fringe, subtle even at 100 (still/strong
+  is strong anti-halation film). **For Oli to decide:** whether the slider should reach a
+  stronger upstream preset (still/weak .08/.02/0, or no anti-halation .30/.10/.015), rather
+  than retuning anything ourselves.
+- **Not done:** the in-app timing (`inapp.mjs`, needs an idle Mac and Oli's screen); fit vs
+  100% vs export comparison on a real RAW (at 100% and in a full export the fields come from
+  ≤2048 px maps, so Glow's finest core component is softer than upstream there); monochrome
+  handling (research note's open question); retiring Fade (separate task).
+- **Oli should try:** Halation and Glow at a few amounts and sizes on a backlit photo; drag
+  Amount (should stay smooth) and Size; open an older edit that had Halation/Glow on (it
+  should look as before until set to 0 or its Size is touched); copy/paste Halation alone;
+  zoom to 100% and export one.
+
 ## Optics direction and possible Matte control (2026-11-10)
 
 Documentation only; no processing or controls changed. Oli agreed to keep Halation and Glow as
@@ -61,8 +97,8 @@ Diagnosis; fixed in session 5 above.
   (`exposure,exposure` → `exposure`, `exposure2`); the app's timer callbacks are timed ('timer');
   worst blocks carry `atMs`; `ui.release` splits main-thread time from release to settle. Tauri's
   `__TAURI_INTERNALS__` is locked, so IPC replies can't be hooked from the page.
-- **Note:** another agent's uncommitted optics work (Halation/Glow) currently fails to compile
-  (`'uStore' : redefinition`), so the app doesn't start from the main tree. These runs used a
+- **Note:** the uncommitted optics work's `'uStore' : redefinition` compile error is fixed
+  (see the Halation and Glow section above). These runs used a
   clean worktree of HEAD plus `perfrun.ts`, at the scratchpad path `…/scratchpad/wt` (its
   `src-tauri/target` is an APFS clone).
 - Harness detail: `inapp.mjs` prints only `[webview:error]` lines, so log at error level when

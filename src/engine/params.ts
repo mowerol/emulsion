@@ -2,6 +2,7 @@
 // Recipe to shader uniforms. Pure, so it can be tested without a GPU.
 
 import { STOCK } from '../film/stocks';
+import { diffusionFraction, halationStrength } from './optics';
 import { scannerFinish } from '../film/scannerfinish';
 import type { Recipe } from '../film/recipe';
 import { REC2020_TO_SRGB, SRGB_TO_REC2020, columnMajor, mulVec } from './color';
@@ -167,6 +168,12 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uVig: recipe.vignette / 100,
     uSharp: sc.sharpness,
     uHal: recipe.halation / 100,
+    uHalModel: recipe.halationVersion ?? 1,
+    uGlowModel: recipe.glowVersion ?? 1,
+    uHalStrength: halationStrength(recipe.halation),
+    uGlowFraction: diffusionFraction(recipe.glow),
+    uHalSize: recipe.halationSize,
+    uGlowSize: recipe.glowSize,
     uHalCol: s.halationColor,
     uGlow: recipe.glow / 100,
     uGrain: grainUniform(recipe, ctx.seed),

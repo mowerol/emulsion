@@ -70,6 +70,11 @@ export interface Recipe {
   fade: number;
   halation: number;
   glow: number;
+  halationSize: number;
+  glowSize: number;
+  /** Absent preserves an active effect saved with the original renderer. */
+  halationVersion?: 2;
+  glowVersion?: 2;
   vignette: number;
   grain: number;
   /** Grain size: darktable's coarseness, in its ISO units; the stock's film speed by default. */
@@ -139,7 +144,7 @@ export function normalizeColor(input: unknown): ColorAdjust | null {
   return tidyColor({ hue: list(o.hue, -HUE_MAX, HUE_MAX), sat: list(o.sat, -100, 100), bright: list(o.bright, -100, 100) });
 }
 
-export type SliderKey = Exclude<keyof Recipe, 'noiseReduction' | 'profiledDenoise' | 'v' | 'lookEnabled' | 'stock' | 'pack' | 'lookBlend' | 'push' | 'scanner' | 'scannerFromLook' | 'curve' | 'wb' | 'crop' | 'color' | 'grading' | 'lens' | 'transform' | 'masks' | 'retouch' | 'retouchScales' | 'lookSnapshot'>;
+export type SliderKey = Exclude<keyof Recipe, 'halationVersion' | 'glowVersion' | 'noiseReduction' | 'profiledDenoise' | 'v' | 'lookEnabled' | 'stock' | 'pack' | 'lookBlend' | 'push' | 'scanner' | 'scannerFromLook' | 'curve' | 'wb' | 'crop' | 'color' | 'grading' | 'lens' | 'transform' | 'masks' | 'retouch' | 'retouchScales' | 'lookSnapshot'>;
 
 export interface SliderDef {
   key: SliderKey;
@@ -184,7 +189,9 @@ export const SLIDERS: SliderDef[] = [
   { key: 'sharpenMasking', label: 'Masking', group: 'detail', min: 0, max: 100, step: 1, default: 10 },
   { key: 'captureSharpening', label: 'Capture', group: 'detail', min: 0, max: 100, step: 1, default: 100, hint: 'Undoes the lens and sensor blur of RAW files, at the pixel level. 100 is RawTherapee\'s default.' },
   { key: 'halation', label: 'Halation', group: 'optics', min: 0, max: 100, step: 1, stockKey: 'halation' },
-  { key: 'glow', label: 'Glow', group: 'optics', min: 0, max: 100, step: 1 },
+  { key: 'halationSize', label: 'Halation size', group: 'optics', min: 20, max: 400, step: 1, default: 100, format: v => `${v}%`, hint: 'How far the warm halo spreads around bright areas.' },
+  { key: 'glow', label: 'Glow', group: 'optics', min: 0, max: 100, step: 1, hint: 'Diffuses light around bright areas and softens contrast.' },
+  { key: 'glowSize', label: 'Glow size', group: 'optics', min: 20, max: 400, step: 1, default: 100, format: v => `${v}%`, hint: 'How far the diffused light spreads.' },
   { key: 'vignette', label: 'Vignette', group: 'optics', min: 0, max: 100, step: 1 },
   { key: 'grain', label: 'Amount', group: 'grain', min: 0, max: 100, step: 1, stockKey: 'grain' },
   { key: 'grainIso', label: 'Size', group: 'grain', min: ISO_MIN, max: ISO_MAX, step: 1, stockKey: 'grainIso', log: true, hint: 'The grain size, as the ISO of the film.', format: (v) => `ISO ${Math.round(v)}` },
@@ -240,6 +247,10 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
     fade: 0,
     halation: s.halation,
     glow: 0,
+    halationSize: 100,
+    glowSize: 100,
+    halationVersion: 2,
+    glowVersion: 2,
     vignette: 0,
     grain: s.grain,
     grainIso: s.grainIso,
@@ -293,12 +304,12 @@ const SECTION_FIELDS: Record<SectionId, (keyof Recipe)[]> = {
   whitebalance: ['wb'],
   exposure: ['exposure', 'contrast', 'toneCharacter', 'saturation', 'vibrance'],
   hdr: ['highlights', 'shadows', 'whites', 'blacks'],
-  'refine-optics': ['fade', ...SLIDERS.filter(d => d.group === 'optics').map(d => d.key)],
+  'refine-optics': ['halationVersion', 'glowVersion', 'fade', ...SLIDERS.filter(d => d.group === 'optics').map(d => d.key)],
   'colour-basics': ['vibrance', 'saturation'],
   tone: SLIDERS.filter(d => d.group === 'adjust' && d.key !== 'vibrance' && d.key !== 'saturation').map(d => d.key),
   detail: SLIDERS.filter((d) => d.group === 'detail').map((d) => d.key),
   noise: ['noiseReduction', 'profiledDenoise'],
-  optics: SLIDERS.filter((d) => d.group === 'optics').map((d) => d.key),
+  optics: ['halationVersion', 'glowVersion', ...SLIDERS.filter((d) => d.group === 'optics').map((d) => d.key)],
   grain: SLIDERS.filter((d) => d.group === 'grain').map((d) => d.key),
 };
 
@@ -351,6 +362,9 @@ export function normalizeRecipe(input: unknown): Recipe | null {
     const v = read(def.key);
     if (typeof v === 'number' && Number.isFinite(v)) out[def.key] = clamp(v, def.min, def.max);
   }
+  // Only active old effects need the legacy renderer. New adjustments start with the new model.
+  out.halationVersion = o.halationVersion === 2 || out.halation === 0 ? 2 : undefined;
+  out.glowVersion = o.glowVersion === 2 || out.glow === 0 ? 2 : undefined;
   // Sidecars from before it existed have no field: off, so they render as they did.
   out.profiledDenoise = normalizeProfiledDenoise(o.profiledDenoise);
   if (typeof o.scannerFromLook === 'boolean') out.scannerFromLook = o.scannerFromLook;
@@ -363,3 +377,11 @@ export function normalizeRecipe(input: unknown): Recipe | null {
 }
 
 export const recipeKey = (r: Recipe | null) => (r ? JSON.stringify(r) : 'original');
+
+/** Keep an active legacy effect until it is cleared, or its new size control is used. */
+export function withSlider(recipe: Recipe, key: SliderKey, value: number): Recipe {
+  const out = { ...recipe, [key]: value };
+  if (key === 'halationSize' || key === 'halation' && (recipe.halation === 0 || value === 0)) out.halationVersion = 2;
+  if (key === 'glowSize' || key === 'glow' && (recipe.glow === 0 || value === 0)) out.glowVersion = 2;
+  return out;
+}

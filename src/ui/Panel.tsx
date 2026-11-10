@@ -15,7 +15,7 @@ import { CameraColourWarning } from './CameraProfile';
 import { TransformControls, transformSummary } from './TransformControls';
 import { LensControls } from './LensControls';
 import { ColourGradingControls } from './ColourGrading';
-import { BRIGHT_RANGE, COLOR_CHANNELS, DEFAULT_STOCK, HUE_DEGREES, SAT_RANGE, SLIDER, SLIDERS, defaultRecipe, normalizeRecipe, tidyColor, type ColorAdjust, resetAdjustments, resetSection, sectionChanged, sliderDefault, withSettingsFrom, type Recipe, type SectionId, type SliderDef } from '../film/recipe';
+import { BRIGHT_RANGE, COLOR_CHANNELS, DEFAULT_STOCK, HUE_DEGREES, SAT_RANGE, SLIDER, SLIDERS, defaultRecipe, normalizeRecipe, tidyColor, type ColorAdjust, resetAdjustments, resetSection, sectionChanged, sliderDefault, withSettingsFrom, withSlider, type Recipe, type SectionId, type SliderDef } from '../film/recipe';
 import type { ScannerId } from '../film/scanners';
 import { ScannerFinishControls } from './ScannerFinish';
 import { STOCK } from '../film/stocks';
@@ -354,7 +354,7 @@ function OverflowMenu({ children }: { children: (close: () => void) => ReactNode
   </div>;
 }
 
-const setSlider = (key: SliderDef['key'], v: number, grouping?: Grouping) => editActive((r) => ({ ...(r ?? defaultRecipe()), [key]: v }), undefined, grouping);
+const setSlider = (key: SliderDef['key'], v: number, grouping?: Grouping) => editActive((r) => withSlider(r ?? defaultRecipe(), key, v), undefined, grouping);
 
 /**
  * A tab's sections stay mounted while another tab shows (keeping their state), but a hidden slot

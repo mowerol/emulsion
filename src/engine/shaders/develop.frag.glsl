@@ -127,6 +127,7 @@ void main() {
   }
   x = stageToneEqualizer(x, uv);
   x = stageMaskToneEqualizer(x, uv);
+  x = stageOpticsScene(x, uv);
   if (uTap > 1.5 && uTap < 2.5) {
     outColor = vec4(labL(x), 0.0, 0.0, 1.0);
     return;
