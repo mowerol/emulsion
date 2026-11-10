@@ -112,6 +112,8 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uCeRoi: [0, 0, 1, 1],
     uStore: ctx.store,
     uSeed: ctx.seed,
+    // One 8-bit step of dither in Finish; a 16-bit export sets one 16-bit step.
+    uDither: 1 / 255,
     uHalThreshold: HALATION_THRESHOLD,
     uLutTex: LUT_UNIT,
     uLutOn: 0,

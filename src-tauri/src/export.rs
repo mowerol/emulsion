@@ -1,16 +1,81 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Writing developed frames to disk. The GPU renders the final pixels; this
-//! module encodes them and picks a file name that never overwrites anything.
+//! Writing developed frames to disk. The GPU renders the final pixels (8-bit RGBA, or 16-bit RGB
+//! for 16-bit TIFF and PNG); this module encodes them as JPEG, PNG or TIFF and places the file by
+//! the export's rule for an existing name: a new name (`-2`, `-3`...), overwrite, or skip.
 //! A frame is written in full under a hidden name, then moved to its own, so a crash or a full
-//! disk never leaves a half-written JPEG behind.
+//! disk never leaves a half-written file behind, and an overwrite never truncates the old one.
 
 use image::codecs::jpeg::JpegEncoder;
-use image::RgbImage;
-use serde::Serialize;
+use image::codecs::png::{CompressionType, FilterType, PngEncoder};
+use image::{DynamicImage, ImageBuffer, Rgb, RgbImage};
+use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io::{self, ErrorKind, Write};
+use std::io::{self, Cursor, ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+
+/// How TIFF pixels are compressed. LZW and ZIP use the horizontal predictor, as Lightroom's do.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TiffCompression {
+    None,
+    Lzw,
+    Zip,
+}
+
+/// The file an export writes.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(tag = "kind", rename_all = "lowercase")]
+pub enum Format {
+    Jpeg { quality: u8 },
+    Png { bits: u8 },
+    Tiff { bits: u8, compression: TiffCompression },
+}
+
+impl Format {
+    pub fn ext(&self) -> &'static str {
+        match self {
+            Format::Jpeg { .. } => "jpg",
+            Format::Png { .. } => "png",
+            Format::Tiff { .. } => "tif",
+        }
+    }
+
+    /// 16 when the frame comes as 16-bit RGB, 8 when it comes as 8-bit RGBA.
+    pub fn bits(&self) -> u8 {
+        match self {
+            Format::Jpeg { .. } => 8,
+            Format::Png { bits } | Format::Tiff { bits, .. } => if *bits == 16 { 16 } else { 8 },
+        }
+    }
+}
+
+/// What to do when the file name is already taken.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Existing {
+    /// Add `-2`, `-3`... (never touches the other file).
+    Rename,
+    /// Replace it (never the photo being exported).
+    Overwrite,
+    /// Leave it and write nothing.
+    Skip,
+}
+
+/// A frame's pixels as they come from the GPU.
+pub enum Pixels<'a> {
+    /// 8-bit RGBA, top row first.
+    Rgba8(&'a [u8]),
+    /// 16-bit RGB, top row first, little-endian bytes (a JS `Uint16Array`'s).
+    Rgb16(&'a [u8]),
+}
+
+/// Where a frame went: `skipped` means a file of that name was there and was left alone.
+#[derive(Debug, Serialize, PartialEq)]
+pub struct Written {
+    pub path: PathBuf,
+    pub skipped: bool,
+}
 
 /// Why a frame was not written. `stop` means the destination itself failed (full, read-only,
 /// gone, not allowed), so the frames after it would fail the same way.
@@ -59,18 +124,72 @@ pub fn safe_stem(stem: &str) -> String {
     if trimmed.is_empty() { "frame".into() } else { trimmed.into() }
 }
 
-pub fn encode_jpeg(rgba: &[u8], width: u32, height: u32, quality: u8) -> Result<Vec<u8>, String> {
-    let expected = width as usize * height as usize * 4;
-    if width == 0 || height == 0 || rgba.len() != expected {
-        return Err(format!("Expected {expected} bytes for a {width}x{height} frame, got {}", rgba.len()));
+fn rgb8(px: &Pixels, width: u32, height: u32) -> Result<RgbImage, String> {
+    let n = width as usize * height as usize;
+    let rgb: Vec<u8> = match px {
+        Pixels::Rgba8(b) if b.len() == n * 4 => b.chunks_exact(4).flat_map(|p| [p[0], p[1], p[2]]).collect(),
+        Pixels::Rgba8(b) => return Err(format!("Expected {} bytes for a {width}x{height} frame, got {}", n * 4, b.len())),
+        Pixels::Rgb16(b) if b.len() == n * 6 => b.chunks_exact(2).map(|v| (u16::from_le_bytes([v[0], v[1]]) >> 8) as u8).collect(),
+        Pixels::Rgb16(b) => return Err(format!("Expected {} bytes for a 16-bit {width}x{height} frame, got {}", n * 6, b.len())),
+    };
+    if n == 0 {
+        return Err(format!("A {width}x{height} frame has no pixels"));
     }
-    let rgb: Vec<u8> = rgba.chunks_exact(4).flat_map(|p| [p[0], p[1], p[2]]).collect();
-    let img = RgbImage::from_raw(width, height, rgb).ok_or("Frame size does not match its pixels")?;
+    RgbImage::from_raw(width, height, rgb).ok_or_else(|| "Frame size does not match its pixels".into())
+}
+
+fn rgb16(px: &Pixels, width: u32, height: u32) -> Result<Vec<u16>, String> {
+    let n = width as usize * height as usize;
+    match px {
+        Pixels::Rgb16(b) if n > 0 && b.len() == n * 6 => Ok(b.chunks_exact(2).map(|v| u16::from_le_bytes([v[0], v[1]])).collect()),
+        Pixels::Rgb16(b) => Err(format!("Expected {} bytes for a 16-bit {width}x{height} frame, got {}", n * 6, b.len())),
+        // An 8-bit frame widened, so the file is still 16-bit when asked.
+        Pixels::Rgba8(_) => Ok(rgb8(px, width, height)?.into_raw().into_iter().map(|v| v as u16 * 257).collect()),
+    }
+}
+
+pub fn encode(px: &Pixels, width: u32, height: u32, format: Format) -> Result<Vec<u8>, String> {
     let mut out = Vec::new();
-    JpegEncoder::new_with_quality(&mut out, quality.clamp(1, 100))
-        .encode_image(&img)
-        .map_err(|e| format!("Could not encode JPEG: {e}"))?;
+    match format {
+        Format::Jpeg { quality } => {
+            JpegEncoder::new_with_quality(&mut out, quality.clamp(1, 100))
+                .encode_image(&rgb8(px, width, height)?)
+                .map_err(|e| format!("Could not encode JPEG: {e}"))?;
+        }
+        Format::Png { .. } => {
+            let img = if format.bits() == 16 {
+                let buf: ImageBuffer<Rgb<u16>, Vec<u16>> =
+                    ImageBuffer::from_raw(width, height, rgb16(px, width, height)?).ok_or("Frame size does not match its pixels")?;
+                DynamicImage::ImageRgb16(buf)
+            } else {
+                DynamicImage::ImageRgb8(rgb8(px, width, height)?)
+            };
+            img.write_with_encoder(PngEncoder::new_with_quality(&mut out, CompressionType::Default, FilterType::Adaptive))
+                .map_err(|e| format!("Could not encode PNG: {e}"))?;
+        }
+        Format::Tiff { compression, .. } => {
+            use tiff::encoder::{colortype, Compression, DeflateLevel, TiffEncoder};
+            use tiff::tags::Predictor;
+            let mut cursor = Cursor::new(&mut out);
+            let err = |e: tiff::TiffError| format!("Could not encode TIFF: {e}");
+            let encoder = TiffEncoder::new(&mut cursor).map_err(err)?;
+            let mut encoder = match compression {
+                TiffCompression::None => encoder,
+                TiffCompression::Lzw => encoder.with_compression(Compression::Lzw).with_predictor(Predictor::Horizontal),
+                TiffCompression::Zip => encoder.with_compression(Compression::Deflate(DeflateLevel::Balanced)).with_predictor(Predictor::Horizontal),
+            };
+            if format.bits() == 16 {
+                encoder.write_image::<colortype::RGB16>(width, height, &rgb16(px, width, height)?).map_err(err)?;
+            } else {
+                encoder.write_image::<colortype::RGB8>(width, height, rgb8(px, width, height)?.as_raw()).map_err(err)?;
+            }
+        }
+    }
     Ok(out)
+}
+
+pub fn encode_jpeg(rgba: &[u8], width: u32, height: u32, quality: u8) -> Result<Vec<u8>, String> {
+    encode(&Pixels::Rgba8(rgba), width, height, Format::Jpeg { quality })
 }
 
 /// Make the export folder and check a file can be written in it, before any frame is developed.
@@ -88,10 +207,35 @@ fn temp_path(dir: &Path, stem: &str) -> PathBuf {
     dir.join(format!(".{stem}.emulsion-{}-{n}.partial", std::process::id()))
 }
 
-/// Write `bytes` as `<stem>.<ext>` (or the next free `-N` name) without overwriting anything,
+/// The file a frame of `stem` would be written to, for checking before developing it.
+pub fn target(dir: &Path, stem: &str, ext: &str) -> PathBuf {
+    dir.join(format!("{}.{ext}", safe_stem(stem)))
+}
+
+fn same_file(a: &Path, b: &Path) -> bool {
+    match (fs::canonicalize(a), fs::canonicalize(b)) {
+        (Ok(a), Ok(b)) => a == b,
+        _ => false,
+    }
+}
+
+/// Write `bytes` as `<stem>.<ext>` by the `existing` rule. With `Rename` nothing is overwritten,
 /// even a file that appears meanwhile: the name is claimed with an exclusive create, then the
-/// finished temporary file is renamed over that claim.
-pub fn write_new(dir: &Path, stem: &str, ext: &str, bytes: &[u8]) -> Result<PathBuf, WriteError> {
+/// finished temporary file is renamed over that claim. `Overwrite` renames the finished file over
+/// the old one in one step, and refuses when that would be `protect` (the photo itself).
+pub fn place(dir: &Path, stem: &str, ext: &str, bytes: &[u8], existing: Existing, protect: Option<&Path>) -> Result<Written, WriteError> {
+    let wanted = dir.join(format!("{stem}.{ext}"));
+    if existing == Existing::Skip && fs::symlink_metadata(&wanted).is_ok() {
+        return Ok(Written { path: wanted, skipped: true });
+    }
+    if existing == Existing::Overwrite {
+        if wanted.is_dir() {
+            return Err(format!("Could not write {}: a folder has that name", wanted.display()).into());
+        }
+        if protect.is_some_and(|p| same_file(p, &wanted)) {
+            return Err(format!("Did not write {}: it would replace the original photo", wanted.display()).into());
+        }
+    }
     let tmp = temp_path(dir, stem);
     let written = fs::File::create_new(&tmp).and_then(|mut f| {
         f.write_all(bytes)?;
@@ -99,12 +243,26 @@ pub fn write_new(dir: &Path, stem: &str, ext: &str, bytes: &[u8]) -> Result<Path
     });
     if let Err(e) = written {
         let _ = fs::remove_file(&tmp);
-        return Err(io_error("write", &tmp.with_file_name(format!("{stem}.{ext}")), &e));
+        return Err(io_error("write", &wanted, &e));
     }
-    let mut path = unique_path(dir, stem, ext);
+    if existing == Existing::Overwrite {
+        return match fs::rename(&tmp, &wanted) {
+            Ok(()) => Ok(Written { path: wanted, skipped: false }),
+            Err(e) => {
+                let _ = fs::remove_file(&tmp);
+                Err(io_error("write", &wanted, &e))
+            }
+        };
+    }
+    let mut path = if existing == Existing::Skip { wanted.clone() } else { unique_path(dir, stem, ext) };
     let claimed = loop {
         match fs::File::create_new(&path) {
             Ok(_) => break Ok(()),
+            // A file of that name appeared while this one was written.
+            Err(e) if e.kind() == ErrorKind::AlreadyExists && existing == Existing::Skip => {
+                let _ = fs::remove_file(&tmp);
+                return Ok(Written { path, skipped: true });
+            }
             Err(e) if e.kind() == ErrorKind::AlreadyExists => path = unique_path(dir, stem, ext),
             Err(e) => break Err(e),
         }
@@ -117,13 +275,37 @@ pub fn write_new(dir: &Path, stem: &str, ext: &str, bytes: &[u8]) -> Result<Path
         }
         return Err(io_error("write", &path, &e));
     }
-    Ok(path)
+    Ok(Written { path, skipped: false })
+}
+
+/// Never-overwrite placement (`place` with `Existing::Rename`).
+pub fn write_new(dir: &Path, stem: &str, ext: &str, bytes: &[u8]) -> Result<PathBuf, WriteError> {
+    place(dir, stem, ext, bytes, Existing::Rename, None).map(|w| w.path)
+}
+
+/// Encode a frame and write it into `dir` (made if missing) under `stem`'s safe name.
+pub fn write_frame(
+    dir: &Path,
+    stem: &str,
+    px: &Pixels,
+    width: u32,
+    height: u32,
+    format: Format,
+    existing: Existing,
+    protect: Option<&Path>,
+) -> Result<Written, WriteError> {
+    fs::create_dir_all(dir).map_err(|e| io_error("create", dir, &e))?;
+    let stem = safe_stem(stem);
+    // Checked before encoding too, so a skipped frame costs nothing more.
+    if existing == Existing::Skip && fs::symlink_metadata(dir.join(format!("{stem}.{}", format.ext()))).is_ok() {
+        return Ok(Written { path: dir.join(format!("{stem}.{}", format.ext())), skipped: true });
+    }
+    let bytes = encode(px, width, height, format)?;
+    place(dir, &stem, format.ext(), &bytes, existing, protect)
 }
 
 pub fn write_jpeg(dir: &Path, stem: &str, rgba: &[u8], width: u32, height: u32, quality: u8) -> Result<PathBuf, WriteError> {
-    fs::create_dir_all(dir).map_err(|e| io_error("create", dir, &e))?;
-    let bytes = encode_jpeg(rgba, width, height, quality)?;
-    write_new(dir, &safe_stem(stem), "jpg", &bytes)
+    write_frame(dir, stem, &Pixels::Rgba8(rgba), width, height, Format::Jpeg { quality }, Existing::Rename, None).map(|w| w.path)
 }
 
 #[cfg(test)]
@@ -192,5 +374,94 @@ mod tests {
     fn rejects_mismatched_buffers() {
         assert!(encode_jpeg(&[0; 10], 2, 2, 90).is_err());
         assert!(encode_jpeg(&[], 0, 0, 90).is_err());
+    }
+
+    fn ramp16(w: u32, h: u32) -> Vec<u8> {
+        (0..w * h * 3).flat_map(|i| ((i * 4099) as u16).to_le_bytes()).collect()
+    }
+
+    #[test]
+    fn sixteen_bit_png_and_tiff_keep_every_value() {
+        let (w, h) = (7, 5);
+        let bytes = ramp16(w, h);
+        let want: Vec<u16> = bytes.chunks_exact(2).map(|v| u16::from_le_bytes([v[0], v[1]])).collect();
+        for format in [
+            Format::Png { bits: 16 },
+            Format::Tiff { bits: 16, compression: TiffCompression::None },
+            Format::Tiff { bits: 16, compression: TiffCompression::Lzw },
+            Format::Tiff { bits: 16, compression: TiffCompression::Zip },
+        ] {
+            let file = encode(&Pixels::Rgb16(&bytes), w, h, format).unwrap();
+            let img = image::load_from_memory(&file).unwrap();
+            assert_eq!((img.width(), img.height()), (w, h), "{format:?}");
+            assert_eq!(img.to_rgb16().into_raw(), want, "{format:?}");
+        }
+    }
+
+    #[test]
+    fn eight_bit_files_drop_alpha_and_keep_values() {
+        let (w, h) = (6, 3);
+        let rgba: Vec<u8> = (0..w * h).flat_map(|i| [(i * 13) as u8, (i * 5) as u8, 255 - i as u8, 255]).collect();
+        let rgb: Vec<u8> = rgba.chunks_exact(4).flat_map(|p| [p[0], p[1], p[2]]).collect();
+        for format in [
+            Format::Png { bits: 8 },
+            Format::Tiff { bits: 8, compression: TiffCompression::None },
+            Format::Tiff { bits: 8, compression: TiffCompression::Lzw },
+            Format::Tiff { bits: 8, compression: TiffCompression::Zip },
+        ] {
+            let file = encode(&Pixels::Rgba8(&rgba), w, h, format).unwrap();
+            let img = image::load_from_memory(&file).unwrap();
+            assert_eq!(img.color(), image::ColorType::Rgb8, "{format:?}");
+            assert_eq!(img.to_rgb8().into_raw(), rgb, "{format:?}");
+        }
+    }
+
+    #[test]
+    fn eight_bit_frames_widen_for_sixteen_bit_files() {
+        let rgba = [0u8, 128, 255, 255];
+        let file = encode(&Pixels::Rgba8(&rgba), 1, 1, Format::Tiff { bits: 16, compression: TiffCompression::None }).unwrap();
+        assert_eq!(image::load_from_memory(&file).unwrap().to_rgb16().into_raw(), [0, 128 * 257, 65535]);
+    }
+
+    #[test]
+    fn existing_files_by_rule() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        fs::write(d.join("a.tif"), b"theirs").unwrap();
+        let skipped = place(d, "a", "tif", b"ours", Existing::Skip, None).unwrap();
+        assert_eq!(skipped, Written { path: d.join("a.tif"), skipped: true });
+        assert_eq!(fs::read(d.join("a.tif")).unwrap(), b"theirs");
+        let fresh = place(d, "b", "tif", b"new", Existing::Skip, None).unwrap();
+        assert_eq!(fresh, Written { path: d.join("b.tif"), skipped: false });
+        let renamed = place(d, "a", "tif", b"ours", Existing::Rename, None).unwrap();
+        assert_eq!(renamed.path, d.join("a-2.tif"));
+        let over = place(d, "a", "tif", b"ours", Existing::Overwrite, None).unwrap();
+        assert_eq!(over, Written { path: d.join("a.tif"), skipped: false });
+        assert_eq!(fs::read(d.join("a.tif")).unwrap(), b"ours");
+        let mut names: Vec<_> = fs::read_dir(d).unwrap().map(|e| e.unwrap().file_name()).collect();
+        names.sort();
+        assert_eq!(names, ["a-2.tif", "a.tif", "b.tif"]);
+    }
+
+    #[test]
+    fn overwrite_never_replaces_the_photo_itself() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir.path();
+        fs::write(d.join("IMG_1.jpg"), b"original").unwrap();
+        let err = place(d, "IMG_1", "jpg", b"export", Existing::Overwrite, Some(&d.join("IMG_1.jpg"))).unwrap_err();
+        assert!(!err.stop);
+        assert_eq!(fs::read(d.join("IMG_1.jpg")).unwrap(), b"original");
+        assert_eq!(fs::read_dir(d).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn formats_parse_from_the_interface() {
+        let f: Format = serde_json::from_str(r#"{"kind":"tiff","bits":16,"compression":"zip"}"#).unwrap();
+        assert_eq!(f, Format::Tiff { bits: 16, compression: TiffCompression::Zip });
+        assert_eq!((f.ext(), f.bits()), ("tif", 16));
+        let j: Format = serde_json::from_str(r#"{"kind":"jpeg","quality":90}"#).unwrap();
+        assert_eq!((j.ext(), j.bits()), ("jpg", 8));
+        let e: Existing = serde_json::from_str(r#""overwrite""#).unwrap();
+        assert_eq!(e, Existing::Overwrite);
     }
 }

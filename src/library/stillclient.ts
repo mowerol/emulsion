@@ -30,7 +30,7 @@ export class StillClient {
   private ids = 0;
   /** Why this engine stopped; stillEngine() then starts another. */
   lost: string | null = null;
-  private requests = new Map<number, { resolve: (v: Uint8Array | Blob | RemoveInput | null) => void; reject: (e: Error) => void }>();
+  private requests = new Map<number, { resolve: (v: Uint8Array | Uint16Array | Blob | RemoveInput | null) => void; reject: (e: Error) => void }>();
   private assets = new AssetSync();
   private started!: { resolve: (max: number) => void; reject: (e: Error) => void };
   /** The engine's largest texture edge, once it has started; rejects when it could not. */
@@ -108,6 +108,11 @@ export class StillClient {
     return this.render(src, recipe, w, h, seed, removal) as Promise<Uint8Array>;
   }
 
+  /** The photo developed at w × h, as 16-bit RGB (no alpha), for 16-bit TIFF and PNG export. */
+  pixels16(src: StillSource, recipe: Recipe | null, w: number, h: number, seed: number, removal: RemoveContext | null = null) {
+    return this.render(src, recipe, w, h, seed, removal, undefined, 16) as Promise<Uint16Array>;
+  }
+
   /** The photo developed at w × h and encoded as a JPEG (in the worker). */
   jpeg(src: StillSource, recipe: Recipe | null, w: number, h: number, seed: number, quality: number, removal: RemoveContext | null = null) {
     return this.render(src, recipe, w, h, seed, removal, quality) as Promise<Blob>;
@@ -129,7 +134,7 @@ export class StillClient {
     this.send({ type: 'drop', w, h });
   }
 
-  private async render(src: StillSource, recipe: Recipe | null, w: number, h: number, seed: number, removal: RemoveContext | null, jpeg?: number) {
+  private async render(src: StillSource, recipe: Recipe | null, w: number, h: number, seed: number, removal: RemoveContext | null, jpeg?: number, bits?: 8 | 16) {
     // The look's LUT loads here (the worker's store only mirrors this one), then goes across.
     const file = recipeLookFile(recipe);
     if (file) await loadLut(file);
@@ -138,10 +143,10 @@ export class StillClient {
       if (assets) this.send({ type: 'assets', ...assets });
     }
     const id = ++this.ids;
-    return new Promise<Uint8Array | Blob>((resolve, reject) => {
+    return new Promise<Uint8Array | Uint16Array | Blob>((resolve, reject) => {
       if (this.lost) { reject(new StillsLost(this.lost)); return; }
-      this.requests.set(id, { resolve: v => resolve(v as Uint8Array | Blob), reject });
-      this.send({ type: 'render', id, key: src.key, recipe, w, h, seed, removal, jpeg });
+      this.requests.set(id, { resolve: v => resolve(v as Uint8Array | Uint16Array | Blob), reject });
+      this.send({ type: 'render', id, key: src.key, recipe, w, h, seed, removal, jpeg, bits });
     });
   }
 }

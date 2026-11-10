@@ -5,7 +5,7 @@ import { defaultRecipe } from '../film/recipe';
 // library/stillclient.ts, Remove crops included), encode and write in Rust.
 
 import { exportStem, photoName } from './copies';
-import { checkExportDir, ExportWriteError, loadImage, writeExport } from '../backend/api';
+import { checkExportDir, exportExists, ExportWriteError, loadImage, writeExport, type ExistingFiles, type ExportFormat } from '../backend/api';
 import type { HalfImage } from '../engine/engine';
 import type { Photo } from './store';
 import { framePixels } from '../film/crop';
@@ -15,14 +15,49 @@ import type { RemoveContext } from '../engine/removequeue';
 import { prepareRemovals } from './removal';
 
 export interface ExportOptions {
-  dir: string;
+  /** The folder every frame goes to, or null for each photo's own folder. */
+  dir: string | null;
+  /** A folder inside that one ('' for none), made when missing; may nest with '/'. */
+  subfolder: string;
   /** Long edge in pixels, or null for full size. */
   longEdge: number | null;
-  quality: number;
+  format: ExportFormat;
+  existing: ExistingFiles;
 }
+
+export const FORMAT_EXT: Record<ExportFormat['kind'], string> = { jpeg: 'jpg', png: 'png', tiff: 'tif' };
+const bitsOf = (f: ExportFormat) => f.kind === 'jpeg' ? 8 : f.bits;
+
+/** The folder a path is in ('/' for a file at the root). */
+export const parentDir = (path: string) => {
+  const i = Math.max(path.lastIndexOf('/'), path.lastIndexOf('\\'));
+  return i > 0 ? path.slice(0, i) : i === 0 ? path.slice(0, 1) : '.';
+};
+
+/**
+ * A subfolder name as folders that are safe to make: split on / and \, each part stripped of
+ * characters no file system allows, with empty, "." and ".." parts dropped (so it never leaves
+ * the export folder).
+ */
+export function cleanSubfolder(name: string): string[] {
+  return name.split(/[\\/]+/)
+    .map(part => part.replace(/[:*?"<>|\p{Cc}]/gu, '_').trim().replace(/^\.+$/, '').replace(/[. ]+$/, ''))
+    .filter(Boolean);
+}
+
+export function joinPath(root: string, ...names: string[]) {
+  const sep = root.includes('\\') && !root.includes('/') ? '\\' : '/';
+  return names.reduce((dir, name) => dir.endsWith(sep) ? dir + name : dir + sep + name, root);
+}
+
+/** Where `p`'s frame goes under `opts`. */
+export const exportDirFor = (p: Pick<Photo, 'path'>, opts: Pick<ExportOptions, 'dir' | 'subfolder'>) =>
+  joinPath(opts.dir ?? parentDir(p.path), ...cleanSubfolder(opts.subfolder));
 
 export interface ExportResult {
   written: string[];
+  /** Frames left out because a file of their name was already there (the Skip rule). */
+  skipped: string[];
   failed: { name: string; error: string }[];
   canceled: boolean;
   /** Why the export stopped early: the destination failed (full, read-only, gone), so the rest would too. */
@@ -70,13 +105,14 @@ export async function exportPhotos(
   signal: { canceled: boolean },
   onUnfilled?: (photo: Photo, error: string) => Promise<boolean>,
 ): Promise<ExportResult> {
-  // Fail before developing anything when the folder can't be made or written.
-  await checkExportDir(opts.dir);
+  // Fail before developing anything when a folder can't be made or written.
+  for (const dir of new Set(photos.map(p => exportDirFor(p, opts)))) await checkExportDir(dir);
   let [engine, maxTexture] = await startEngine();
-  const result: ExportResult = { written: [], failed: [], canceled: false };
+  const result: ExportResult = { written: [], skipped: [], failed: [], canceled: false };
+  const ext = FORMAT_EXT[opts.format.kind], deep = bitsOf(opts.format) === 16;
 
   /** One photo developed at its export size, or null when canceled. */
-  const develop = async (p: Photo): Promise<[Uint8Array, number, number] | null> => {
+  const develop = async (p: Photo): Promise<[Uint8Array | Uint16Array, number, number] | null> => {
     const [w, h, img] = await decodeFor(p, opts.longEdge, maxTexture);
     const [iw, ih] = [img.width, img.height];
     // Moved to the worker, not copied: nothing here keeps the decode.
@@ -90,7 +126,7 @@ export async function exportPhotos(
       if (recipe.retouch.some(s => s.tool === 'remove' && s.opacity > 0)) removal = await prepareRemovals(engine, src, recipe, () => signal.canceled,
         JSON.stringify([p.size, p.modified]), onUnfilled ? error => onUnfilled(p, error) : undefined);
       if (signal.canceled) return null;
-      return [await engine.pixels(src, recipe, w, h, p.seed, removal), w, h];
+      return [deep ? await engine.pixels16(src, recipe, w, h, p.seed, removal) : await engine.pixels(src, recipe, w, h, p.seed, removal), w, h];
     } finally {
       engine.release(src);
       engine.dropBuffers(iw, ih);
@@ -104,7 +140,10 @@ export async function exportPhotos(
     }
     const p = photos[i];
     onProgress(i, photos.length, photoName(p));
+    const dir = exportDirFor(p, opts), stem = exportStem(p);
     try {
+      // Skipped before developing, so a re-run of a half-done export goes straight to the rest.
+      if (opts.existing === 'skip' && await exportExists(dir, stem, ext)) { result.skipped.push(photoName(p)); continue; }
       let frame: Awaited<ReturnType<typeof develop>>;
       try {
         frame = await develop(p);
@@ -116,13 +155,15 @@ export async function exportPhotos(
         frame = await develop(p);
       }
       if (!frame) { result.canceled = true; break; }
-      result.written.push(await writeExport(opts.dir, exportStem(p), ...frame, opts.quality));
+      const written = await writeExport(dir, stem, ...frame, opts.format, opts.existing, p.path);
+      if (written.skipped) result.skipped.push(photoName(p));
+      else result.written.push(written.path);
     } catch (err) {
       if (signal.canceled) { result.canceled = true; break; }
       result.failed.push({ name: photoName(p), error: errorText(err) });
       if (err instanceof ExportWriteError && err.stop) { result.stopped = errorText(err); break; }
     }
   }
-  onProgress(result.written.length + result.failed.length, photos.length, '');
+  onProgress(result.written.length + result.skipped.length + result.failed.length, photos.length, '');
   return result;
 }

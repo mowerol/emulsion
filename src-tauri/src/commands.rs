@@ -247,9 +247,11 @@ pub async fn auto_perspective(request: Request<'_>) -> Result<crate::perspective
     blocking(move || crate::perspective::fit(&pixels, width, height, &axis, current)).await
 }
 
-/// Body: RGBA8 pixels, top row first. Headers carry the destination and size.
+/// Body: the frame's pixels, top row first: 8-bit RGBA, or 16-bit RGB (little-endian) for a
+/// 16-bit format. Headers carry the destination, size, format (JSON), the rule for an existing
+/// file, and the photo's own path, which an overwrite never replaces.
 #[tauri::command]
-pub async fn write_export(request: Request<'_>) -> Result<String, export::WriteError> {
+pub async fn write_export(request: Request<'_>) -> Result<export::Written, export::WriteError> {
     let InvokeBody::Raw(bytes) = request.body() else {
         return Err("Expected raw pixel data".to_string().into());
     };
@@ -257,12 +259,24 @@ pub async fn write_export(request: Request<'_>) -> Result<String, export::WriteE
     let stem = header(&request, "x-emulsion-stem")?;
     let width: u32 = header(&request, "x-emulsion-width")?.parse().map_err(|_| "Invalid width".to_string())?;
     let height: u32 = header(&request, "x-emulsion-height")?.parse().map_err(|_| "Invalid height".to_string())?;
-    let quality: u8 = header(&request, "x-emulsion-quality")?.parse().map_err(|_| "Invalid quality".to_string())?;
+    let format: export::Format =
+        serde_json::from_str(&header(&request, "x-emulsion-format")?).map_err(|e| format!("Invalid export format: {e}"))?;
+    let existing: export::Existing =
+        serde_json::from_str(&header(&request, "x-emulsion-existing")?).map_err(|e| format!("Invalid existing-file rule: {e}"))?;
+    let protect = header(&request, "x-emulsion-protect").ok().filter(|p| !p.is_empty()).map(PathBuf::from);
     let pixels = bytes.clone();
-    let path = tauri::async_runtime::spawn_blocking(move || export::write_jpeg(&dir, &stem, &pixels, width, height, quality))
-        .await
-        .map_err(|e| e.to_string())??;
-    Ok(path.to_string_lossy().into_owned())
+    tauri::async_runtime::spawn_blocking(move || {
+        let px = if format.bits() == 16 { export::Pixels::Rgb16(&pixels) } else { export::Pixels::Rgba8(&pixels) };
+        export::write_frame(&dir, &stem, &px, width, height, format, existing, protect.as_deref())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Whether a frame of `stem` would find its file name taken in `dir` (to skip it before developing).
+#[tauri::command]
+pub fn export_exists(dir: String, stem: String, ext: String) -> bool {
+    std::fs::symlink_metadata(export::target(Path::new(&dir), &stem, &ext)).is_ok()
 }
 
 /// Creates the export folder and checks it can be written, before any frame is developed.

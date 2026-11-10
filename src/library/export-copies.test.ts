@@ -2,7 +2,7 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 const gpu = vi.hoisted(() => ({ ready: Promise.resolve(4096), upload: vi.fn(() => ({ key: 1, w: 2, h: 1, fullW: 160, fullH: 120, mode: 0, white: null })),
   removeInput: vi.fn(async () => ({ image: new Uint8Array(512 * 512 * 4), mask: new Uint8Array(512 * 512) })),
-  pixels: vi.fn(async (..._args: unknown[]) => new Uint8Array(8)), release: vi.fn(), dropBuffers: vi.fn() }));
+  pixels: vi.fn(async (..._args: unknown[]) => new Uint8Array(8)), pixels16: vi.fn(async (..._args: unknown[]) => new Uint16Array(6)), release: vi.fn(), dropBuffers: vi.fn() }));
 vi.mock('./stillclient', () => ({ stillEngine: () => gpu, StillsLost: class extends Error {} }));
 vi.mock('./thumbs', () => ({ ensureCapture: vi.fn() }));
 vi.mock('../backend/api', () => ({
@@ -10,9 +10,10 @@ vi.mock('../backend/api', () => ({
   removeInpaint: vi.fn(async () => new Uint8Array(512 * 512 * 4)),
   checkExportDir: vi.fn(async () => {}),
   ExportWriteError: class extends Error { constructor(m: string, readonly stop: boolean) { super(m); } },
-  writeExport: vi.fn(async (_dir: string, stem: string) => `/exports/${stem}.jpg`),
+  writeExport: vi.fn(async (_dir: string, stem: string) => ({ path: `/exports/${stem}.jpg`, skipped: false })),
+  exportExists: vi.fn(async () => false),
 }));
-import { loadImage, writeExport, removeInpaint } from '../backend/api';
+import { checkExportDir, exportExists, loadImage, writeExport, removeInpaint } from '../backend/api';
 import { defaultRecipe } from '../film/recipe';
 import { exportPhotos } from './export';
 import { newCircleSpot } from '../film/retouch';
@@ -24,7 +25,7 @@ it('requests the shared denoised source for RAW exports and surfaces failures', 
   const recipe = { ...defaultRecipe(), noiseReduction: { enabled: true, amount: 42, model: 'rawnind-linear-v1' as const } };
   const photo: Photo = { path: '/test.ORF', rel: 'test.ORF', name: 'test.ORF', size: 1, modified: 0, recipe,
     seed: 1, white: null, rating: 0, label: null, heart: false, raw: true, pair: null };
-  const options = { dir: '/exports', longEdge: null, quality: 92 };
+  const options = { dir: '/exports', subfolder: '', longEdge: null, format: { kind: 'jpeg' as const, quality: 92 }, existing: 'rename' as const };
   const result = await exportPhotos([photo], options, vi.fn(), { canceled: false });
   expect(result.failed).toEqual([]);
   expect(loadImage).toHaveBeenLastCalledWith('/test.ORF', 4096, true);
@@ -39,14 +40,14 @@ it('exports each version with its own recipe, a distinct name and the real sourc
   const original: Photo = { path: '/a.jpg', rel: 'a.jpg', name: 'a.jpg', size: 1, modified: 0, recipe: null,
     seed: 1, white: null, rating: 0, label: null, heart: false, raw: false, pair: null };
   const versions = [original, ...['one', 'two'].map((copyId, i) => ({ ...original, copyId, copyName: 'Warm', recipe: { ...defaultRecipe(), exposure: i + 1 } }))];
-  const result = await exportPhotos(versions, { dir: '/exports', longEdge: null, quality: 92 }, vi.fn(), { canceled: false });
+  const result = await exportPhotos(versions, { dir: '/exports', subfolder: '', longEdge: null, format: { kind: 'jpeg' as const, quality: 92 }, existing: 'rename' as const }, vi.fn(), { canceled: false });
   expect(result.failed).toEqual([]);
   expect(new Set(result.written).size).toBe(3);
   expect(loadImage).toHaveBeenCalledTimes(3);
   expect(vi.mocked(loadImage).mock.calls.every(([path]) => path === '/a.jpg')).toBe(true);
   // The unedited original exports as Neutral at its defaults.
   expect(gpu.pixels.mock.calls.map(c => (c as unknown[])[1])).toEqual(versions.map(p => p.recipe ?? defaultRecipe()));
-  expect(writeExport).toHaveBeenCalledWith('/exports', 'a_Warm_one', expect.any(Uint8Array), 2, 1, 92);
+  expect(writeExport).toHaveBeenCalledWith('/exports', 'a_Warm_one', expect.any(Uint8Array), 2, 1, { kind: 'jpeg', quality: 92 }, 'rename', '/a.jpg');
 });
 
 
@@ -57,7 +58,7 @@ const removalPhoto: Photo = { path: '/remove.jpg', rel: 'remove.jpg', name: 'rem
 it('waits for Remove before rendering or writing and uses the original resolution even for small exports', async () => {
   let release!: (pixels: Uint8Array) => void;
   vi.mocked(removeInpaint).mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
-  const result = exportPhotos([removalPhoto], { dir: '/exports', longEdge: 1, quality: 92 }, vi.fn(), { canceled: false });
+  const result = exportPhotos([removalPhoto], { dir: '/exports', subfolder: '', longEdge: 1, format: { kind: 'jpeg' as const, quality: 92 }, existing: 'rename' as const }, vi.fn(), { canceled: false });
   await vi.waitFor(() => expect(removeInpaint).toHaveBeenCalledTimes(1));
   expect(loadImage).toHaveBeenCalledWith('/remove.jpg', 4096, false);
   expect(gpu.pixels).not.toHaveBeenCalled();
@@ -70,7 +71,7 @@ it('waits for Remove before rendering or writing and uses the original resolutio
 
 it('names the failed photo and writes nothing when Remove cannot be filled', async () => {
   vi.mocked(removeInpaint).mockRejectedValueOnce(new Error('Remove model missing'));
-  const result = await exportPhotos([removalPhoto], { dir: '/exports', longEdge: null, quality: 92 }, vi.fn(), { canceled: false });
+  const result = await exportPhotos([removalPhoto], { dir: '/exports', subfolder: '', longEdge: null, format: { kind: 'jpeg' as const, quality: 92 }, existing: 'rename' as const }, vi.fn(), { canceled: false });
   expect(result.failed).toEqual([{ name: 'remove.jpg', error: 'Remove model missing' }]);
   expect(writeExport).not.toHaveBeenCalled();
   expect(gpu.pixels).not.toHaveBeenCalled();
@@ -81,7 +82,7 @@ it('cancels an export awaiting native Remove without writing its eventual result
   const signal = { canceled: false };
   let release!: (pixels: Uint8Array) => void;
   vi.mocked(removeInpaint).mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
-  const pending = exportPhotos([removalPhoto], { dir: '/exports', longEdge: null, quality: 92 }, vi.fn(), signal);
+  const pending = exportPhotos([removalPhoto], { dir: '/exports', subfolder: '', longEdge: null, format: { kind: 'jpeg' as const, quality: 92 }, existing: 'rename' as const }, vi.fn(), signal);
   await vi.waitFor(() => expect(removeInpaint).toHaveBeenCalledTimes(1));
   signal.canceled = true; release(new Uint8Array(512 * 512 * 4));
   const result = await pending;
@@ -94,7 +95,7 @@ it('waits for consent before exporting a named photo with an unfilled Remove', a
   vi.mocked(removeInpaint).mockRejectedValueOnce(new Error('Remove model missing'));
   let answer!: (proceed: boolean) => void;
   const warn = vi.fn(() => new Promise<boolean>(resolve => { answer = resolve; }));
-  const result = exportPhotos([removalPhoto], { dir: '/exports', longEdge: null, quality: 92 }, vi.fn(), { canceled: false }, warn);
+  const result = exportPhotos([removalPhoto], { dir: '/exports', subfolder: '', longEdge: null, format: { kind: 'jpeg' as const, quality: 92 }, existing: 'rename' as const }, vi.fn(), { canceled: false }, warn);
   await vi.waitFor(() => expect(warn).toHaveBeenCalledWith(removalPhoto, 'Error: Remove model missing'));
   expect(gpu.pixels).not.toHaveBeenCalled();
   expect(writeExport).not.toHaveBeenCalled();
@@ -107,7 +108,7 @@ it('stops without writing when the user declines export with an unfilled Remove'
   vi.mocked(removeInpaint).mockRejectedValueOnce(new Error('Remove model missing'));
   const signal = { canceled: false };
   const warn = vi.fn(async () => { signal.canceled = true; return false; });
-  const result = await exportPhotos([removalPhoto], { dir: '/exports', longEdge: null, quality: 92 }, vi.fn(), signal, warn);
+  const result = await exportPhotos([removalPhoto], { dir: '/exports', subfolder: '', longEdge: null, format: { kind: 'jpeg' as const, quality: 92 }, existing: 'rename' as const }, vi.fn(), signal, warn);
   expect(result.canceled).toBe(true);
   expect(writeExport).not.toHaveBeenCalled();
   expect(gpu.release).toHaveBeenCalledTimes(1);
@@ -118,14 +119,14 @@ it('retains completed earlier patches when export continues past a later failed 
   const p = { ...removalPhoto, recipe: { ...removalPhoto.recipe!, retouch: [...removalPhoto.recipe!.retouch, newCircleSpot([.6, .6], 'remove')] } };
   let filled: number | undefined;
   gpu.pixels.mockImplementationOnce(async (...args: unknown[]) => { filled = (args[5] as { patches: Map<string, unknown> } | null)?.patches.size; return new Uint8Array(8); });
-  const result = await exportPhotos([p], { dir: '/exports', longEdge: null, quality: 92 }, vi.fn(), { canceled: false }, async () => true);
+  const result = await exportPhotos([p], { dir: '/exports', subfolder: '', longEdge: null, format: { kind: 'jpeg' as const, quality: 92 }, existing: 'rename' as const }, vi.fn(), { canceled: false }, async () => true);
   expect(result.failed).toEqual([]);
   expect(filled).toBe(1);
 });
 
 const plain: Photo = { path: '/p.jpg', rel: 'p.jpg', name: 'p.jpg', size: 1, modified: 0, recipe: null,
   seed: 1, white: null, rating: 0, label: null, heart: false, raw: false, pair: null };
-const opts = { dir: '/exports', longEdge: null, quality: 92 };
+const opts = { dir: '/exports', subfolder: '', longEdge: null, format: { kind: 'jpeg' as const, quality: 92 }, existing: 'rename' as const };
 
 it('checks the destination before developing anything', async () => {
   const { checkExportDir } = await import('../backend/api');
@@ -161,4 +162,25 @@ it('stops the whole export when the destination fails, but not when one frame do
   expect(full.stopped).toBe('Could not write /exports/p.jpg: the disk is full');
   expect(full.written).toHaveLength(0);
   expect(loadImage).toHaveBeenCalledTimes(3);
+});
+
+it('exports next to each original, into a subfolder, and checks each folder first', async () => {
+  const at = (path: string): Photo => ({ ...plain, path, name: path.split('/').pop()! });
+  const result = await exportPhotos([at('/shoot/a/x.jpg'), at('/shoot/b/y.jpg'), at('/shoot/a/z.jpg')],
+    { ...opts, dir: null, subfolder: 'Edits/../web' }, vi.fn(), { canceled: false });
+  expect(result.failed).toEqual([]);
+  expect(vi.mocked(checkExportDir).mock.calls.map(c => c[0])).toEqual(['/shoot/a/Edits/web', '/shoot/b/Edits/web']);
+  expect(vi.mocked(writeExport).mock.calls.map(c => c[0])).toEqual(['/shoot/a/Edits/web', '/shoot/b/Edits/web', '/shoot/a/Edits/web']);
+});
+
+it('skips taken names before developing, and sends 16-bit pixels for a 16-bit TIFF', async () => {
+  vi.mocked(exportExists).mockResolvedValueOnce(true);
+  const tiff = { kind: 'tiff' as const, bits: 16 as const, compression: 'zip' as const };
+  const result = await exportPhotos([plain, plain], { ...opts, format: tiff, existing: 'skip' }, vi.fn(), { canceled: false });
+  expect(result.skipped).toEqual(['p.jpg']);
+  expect(result.written).toHaveLength(1);
+  expect(exportExists).toHaveBeenCalledWith('/exports', 'p', 'tif');
+  expect(loadImage).toHaveBeenCalledTimes(1);
+  expect(gpu.pixels).not.toHaveBeenCalled();
+  expect(writeExport).toHaveBeenCalledWith('/exports', 'p', expect.any(Uint16Array), 2, 1, tiff, 'skip', plain.path);
 });

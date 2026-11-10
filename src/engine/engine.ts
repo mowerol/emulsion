@@ -384,6 +384,9 @@ const clipsCover = (c: RegionClips | null, plan: RegionPlan) =>
 const covers = (outer: PixelRect | null, inner: PixelRect) =>
   !!outer && outer.x <= inner.x && outer.y <= inner.y && outer.x + outer.w >= inner.x + inner.w && outer.y + outer.h >= inner.y + inner.h;
 
+/** A display-encoded 0-1 value as a 16-bit sample. */
+const to16 = (v: number) => Math.round(Math.min(1, Math.max(0, v)) * 65535);
+
 export class Engine {
   readonly gpu: Gpu;
   captureWork: CaptureWork = { builds: 0, hits: 0, steps: 0, cpuMs: 0, elapsedMs: 0, thresholdMs: 0 };
@@ -2609,6 +2612,8 @@ export class Engine {
       sharpenMask?: boolean;
       /** Show this mask (its index in the recipe) over the photo. */
       maskShow?: number | null;
+      /** Dither amplitude, one step of the output's depth (1/255 unless set; 1/65535 for 16-bit). */
+      dither?: number;
       /** Draw, instead of the photo, the scene this mask (its index) adjusts at its exposure instance. */
       pick?: number;
       /**
@@ -2866,6 +2871,7 @@ export class Engine {
       width: turned ? fullH : fullW, height: turned ? fullW : fullH, seed: opts.seed, inputMode: src.mode, store: this.store, compare: opts.compare, white: src.white, look, maskShow: opts.maskShow,
     });
     u.uTextureLog = (this.detailOrder ?? Engine.detailOrder) === 'log' ? 1 : 0;
+    if (opts.dither !== undefined) u.uDither = opts.dither;
     const geo = geometryMatrix({ ...FULL, ...frame }, src.fullW, src.fullH, recipe?.transform);
     u.uGeoU = geo[0];
     u.uGeoV = geo[1];
@@ -3554,6 +3560,64 @@ export class Engine {
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
       if (fence) gl.deleteSync(fence);
       gl.deleteBuffer(buffer);
+    }
+  }
+
+  /**
+   * Develop into a 32-bit float target and read it back as 16-bit RGB (no alpha), top row first,
+   * for 16-bit TIFF and PNG export. Read in strips, so a 26 MP frame needs a ~50 MB float buffer at
+   * a time rather than 400 MB. The finish dither is one 16-bit step.
+   */
+  async readPixels16Async(src: Source, recipe: Recipe | null, width: number, height: number, seed: number): Promise<Uint16Array<ArrayBuffer>> {
+    const g = this.gpu, gl = g.gl;
+    if (!g.hdr) throw new GpuError('16-bit export needs float render targets, which this GPU does not offer');
+    const out = g.target(width, height, true, true);
+    const rgb = new Uint16Array(width * height * 3);
+    const buffer = gl.createBuffer();
+    try {
+      if (!buffer) throw new GpuError('Could not allocate a pixel readback buffer');
+      this.render(src, recipe, { target: out, width, height, seed, dither: 1 / 65535 });
+      const rows = Math.max(1, Math.min(height, Math.floor((48 << 20) / (width * 16))));
+      const strip = new Float32Array(width * rows * 4);
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer);
+      gl.bufferData(gl.PIXEL_PACK_BUFFER, strip.byteLength, gl.STREAM_READ);
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+      const started = performance.now();
+      for (let y0 = 0; y0 < height; y0 += rows) {
+        const n = Math.min(rows, height - y0);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, out.fbo);
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer);
+        gl.readPixels(0, y0, width, n, gl.RGBA, gl.FLOAT, 0);
+        const fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+        gl.flush();
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+        try {
+          if (!fence) throw new GpuError('Could not fence a pixel readback');
+          while (gl.getSyncParameter(fence, gl.SYNC_STATUS) !== gl.SIGNALED) {
+            if (gl.isContextLost() || performance.now() - started > 60000) throw new GpuError('Pixel readback did not complete');
+            await new Promise(resolve => setTimeout(resolve, 4));
+          }
+        } finally {
+          if (fence) gl.deleteSync(fence);
+        }
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer);
+        const part = n === rows ? strip : strip.subarray(0, width * n * 4);
+        gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, part);
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+        // A render target's row 0 is the image's top row, as readPixelsAsync returns it.
+        for (let i = 0, o = y0 * width * 3, end = width * n * 4; i < end; i += 4, o += 3) {
+          rgb[o] = to16(part[i]);
+          rgb[o + 1] = to16(part[i + 1]);
+          rgb[o + 2] = to16(part[i + 2]);
+        }
+      }
+      return rgb;
+    } finally {
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      if (buffer) gl.deleteBuffer(buffer);
+      g.free(out);
     }
   }
 

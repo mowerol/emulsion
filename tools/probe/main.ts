@@ -40,6 +40,7 @@ import { StageMenu } from '../../src/ui/StageMenu';
 import { Panel } from '../../src/ui/Panel';
 import { CameraColourWarning } from '../../src/ui/CameraProfile';
 import { Section } from '../../src/ui/Section';
+import { ExportDialog } from '../../src/ui/ExportDialog';
 import { startLookEdit, useApp } from '../../src/library/store';
 import { bandFactors, bandGains, correction, luminance, toneEqualize } from '../../src/engine/toneequalizer';
 import denoiseFixture from '../../src/engine/fixtures/denoiseprofile-reference.json';
@@ -876,7 +877,21 @@ view.width = W; view.height = H;
 document.body.append(view);
 const out: Record<string, unknown> = {};
 try {
-  if (new URLSearchParams(location.search).has('profilerow')) {
+  if (new URLSearchParams(location.search).has('exportdialog')) {
+    // The Export dialog, for screenshots: ?exportdialog=<stored settings JSON>&theme=<mid|light|dark>.
+    const q = new URLSearchParams(location.search);
+    try { localStorage.setItem('emulsion.export', q.get('exportdialog') || '{}'); } catch { /* defaults */ }
+    if (q.get('theme')) document.documentElement.dataset.theme = q.get('theme')!;
+    const photo = (name: string, edited: boolean) => ({ path: `/Users/me/Pictures/2026/Lisbon trip/${name}`, rel: name, name, size: 1, modified: 0,
+      recipe: edited ? defaultRecipe() : null, seed: 1, white: null, rating: 0, label: null, heart: false, raw: true, pair: null });
+    const photos = ['DSCF0101.RAF', 'DSCF0102.RAF', 'DSCF0103.RAF', 'DSCF0104.RAF'].map((n, i) => photo(n, i < 3));
+    useApp.setState({ folder: { root: '/Users/me/Pictures/2026/Lisbon trip', name: 'Lisbon trip', unreadable: 0 }, photos, active: 0,
+      selected: new Set([photos[0].path, photos[1].path]), exportOpen: true });
+    const host = document.createElement('div');
+    document.body.append(host);
+    createRoot(host).render(createElement(ExportDialog));
+    out.exportdialog = 'mounted';
+  } else if (new URLSearchParams(location.search).has('profilerow')) {
     // The camera colour warning (only the uncalibrated RAW shows one), above a folded section.
     const host = document.createElement('aside');
     host.className = 'panel panel-workflow';

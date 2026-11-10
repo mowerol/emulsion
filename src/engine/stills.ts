@@ -21,8 +21,9 @@ export type ToStills =
   | { type: 'release'; key: number }
   | { type: 'capture'; key: number; radius: number; toCam: number[]; mask: Uint8Array }
   | ({ type: 'assets' } & Assets)
-  /** Develop `key` at w × h; `jpeg` (a quality, 0-1) encodes it, otherwise the RGBA pixels come back. */
-  | { type: 'render'; id: number; key: number; recipe: Recipe | null; w: number; h: number; seed: number; removal: RemoveContext | null; jpeg?: number }
+  /** Develop `key` at w × h; `jpeg` (a quality, 0-1) encodes it, otherwise the RGBA pixels come back,
+   * or with `bits: 16` 16-bit RGB (no alpha). */
+  | { type: 'render'; id: number; key: number; recipe: Recipe | null; w: number; h: number; seed: number; removal: RemoveContext | null; jpeg?: number; bits?: 8 | 16 }
   /** The model's input for one Remove spot (Engine.prepareRemove), with `context`'s earlier patches. */
   | { type: 'removeInput'; id: number; key: number; recipe: Recipe; request: PatchRequest; context: RemoveContext }
   /** Stop request `id` between GPU passes (a Remove input); it replies with nothing. */
@@ -37,7 +38,7 @@ export type FromStills =
   | { type: 'error'; message: string }
   /** The GPU context was lost: every source and pending render is gone, so the client starts a new engine. */
   | { type: 'lost' }
-  | { type: 'reply'; id: number; ok: true; value: Uint8Array | Blob | RemoveInput | null }
+  | { type: 'reply'; id: number; ok: true; value: Uint8Array | Uint16Array | Blob | RemoveInput | null }
   | { type: 'reply'; id: number; ok: false; error: string };
 
 export class StillRenderer {
@@ -146,6 +147,14 @@ export class StillRenderer {
       // until then (and nothing else uses this engine meanwhile).
       let reading: Promise<Uint8Array<ArrayBuffer>>;
       eng.removeContext = m.removal;
+      if (m.bits === 16) {
+        let deep: Promise<Uint16Array<ArrayBuffer>>;
+        try { deep = eng.readPixels16Async(src, m.recipe, m.w, m.h, m.seed); }
+        finally { eng.removeContext = previous; }
+        const px = await deep;
+        this.post({ type: 'reply', id: m.id, ok: true, value: px }, [px.buffer]);
+        return;
+      }
       try { reading = eng.readPixelsAsync(src, m.recipe, m.w, m.h, m.seed); }
       finally { eng.removeContext = previous; }
       const px = await reading;

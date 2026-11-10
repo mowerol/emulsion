@@ -7,7 +7,7 @@
 // Per gesture: frames that reached the GPU, input → GPU-done latency, the screen's frame gaps
 // (requestAnimationFrame intervals: what the eye sees as stutter), and the main-thread time the
 // input handlers took. Per click: time to the next painted frame, and to the photo settling.
-import { logToTerminal, writeExport } from '../backend/api';
+import { logToTerminal, writeJpeg } from '../backend/api';
 import { Engine, InputMode } from '../engine/engine';
 import { defaultRecipe, type Recipe } from '../film/recipe';
 import { activePhoto, editActive, importFolderPhotos, useApp } from '../library/store';
@@ -1045,8 +1045,8 @@ export async function run(which: string) {
             while (p99 < 255 && (count += bins[p99]) < n * .99) p99++;
             results[key] = { max, mean: sum / n, p99 };
             if (import.meta.env.VITE_PERF_OUT) {
-              results[`${key}files`] = [await writeExport(import.meta.env.VITE_PERF_OUT, `${name}-reference-${scale}`, reference, opts.width, opts.height, 100),
-                await writeExport(import.meta.env.VITE_PERF_OUT, `${name}-screen-${scale}`, px, opts.width, opts.height, 100)];
+              results[`${key}files`] = [await writeJpeg(import.meta.env.VITE_PERF_OUT, `${name}-reference-${scale}`, reference, opts.width, opts.height, 100),
+                await writeJpeg(import.meta.env.VITE_PERF_OUT, `${name}-screen-${scale}`, px, opts.width, opts.height, 100)];
             }
           }
         }
@@ -1271,7 +1271,7 @@ export async function run(which: string) {
           for (const order of ['darktable', 'log'] as const) {
             eng.detailOrder = order;
             px[order] = eng.readPixels(src, r, w, h, 0, false, view, undefined, wh);
-            await writeExport(dir, `${name}_${scale}_${label}_${order}`, px[order], w, h, 95);
+            await writeJpeg(dir, `${name}_${scale}_${label}_${order}`, px[order], w, h, 95);
           }
           eng.detailOrder = undefined;
           const a = px.darktable, b = px.log, diffs: number[] = [];
@@ -1290,7 +1290,7 @@ export async function run(which: string) {
             for (let c = 0; c < 4; c++) side[to + c] = img[from + c];
             if (x === cw2 * 2) side[to] = side[to + 1] = side[to + 2] = 255;
           }
-          await writeExport(dir, `${name}_${scale}_${label}_worst`, side, cw2 * 4, ch2 * 2, 95);
+          await writeJpeg(dir, `${name}_${scale}_${label}_worst`, side, cw2 * 4, ch2 * 2, 95);
           diffs.sort((x, y) => x - y);
           stats[`${name}_${scale}_${label}`] = { mean: +(sum / diffs.length).toFixed(2), p99: diffs[Math.floor(diffs.length * 0.99)], max: diffs[diffs.length - 1], at: [ax, ay] };
           if (label === `${tag}50`) {

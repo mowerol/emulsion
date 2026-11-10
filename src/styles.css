@@ -487,6 +487,46 @@ input.range:disabled { opacity: 0.35; cursor: default; }
 .bar span { display: block; height: 100%; background: var(--accent); transition: width 0.2s; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
+/* Export: what to export on the left (saved presets will join it there), how on the right. */
+.export-dialog { width: min(780px, 100%); max-height: calc(100dvh - 48px); padding: 0; gap: 0; display: flex; flex-direction: column; color: var(--text); }
+.export-dialog header { padding: 18px 24px 12px; border-bottom: 1px solid var(--line); }
+.export-body { display: grid; grid-template-columns: 220px minmax(0, 1fr); min-height: 0; overflow: auto; flex: 1; }
+/* Disables every control while exporting; the grid is the wrapper's. */
+.dialog fieldset.export-fields { display: contents; }
+.export-rail { padding: 16px 12px 20px 16px; border-right: 1px solid var(--line); background: var(--panel); }
+.export-rail legend { padding: 0 8px; }
+.export-sections { padding: 4px 24px 20px; display: grid; gap: 18px; align-content: start; min-width: 0; }
+.export-sections section { display: grid; gap: 2px; min-width: 0; }
+.export-sections h3 { margin: 12px 0 4px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.export-sections .settings-control .seg { min-width: 220px; }
+.export-sections .settings-control .seg.wide { min-width: 320px; }
+.export-sections .slider.compact { padding: 6px 0 4px; }
+.export-sections .hint { margin-top: 4px; color: var(--text3); }
+.export-folder { gap: 10px; align-items: center; min-width: 0; max-width: 340px; }
+.export-folder .dest-path { text-align: right; color: var(--text2); }
+.export-sections .export-check { display: flex; align-items: center; gap: 8px; cursor: pointer; }
+.export-check input { accent-color: var(--accent); margin: 0; }
+.export-text { background: var(--raise); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font: inherit; font-size: 13px; color: var(--text); width: 220px; min-width: 0; }
+.export-text::placeholder { color: var(--faint); }
+.export-text:hover:not(:disabled) { border-color: var(--border); }
+.export-text:disabled { opacity: 0.4; }
+.export-text:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; border-color: transparent; }
+.export-where { margin: 8px 0 0; padding: 8px 10px; border-radius: 6px; background: var(--panel); display: grid; gap: 2px; font-size: 12px; min-width: 0; }
+.export-where-path { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.export-where-rule { color: var(--text3); }
+.export-dialog > .progress, .export-dialog > .export-remove-warning { margin: 14px 24px 0; }
+.export-footer { background: var(--bg); display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 24px 18px; border-top: 1px solid var(--line); }
+.export-summary { min-width: 0; font-size: 12px; color: var(--text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-variant-numeric: tabular-nums; }
+@media (max-width: 680px) {
+  .export-body { grid-template-columns: minmax(0, 1fr); }
+  .export-sections .export-folder { justify-content: space-between; max-width: none; }
+  .export-folder .dest-path { text-align: left; }
+  .export-rail { border-right: 0; border-bottom: 1px solid var(--line); }
+  .export-sections .settings-control .seg, .export-sections .settings-control .seg.wide, .export-text { min-width: 0; width: 100%; }
+  .export-sections .settings-row { grid-template-columns: minmax(0, 1fr); gap: 6px; }
+  .export-sections .settings-control { justify-content: stretch; }
+}
+
 /* Settings copy uses the same quiet dialog surface as export. Native modality contains focus. */
 .shortcuts-dialog { width: min(820px, calc(100vw - 48px)); max-height: calc(100dvh - 48px); padding: 0; color: var(--text); display: flex; flex-direction: column; gap: 0; }
 .shortcuts-dialog::backdrop { background: var(--scrim); }

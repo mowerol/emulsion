@@ -170,17 +170,39 @@ const writeError = (err: unknown) => {
 /** Create the export folder and check it can be written, before developing anything. */
 export const checkExportDir = (dir: string) => invoke<void>('check_export_dir', { dir }).catch(err => { throw writeError(err); });
 
-export function writeExport(dir: string, stem: string, rgba: Uint8Array, width: number, height: number, quality: number) {
-  return invoke<string>('write_export', rgba, {
+export type ExportFormat =
+  | { kind: 'jpeg'; quality: number }
+  | { kind: 'png'; bits: 8 | 16 }
+  | { kind: 'tiff'; bits: 8 | 16; compression: 'none' | 'lzw' | 'zip' };
+/** What to do when the file name is taken: add -2, -3... (`rename`), replace it, or leave it. */
+export type ExistingFiles = 'rename' | 'overwrite' | 'skip';
+/** Where a frame went; `skipped` means a file of that name was there and was left alone. */
+export interface Written { path: string; skipped: boolean }
+
+/** Write one developed frame: 8-bit RGBA, or 16-bit RGB for a 16-bit format. `protect` is the
+ * photo's own file, which an overwrite refuses to replace. */
+export function writeExport(dir: string, stem: string, pixels: Uint8Array | Uint16Array, width: number, height: number,
+  format: ExportFormat, existing: ExistingFiles, protect: string) {
+  const body = pixels instanceof Uint8Array ? pixels : new Uint8Array(pixels.buffer, pixels.byteOffset, pixels.byteLength);
+  return invoke<Written>('write_export', body, {
     headers: {
       'x-emulsion-dir': encodeURIComponent(dir),
       'x-emulsion-stem': encodeURIComponent(stem),
       'x-emulsion-width': String(width),
       'x-emulsion-height': String(height),
-      'x-emulsion-quality': String(quality),
+      'x-emulsion-format': encodeURIComponent(JSON.stringify(format)),
+      'x-emulsion-existing': encodeURIComponent(JSON.stringify(existing)),
+      'x-emulsion-protect': encodeURIComponent(protect),
     },
   }).catch(err => { throw writeError(err); });
 }
+
+/** A JPEG written under a new name (dev tools). */
+export const writeJpeg = (dir: string, stem: string, rgba: Uint8Array, width: number, height: number, quality: number) =>
+  writeExport(dir, stem, rgba, width, height, { kind: 'jpeg', quality }, 'rename', '').then(w => w.path);
+
+/** Whether `stem`'s file name is already taken in `dir` (Rust cleans the name as it would when writing). */
+export const exportExists = (dir: string, stem: string, ext: string) => invoke<boolean>('export_exists', { dir, stem, ext });
 
 export const startupOptions = () => invoke<StartupOptions>('startup_options');
 /** Paths macOS asked the app to open (dropped on the Dock icon, Open With), drained on read. */

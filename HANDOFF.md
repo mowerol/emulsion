@@ -3,6 +3,50 @@
 All work through 2026-11-10 is committed except the top section (the DCP removal, darktable camera data, app icon, DNG
 and TIFF support, and the retouch overlays went in together); "Uncommitted" notes below are out of date.
 
+## Export: TIFF and PNG at 8/16-bit, Location like Lightroom Classic (2026-11-10)
+
+Committed. Oli asked for more file types and a subfolder to export into, modelled on LRC.
+His choices: JPEG + TIFF + PNG at 8/16-bit now (AVIF/HEIF/JXL later); LRC-style location;
+existing files New name / Overwrite / Skip (no Ask); a sectioned dialog, presets later.
+
+- **Dialog** (`ui/ExportDialog.tsx`, designed with /impeccable in the app's settings-dialog
+  vocabulary): left rail **Frames** (saved presets go above it later), right **Location**
+  (Export to: A folder / Next to original; Folder + Choose… with New Folder; Put in subfolder +
+  name; If a file has the same name: Add a number / Replace it / Skip the frame; a line saying
+  where files land and what the rule does), **File** (JPEG/TIFF/PNG; Quality; Bit depth;
+  TIFF Compression None/LZW/ZIP; "sRGB, without metadata"), **Size**. Footer summary. Settings
+  persist in localStorage (`library/exportsettings.ts`, key `emulsion.export`); the defaults
+  match the old behaviour (`Emulsion exports` in the open folder, JPEG 92, add a number).
+- **Engine:** `Engine.readPixels16Async` renders into RGBA32F and reads back 16-bit RGB in
+  ≤48 MB strips; Finish's dither is now `uDither` (1/255, or 1/65535 for 16-bit). The still
+  worker's `render` takes `bits: 16` (`StillClient.pixels16`).
+- **Rust** (`export.rs`): `Format` (jpeg/png/tiff), `Existing`, `encode`, `place`,
+  `write_frame`; TIFF through the `tiff` crate directly (LZW and ZIP with the horizontal
+  predictor; `image`'s TIFF encoder is uncompressed only). Overwrite renames the finished file
+  over the old one and refuses to replace the photo being exported. Skip is checked before
+  developing (`export_exists`) and again at write time. `write_export` returns `{ path, skipped }`.
+- **Checked:** `cargo test` (92, incl. 16-bit PNG/TIFF round trips in every compression,
+  rules, protect); vitest export and settings tests; `export-worker` GPU test in worker and main
+  modes now also exports a 16-bit TIFF (max diff 1.0 8-bit step against the JPEG frame, 1200 vs
+  154 levels on a ramp; a 400 × 9000 frame across two strips matches); `remove-export` both
+  modes; screenshots in mid, light and at 600 px wide (probe `?exportdialog=<settings JSON>`).
+- **`npm run check` fails on one test outside this work:** `builtin-looks.test.ts` expects
+  "Film Neg"…, but `src/film/emulsion-looks.json` was changed during this session (now
+  "Emulsion Neg"…), likely by the dev-only look editor. Not touched here; Oli to say whether
+  the rename is intended (then update the test) or revert it.
+- **Not done:** colour spaces and embedded ICC (files are untagged sRGB), metadata, file-name
+  templates, presets, AVIF/HEIF/JPEG XL, output sharpening, watermark. Exports into a subfolder
+  other than `Emulsion exports`, or next to originals, show up in the library on the next scan
+  (the scanner skips only that name). A full-size 16-bit export of a 26 MP RAW in the app (memory:
+  ~156 MB of RGB16 plus a 48 MB strip; time) is untimed.
+- **Oli should try** (needs the app): Cmd+R, open Export; switch formats and depths; Choose… and
+  make a new folder in the picker; Next to original with a subfolder on photos from two folders;
+  export twice with each rule (Add a number gives -2; Replace overwrites; Skip says "skipped:
+  already there" and is fast); Replace on JPEG originals exported next to themselves without a
+  subfolder (must refuse, naming the original); open a 16-bit TIFF and PNG in Preview or
+  Photoshop (16 bits per channel, colours as the JPEG); type an empty subfolder name (Export
+  disables and says why); close and reopen (choices kept).
+
 ## Export robustness and Selected frames by default (2026-11-10)
 
 Committed. `npm run check` passes (743 frontend, 86 Rust); `export-worker` and
