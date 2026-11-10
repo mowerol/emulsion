@@ -5,7 +5,7 @@ and TIFF support, and the retouch overlays went in together); "Uncommitted" note
 
 ## Halation and Glow: spektrafilm optics (2026-11-10)
 
-Uncommitted. Started by another agent (Codex), finished here. `npm run check` passes (739
+Committed (2e7bac5). Started by another agent (Codex), finished here. `npm run check` passes (739
 frontend, 84 Rust); `node tools/browser-tests/realtime.mjs optics 60` passes on the GPU.
 
 - **What:** darktable's spektrafilm optics, per [docs/research/optics.md](docs/research/optics.md).
