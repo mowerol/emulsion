@@ -147,10 +147,14 @@ fn is_zero(m: &Mat3) -> bool {
 }
 
 /// darktable's (rawspeed's `cameras.xml`) entry for a camera, by LibRaw's normalised make and model.
+/// LibRaw normalises OM Digital Solutions (OM System) cameras to "Olympus", while `cameras.xml`
+/// files them under their own make, so an Olympus make also matches those.
 fn darktable_camera(make: &str, model: &str) -> Option<&'static crate::rawspeed_cameras::Camera> {
     let key = |s: &str| s.to_lowercase().replace(|c: char| !c.is_ascii_alphanumeric(), "");
     let (make, model) = (key(make), key(model));
-    crate::rawspeed_cameras::CAMERAS.iter().find(|c| key(c.model) == model && c.makes.iter().any(|m| key(m) == make))
+    let makes: &[&str] = if make == "olympus" { &["olympus", "omdigitalsolutions", "omsystem"] } else { &[] };
+    let same_make = |m: &str| { let m = key(m); m == make || makes.contains(&m.as_str()) };
+    crate::rawspeed_cameras::CAMERAS.iter().find(|c| key(c.model) == model && c.makes.iter().any(|m| same_make(m)))
 }
 
 /// darktable's crop (x, y, width, height) for a Sony ARW whose full readout LibRaw kept, as
@@ -263,7 +267,7 @@ pub fn noise_profile(path: &Path) -> Option<crate::noiseprofiles::NoiseProfile> 
     (rc == 0).then(|| crate::noiseprofiles::for_camera(&error_text(&info.make), &error_text(&info.model), info.iso))
 }
 
-/// Where a RAW's standard colour matrix comes from, shown in the Camera Profile panel.
+/// Where a RAW's standard colour matrix comes from; `None` shows the Develop panel's colour warning.
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ColourSource {
@@ -539,6 +543,9 @@ mod tests {
         let (m, from) = colour_matrix("Sony", "ILCE-7RM6", &SRGB_TO_XYZ, false);
         assert_eq!((m.unwrap()[0], from), ([1.1765, -0.5595, -0.1192], ColourSource::Darktable));
         let (m, from) = colour_matrix("OM Digital Solutions", "OM-3", &zero, false);
+        assert_eq!((m.unwrap()[0][0], from), (0.909, ColourSource::Darktable));
+        // LibRaw reports OM System cameras as "Olympus" (an OM-3 ORF does).
+        let (m, from) = colour_matrix("Olympus", "OM-3", &zero, false);
         assert_eq!((m.unwrap()[0][0], from), (0.909, ColourSource::Darktable));
         // LibRaw's table where darktable has nothing; nothing at all is uncalibrated.
         assert_eq!(colour_matrix("Nobody", "Camera 1", &SRGB_TO_XYZ, false), (Some(SRGB_TO_XYZ), ColourSource::Camera));

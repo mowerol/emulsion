@@ -12,6 +12,11 @@ maybe later). No DCPs had ever been installed. Uncommitted.
 - **Camera Profile section removed:** nothing in it could change, so the panel says nothing about
   camera colour unless a RAW's camera has no matrix; then `CameraColourWarning` (`src/ui/CameraProfile.tsx`)
   shows "No colour data for the … yet, so colours are approximate." at the top. Probe view: `?profilerow`.
+- **OM-3 fix (after 12d22cb, uncommitted):** LibRaw reports OM System cameras' make as "Olympus" but
+  `cameras.xml` files them as "OM Digital Solutions", so a real OM-3 ORF found no darktable matrix and
+  rendered uncalibrated (the unit test had assumed the wrong make). `darktable_camera` now lets an
+  Olympus make match those entries (no model overlaps); checked on `PA040028.ORF` (source Darktable).
+  Denoise cache key → `darktable2` so cached OM-3 entries re-decode.
 
 - **Removed:** the RawTherapee DCP port (`dcp.ts`, `profilegpu.ts`, `profilestore.ts`, `dcp.glsl`,
   `dcp.frag.glsl`, the Adobe curve, fixtures, `tools/probe/dcp-reference/`, the probe's `?profiles`,

@@ -44,7 +44,7 @@ struct Meta {
 fn key(path: &Path) -> Result<String, String> {
     let m = path.metadata().map_err(|e| e.to_string())?;
     let id = format!(
-        "raw-nind-v1-libraw0223-darktable1-baseline{}|{}|{}|{}|{}",
+        "raw-nind-v1-libraw0223-darktable2-baseline{}|{}|{}|{}|{}",
         raw::BASELINE_GAIN,
         path.canonicalize().map_err(|e| e.to_string())?.display(),
         m.len(),
