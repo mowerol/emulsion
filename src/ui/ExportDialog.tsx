@@ -3,7 +3,7 @@ import { photoId, photoName } from '../library/copies';
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
-import { EXPORT_DIR_NAME, exportPhotos } from '../library/export';
+import { errorText, EXPORT_DIR_NAME, exportPhotos } from '../library/export';
 import { setExportOpen, showToast, sourcePhotos, useApp, type Photo } from '../library/store';
 import { useSourceDefinitions } from '../library/catalog';
 
@@ -67,7 +67,7 @@ export function ExportDialog() {
   useEffect(() => {
     if (!isOpen) return;
     setProgress(null);
-    setScope(selected.size > 1 && lists.selected.length ? 'selected' : lists.developed.length ? 'developed' : lists.active.length ? 'active' : 'all');
+    setScope(lists.selected.length ? 'selected' : lists.developed.length ? 'developed' : lists.active.length ? 'active' : 'all');
     firstRef.current?.focus();
   }, [isOpen]);
 
@@ -91,16 +91,20 @@ export function ExportDialog() {
           setUnfilled({ name: photoName(photo), error });
         }));
       setExportOpen(false);
-      const n = res.written.length;
-      const msg = res.canceled
-        ? `Export stopped after ${n} ${n === 1 ? 'frame' : 'frames'}`
-        : res.failed.length
-          ? `Exported ${n}. ${res.failed.length} failed: ${res.failed.map((f) => f.name).join(', ')}`
-          : `Exported ${n} ${n === 1 ? 'frame' : 'frames'}`;
-      showToast(msg, n ? { label: 'Show in folder', run: () => revealItemInDir(res.written[0]).catch(() => {}) } : undefined);
+      const n = res.written.length, frames = (k: number) => `${k} ${k === 1 ? 'frame' : 'frames'}`;
+      const failed = res.failed.filter(f => f.error !== res.stopped);
+      // The first failure's reason, since several usually share it.
+      const why = failed.length ? ` ${failed.length} failed (${failed.slice(0, 3).map(f => f.name).join(', ')}${failed.length > 3 ? '\u2026' : ''}): ${failed[0].error}` : '';
+      const msg = res.stopped
+        ? `Export stopped after ${frames(n)}. ${res.stopped}.${why}`
+        : res.canceled
+          ? `Export stopped after ${frames(n)}.${why}`
+          : failed.length ? `Exported ${frames(n)}.${why}` : `Exported ${frames(n)}`;
+      // A failure's reason needs reading time.
+      showToast(msg, n ? { label: 'Show in folder', run: () => revealItemInDir(res.written[0]).catch(() => {}) } : undefined, why || res.stopped ? 6000 : undefined);
     } catch (err) {
       setProgress(null);
-      showToast(`Export failed. ${String(err)}`);
+      showToast(`Export failed. ${errorText(err)}`);
     } finally {
       answer.current = null;
       setUnfilled(null);

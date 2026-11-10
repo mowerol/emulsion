@@ -3,6 +3,41 @@
 All work through 2026-11-10 is committed except the top section (the DCP removal, darktable camera data, app icon, DNG
 and TIFF support, and the retouch overlays went in together); "Uncommitted" notes below are out of date.
 
+## Export robustness and Selected frames by default (2026-11-10)
+
+Committed. `npm run check` passes (743 frontend, 86 Rust); `export-worker` and
+`remove-export` GPU tests pass in worker and main modes.
+
+- **Default scope:** the Export dialog opens on **Selected frames** whenever anything is
+  selected (it used to need two or more); otherwise Developed, This frame, then Every frame.
+- **Destination checked first:** new `check_export_dir` command (creates the folder, writes and
+  deletes a probe file) runs before any photo is developed, so a read-only, missing or
+  unwritable folder fails at once with its reason.
+- **No half files, no overwrite race:** `export::write_new` writes the whole JPEG to a hidden
+  `.<stem>.emulsion-<pid>-<n>.partial` and `sync_all`s it, claims the final name with an
+  exclusive create (`create_new`, retrying the next `-N` if taken), then renames over its own
+  claim. A failure removes the temp and our empty claim, never another file.
+- **Destination failures stop the batch:** write errors come back as `WriteError { message,
+  stop }` (`ExportWriteError` in `api.ts`). Full disk, quota, read-only, permission denied or
+  folder gone set `stop`, and the export ends there (`ExportResult.stopped`) instead of
+  developing every remaining photo to fail the same way.
+- **Engine crashes recover:** the still-render client used to only log a worker error, so a
+  crash left export (and thumbnails) waiting forever. Now a worker error or a lost WebGL
+  context (`webglcontextlost`, or a failed render with `isContextLost()`) rejects everything
+  pending with `StillsLost`, terminates the worker, and the next `stillEngine()` starts a new
+  one. Export retries that photo once on the new engine. Source keys are global, so a stale
+  `release` from a caller of the old engine can't free a new engine's source. A failed upload
+  now says why instead of the later "source released".
+- **Messages:** failures read without stacked "Error: " prefixes (`errorText`); the toast
+  gives the first failure's reason and up to three names, and stays 6 s when something failed.
+- **Not checked:** a real lost GPU context or worker crash (only unit-tested with a mock), a
+  real full disk, an exFAT/SMB destination (rename over an existing file there), the 15 s
+  readback timeout in `readPixelsAsync` against a slow full-size 26 MP export.
+- **Oli should try:** open Export with one photo selected (should pick Selected frames); export
+  to a folder you can't write (e.g. a locked folder or a read-only card) and see the immediate
+  message; export twice to the same folder (names get -2) and check no `.partial` files are
+  left; export a few full-size RAWs to an external drive.
+
 ## Speed session 6: export moved to the still-render worker (2026-11-10)
 
 Committed (4ff0d3a). Finishes session 5 (below): nothing renders on the page's thread any more.

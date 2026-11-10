@@ -36,6 +36,7 @@ mockIPC(async (command, args) => {
     for (let i = 0; i < patch.length; i += 4) patch.set([230, 40, 40, 255], i);
     return patch.buffer;
   }
+  if (command === 'check_export_dir') return null;
   if (command === 'write_export') { written.push(new Uint8Array(args as unknown as Uint8Array)); return '/exports/a.jpg'; }
   if (command === 'log_to_terminal') return null;
   throw Error(`unexpected IPC ${command}`);

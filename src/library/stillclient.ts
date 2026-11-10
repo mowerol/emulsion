@@ -18,11 +18,18 @@ import type { Xy } from '../engine/whitebalance';
 
 export type StillSource = SourceRef;
 
+/** A render that failed because its engine stopped (worker crash, lost GPU); a new engine can retry it. */
+export class StillsLost extends Error {}
+
+// Shared by every client, so a source of a stopped engine never names one of its successor's.
+let keys = 0;
+
 export class StillClient {
   private worker: Worker | null = null;
   private local: StillRenderer | null = null;
-  private keys = 0;
   private ids = 0;
+  /** Why this engine stopped; stillEngine() then starts another. */
+  lost: string | null = null;
   private requests = new Map<number, { resolve: (v: Uint8Array | Blob | RemoveInput | null) => void; reject: (e: Error) => void }>();
   private assets = new AssetSync();
   private started!: { resolve: (max: number) => void; reject: (e: Error) => void };
@@ -30,17 +37,30 @@ export class StillClient {
   readonly ready = new Promise<number>((resolve, reject) => { this.started = { resolve, reject }; });
 
   constructor() {
+    this.ready.catch(() => {});
     if (engineMode() === 'worker') {
       this.worker = new Worker(new URL('../engine/stills.worker.ts', import.meta.url), { type: 'module' });
       this.worker.onmessage = (e: MessageEvent<FromStills>) => this.receive(e.data);
-      this.worker.onerror = (e) => logToTerminal('error', `The preview engine stopped. ${e.message}`);
+      this.worker.onerror = (e) => this.stop(`The still-render engine stopped. ${e.message}`);
     } else {
       // No OffscreenCanvas WebGL2: the same renderer on this thread, as before the worker.
       this.local = new StillRenderer(document.createElement('canvas'), (m) => this.receive(m));
     }
   }
 
+  /** Fail everything waiting on this engine; the next stillEngine() call starts a new one. */
+  private stop(reason: string) {
+    if (this.lost) return;
+    this.lost = reason;
+    logToTerminal('error', reason);
+    this.worker?.terminate();
+    this.started.reject(new StillsLost(reason));
+    for (const r of this.requests.values()) r.reject(new StillsLost(reason));
+    this.requests.clear();
+  }
+
   private send(m: ToStills, transfer: Transferable[] = []) {
+    if (this.lost) return;
     if (this.local) this.local.handle(m);
     else this.worker?.postMessage(m, transfer);
   }
@@ -48,6 +68,7 @@ export class StillClient {
   private receive(m: FromStills) {
     if (m.type === 'ready') { this.started.resolve(m.maxTextureSize); return; }
     if (m.type === 'error') { logToTerminal('error', m.message); this.started.reject(new Error(m.message)); return; }
+    if (m.type === 'lost') { this.stop('The GPU stopped the still-render engine (its context was lost).'); return; }
     if (m.type !== 'reply') return;
     const r = this.requests.get(m.id);
     this.requests.delete(m.id);
@@ -58,7 +79,7 @@ export class StillClient {
   /** Upload decoded pixels: copied to the worker (the decode cache keeps its own), or with
    * `transfer` moved there, leaving `img`'s pixel arrays empty. */
   upload(img: HalfImage, origin?: string, transfer = false): StillSource {
-    const key = ++this.keys;
+    const key = ++keys;
     this.send({ type: 'upload', key, img, origin }, transfer ? [img.data.buffer, ...(img.denoised ? [img.denoised.buffer] : [])] : []);
     return { key, w: img.width, h: img.height, fullW: img.fullWidth, fullH: img.fullHeight, mode: img.mode, white: img.white,
       camera: img.camera, lens: img.lens, denoised: !!img.denoised, origin };
@@ -67,7 +88,7 @@ export class StillClient {
   /** A camera JPEG (a file the decoder can't read is edited through its embedded preview). */
   async uploadBlob(blob: Blob, white: Xy | null, origin?: string): Promise<StillSource> {
     const bitmap = await createImageBitmap(blob);
-    const key = ++this.keys;
+    const key = ++keys;
     const ref: StillSource = { key, w: bitmap.width, h: bitmap.height, fullW: bitmap.width, fullH: bitmap.height, mode: InputMode.DisplayEncoded, white, denoised: false, origin };
     this.send({ type: 'uploadBitmap', key, bitmap, white, origin }, [bitmap]);
     return ref;
@@ -97,6 +118,7 @@ export class StillClient {
     const id = ++this.ids;
     const watch = setInterval(() => { if (canceled()) { clearInterval(watch); this.send({ type: 'cancel', id }); } }, 50);
     return new Promise<RemoveInput | null>((resolve, reject) => {
+      if (this.lost) { reject(new StillsLost(this.lost)); return; }
       this.requests.set(id, { resolve: v => resolve(v as RemoveInput | null), reject });
       this.send({ type: 'removeInput', id, key: src.key, recipe, request, context });
     }).finally(() => clearInterval(watch));
@@ -117,6 +139,7 @@ export class StillClient {
     }
     const id = ++this.ids;
     return new Promise<Uint8Array | Blob>((resolve, reject) => {
+      if (this.lost) { reject(new StillsLost(this.lost)); return; }
       this.requests.set(id, { resolve: v => resolve(v as Uint8Array | Blob), reject });
       this.send({ type: 'render', id, key: src.key, recipe, w, h, seed, removal, jpeg });
     });
@@ -124,9 +147,9 @@ export class StillClient {
 }
 
 let client: StillClient | null | undefined;
-/** The shared still-render engine, started on first use; null without a GPU. */
+/** The shared still-render engine, started on first use (and again after one stops); null without a GPU. */
 export function stillEngine(): StillClient | null {
-  if (client === undefined) {
+  if (client === undefined || client?.lost) {
     try { client = new StillClient(); } catch (err) {
       console.error(err);
       client = null;

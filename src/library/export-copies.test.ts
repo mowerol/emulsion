@@ -3,11 +3,13 @@ import { beforeEach, expect, it, vi } from 'vitest';
 const gpu = vi.hoisted(() => ({ ready: Promise.resolve(4096), upload: vi.fn(() => ({ key: 1, w: 2, h: 1, fullW: 160, fullH: 120, mode: 0, white: null })),
   removeInput: vi.fn(async () => ({ image: new Uint8Array(512 * 512 * 4), mask: new Uint8Array(512 * 512) })),
   pixels: vi.fn(async (..._args: unknown[]) => new Uint8Array(8)), release: vi.fn(), dropBuffers: vi.fn() }));
-vi.mock('./stillclient', () => ({ stillEngine: () => gpu }));
+vi.mock('./stillclient', () => ({ stillEngine: () => gpu, StillsLost: class extends Error {} }));
 vi.mock('./thumbs', () => ({ ensureCapture: vi.fn() }));
 vi.mock('../backend/api', () => ({
   loadImage: vi.fn(async () => ({ width: 2, height: 1 })),
   removeInpaint: vi.fn(async () => new Uint8Array(512 * 512 * 4)),
+  checkExportDir: vi.fn(async () => {}),
+  ExportWriteError: class extends Error { constructor(m: string, readonly stop: boolean) { super(m); } },
   writeExport: vi.fn(async (_dir: string, stem: string) => `/exports/${stem}.jpg`),
 }));
 import { loadImage, writeExport, removeInpaint } from '../backend/api';
@@ -69,7 +71,7 @@ it('waits for Remove before rendering or writing and uses the original resolutio
 it('names the failed photo and writes nothing when Remove cannot be filled', async () => {
   vi.mocked(removeInpaint).mockRejectedValueOnce(new Error('Remove model missing'));
   const result = await exportPhotos([removalPhoto], { dir: '/exports', longEdge: null, quality: 92 }, vi.fn(), { canceled: false });
-  expect(result.failed).toEqual([{ name: 'remove.jpg', error: 'Error: Remove model missing' }]);
+  expect(result.failed).toEqual([{ name: 'remove.jpg', error: 'Remove model missing' }]);
   expect(writeExport).not.toHaveBeenCalled();
   expect(gpu.pixels).not.toHaveBeenCalled();
   expect(gpu.release).toHaveBeenCalledTimes(1);
@@ -119,4 +121,44 @@ it('retains completed earlier patches when export continues past a later failed 
   const result = await exportPhotos([p], { dir: '/exports', longEdge: null, quality: 92 }, vi.fn(), { canceled: false }, async () => true);
   expect(result.failed).toEqual([]);
   expect(filled).toBe(1);
+});
+
+const plain: Photo = { path: '/p.jpg', rel: 'p.jpg', name: 'p.jpg', size: 1, modified: 0, recipe: null,
+  seed: 1, white: null, rating: 0, label: null, heart: false, raw: false, pair: null };
+const opts = { dir: '/exports', longEdge: null, quality: 92 };
+
+it('checks the destination before developing anything', async () => {
+  const { checkExportDir } = await import('../backend/api');
+  vi.mocked(checkExportDir).mockRejectedValueOnce(new Error('Could not create /exports: the disk is read-only'));
+  await expect(exportPhotos([plain], opts, vi.fn(), { canceled: false })).rejects.toThrow('read-only');
+  expect(loadImage).not.toHaveBeenCalled();
+});
+
+it('retries a photo once on a fresh engine when the engine stops under it', async () => {
+  const { StillsLost } = await import('./stillclient');
+  gpu.pixels.mockRejectedValueOnce(new StillsLost('context lost'));
+  const result = await exportPhotos([plain, plain], opts, vi.fn(), { canceled: false });
+  expect(result.failed).toEqual([]);
+  expect(result.written).toHaveLength(2);
+  expect(gpu.pixels).toHaveBeenCalledTimes(3);
+  // Lost twice in a row: that photo fails, the next one still exports.
+  gpu.pixels.mockClear();
+  gpu.pixels.mockRejectedValueOnce(new StillsLost('context lost')).mockRejectedValueOnce(new StillsLost('context lost again'));
+  const twice = await exportPhotos([plain, plain], opts, vi.fn(), { canceled: false });
+  expect(twice.failed).toEqual([{ name: 'p.jpg', error: 'context lost again' }]);
+  expect(twice.written).toHaveLength(1);
+});
+
+it('stops the whole export when the destination fails, but not when one frame does', async () => {
+  const { ExportWriteError } = await import('../backend/api');
+  vi.mocked(writeExport).mockRejectedValueOnce(new ExportWriteError('Could not encode JPEG: bad', false));
+  const one = await exportPhotos([plain, plain], opts, vi.fn(), { canceled: false });
+  expect(one.failed).toEqual([{ name: 'p.jpg', error: 'Could not encode JPEG: bad' }]);
+  expect(one.written).toHaveLength(1);
+  expect(one.stopped).toBeUndefined();
+  vi.mocked(writeExport).mockRejectedValueOnce(new ExportWriteError('Could not write /exports/p.jpg: the disk is full', true));
+  const full = await exportPhotos([plain, plain, plain], opts, vi.fn(), { canceled: false });
+  expect(full.stopped).toBe('Could not write /exports/p.jpg: the disk is full');
+  expect(full.written).toHaveLength(0);
+  expect(loadImage).toHaveBeenCalledTimes(3);
 });

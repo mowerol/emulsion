@@ -15,5 +15,5 @@ try {
 self.onmessage = (e: MessageEvent<ToStills>) => {
   if (renderer) { renderer.handle(e.data); return; }
   // Without an engine every render fails at once, so its caller can fall back or give up.
-  if (e.data.type === 'render') post({ type: 'reply', id: e.data.id, ok: false, error: 'No GPU for previews' });
+  if (e.data.type === 'render' || e.data.type === 'removeInput') post({ type: 'reply', id: e.data.id, ok: false, error: 'No GPU for previews' });
 };

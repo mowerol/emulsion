@@ -95,6 +95,7 @@ pub fn run() {
             commands::import_app_settings,
             commands::show_app_backups,
             commands::write_export,
+            commands::check_export_dir,
             commands::startup_options,
             commands::take_open_paths,
             commands::log_message,

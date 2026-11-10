@@ -25,6 +25,7 @@ mockIPC(async command => {
     return buf;
   }
   if (command === 'remove_inpaint') throw Error('Remove model missing');
+  if (command === 'check_export_dir') return null;
   if (command === 'write_export') { writes++; return '/exports/holiday.jpg'; }
 });
 const button = (label: string) => Array.from(document.querySelectorAll('button')).find(b => b.textContent?.trim() === label) as HTMLButtonElement;

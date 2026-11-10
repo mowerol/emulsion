@@ -249,18 +249,26 @@ pub async fn auto_perspective(request: Request<'_>) -> Result<crate::perspective
 
 /// Body: RGBA8 pixels, top row first. Headers carry the destination and size.
 #[tauri::command]
-pub async fn write_export(request: Request<'_>) -> Result<String, String> {
+pub async fn write_export(request: Request<'_>) -> Result<String, export::WriteError> {
     let InvokeBody::Raw(bytes) = request.body() else {
-        return Err("Expected raw pixel data".into());
+        return Err("Expected raw pixel data".to_string().into());
     };
     let dir = PathBuf::from(header(&request, "x-emulsion-dir")?);
     let stem = header(&request, "x-emulsion-stem")?;
-    let width: u32 = header(&request, "x-emulsion-width")?.parse().map_err(|_| "Invalid width")?;
-    let height: u32 = header(&request, "x-emulsion-height")?.parse().map_err(|_| "Invalid height")?;
-    let quality: u8 = header(&request, "x-emulsion-quality")?.parse().map_err(|_| "Invalid quality")?;
+    let width: u32 = header(&request, "x-emulsion-width")?.parse().map_err(|_| "Invalid width".to_string())?;
+    let height: u32 = header(&request, "x-emulsion-height")?.parse().map_err(|_| "Invalid height".to_string())?;
+    let quality: u8 = header(&request, "x-emulsion-quality")?.parse().map_err(|_| "Invalid quality".to_string())?;
     let pixels = bytes.clone();
-    let path = blocking(move || export::write_jpeg(&dir, &stem, &pixels, width, height, quality)).await?;
+    let path = tauri::async_runtime::spawn_blocking(move || export::write_jpeg(&dir, &stem, &pixels, width, height, quality))
+        .await
+        .map_err(|e| e.to_string())??;
     Ok(path.to_string_lossy().into_owned())
+}
+
+/// Creates the export folder and checks it can be written, before any frame is developed.
+#[tauri::command]
+pub async fn check_export_dir(dir: String) -> Result<(), export::WriteError> {
+    tauri::async_runtime::spawn_blocking(move || export::check_dir(Path::new(&dir))).await.map_err(|e| e.to_string())?
 }
 
 #[derive(Serialize)]

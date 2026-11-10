@@ -35,6 +35,8 @@ export type RemoveInput = NonNullable<PatchRequest['input']>;
 export type FromStills =
   | { type: 'ready'; maxTextureSize: number }
   | { type: 'error'; message: string }
+  /** The GPU context was lost: every source and pending render is gone, so the client starts a new engine. */
+  | { type: 'lost' }
   | { type: 'reply'; id: number; ok: true; value: Uint8Array | Blob | RemoveInput | null }
   | { type: 'reply'; id: number; ok: false; error: string };
 
@@ -44,22 +46,49 @@ export class StillRenderer {
   /** Renders run one at a time: a removal context is the engine's while its draw is submitted. */
   private queue: Promise<void> = Promise.resolve();
   private canceled = new Set<number>();
+  /** Why an upload failed, so the render that follows says so instead of "source released". */
+  private failed = new Map<number, string>();
+  private lost = false;
 
   constructor(canvas: HTMLCanvasElement | OffscreenCanvas, private post: (m: FromStills, transfer?: Transferable[]) => void) {
     this.engine = new Engine(canvas);
+    canvas.addEventListener?.('webglcontextlost', () => this.markLost());
     post({ type: 'ready', maxTextureSize: this.engine.maxTextureSize });
+  }
+
+  private markLost() {
+    if (this.lost) return;
+    this.lost = true;
+    this.post({ type: 'lost' });
+  }
+
+  private source(key: number) {
+    const s = this.sources.get(key);
+    if (!s) throw new Error(this.failed.get(key) ?? 'source released');
+    return s;
+  }
+
+  /** Reply with an error, telling the client first when it came from a lost GPU context. */
+  private fail(id: number, err: unknown) {
+    if (this.engine.gpu?.gl.isContextLost?.()) this.markLost();
+    this.post({ type: 'reply', id, ok: false, error: String(err) });
   }
 
   handle(m: ToStills) {
     switch (m.type) {
-      case 'upload': this.sources.set(m.key, { ...this.engine.sourceFromHalf(m.img), origin: m.origin }); break;
+      case 'upload':
+        try { this.sources.set(m.key, { ...this.engine.sourceFromHalf(m.img), origin: m.origin }); }
+        catch (err) { this.failed.set(m.key, `Could not upload the photo to the GPU. ${String(err)}`); }
+        break;
       case 'uploadBitmap':
         try { this.sources.set(m.key, { ...this.engine.sourceFromImage(m.bitmap, m.bitmap.width, m.bitmap.height, m.white), origin: m.origin }); }
+        catch (err) { this.failed.set(m.key, `Could not upload the photo to the GPU. ${String(err)}`); }
         finally { m.bitmap.close(); }
         break;
       case 'release': {
         const s = this.sources.get(m.key);
         this.sources.delete(m.key);
+        this.failed.delete(m.key);
         if (s) this.engine.release(s);
         break;
       }
@@ -84,8 +113,7 @@ export class StillRenderer {
     const eng = this.engine, previous = eng.removeContext;
     let steps: Generator<void, PatchRequest['input']> | null = null;
     try {
-      const src = this.sources.get(m.key);
-      if (!src) throw new Error('source released');
+      const src = this.source(m.key);
       const step = () => {
         eng.removeContext = m.context;
         try { return steps!.next(); } finally { eng.removeContext = previous; }
@@ -102,7 +130,7 @@ export class StillRenderer {
       const input = next.value ?? null;
       this.post({ type: 'reply', id: m.id, ok: true, value: input }, input ? [input.image.buffer, input.mask.buffer] : []);
     } catch (err) {
-      this.post({ type: 'reply', id: m.id, ok: false, error: String(err) });
+      this.fail(m.id, err);
     } finally {
       eng.removeContext = m.context;
       try { steps?.return(undefined); } finally { eng.removeContext = previous; }
@@ -112,8 +140,7 @@ export class StillRenderer {
 
   private async render(m: Extract<ToStills, { type: 'render' }>) {
     try {
-      const src = this.sources.get(m.key);
-      if (!src) throw new Error('source released');
+      const src = this.source(m.key);
       const eng = this.engine, previous = eng.removeContext;
       // The draw is submitted before the readback first yields, so the context is only needed
       // until then (and nothing else uses this engine meanwhile).
@@ -125,7 +152,7 @@ export class StillRenderer {
       if (m.jpeg === undefined) { this.post({ type: 'reply', id: m.id, ok: true, value: px }, [px.buffer]); return; }
       this.post({ type: 'reply', id: m.id, ok: true, value: await encodeJpeg(px, m.w, m.h, m.jpeg) });
     } catch (err) {
-      this.post({ type: 'reply', id: m.id, ok: false, error: String(err) });
+      this.fail(m.id, err);
     }
   }
 }

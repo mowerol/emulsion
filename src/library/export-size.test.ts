@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { expect, it, vi } from 'vitest';
-vi.mock('./stillclient', () => ({ stillEngine: () => null }));
+vi.mock('./stillclient', () => ({ stillEngine: () => null, StillsLost: class extends Error {} }));
 vi.mock('./thumbs', () => ({ ensureCapture: vi.fn() }));
 // A 6000 × 4000 photo, decoded fitted to the edge asked for (as the Rust decoder does).
 vi.mock('../backend/api', () => ({
@@ -8,6 +8,8 @@ vi.mock('../backend/api', () => ({
     const s = Math.min(1, edge / 6000);
     return { width: Math.round(6000 * s), height: Math.round(4000 * s), fullWidth: 6000, fullHeight: 4000 };
   }),
+  checkExportDir: vi.fn(async () => {}),
+  ExportWriteError: class extends Error { constructor(m: string, readonly stop: boolean) { super(m); } },
   writeExport: vi.fn(),
 }));
 import { loadImage } from '../backend/api';

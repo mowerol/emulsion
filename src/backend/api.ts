@@ -158,6 +158,18 @@ export interface EarlierEdit { updated: number; replaced: number; recipe: unknow
 /** Earlier states of a photo's edits, newest first. */
 export const sidecarHistory = (path: string) => isTauri() ? invoke<EarlierEdit[]>('sidecar_history', { path }) : Promise.resolve([]);
 
+/** A failed write (src-tauri/src/export.rs `WriteError`); `stop` means the destination failed, not the frame. */
+export class ExportWriteError extends Error {
+  constructor(message: string, readonly stop: boolean) { super(message); }
+}
+const writeError = (err: unknown) => {
+  const e = err as { message?: unknown; stop?: unknown } | null;
+  return typeof e?.message === 'string' ? new ExportWriteError(e.message, e.stop === true) : err;
+};
+
+/** Create the export folder and check it can be written, before developing anything. */
+export const checkExportDir = (dir: string) => invoke<void>('check_export_dir', { dir }).catch(err => { throw writeError(err); });
+
 export function writeExport(dir: string, stem: string, rgba: Uint8Array, width: number, height: number, quality: number) {
   return invoke<string>('write_export', rgba, {
     headers: {
@@ -167,7 +179,7 @@ export function writeExport(dir: string, stem: string, rgba: Uint8Array, width: 
       'x-emulsion-height': String(height),
       'x-emulsion-quality': String(quality),
     },
-  });
+  }).catch(err => { throw writeError(err); });
 }
 
 export const startupOptions = () => invoke<StartupOptions>('startup_options');

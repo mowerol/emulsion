@@ -5,12 +5,12 @@ import { defaultRecipe } from '../film/recipe';
 // library/stillclient.ts, Remove crops included), encode and write in Rust.
 
 import { exportStem, photoName } from './copies';
-import { loadImage, writeExport } from '../backend/api';
+import { checkExportDir, ExportWriteError, loadImage, writeExport } from '../backend/api';
 import type { HalfImage } from '../engine/engine';
 import type { Photo } from './store';
 import { framePixels } from '../film/crop';
 import { ensureCapture } from './thumbs';
-import { stillEngine } from './stillclient';
+import { stillEngine, StillsLost, type StillClient } from './stillclient';
 import type { RemoveContext } from '../engine/removequeue';
 import { prepareRemovals } from './removal';
 
@@ -25,6 +25,20 @@ export interface ExportResult {
   written: string[];
   failed: { name: string; error: string }[];
   canceled: boolean;
+  /** Why the export stopped early: the destination failed (full, read-only, gone), so the rest would too. */
+  stopped?: string;
+}
+
+/** An error as one readable sentence, without the "Error: " prefixes that stack up across the worker and IPC. */
+export const errorText = (err: unknown) =>
+  (err instanceof Error ? err.message : typeof err === 'object' && err && 'message' in err ? String(err.message) : String(err)).replace(/^(?:\w*Error:\s*)+/, '');
+
+/** The still-render engine, started (or restarted after a crash or a lost GPU). */
+async function startEngine(): Promise<[StillClient, number]> {
+  const engine = stillEngine();
+  const maxTexture = await engine?.ready.catch(() => null);
+  if (!engine || !maxTexture) throw new Error('Emulsion could not start the GPU for exporting.');
+  return [engine, maxTexture];
 }
 
 /** Default export folder, inside the opened folder. Matches the Rust scanner, which skips it. */
@@ -56,10 +70,32 @@ export async function exportPhotos(
   signal: { canceled: boolean },
   onUnfilled?: (photo: Photo, error: string) => Promise<boolean>,
 ): Promise<ExportResult> {
-  const engine = stillEngine();
-  const maxTexture = await engine?.ready.catch(() => null);
-  if (!engine || !maxTexture) throw new Error('Emulsion could not start the GPU for exporting.');
+  // Fail before developing anything when the folder can't be made or written.
+  await checkExportDir(opts.dir);
+  let [engine, maxTexture] = await startEngine();
   const result: ExportResult = { written: [], failed: [], canceled: false };
+
+  /** One photo developed at its export size, or null when canceled. */
+  const develop = async (p: Photo): Promise<[Uint8Array, number, number] | null> => {
+    const [w, h, img] = await decodeFor(p, opts.longEdge, maxTexture);
+    const [iw, ih] = [img.width, img.height];
+    // Moved to the worker, not copied: nothing here keeps the decode.
+    const src = engine.upload(img, p.path, true);
+    // An unedited photo exports as Neutral at its defaults, default sharpening included.
+    const recipe = p.recipe ?? defaultRecipe();
+    // Everything after the upload is guarded, so a failed capture or profile still frees the source and its targets.
+    try {
+      if (recipe.captureSharpening > 0) await ensureCapture(engine, src, p.path);
+      let removal: RemoveContext | null = null;
+      if (recipe.retouch.some(s => s.tool === 'remove' && s.opacity > 0)) removal = await prepareRemovals(engine, src, recipe, () => signal.canceled,
+        JSON.stringify([p.size, p.modified]), onUnfilled ? error => onUnfilled(p, error) : undefined);
+      if (signal.canceled) return null;
+      return [await engine.pixels(src, recipe, w, h, p.seed, removal), w, h];
+    } finally {
+      engine.release(src);
+      engine.dropBuffers(iw, ih);
+    }
+  };
 
   for (let i = 0; i < photos.length; i++) {
     if (signal.canceled) {
@@ -69,29 +105,22 @@ export async function exportPhotos(
     const p = photos[i];
     onProgress(i, photos.length, photoName(p));
     try {
-      const [w, h, img] = await decodeFor(p, opts.longEdge, maxTexture);
-      const [iw, ih] = [img.width, img.height];
-      // Moved to the worker, not copied: nothing here keeps the decode.
-      const src = engine.upload(img, p.path, true);
-      // An unedited photo exports as Neutral at its defaults, default sharpening included.
-      const recipe = p.recipe ?? defaultRecipe();
-      let px: Uint8Array;
-      // Everything after the upload is guarded, so a failed capture or profile still frees the source and its targets.
+      let frame: Awaited<ReturnType<typeof develop>>;
       try {
-        if (recipe.captureSharpening > 0) await ensureCapture(engine, src, p.path);
-        let removal: RemoveContext | null = null;
-        if (recipe.retouch.some(s => s.tool === 'remove' && s.opacity > 0)) removal = await prepareRemovals(engine, src, recipe, () => signal.canceled,
-          JSON.stringify([p.size, p.modified]), onUnfilled ? error => onUnfilled(p, error) : undefined);
-        if (signal.canceled) { result.canceled = true; break; }
-        px = await engine.pixels(src, recipe, w, h, p.seed, removal);
-      } finally {
-        engine.release(src);
-        engine.dropBuffers(iw, ih);
+        frame = await develop(p);
+      } catch (err) {
+        // The engine stopped under this photo (a worker crash or a lost GPU, often from memory
+        // pressure): start a fresh one and try the photo once more before calling it failed.
+        if (!(err instanceof StillsLost) || signal.canceled) throw err;
+        [engine, maxTexture] = await startEngine();
+        frame = await develop(p);
       }
-      result.written.push(await writeExport(opts.dir, exportStem(p), px, w, h, opts.quality));
+      if (!frame) { result.canceled = true; break; }
+      result.written.push(await writeExport(opts.dir, exportStem(p), ...frame, opts.quality));
     } catch (err) {
       if (signal.canceled) { result.canceled = true; break; }
-      result.failed.push({ name: photoName(p), error: String(err) });
+      result.failed.push({ name: photoName(p), error: errorText(err) });
+      if (err instanceof ExportWriteError && err.stop) { result.stopped = errorText(err); break; }
     }
   }
   onProgress(result.written.length + result.failed.length, photos.length, '');
