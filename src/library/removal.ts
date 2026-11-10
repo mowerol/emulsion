@@ -50,7 +50,7 @@ export async function prepareRemovals(engine: Engine, src: Source, recipe: Recip
 
 /** Thumbnails restore saved patches without starting inference or borrowing GPU state. */
 export class MissingRemovePatch extends Error {}
-export async function cachedRemovals(src: Source, recipe: Recipe, sourceVersion?: string) {
+export async function cachedRemovals(src: Parameters<typeof removalIdentity>[0] & { w: number }, recipe: Recipe, sourceVersion?: string) {
   const context = removeContext(removalIdentity(src, '', sourceVersion), recipe, src.w / src.fullW);
   for (const request of planRemovals(context, recipe, src.fullW, src.fullH)) {
     const spot = recipe.retouch.find(s => s.id === request.spot)!;

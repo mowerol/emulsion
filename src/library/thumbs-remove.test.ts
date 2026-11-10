@@ -6,16 +6,13 @@ vi.mock('../backend/api', () => ({
   loadImage: vi.fn(async () => ({ width: 600, height: 400, data: new Uint16Array(0) })), captureInfo: vi.fn(), logToTerminal: vi.fn(),
   removeCachedPatch: mocks.cached,
 }));
-vi.mock('../engine/engine', () => ({
-  InputMode: { SceneLinear: 2 },
-  Engine: class {
-    removeContext: unknown = null;
-    sourceFromHalf() { return { w: 600, h: 400, fullW: 6000, fullH: 4000, mode: 2, white: null }; }
-    async prepare() {}
-    async renderToCanvasAsync() { mocks.render(this.removeContext); }
-    release() {}
-  },
-}));
+vi.mock('../engine/engine', () => ({ InputMode: { SceneLinear: 2 }, Engine: class {} }));
+// Thumbnails develop in the still-render worker; the removal context goes with each render.
+vi.mock('./stillclient', () => ({ stillEngine: () => ({
+  upload: () => ({ w: 600, h: 400, fullW: 6000, fullH: 4000, mode: 2, white: null }),
+  async jpeg(...a: unknown[]) { mocks.render(a[6]); return new Blob(['developed']); },
+  release() {},
+}) }));
 import { defaultRecipe } from '../film/recipe';
 import { newCircleSpot } from '../film/retouch';
 import { thumbs } from './thumbs';
@@ -24,9 +21,8 @@ let release!: (pixels: Uint8Array | null) => void;
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.cached.mockImplementation(() => new Promise(resolve => { release = resolve; }));
-  vi.stubGlobal('document', { createElement: () => ({ toBlob(cb: (blob: Blob) => void) { cb(new Blob(['developed'])); } }) });
 });
-afterEach(() => { thumbs.clear(); vi.unstubAllGlobals(); });
+afterEach(() => { thumbs.clear(); });
 
 it('does not show an original thumbnail while the saved removal is restoring', async () => {
   await thumbs.original('/saved.raf');

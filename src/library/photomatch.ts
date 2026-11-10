@@ -6,7 +6,8 @@ import { defaultRecipe, type Recipe } from '../film/recipe';
 import type { MatchImage, MatchOptions } from '../film/photomatch';
 import type { Clut } from '../engine/lut3d';
 import type { Photo } from './store';
-import { ensureCapture, offscreenEngine, sourceForPreview, thumbs } from './thumbs';
+import { ensureCapture, sourceForPreview, thumbs } from './thumbs';
+import { stillEngine } from './stillclient';
 
 export const referenceName = (path: string) => path.split(/[\\/]/).pop()?.slice(0, 200) || 'Reference photo';
 
@@ -29,7 +30,7 @@ export async function readReference(path: string): Promise<{ image: MatchImage; 
 }
 
 export async function photoMatchTarget(photo: Photo, signal: AbortSignal): Promise<MatchImage> {
-  const engine = offscreenEngine();
+  const engine = stillEngine();
   if (!engine) throw new Error('Emulsion could not start the photo preview');
   const recipe = photoMatchBase(photo.recipe ?? defaultRecipe());
   const original = await thumbs.original(photo.path);
@@ -38,11 +39,10 @@ export async function photoMatchTarget(photo: Photo, signal: AbortSignal): Promi
   try {
     signal.throwIfAborted();
     if (recipe.captureSharpening > 0) await ensureCapture(engine, src, photo.path);
-    await engine.prepare(recipe);
     signal.throwIfAborted();
     const scale = Math.min(1, 512 / Math.max(w, h));
     const width = Math.max(1, Math.round(w * scale)), height = Math.max(1, Math.round(h * scale));
-    const data = await engine.readPixelsAsync(src, recipe, width, height, photo.seed);
+    const data = await engine.pixels(src, recipe, width, height, photo.seed);
     signal.throwIfAborted();
     return { width, height, data };
   } finally { engine.release(src); }

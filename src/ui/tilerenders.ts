@@ -4,8 +4,8 @@ import { noiseEnabled } from '../film/noisereduction';
 import { framePixels } from '../film/crop';
 import type { Recipe } from '../film/recipe';
 import type { Photo } from '../library/store';
-import type { Source } from '../engine/engine';
-import { offscreenEngine, sourceForPreview, thumbs } from '../library/thumbs';
+import { sourceForPreview, thumbs } from '../library/thumbs';
+import { stillEngine, type StillSource } from '../library/stillclient';
 
 /**
  * Previews of the current photo in a grid of choices (base LUTs, looks), one canvas per key.
@@ -75,9 +75,9 @@ export function useTileRenders({ photo, keys, recipeFor, baseKey, root, size }: 
   }, [path]);
 
   // The decoded photo, kept while the frame and its white point stay the same.
-  const decoded = useRef<{ key: string; src: Source; w: number; h: number } | null>(null);
+  const decoded = useRef<{ key: string; src: StillSource; w: number; h: number } | null>(null);
   useEffect(() => () => {
-    if (decoded.current) offscreenEngine()?.release(decoded.current.src);
+    if (decoded.current) stillEngine()?.release(decoded.current.src);
     decoded.current = null;
   }, []);
 
@@ -88,7 +88,7 @@ export function useTileRenders({ photo, keys, recipeFor, baseKey, root, size }: 
     if (!path) return;
     let cancelled = false;
     const timer = setTimeout(async () => {
-      const eng = offscreenEngine();
+      const eng = stillEngine();
       if (!eng) return;
       const key = `${path}|${white}|noise:${noiseEnabled(recipe)}`;
       if (decoded.current?.key !== key) {
@@ -113,15 +113,15 @@ export function useTileRenders({ photo, keys, recipeFor, baseKey, root, size }: 
         const c = canvases.current.get(k);
         if (cancelled) return;
         if (!c) continue;
+        const r = latest.current.recipeFor(k);
+        // Developed in the still-render worker; only the copy onto the tile happens here.
+        let px: Uint8Array;
+        try { px = await eng.pixels(src, r, cw, ch, seed); } catch { return; }
+        if (cancelled) return;
         if (c.width !== cw) c.width = cw;
         if (c.height !== ch) c.height = ch;
-        const r = latest.current.recipeFor(k);
-        await eng.prepare(r);
-        if (cancelled) return;
-        eng.renderToCanvas(src, r, c, seed);
+        c.getContext('2d')?.putImageData(new ImageData(new Uint8ClampedArray(px.buffer as ArrayBuffer, px.byteOffset, px.byteLength), cw, ch), 0, 0);
         drawn.current.set(c, mark);
-        // Let input through between tiles, so a slider stays responsive while they redraw.
-        await new Promise((r) => setTimeout(r, 0));
       }
     }, 180);
     return () => { cancelled = true; clearTimeout(timer); };

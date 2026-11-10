@@ -12,9 +12,32 @@ Matte is listed under Later as a **maybe**: a convenient lift of the deepest bla
 through the midtones, only if it earns its place alongside the tone curve. No upstream choice or
 implementation is settled, and the ordered roadmap priorities remain unchanged.
 
+## Speed session 5: still renders moved to their own worker (2026-11-10)
+
+Committed. Fixes the post-release stall diagnosed in session 4 (below).
+
+- **New:** `engine/stills.ts` (`StillRenderer`: upload, release, capture, assets, render →
+  RGBA pixels or a JPEG encoded in the worker; renders queued one at a time, the removal context
+  set only while a draw is submitted), `engine/stills.worker.ts`, and `library/stillclient.ts`
+  (`stillEngine()`, started on first use; loads the look's LUT on the main thread and sends new
+  assets before each render; runs in-process where `engineMode()` is `main`).
+  `engine/assetsync.ts` is the LUT/look sync taken out of `DevelopClient`, now shared.
+- **Moved to it:** developed thumbnails (`thumbs.ts` `developBlob`, `sourceForPreview`,
+  `sourceFromBlob`), look tiles (`ui/tilerenders.ts`: only `putImageData` stays here),
+  photo match's target, perspective analysis. **Export still uses `offscreenEngine()`** on the
+  main thread: its `prepareRemovals` steps the engine pass by pass, so moving it means running
+  Remove preparation in the worker. That is the next step here.
+- **Timed** (production, worktree of HEAD plus this change, 50%): main thread blocked after
+  release 0–17 ms (was 17–74 ms); second run all PASS, controls worst frame 16–23 ms, photo
+  worst freeze 16–23 ms. Unit tests 732 pass (new `stills.test.ts`; the thumbnail tests mock the
+  client). **Not run:** the full `npm run check` (build, `cargo test`) on this change.
+- **Oli should try:** the Looks panel tiles redraw after an edit (and sliders feel smoother with
+  it open); a filmstrip thumbnail updates after a pause; a thumbnail with Remove spots still shows
+  them removed; photo match and auto perspective once each.
+
 ## Speed session 4: the "Exposure stall" is the thumbnail engine on the main thread (2026-11-10)
 
-Diagnosis only; no app code changed. Uncommitted: `src/dev/perfrun.ts` only.
+Diagnosis; fixed in session 5 above.
 
 - **Not Exposure.** Run first or later, Exposure's drag passed the controls bar in 6 production
   runs (worst frame 15–23 ms); the 81 ms block did not come back during a drag.

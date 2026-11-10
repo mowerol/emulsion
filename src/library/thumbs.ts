@@ -11,6 +11,7 @@ import type { Xy } from '../engine/whitebalance';
 import { Engine, InputMode, type HalfImage } from '../engine/engine';
 import { ImageLoadCache } from './imagecache';
 import { cachedRemovals, MissingRemovePatch } from './removal';
+import { stillEngine, type StillClient, type StillSource } from './stillclient';
 
 const THUMB_EDGE = 512;
 const DEVELOPED_EDGE = 384;
@@ -36,7 +37,7 @@ export function prepareFullImage(path: string, width: number, height: number, ma
 }
 
 let engine: Engine | null | undefined;
-/** A shared offscreen engine for thumbnails, stock previews and export. */
+/** An engine on this thread, for export. Previews render in a worker (stillEngine()). */
 export function offscreenEngine(): Engine | null {
   if (engine === undefined) {
     try {
@@ -262,38 +263,22 @@ export function ensureCapture<S extends { capture?: unknown; mode: InputMode; w:
 /** A developed thumbnail depends on the photo's white point only when the recipe changes white balance. */
 const thumbKey = (recipe: Recipe | null, white: Xy | null, sourceVersion?: string) => (sourceVersion ?? '') + recipeKey(recipe) + (recipe?.wb && white ? `|${white[0]},${white[1]}` : '');
 
-/** Decode a thumbnail blob into an engine source; `white` is the photo's as-shot white point. */
-export async function sourceFromBlob(eng: Engine, blob: Blob, white: Xy | null = null) {
-  const bmp = await createImageBitmap(blob);
-  try {
-    return { src: eng.sourceFromImage(bmp, bmp.width, bmp.height, white), w: bmp.width, h: bmp.height };
-  } finally {
-    bmp.close();
-  }
+/** Decode a thumbnail blob into a still-render source; `white` is the photo's as-shot white point. */
+export async function sourceFromBlob(eng: StillClient, blob: Blob, white: Xy | null = null, origin?: string) {
+  const src = await eng.uploadBlob(blob, white, origin);
+  return { src, w: src.w, h: src.h };
 }
 
 async function developBlob(blob: Blob, recipe: Recipe | null, seed: number, edge: number, white: Xy | null, path: string, raw: boolean, sourceVersion?: string): Promise<string> {
-  const eng = offscreenEngine();
+  const eng = stillEngine();
   if (!eng) throw new Error('No GPU');
   const { src, w: sw, h: sh } = await sourceForPreview(eng, path, blob, white, raw, recipe);
   try {
     const [w, h] = framePixels(recipe?.crop ?? null, sw, sh);
     const s = Math.min(1, edge / Math.max(w, h));
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.max(1, Math.round(w * s));
-    canvas.height = Math.max(1, Math.round(h * s));
     const removal = hasRemove(recipe) ? await cachedRemovals(src, recipe!, sourceVersion) : null;
-    await eng.prepare(recipe);
-    // The render submits synchronously before its readback yields. Do not leave a shared
-    // engine's removal context changed across that asynchronous readback.
-    const previous = eng.removeContext;
-    let rendering: Promise<void>;
-    eng.removeContext = removal;
-    try { rendering = eng.renderToCanvasAsync(src, recipe, canvas, seed); }
-    finally { eng.removeContext = previous; }
-    await rendering;
-    const out = await new Promise<Blob | null>((r) => canvas.toBlob(r, 'image/jpeg', 0.88));
-    if (!out) throw new Error('Could not encode thumbnail');
+    // Developed and encoded in the still-render worker: none of it on this thread.
+    const out = await eng.jpeg(src, recipe, Math.max(1, Math.round(w * s)), Math.max(1, Math.round(h * s)), seed, 0.88, removal);
     return URL.createObjectURL(out);
   } finally {
     eng.release(src);
@@ -316,7 +301,7 @@ export function useThumb(path: string, recipe: Recipe | null, seed: number, visi
 // no record of the photo's size: radius-based stages (sharpening, texture, clarity, dehaze,
 // grain) are sized in the photo's pixels and were applied as if it were 512 px wide.
 const rawPreviews = new Map<string, HalfImage>();
-export async function sourceForPreview(eng: Engine, path: string, blob: Blob, white: Xy | null, raw: boolean, recipe: Recipe | null = null) {
+export async function sourceForPreview(eng: StillClient, path: string, blob: Blob, white: Xy | null, raw: boolean, recipe: Recipe | null = null): Promise<{ src: StillSource; w: number; h: number }> {
   const noise = raw && noiseEnabled(recipe);
   const cacheKey = `${path}|${noise}`;
   let img = rawPreviews.get(cacheKey);
@@ -325,12 +310,10 @@ export async function sourceForPreview(eng: Engine, path: string, blob: Blob, wh
       img = await loadCachedImage(path, THUMB_EDGE, noise);
     } catch {
       // A file the decoder can't read (a JPEG XL DNG) is edited through its embedded preview, as in Develop.
-      const made = await sourceFromBlob(eng, blob, white);
-      made.src.origin = path;
-      return made;
+      return sourceFromBlob(eng, blob, white, path);
     }
     rawPreviews.set(cacheKey, img);
     while (rawPreviews.size > 2) rawPreviews.delete(rawPreviews.keys().next().value!);
   }
-  return { src: { ...eng.sourceFromHalf(img), origin: path }, w: img.width, h: img.height };
+  return { src: eng.upload(img, path), w: img.width, h: img.height };
 }

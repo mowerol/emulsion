@@ -5,26 +5,22 @@ vi.mock('../backend/api', () => ({
   thumbnail: vi.fn(async () => new Blob(['original'])),
   captureInfo: vi.fn(), loadImage: vi.fn(), logToTerminal: vi.fn(),
 }));
-vi.mock('../engine/engine', () => ({
-  InputMode: { SceneLinear: 2 },
-  Engine: class {
-    sourceFromImage() { return {}; }
-    async prepare() {}
-    async renderToCanvasAsync(_src: unknown, recipe: unknown, canvas: { recipe?: unknown }) { canvas.recipe = recipe; calls.render(recipe); }
-    release() {}
-  },
-}));
+vi.mock('../engine/engine', () => ({ InputMode: { SceneLinear: 2 }, Engine: class {} }));
+// Thumbnails develop in the still-render worker; its client hands back the encoded JPEG.
+vi.mock('./stillclient', () => ({ stillEngine: () => ({
+  upload: (img: { width: number; height: number }) => ({ w: img.width, h: img.height }),
+  async uploadBlob() { return { w: 20, h: 10 }; },
+  async jpeg(_src: unknown, recipe: unknown) { calls.render(recipe); return new Blob([JSON.stringify(recipe)]); },
+  release() {},
+}) }));
 import { defaultRecipe } from '../film/recipe';
 import { thumbnail } from '../backend/api';
 import { thumbs } from './thumbs';
 
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.stubGlobal('createImageBitmap', async () => ({ width: 20, height: 10, close() {} }));
-  vi.stubGlobal('document', { createElement: () => ({ recipe: null,
-    toBlob(cb: (b: Blob) => void) { cb(new Blob([JSON.stringify(this.recipe)])); } }) });
 });
-afterEach(() => { thumbs.clear(); vi.unstubAllGlobals(); });
+afterEach(() => { thumbs.clear(); });
 
 it('shows two developed thumbnails for one source and redevelops only the edited version', async () => {
   const first = { ...defaultRecipe(), exposure: 1 };
