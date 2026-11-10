@@ -3,6 +3,32 @@
 All work through 2026-11-10 is committed except the top section (the DCP removal, darktable camera data, app icon, DNG
 and TIFF support, and the retouch overlays went in together); "Uncommitted" notes below are out of date.
 
+## Speed session 6: export moved to the still-render worker (2026-11-10)
+
+Uncommitted. Finishes session 5 (below): nothing renders on the page's thread any more.
+
+- **What:** `exportPhotos` uses `stillEngine()` instead of `offscreenEngine()` (removed from
+  `thumbs.ts`). The decode is transferred to the worker, not copied (`upload(img, origin, true)`);
+  the client waits on `ready` for the worker's `maxTextureSize`; after each photo it releases the
+  source and sends `drop` (`Engine.dropBuffers`). Pixels come back by `pixels(..., removal)`.
+- **Remove in export:** `prepareRemovals` (`library/removal.ts`) still plans the spots and calls
+  native inference from the page, but asks the engine for each crop's model input through
+  `removeInput` (an interface, so tests and the probe can supply their own). In the worker,
+  `StillRenderer.removeInput` runs `Engine.prepareRemove` in its render queue, with the removal
+  context set only for each pass, yields between passes, and stops on `cancel` (the client polls
+  the export's cancel flag every 50 ms). It returns the context; export passes it to the render
+  instead of setting `engine.removeContext`. Consent to export an unfilled spot works as before.
+- **Checked:** `npm run check` passes (740 frontend, 84 Rust). New GPU test
+  `VITE_ENGINE=worker node tools/browser-tests/realtime.mjs export-worker 60`: a 1200 × 800 export
+  with two overlapping Remove spots in the worker against the old page-engine path: Remove
+  inputs and written pixels identical (max diff 0), also in main mode. `remove-export` (consent
+  flow) passes in both modes. New unit test in `stills.test.ts` (per-pass context, cancel).
+- **Not done:** a full-resolution export of a real 26 MP RAW in the app (memory, time, and that
+  the page stays responsive meanwhile); in-app timing.
+- **Oli should try:** export a few RAWs at full size and at 2048 while scrolling the filmstrip
+  and dragging a slider (both should stay smooth); export one with Remove spots, and cancel one
+  mid-export; export a photo whose Remove model is missing (the warning still names it).
+
 ## Halation and Glow: spektrafilm optics (2026-11-10)
 
 Committed (2e7bac5). Started by another agent (Codex), finished here. `npm run check` passes (739
@@ -62,7 +88,7 @@ Committed. Fixes the post-release stall diagnosed in session 4 (below).
   `sourceFromBlob`), look tiles (`ui/tilerenders.ts`: only `putImageData` stays here),
   photo match's target, perspective analysis. **Export still uses `offscreenEngine()`** on the
   main thread: its `prepareRemovals` steps the engine pass by pass, so moving it means running
-  Remove preparation in the worker. That is the next step here.
+  Remove preparation in the worker. Done in session 6 (above).
 - **Timed** (production, worktree of HEAD plus this change, 50%): main thread blocked after
   release 0–17 ms (was 17–74 ms); second run all PASS, controls worst frame 16–23 ms, photo
   worst freeze 16–23 ms. Unit tests 732 pass (new `stills.test.ts`; the thumbnail tests mock the

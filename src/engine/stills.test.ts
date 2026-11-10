@@ -50,3 +50,26 @@ it('fails a render whose source was released before its turn', async () => {
   await flush();
   expect(replies).toEqual([{ type: 'reply', id: 3, ok: false, error: 'Error: source released' }]);
 });
+
+it('prepares a Remove input in the queue, with the context set for each pass, and can be canceled', async () => {
+  const contexts: unknown[] = [];
+  const r = new StillRenderer({} as OffscreenCanvas, (m) => replies.push(m));
+  replies.length = 0;
+  const eng = r.engine as unknown as { removeContext: unknown; prepareRemove: () => Generator<void, unknown> };
+  const image = new Uint8Array(4), mask = new Uint8Array(1);
+  eng.prepareRemove = function* () { contexts.push(eng.removeContext); yield; contexts.push(eng.removeContext); return { image, mask }; };
+  r.handle({ type: 'upload', key: 1, img: {} as HalfImage });
+  const context = { identity: 'ctx' } as unknown as RemoveContext;
+  const request = { key: 'k', spot: 's' } as never;
+  r.handle({ type: 'removeInput', id: 4, key: 1, recipe: recipe('a'), request, context });
+  await flush(); await flush();
+  expect(contexts).toEqual([context, context]);
+  expect(eng.removeContext).toBe(null);
+  expect(replies.shift()).toEqual({ type: 'reply', id: 4, ok: true, value: { image, mask } });
+
+  r.handle({ type: 'removeInput', id: 5, key: 1, recipe: recipe('a'), request, context });
+  r.handle({ type: 'cancel', id: 5 });
+  await flush(); await flush();
+  expect(contexts).toHaveLength(3);
+  expect(replies.shift()).toEqual({ type: 'reply', id: 5, ok: true, value: null });
+});

@@ -1,14 +1,17 @@
 import { noiseEnabled } from '../film/noisereduction';
 import { defaultRecipe } from '../film/recipe';
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Export: decode, develop on the GPU at the asked size, encode and write in Rust.
+// Export: decode, develop on the GPU at the asked size (in the still-render worker,
+// library/stillclient.ts, Remove crops included), encode and write in Rust.
 
 import { exportStem, photoName } from './copies';
 import { loadImage, writeExport } from '../backend/api';
 import type { HalfImage } from '../engine/engine';
 import type { Photo } from './store';
 import { framePixels } from '../film/crop';
-import { ensureCapture, offscreenEngine } from './thumbs';
+import { ensureCapture } from './thumbs';
+import { stillEngine } from './stillclient';
+import type { RemoveContext } from '../engine/removequeue';
 import { prepareRemovals } from './removal';
 
 export interface ExportOptions {
@@ -53,8 +56,9 @@ export async function exportPhotos(
   signal: { canceled: boolean },
   onUnfilled?: (photo: Photo, error: string) => Promise<boolean>,
 ): Promise<ExportResult> {
-  const engine = offscreenEngine();
-  if (!engine) throw new Error('Emulsion could not start the GPU for exporting.');
+  const engine = stillEngine();
+  const maxTexture = await engine?.ready.catch(() => null);
+  if (!engine || !maxTexture) throw new Error('Emulsion could not start the GPU for exporting.');
   const result: ExportResult = { written: [], failed: [], canceled: false };
 
   for (let i = 0; i < photos.length; i++) {
@@ -65,25 +69,24 @@ export async function exportPhotos(
     const p = photos[i];
     onProgress(i, photos.length, photoName(p));
     try {
-      const [w, h, img] = await decodeFor(p, opts.longEdge, engine.maxTextureSize);
-      const src = engine.sourceFromHalf(img);
-      src.origin = p.path;
+      const [w, h, img] = await decodeFor(p, opts.longEdge, maxTexture);
+      const [iw, ih] = [img.width, img.height];
+      // Moved to the worker, not copied: nothing here keeps the decode.
+      const src = engine.upload(img, p.path, true);
       // An unedited photo exports as Neutral at its defaults, default sharpening included.
       const recipe = p.recipe ?? defaultRecipe();
       let px: Uint8Array;
-      let releaseRemovals: (() => void) | undefined;
       // Everything after the upload is guarded, so a failed capture or profile still frees the source and its targets.
       try {
         if (recipe.captureSharpening > 0) await ensureCapture(engine, src, p.path);
-        await engine.prepare(recipe);
-        if (recipe.retouch.some(s => s.tool === 'remove' && s.opacity > 0)) releaseRemovals = await prepareRemovals(engine, src, recipe, () => signal.canceled,
+        let removal: RemoveContext | null = null;
+        if (recipe.retouch.some(s => s.tool === 'remove' && s.opacity > 0)) removal = await prepareRemovals(engine, src, recipe, () => signal.canceled,
           JSON.stringify([p.size, p.modified]), onUnfilled ? error => onUnfilled(p, error) : undefined);
         if (signal.canceled) { result.canceled = true; break; }
-        px = engine.readPixels(src, recipe, w, h, p.seed);
+        px = await engine.pixels(src, recipe, w, h, p.seed, removal);
       } finally {
-        releaseRemovals?.();
         engine.release(src);
-        engine.dropBuffers(img.width, img.height);
+        engine.dropBuffers(iw, ih);
       }
       result.written.push(await writeExport(opts.dir, exportStem(p), px, w, h, opts.quality));
     } catch (err) {

@@ -230,9 +230,13 @@ client sends them to the worker's copies of the stores (`provideLut`, `adoptUser
   the main thread. The browser-test runners default to it, since those pages patch
   `Engine.prototype`; the perf driver reads frames from the client in worker mode, and its
   draw counts, texture memory and pass timings need main mode.
-- **Still on the main thread:** the shared offscreen engine (`library/thumbs.ts`:
-  thumbnails, tile renders, export, perspective). Its WebGL work would queue behind the
-  worker's GPU work; it waits for edits to pause, but it is the next to move.
+- **Still renders** (developed thumbnails, look tiles, photo match, perspective analysis and
+  export) use a second engine in its own worker: `engine/stills.ts` (`StillRenderer`,
+  one render or Remove crop at a time), `engine/stills.worker.ts`, and the page's handle
+  `library/stillclient.ts` (`stillEngine()`). Export moves each decode into the worker, and
+  its Remove spots are planned and inferred from the page (`library/removal.ts`
+  `prepareRemovals`, native IPC) while each crop's model input is prepared in the worker
+  (`removeInput`). Without OffscreenCanvas WebGL2 the same renderer runs on the page.
 
 ## RAW files
 

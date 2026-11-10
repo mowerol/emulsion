@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { beforeEach, expect, it, vi } from 'vitest';
-const gpu = vi.hoisted(() => ({ maxTextureSize: 4096, sourceFromHalf: vi.fn(() => ({ fullW: 160, fullH: 120, mode: 0, white: null })), prepare: vi.fn(),
-  prepareRemove: vi.fn(function* () { return { image: new Uint8Array(512 * 512 * 4), mask: new Uint8Array(512 * 512) }; }),
-  readPixels: vi.fn(() => new Uint8Array(8)), release: vi.fn(), dropBuffers: vi.fn() }));
-vi.mock('./thumbs', () => ({ offscreenEngine: () => gpu, ensureCapture: vi.fn() }));
+const gpu = vi.hoisted(() => ({ ready: Promise.resolve(4096), upload: vi.fn(() => ({ key: 1, w: 2, h: 1, fullW: 160, fullH: 120, mode: 0, white: null })),
+  removeInput: vi.fn(async () => ({ image: new Uint8Array(512 * 512 * 4), mask: new Uint8Array(512 * 512) })),
+  pixels: vi.fn(async (..._args: unknown[]) => new Uint8Array(8)), release: vi.fn(), dropBuffers: vi.fn() }));
+vi.mock('./stillclient', () => ({ stillEngine: () => gpu }));
+vi.mock('./thumbs', () => ({ ensureCapture: vi.fn() }));
 vi.mock('../backend/api', () => ({
   loadImage: vi.fn(async () => ({ width: 2, height: 1 })),
   removeInpaint: vi.fn(async () => new Uint8Array(512 * 512 * 4)),
@@ -29,7 +30,7 @@ it('requests the shared denoised source for RAW exports and surfaces failures', 
   const failed = await exportPhotos([photo], options, vi.fn(), { canceled: false });
   expect(failed.written).toEqual([]);
   expect(failed.failed[0].error).toContain('Model missing');
-  vi.mocked(loadImage).mockClear(); vi.mocked(writeExport).mockClear(); gpu.readPixels.mockClear();
+  vi.mocked(loadImage).mockClear(); vi.mocked(writeExport).mockClear(); gpu.pixels.mockClear();
 });
 
 it('exports each version with its own recipe, a distinct name and the real source path', async () => {
@@ -42,7 +43,7 @@ it('exports each version with its own recipe, a distinct name and the real sourc
   expect(loadImage).toHaveBeenCalledTimes(3);
   expect(vi.mocked(loadImage).mock.calls.every(([path]) => path === '/a.jpg')).toBe(true);
   // The unedited original exports as Neutral at its defaults.
-  expect(gpu.readPixels.mock.calls.map(c => (c as unknown[])[1])).toEqual(versions.map(p => p.recipe ?? defaultRecipe()));
+  expect(gpu.pixels.mock.calls.map(c => (c as unknown[])[1])).toEqual(versions.map(p => p.recipe ?? defaultRecipe()));
   expect(writeExport).toHaveBeenCalledWith('/exports', 'a_Warm_one', expect.any(Uint8Array), 2, 1, 92);
 });
 
@@ -57,11 +58,11 @@ it('waits for Remove before rendering or writing and uses the original resolutio
   const result = exportPhotos([removalPhoto], { dir: '/exports', longEdge: 1, quality: 92 }, vi.fn(), { canceled: false });
   await vi.waitFor(() => expect(removeInpaint).toHaveBeenCalledTimes(1));
   expect(loadImage).toHaveBeenCalledWith('/remove.jpg', 4096, false);
-  expect(gpu.readPixels).not.toHaveBeenCalled();
+  expect(gpu.pixels).not.toHaveBeenCalled();
   expect(writeExport).not.toHaveBeenCalled();
   release(new Uint8Array(512 * 512 * 4));
   expect((await result).written).toHaveLength(1);
-  expect(gpu.readPixels).toHaveBeenCalledTimes(1);
+  expect(gpu.pixels).toHaveBeenCalledTimes(1);
   expect(gpu.release).toHaveBeenCalledTimes(1);
 });
 
@@ -70,7 +71,7 @@ it('names the failed photo and writes nothing when Remove cannot be filled', asy
   const result = await exportPhotos([removalPhoto], { dir: '/exports', longEdge: null, quality: 92 }, vi.fn(), { canceled: false });
   expect(result.failed).toEqual([{ name: 'remove.jpg', error: 'Error: Remove model missing' }]);
   expect(writeExport).not.toHaveBeenCalled();
-  expect(gpu.readPixels).not.toHaveBeenCalled();
+  expect(gpu.pixels).not.toHaveBeenCalled();
   expect(gpu.release).toHaveBeenCalledTimes(1);
 });
 
@@ -93,11 +94,11 @@ it('waits for consent before exporting a named photo with an unfilled Remove', a
   const warn = vi.fn(() => new Promise<boolean>(resolve => { answer = resolve; }));
   const result = exportPhotos([removalPhoto], { dir: '/exports', longEdge: null, quality: 92 }, vi.fn(), { canceled: false }, warn);
   await vi.waitFor(() => expect(warn).toHaveBeenCalledWith(removalPhoto, 'Error: Remove model missing'));
-  expect(gpu.readPixels).not.toHaveBeenCalled();
+  expect(gpu.pixels).not.toHaveBeenCalled();
   expect(writeExport).not.toHaveBeenCalled();
   answer(true);
   expect((await result).written).toHaveLength(1);
-  expect(gpu.readPixels).toHaveBeenCalledTimes(1);
+  expect(gpu.pixels).toHaveBeenCalledTimes(1);
 });
 
 it('stops without writing when the user declines export with an unfilled Remove', async () => {
@@ -114,7 +115,7 @@ it('retains completed earlier patches when export continues past a later failed 
   vi.mocked(removeInpaint).mockResolvedValueOnce(new Uint8Array(512 * 512 * 4)).mockRejectedValueOnce(Error('inference failed'));
   const p = { ...removalPhoto, recipe: { ...removalPhoto.recipe!, retouch: [...removalPhoto.recipe!.retouch, newCircleSpot([.6, .6], 'remove')] } };
   let filled: number | undefined;
-  gpu.readPixels.mockImplementationOnce(() => { filled = (gpu as typeof gpu & { removeContext?: { patches: Map<string, unknown> } }).removeContext?.patches.size; return new Uint8Array(8); });
+  gpu.pixels.mockImplementationOnce(async (...args: unknown[]) => { filled = (args[5] as { patches: Map<string, unknown> } | null)?.patches.size; return new Uint8Array(8); });
   const result = await exportPhotos([p], { dir: '/exports', longEdge: null, quality: 92 }, vi.fn(), { canceled: false }, async () => true);
   expect(result.failed).toEqual([]);
   expect(filled).toBe(1);

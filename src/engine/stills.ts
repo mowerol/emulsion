@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Still renders: everything drawn apart from the develop view (developed thumbnails, the look
-// tiles, photo match's target, perspective analysis). Their engine runs in its own worker
+// tiles, photo match's target, perspective analysis, export and its Remove crops). Their engine runs in its own worker
 // (stills.worker.ts) so its context creation, shader compiles and draws never block the page:
 // on the main thread a thumbnail's draw took 15-57 ms and the engine's creation 88 ms (2026-11-10,
 // in WKWebView). Without OffscreenCanvas WebGL2 the same renderer runs on the main thread.
@@ -8,6 +8,7 @@
 import { Engine, type HalfImage } from './engine';
 import type { Source } from './engine';
 import type { RemoveContext } from './removequeue';
+import type { PatchRequest } from './remove';
 import { provideLut } from './lutstore';
 import type { Assets } from './assetsync';
 import { adoptUserLooks } from '../film/looks';
@@ -21,12 +22,20 @@ export type ToStills =
   | { type: 'capture'; key: number; radius: number; toCam: number[]; mask: Uint8Array }
   | ({ type: 'assets' } & Assets)
   /** Develop `key` at w × h; `jpeg` (a quality, 0-1) encodes it, otherwise the RGBA pixels come back. */
-  | { type: 'render'; id: number; key: number; recipe: Recipe | null; w: number; h: number; seed: number; removal: RemoveContext | null; jpeg?: number };
+  | { type: 'render'; id: number; key: number; recipe: Recipe | null; w: number; h: number; seed: number; removal: RemoveContext | null; jpeg?: number }
+  /** The model's input for one Remove spot (Engine.prepareRemove), with `context`'s earlier patches. */
+  | { type: 'removeInput'; id: number; key: number; recipe: Recipe; request: PatchRequest; context: RemoveContext }
+  /** Stop request `id` between GPU passes (a Remove input); it replies with nothing. */
+  | { type: 'cancel'; id: number }
+  /** Free the intermediate buffers for one source size (after a large export). */
+  | { type: 'drop'; w: number; h: number };
+
+export type RemoveInput = NonNullable<PatchRequest['input']>;
 
 export type FromStills =
   | { type: 'ready'; maxTextureSize: number }
   | { type: 'error'; message: string }
-  | { type: 'reply'; id: number; ok: true; value: Uint8Array | Blob }
+  | { type: 'reply'; id: number; ok: true; value: Uint8Array | Blob | RemoveInput | null }
   | { type: 'reply'; id: number; ok: false; error: string };
 
 export class StillRenderer {
@@ -34,6 +43,7 @@ export class StillRenderer {
   private sources = new Map<number, Source>();
   /** Renders run one at a time: a removal context is the engine's while its draw is submitted. */
   private queue: Promise<void> = Promise.resolve();
+  private canceled = new Set<number>();
 
   constructor(canvas: HTMLCanvasElement | OffscreenCanvas, private post: (m: FromStills, transfer?: Transferable[]) => void) {
     this.engine = new Engine(canvas);
@@ -63,6 +73,40 @@ export class StillRenderer {
         if (m.looks) adoptUserLooks(m.looks);
         break;
       case 'render': this.queue = this.queue.then(() => this.render(m)); break;
+      case 'removeInput': this.queue = this.queue.then(() => this.removeInput(m)); break;
+      case 'cancel': this.canceled.add(m.id); break;
+      case 'drop': this.engine.dropBuffers(m.w, m.h); break;
+    }
+  }
+
+  /** Runs in the queue, so no render sees the removal context it sets for each pass. */
+  private async removeInput(m: Extract<ToStills, { type: 'removeInput' }>) {
+    const eng = this.engine, previous = eng.removeContext;
+    let steps: Generator<void, PatchRequest['input']> | null = null;
+    try {
+      const src = this.sources.get(m.key);
+      if (!src) throw new Error('source released');
+      const step = () => {
+        eng.removeContext = m.context;
+        try { return steps!.next(); } finally { eng.removeContext = previous; }
+      };
+      eng.removeContext = m.context;
+      try { steps = eng.prepareRemove(src, m.recipe, m.request, m.context); } finally { eng.removeContext = previous; }
+      let next = step();
+      while (!next.done) {
+        // Let uploads, releases and cancels arrive between GPU passes.
+        await new Promise<void>(resolve => setTimeout(resolve, 0));
+        if (this.canceled.has(m.id)) { this.post({ type: 'reply', id: m.id, ok: true, value: null }); return; }
+        next = step();
+      }
+      const input = next.value ?? null;
+      this.post({ type: 'reply', id: m.id, ok: true, value: input }, input ? [input.image.buffer, input.mask.buffer] : []);
+    } catch (err) {
+      this.post({ type: 'reply', id: m.id, ok: false, error: String(err) });
+    } finally {
+      eng.removeContext = m.context;
+      try { steps?.return(undefined); } finally { eng.removeContext = previous; }
+      this.canceled.delete(m.id);
     }
   }
 

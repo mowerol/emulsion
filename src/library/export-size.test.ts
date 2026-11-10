@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { expect, it, vi } from 'vitest';
-vi.mock('./thumbs', () => ({ offscreenEngine: () => null, ensureCapture: vi.fn() }));
+vi.mock('./stillclient', () => ({ stillEngine: () => null }));
+vi.mock('./thumbs', () => ({ ensureCapture: vi.fn() }));
 // A 6000 × 4000 photo, decoded fitted to the edge asked for (as the Rust decoder does).
 vi.mock('../backend/api', () => ({
   loadImage: vi.fn(async (_path: string, edge: number) => {

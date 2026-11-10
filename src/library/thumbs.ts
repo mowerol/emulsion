@@ -8,7 +8,7 @@ import { captureInfo, loadImage, logToTerminal, thumbnail } from '../backend/api
 import { recipeKey, type Recipe } from '../film/recipe';
 import { framePixels } from '../film/crop';
 import type { Xy } from '../engine/whitebalance';
-import { Engine, InputMode, type HalfImage } from '../engine/engine';
+import { InputMode, type HalfImage } from '../engine/engine';
 import { ImageLoadCache } from './imagecache';
 import { cachedRemovals, MissingRemovePatch } from './removal';
 import { stillEngine, type StillClient, type StillSource } from './stillclient';
@@ -34,20 +34,6 @@ export function prepareFullImage(path: string, width: number, height: number, ma
   const scale = Math.min(1, maxEdge / Math.max(width, height));
   if (Math.round(width * scale) * Math.round(height * scale) * 8 > IMAGE_CACHE_BYTES / 2) return () => {};
   return decodedImages.prepare(`${path}\0noise:false`, maxEdge, () => loadImage(path, maxEdge, false), ready);
-}
-
-let engine: Engine | null | undefined;
-/** An engine on this thread, for export. Previews render in a worker (stillEngine()). */
-export function offscreenEngine(): Engine | null {
-  if (engine === undefined) {
-    try {
-      engine = new Engine(document.createElement('canvas'));
-    } catch (err) {
-      console.error(err);
-      engine = null;
-    }
-  }
-  return engine;
 }
 
 interface Original { blob: Blob; url: string }
