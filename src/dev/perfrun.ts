@@ -20,7 +20,9 @@ import { perfClient } from '../ui/developclient';
 import type { PreparationStat, FrameStat } from '../engine/developloop';
 import { iterationsFor } from '../engine/capture';
 
-const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+// The driver's own timers, kept apart from the app's (watchMainThread times the app's timer callbacks).
+const rawTimeout = window.setTimeout.bind(window);
+const wait = (ms: number) => new Promise(resolve => rawTimeout(resolve, ms));
 const median = (v: number[]) => v.length ? +v.slice().sort((a, b) => a - b)[Math.floor(v.length / 2)].toFixed(1) : null;
 const p90 = (v: number[]) => v.length ? +v.slice().sort((a, b) => a - b)[Math.floor(v.length * 0.9)].toFixed(1) : null;
 
@@ -287,7 +289,15 @@ type Span = { kind: string; t: number; end: number };
 function watchMainThread() {
   const spans: Span[] = [];
   const add = (kind: string, t: number) => spans.push({ kind, t, end: performance.now() });
+  const t0 = performance.now();
   const raf = window.requestAnimationFrame, setState = useApp.setState;
+  // The app's timer callbacks (debounces, saves, settles), 'timer'.
+  const timeout = window.setTimeout, interval = window.setInterval;
+  const timed = (f: TimerHandler) => typeof f !== 'function' ? f : (...a: unknown[]) => { const t = performance.now(); try { (f as (...a: unknown[]) => void)(...a); } finally { add('timer', t); } };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const w = window as any;
+  w.setTimeout = (f: TimerHandler, ms?: number, ...a: unknown[]) => timeout.call(window, timed(f) as () => void, ms, ...a);
+  w.setInterval = (f: TimerHandler, ms?: number, ...a: unknown[]) => interval.call(window, timed(f) as () => void, ms, ...a);
   // WebKit updates the rendering (style, layout, paint, ResizeObservers) right after a frame's
   // callbacks; a message posted from the last one arrives once it is done, so the gap between
   // the two is that frame's rendering step ('render').
@@ -327,6 +337,7 @@ function watchMainThread() {
     /** Stop, and split the blocked stretches `[end - ms, end]` by what overlapped them. */
     stop(blocks: { end: number; ms: number }[], seconds: number) {
       window.requestAnimationFrame = raf; useApp.setState = setState; channel.port1.onmessage = null;
+      window.setTimeout = timeout; window.setInterval = interval;
       observer.disconnect();
       if (client && receive) client.receive = receive;
       const by: Record<string, number> = {};
@@ -348,7 +359,7 @@ function watchMainThread() {
       const per = (ms: number) => Math.round(ms / seconds);
       const worst = blocks.slice().sort((x, y) => y.ms - x.ms).slice(0, 3).map(b => {
         const { kinds, union } = split(b);
-        return { ms: Math.round(b.ms), ...Object.fromEntries(Object.entries(kinds).map(([k, v]) => [k, +v.toFixed(1)])), other: +(b.ms - union).toFixed(1) };
+        return { ms: Math.round(b.ms), atMs: Math.round(b.end - b.ms - t0), ...Object.fromEntries(Object.entries(kinds).map(([k, v]) => [k, +v.toFixed(1)])), other: +(b.ms - union).toFixed(1) };
       });
       // All JS time in the gesture, blocked or not, per second.
       const all: Record<string, number> = {};
@@ -380,8 +391,8 @@ async function gesture(steps: number, fire: (i: number) => void | Promise<void>,
   // A 2 ms timer chain: a gap far over that is the main thread busy (a long task).
   const beats: number[] = [], beatAt: number[] = [];
   let beating = true, lastBeat = performance.now();
-  const beat = () => { if (!beating) return; const now = performance.now(); beats.push(now - lastBeat); beatAt.push(now); lastBeat = now; setTimeout(beat, 2); };
-  setTimeout(beat, 2);
+  const beat = () => { if (!beating) return; const now = performance.now(); beats.push(now - lastBeat); beatAt.push(now); lastBeat = now; rawTimeout(beat, 2); };
+  rawTimeout(beat, 2);
   // The same split over a second with nothing changing: what every frame costs anyway.
   const still = watchMainThread();
   await wait(1000);
@@ -422,12 +433,18 @@ async function gesture(steps: number, fire: (i: number) => void | Promise<void>,
     const t1 = performance.now();
     if (uiProbe) committed.push({ t: sent[steps - 1], v: uiProbe() });
     const dragGaps = rafGaps.slice();
-    beating = false;
     const ui = uiFrames(uiShown.filter(s => s.t <= t1), dragGaps, t0, t1, committed, beats);
-    const mainThread = watch.stop(beats.map((b, i) => ({ end: beatAt[i], ms: b - 2 })).filter(b => b.ms > 16), (t1 - t0) / 1000);
-    const releasedAt = rafGaps.length;
+    const longBlocks = () => beats.map((b, i) => ({ end: beatAt[i], ms: b - 2 })).filter(b => b.ms > 16);
+    const mainThread = watch.stop(longBlocks(), (t1 - t0) / 1000);
+    // The same split from the release until the photo settles: the exact render, the save, the
+    // thumbnail and the history step all start here.
+    beats.length = 0; beatAt.length = 0;
+    const releaseWatch = watchMainThread();
+    const releasedAt = rafGaps.length, tr = performance.now();
     lifecycle?.end?.();
     const end = await settle(400);
+    beating = false;
+    const releaseMainThread = releaseWatch.stop(longBlocks(), (performance.now() - tr) / 1000);
     const gaps = rafStop();
     const releaseGaps = rafGaps.slice(releasedAt);
     const lat: number[] = [];
@@ -440,7 +457,7 @@ async function gesture(steps: number, fire: (i: number) => void | Promise<void>,
       settleMs: +Math.max(0, end - sent[steps - 1]).toFixed(0),
       durationMs: Math.round(t1 - t0), visible: document.visibilityState, focused: document.hasFocus(),
       valid: !interruptions.length, interruptions,
-      ui: { ...ui, mainThread, idle: { renderMsPerFrame: idleMainThread.renderMsPerFrame, jsMsPerSec: idleMainThread.jsMsPerSec } },
+      ui: { ...ui, mainThread, release: { mainBlockMax: Math.round(Math.max(0, ...longBlocks().map(b => b.ms))), worst: releaseMainThread.worst, jsMsPerSec: releaseMainThread.jsMsPerSec }, idle: { renderMsPerFrame: idleMainThread.renderMsPerFrame, jsMsPerSec: idleMainThread.jsMsPerSec } },
       gpuFrameMs: median(frames.map(f => f.done - f.start).filter(v => v > 0)),
       // Per-frame work the worker reports: profiled denoise builds and why renders stayed owed.
       denoiseBuilds: during.reduce((n, f) => n + (f.denoise?.builds ?? 0), 0),
@@ -1043,12 +1060,20 @@ export async function run(which: string) {
         wheel(scale);
         await settle(500, 30000);
         out.scale = lastScale;
-        for (const [name, slider, group] of [
-          ['exposure', 'exposure', 'develop'], ['texture', 'texture', 'refine'],
-          ['dehaze', 'dehaze', 'refine'], ['clarity', 'clarity', 'refine'],
-          ['hsl', 'color-sat-2', 'colour'], ['sharpen', 'sharpen', 'refine'],
-          ['capture', 'captureSharpening', 'refine'],
-        ] as const) if (only.includes('interaction') && selected(name)) out[name] = await sliderDrag(slider, group, steps);
+        const sliders = {
+          exposure: ['exposure', 'develop'], texture: ['texture', 'refine'],
+          dehaze: ['dehaze', 'refine'], clarity: ['clarity', 'refine'],
+          hsl: ['color-sat-2', 'colour'], sharpen: ['sharpen', 'refine'],
+          capture: ['captureSharpening', 'refine'],
+        } as const;
+        // VITE_PERF_SLIDER also sets the order, and may repeat a slider (results `exposure`, `exposure2`).
+        const order = import.meta.env.VITE_PERF_SLIDER ? String(import.meta.env.VITE_PERF_SLIDER).split(',') as (keyof typeof sliders)[] : Object.keys(sliders) as (keyof typeof sliders)[];
+        if (only.includes('interaction')) for (const name of order) {
+          const [slider, group] = sliders[name];
+          let k: string = name;
+          for (let n = 2; k in out; n++) k = `${name}${n}`;
+          out[k] = await sliderDrag(slider, group, steps);
+        }
         if (only.includes('maskinteraction')) {
           const mask = { ...newMask(newEllipse(), 0), texture: 30, dehaze: 20, clarity: 20 };
           setSliders({ masks: [mask] });

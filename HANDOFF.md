@@ -12,6 +12,39 @@ Matte is listed under Later as a **maybe**: a convenient lift of the deepest bla
 through the midtones, only if it earns its place alongside the tone curve. No upstream choice or
 implementation is settled, and the ordered roadmap priorities remain unchanged.
 
+## Speed session 4: the "Exposure stall" is the thumbnail engine on the main thread (2026-11-10)
+
+Diagnosis only; no app code changed. Uncommitted: `src/dev/perfrun.ts` only.
+
+- **Not Exposure.** Run first or later, Exposure's drag passed the controls bar in 6 production
+  runs (worst frame 15–23 ms); the 81 ms block did not come back during a drag.
+- **The real block lands ~400 ms after release** (every drag, `ui.release.worst`, all `other`):
+  60–74 ms after the session's first Exposure drag, 17–48 ms after later ones. Temporary
+  logging (in a worktree, not kept) matched it to the thumbnail redevelop
+  (`thumbs.ts` `SETTLE_MS` 400 → `developBlob`), which runs on **`offscreenEngine()`, a second
+  WebGL engine on the main thread**:
+  - first use: `new Engine` **88 ms** synchronous; then the 512 px decode (808 ms, async in Rust);
+  - each redevelop: the synchronous draw (`renderToCanvasAsync` up to its readback) **43–57 ms**
+    when the recipe needs a new shader variant (its context compiles separately from the
+    worker's), 15 ms otherwise; readback 12 ms and JPEG 2–3 ms are async.
+  - The 88 ms creation plus a draw ~1.3 s after the first edit is the likeliest source of the
+    81 ms block last session's first drag caught. The sidecar save (also 400 ms) costs the main
+    thread nothing.
+- **Fix direction (not started, Oli to choose):** develop thumbnails (and stock tiles, photo
+  match, perspective; all `offscreenEngine()` users) in the engine worker, returning a JPEG via
+  `OffscreenCanvas.convertToBlob`, so the main thread only shows the result. A cheaper partial fix
+  (warm the offscreen engine at idle) leaves the 15–57 ms draws.
+- **Driver changes (`perfrun.ts`):** `VITE_PERF_SLIDER` sets the order and may repeat
+  (`exposure,exposure` → `exposure`, `exposure2`); the app's timer callbacks are timed ('timer');
+  worst blocks carry `atMs`; `ui.release` splits main-thread time from release to settle. Tauri's
+  `__TAURI_INTERNALS__` is locked, so IPC replies can't be hooked from the page.
+- **Note:** another agent's uncommitted optics work (Halation/Glow) currently fails to compile
+  (`'uStore' : redefinition`), so the app doesn't start from the main tree. These runs used a
+  clean worktree of HEAD plus `perfrun.ts`, at the scratchpad path `…/scratchpad/wt` (its
+  `src-tauri/target` is an APFS clone).
+- Harness detail: `inapp.mjs` prints only `[webview:error]` lines, so log at error level when
+  debugging through it.
+
 ## Speed session 3: sliders restyled every frame by `[type]` selectors (2026-11-10)
 
 Uncommitted. `npm run check` passes (730 frontend, 84 Rust).
