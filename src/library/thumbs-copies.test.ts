@@ -42,3 +42,14 @@ it('shows two developed thumbnails for one source and redevelops only the edited
   await vi.waitFor(() => expect(calls.render).toHaveBeenCalledTimes(3));
   expect(thumbs.url('/a.jpg', second, '/a.jpg\0copy')).toBe(copyUrl);
 });
+
+it("waits for a photo's first edits to pause before developing its thumbnail", async () => {
+  // Shown unedited, then dragged: developing at the first step would compete with the drag.
+  thumbs.want('/b.jpg', null, 1, null, false, '/b.jpg');
+  thumbs.want('/b.jpg', { ...defaultRecipe(), exposure: .1 }, 1, null, false, '/b.jpg');
+  thumbs.want('/b.jpg', { ...defaultRecipe(), exposure: .2 }, 1, null, false, '/b.jpg');
+  await new Promise(r => setTimeout(r, 150));
+  expect(calls.render).not.toHaveBeenCalled();
+  await vi.waitFor(() => expect(calls.render).toHaveBeenCalledTimes(1));
+  expect(calls.render).toHaveBeenCalledWith(expect.objectContaining({ exposure: .2 }));
+});

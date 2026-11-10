@@ -117,7 +117,7 @@ export function Library() {
           <span className="library-toolbar-space" />
           <button type="button" className="library-toggle" aria-pressed={s.foldJpegs} onClick={() => setFoldJpegs(!s.foldJpegs)} title="Show RAW+JPEG pairs as one frame"><Layers size={13} />Fold JPEGs</button>
           <button type="button" className="library-toggle" aria-pressed={s.selectedOnly} onClick={() => setSelectedOnly(!s.selectedOnly)} title="Show selected photos only"><ListFilter size={13} />Selected photos only</button>
-          <label className="size-control" title="Thumbnail size"><Square size={12} /><input aria-label="Thumbnail size" type="range" min={140} max={320} step={10} value={size} onChange={e => setSize(Number(e.target.value))} /><Square size={16} /></label>
+          <label className="size-control" title="Thumbnail size"><Square size={12} /><input aria-label="Thumbnail size" className="range" type="range" min={140} max={320} step={10} value={size} onChange={e => setSize(Number(e.target.value))} /><Square size={16} /></label>
           <LibraryMenu label="Library view settings" icon={<Settings2 size={14} />}><label className="library-setting"><input type="checkbox" checked={showExif} onChange={e => setPrefs({ libraryExif: e.target.checked })} />Show capture settings</label></LibraryMenu>
         </div>
         <div className="library-grid-scroll" ref={scrollRef}>

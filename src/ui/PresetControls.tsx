@@ -122,7 +122,7 @@ export function PresetControls() {
     const title = sheet.mode === 'create' ? 'Create preset' : sheet.mode === 'update' ? `Update ${sheet.original!.name}` : `Rename ${sheet.original!.name}`;
     return <form className="preset-sheet" onSubmit={e => { e.preventDefault(); void save(); }} onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); setSheet(null); } }}>
       <header><button type="button" className="icon-btn" aria-label="Back to presets" data-tip="Back" onClick={() => setSheet(null)} style={{ width: 28, height: 28 }}><ArrowLeft size={16} aria-hidden="true" /></button>{title}</header>
-      <label className="field">Name <input type="text" autoFocus maxLength={200} value={sheet.name} onChange={e => setSheet({ ...sheet, name: e.target.value })} /></label>
+      <label className="field">Name <input className="text" type="text" autoFocus maxLength={200} value={sheet.name} onChange={e => setSheet({ ...sheet, name: e.target.value })} /></label>
       <label className="field">Collection
         <select value={sheet.collection} onChange={e => setSheet({ ...sheet, collection: e.target.value })}>
           <option value="">{UNFILED}</option>
@@ -148,7 +148,7 @@ export function PresetControls() {
 
   return <div className="presets-tab">
     <div className="presets-search">
-      <input type="search" aria-label="Search presets" placeholder="Search presets…" value={query} onChange={e => setQuery(e.target.value)} />
+      <input className="text preset-search" type="search" aria-label="Search presets" placeholder="Search presets…" value={query} onChange={e => setQuery(e.target.value)} />
       <Menu label="Add presets" icon={<Plus size={16} aria-hidden="true" />} className="presets-plus">{close => <>
         <button type="button" role="menuitem" className="menu-item" disabled={!photo} onClick={() => { close(); setSheet({ id: uuid(), name: 'My preset', groups: [...DEFAULT_PRESET_GROUPS], collection: '', mode: 'create' }); }}>Create preset…</button>
         <button type="button" role="menuitem" className="menu-item" onClick={() => { close(); void importFiles(); }}>Import presets…</button>
@@ -157,7 +157,7 @@ export function PresetControls() {
     </div>
 
     {naming !== null && <form className="presets-search" onSubmit={e => { e.preventDefault(); addPresetCollection(naming); setNaming(null); }}>
-      <input autoFocus aria-label="Collection name" placeholder="Collection name" value={naming} maxLength={100} onChange={e => setNaming(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); setNaming(null); } }} />
+      <input className="text" autoFocus aria-label="Collection name" placeholder="Collection name" value={naming} maxLength={100} onChange={e => setNaming(e.target.value)} onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); setNaming(null); } }} />
       <button className="btn" disabled={!naming.trim()}>Add</button>
     </form>}
 

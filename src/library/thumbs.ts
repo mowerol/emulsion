@@ -121,20 +121,25 @@ class ThumbStore {
 
   /** Pending redevelopments of thumbnails that are being edited, by path. */
   private settling = new Map<string, ReturnType<typeof setTimeout>>();
+  /** Frames last asked for unedited: their first edit is a drag starting, so it settles too. */
+  private unedited = new Set<string>();
 
   /**
    * Ask for the thumbnails of a frame that is on screen. A frame that already
    * has a developed thumbnail is redeveloped once its edits pause, not on every
-   * step of a slider drag, where it would compete with the main render.
+   * step of a slider drag, where it would compete with the main render. So is a
+   * frame that was shown unedited (its first edit); one opened already edited is
+   * developed at once.
    */
   want(path: string, recipe: Recipe | null, seed: number, white: Xy | null, raw = false, id = path, sourceVersion?: string) {
     if (!this.originals.has(path) && !this.failed.has(path)) this.original(path).catch(() => {});
+    if (!recipe) this.unedited.add(id);
     if (recipe && this.developed.get(id)?.key !== thumbKey(recipe, white, sourceVersion)) {
       this.waitingRemovals.delete(id);
       const job = { path, recipe, seed, white, raw, sourceVersion };
       this.latest.set(id, job);
       this.wanted.set(id, job);
-      if (!this.developed.has(id)) {
+      if (!this.developed.has(id) && !this.unedited.has(id)) {
         this.pump();
         return;
       }
@@ -220,6 +225,7 @@ class ThumbStore {
     this.removalEpoch.clear();
     for (const t of this.settling.values()) clearTimeout(t);
     this.settling.clear();
+    this.unedited.clear();
     this.failed.clear();
     this.emit();
   }

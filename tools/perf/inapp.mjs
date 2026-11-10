@@ -2,7 +2,9 @@
 // Times the real app: starts `npm run tauri dev` (WKWebView, the real window on this screen) on a
 // scratch copy of a photo, lets src/dev/perfrun.ts drive it, prints its result and quits.
 // The window has to stay visible while it runs (macOS throttles hidden webviews).
-// Usage: node tools/perf/inapp.mjs <photo> [which=all|sliders|combo|clicks,...] [timeout s]
+// Usage: [PROD=1] node tools/perf/inapp.mjs <photo> [which=all|sliders|combo|clicks,...] [timeout s]
+// PROD=1 times a production build of the interface (`vite build`, served by `vite preview`) in the
+// same dev shell: the controls bar is judged on production React (Oli, 2026-11-10).
 import { spawn, execFile } from 'node:child_process';
 import { copyFile, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -15,7 +17,11 @@ const dir = await mkdtemp(join(process.env.PERF_TMP ?? tmpdir(), 'emulsion-perf-
 for (const p of photo.split(',')) await copyFile(p, join(dir, basename(p)));
 // Its own port, so it can run beside a `tauri dev` already open on 1420.
 const port = process.env.PERF_PORT ?? '1430';
-const config = JSON.stringify({ build: { devUrl: `http://localhost:${port}`, beforeDevCommand: `npx vite --port ${port} --strictPort` } });
+const out = process.env.PROD ? await mkdtemp(join(tmpdir(), 'emulsion-perf-dist-')) : null;
+const serve = out
+  ? `npx vite build --logLevel warn --outDir ${out} --emptyOutDir && npx vite preview --outDir ${out} --port ${port} --strictPort`
+  : `npx vite --port ${port} --strictPort`;
+const config = JSON.stringify({ build: { devUrl: `http://localhost:${port}`, beforeDevCommand: serve } });
 const child = spawn('npx', ['tauri', 'dev', '--config', config], {
   cwd: new URL('../..', import.meta.url).pathname, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
   env: { ...process.env, VITE_PERF: which, EMULSION_OPEN_FOLDER: dir },
@@ -69,6 +75,8 @@ const finish = (code) => {
   try { process.kill(-child.pid, 'SIGTERM'); } catch { /* gone */ }
   setTimeout(() => process.exit(code), 500);
 };
+// The production build has to finish before the window opens.
+if (out) console.log(`Production build: ${out}`);
 const timer = setTimeout(() => { console.log(`FAIL: timed out\n${log.slice(-3000)}`); finish(1); }, Number(limit) * 1000);
 let buf = '', log = '';
 // Development binaries may open behind an existing app. Focus this run's process,

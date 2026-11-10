@@ -50,6 +50,9 @@ export function LiveRange({ value, onChange, onPointerUp, onPointerCancel, onBlu
   return (
     <input
       {...rest}
+      // Styled by class, never [type='range']: React rewrites `type` on every render, and WebKit
+      // restyles the slider for each write a selector can see (~7 ms a frame while dragging).
+      className={rest.className ? `range ${rest.className}` : 'range'}
       type="range"
       value={local ?? value}
       onChange={(e) => input(Number(e.target.value))}

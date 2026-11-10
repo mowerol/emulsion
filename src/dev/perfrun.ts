@@ -277,6 +277,93 @@ async function settle(quiet = 400, limit = 15000) {
 }
 
 /** Fire `steps` inputs 8 ms apart (a trackpad's 120 Hz); `fire(i)` makes the i-th change. */
+// ---- What ran on the main thread during a gesture, to split its long stretches (WKWebView has
+// no Long Tasks API and this Mac has no Instruments). Timed: store updates up to React's
+// re-render (it flushes in the microtask queued during setState, so ours runs just after),
+// animation-frame callbacks (LiveRange sends its value in one), the engine worker's messages and
+// the gesture's input events. Blocked time none of these cover is WebKit's own (style, layout,
+// paint, compositing, GC) or JS not listed here.
+type Span = { kind: string; t: number; end: number };
+function watchMainThread() {
+  const spans: Span[] = [];
+  const add = (kind: string, t: number) => spans.push({ kind, t, end: performance.now() });
+  const raf = window.requestAnimationFrame, setState = useApp.setState;
+  // WebKit updates the rendering (style, layout, paint, ResizeObservers) right after a frame's
+  // callbacks; a message posted from the last one arrives once it is done, so the gap between
+  // the two is that frame's rendering step ('render').
+  const channel = new MessageChannel();
+  let rafEnd = 0, posted = false;
+  channel.port1.onmessage = () => { posted = false; spans.push({ kind: 'render', t: rafEnd, end: performance.now() }); };
+  window.requestAnimationFrame = (cb) => raf.call(window, (now) => {
+    const t = performance.now();
+    try { cb(now); } finally {
+      add('raf', t); rafEnd = performance.now();
+      if (!posted) { posted = true; channel.port2.postMessage(0); }
+    }
+  });
+  useApp.setState = ((...a: Parameters<typeof setState>) => {
+    const t = performance.now();
+    try { return setState(...a); } finally { queueMicrotask(() => add('store', t)); }
+  }) as typeof setState;
+  // What the page changed: DOM mutations by where they happened (the nearest section or pane,
+  // and the element), since the rendering step's cost follows what changed.
+  const changed: Record<string, number> = {};
+  const where = (n: Node) => {
+    const el = n instanceof Element ? n : n.parentElement;
+    if (!el) return '?';
+    const region = el.closest('section[aria-label], [aria-label], aside, header, footer');
+    const name = (e: Element | null) => e ? `${e.tagName.toLowerCase()}${e.getAttribute('aria-label') ? `[${e.getAttribute('aria-label')}]` : ''}${typeof e.className === 'string' && e.className ? '.' + e.className.trim().split(/\s+/)[0] : ''}` : '';
+    return `${name(region)} > ${name(el)}`;
+  };
+  const observer = new MutationObserver((list) => {
+    for (const m of list) { const k = `${where(m.target)} ${m.type}${m.attributeName ? ':' + m.attributeName : ''}`; changed[k] = (changed[k] ?? 0) + 1; }
+  });
+  observer.observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
+  const client = perfClient as unknown as { receive: (m: unknown) => void } | null;
+  const receive = client?.receive;
+  if (client && receive) client.receive = (m) => { const t = performance.now(); try { receive.call(client, m); } finally { add('worker', t); } };
+  return {
+    input: add,
+    /** Stop, and split the blocked stretches `[end - ms, end]` by what overlapped them. */
+    stop(blocks: { end: number; ms: number }[], seconds: number) {
+      window.requestAnimationFrame = raf; useApp.setState = setState; channel.port1.onmessage = null;
+      observer.disconnect();
+      if (client && receive) client.receive = receive;
+      const by: Record<string, number> = {};
+      let blocked = 0, covered = 0;
+      const split = (b: { end: number; ms: number }) => {
+        const a = b.end - b.ms, kinds: Record<string, number> = {};
+        const parts = spans.filter(x => x.end > a && x.t < b.end).map(x => [Math.max(a, x.t), Math.min(b.end, x.end), x.kind] as const);
+        for (const [s0, s1, k] of parts) kinds[k] = (kinds[k] ?? 0) + s1 - s0;
+        // The union, since a store update can run inside a frame callback or a worker message.
+        let union = 0, reach = a;
+        for (const [s0, s1] of parts.slice().sort((x, y) => x[0] - y[0])) { if (s1 > reach) { union += s1 - Math.max(s0, reach); reach = s1; } }
+        return { kinds, union };
+      };
+      for (const b of blocks) {
+        const { kinds, union } = split(b);
+        blocked += b.ms; covered += union;
+        for (const [k, v] of Object.entries(kinds)) by[k] = (by[k] ?? 0) + v;
+      }
+      const per = (ms: number) => Math.round(ms / seconds);
+      const worst = blocks.slice().sort((x, y) => y.ms - x.ms).slice(0, 3).map(b => {
+        const { kinds, union } = split(b);
+        return { ms: Math.round(b.ms), ...Object.fromEntries(Object.entries(kinds).map(([k, v]) => [k, +v.toFixed(1)])), other: +(b.ms - union).toFixed(1) };
+      });
+      // All JS time in the gesture, blocked or not, per second.
+      const all: Record<string, number> = {};
+      for (const x of spans) all[x.kind] = (all[x.kind] ?? 0) + x.end - x.t;
+      // The rendering step per frame (WebKit's style, layout, paint and commit).
+      const render = spans.filter(x => x.kind === 'render').map(x => x.end - x.t);
+      const frameCount = Math.max(1, spans.filter(x => x.kind === 'render').length);
+      const mutations = Object.entries(changed).sort((a, b) => b[1] - a[1]).slice(0, 15).map(([k, n]) => `${k} ×${+(n / frameCount).toFixed(2)}/frame`);
+      return { mutations, renderMsPerFrame: { median: median(render), p90: p90(render), max: render.length ? Math.round(Math.max(...render)) : null },
+        blockedMsPerSec: per(blocked), inBlocksMsPerSec: Object.fromEntries(Object.entries(by).map(([k, v]) => [k, per(v)])),
+        otherMsPerSec: per(blocked - covered), jsMsPerSec: Object.fromEntries(Object.entries(all).map(([k, v]) => [k, per(v)])), worst };
+    },
+  };
+}
+
 async function gesture(steps: number, fire: (i: number) => void | Promise<void>, lifecycle?: { start?: () => void; end?: () => void; shown?: () => string | null }) {
   const seen = new WeakMap<object, number>();
   await settle(300);
@@ -291,10 +378,17 @@ async function gesture(steps: number, fire: (i: number) => void | Promise<void>,
   // event before returning): a later screen frame showing an older value is a stale frame.
   const committed: { t: number; v: string | null }[] = [];
   // A 2 ms timer chain: a gap far over that is the main thread busy (a long task).
-  const beats: number[] = [];
+  const beats: number[] = [], beatAt: number[] = [];
   let beating = true, lastBeat = performance.now();
-  const beat = () => { if (!beating) return; const now = performance.now(); beats.push(now - lastBeat); lastBeat = now; setTimeout(beat, 2); };
+  const beat = () => { if (!beating) return; const now = performance.now(); beats.push(now - lastBeat); beatAt.push(now); lastBeat = now; setTimeout(beat, 2); };
   setTimeout(beat, 2);
+  // The same split over a second with nothing changing: what every frame costs anyway.
+  const still = watchMainThread();
+  await wait(1000);
+  const idleMainThread = still.stop([], 1);
+  beats.length = 0; beatAt.length = 0; lastBeat = performance.now();
+  rafLoop();
+  const watch = watchMainThread();
   if (perfClient) { perfClient.sendMs = 0; perfClient.sendMax = 0; }
   const t0 = performance.now();
   // A blur ends Develop's drag. Continuing synthetic inputs then measures exact renders,
@@ -315,6 +409,7 @@ async function gesture(steps: number, fire: (i: number) => void | Promise<void>,
       if (uiProbe && i > 0) committed.push({ t: sent[i - 1], v: uiProbe() });
       sent[i] = performance.now();
       const fired = fire(i);
+      watch.input('input', sent[i]);
       const h = performance.now() - sent[i];
       handler += h; worstHandler = Math.max(worstHandler, h);
       const r = activePhoto()?.recipe;
@@ -329,6 +424,7 @@ async function gesture(steps: number, fire: (i: number) => void | Promise<void>,
     const dragGaps = rafGaps.slice();
     beating = false;
     const ui = uiFrames(uiShown.filter(s => s.t <= t1), dragGaps, t0, t1, committed, beats);
+    const mainThread = watch.stop(beats.map((b, i) => ({ end: beatAt[i], ms: b - 2 })).filter(b => b.ms > 16), (t1 - t0) / 1000);
     const releasedAt = rafGaps.length;
     lifecycle?.end?.();
     const end = await settle(400);
@@ -344,7 +440,7 @@ async function gesture(steps: number, fire: (i: number) => void | Promise<void>,
       settleMs: +Math.max(0, end - sent[steps - 1]).toFixed(0),
       durationMs: Math.round(t1 - t0), visible: document.visibilityState, focused: document.hasFocus(),
       valid: !interruptions.length, interruptions,
-      ui,
+      ui: { ...ui, mainThread, idle: { renderMsPerFrame: idleMainThread.renderMsPerFrame, jsMsPerSec: idleMainThread.jsMsPerSec } },
       gpuFrameMs: median(frames.map(f => f.done - f.start).filter(v => v > 0)),
       // Per-frame work the worker reports: profiled denoise builds and why renders stayed owed.
       denoiseBuilds: during.reduce((n, f) => n + (f.denoise?.builds ?? 0), 0),
@@ -372,6 +468,7 @@ async function gesture(steps: number, fire: (i: number) => void | Promise<void>,
       perFrame: Object.entries(draws).sort((x, y) => y[1] - x[1]).slice(0, 14).map(([k, n]) => `${k}×${+(n / Math.max(1, frames.length)).toFixed(1)}`).join(' '),
     };
   } finally {
+    watch.stop([], 1);
     window.removeEventListener('blur', interrupted);
     document.removeEventListener('visibilitychange', interrupted);
     rafStop();
@@ -473,6 +570,28 @@ function setSliders(values: Partial<Recipe>) {
 }
 
 export async function run(which: string) {
+  // VITE_PERF_HIDE=<selector>|<selector>: stop painting those parts (layout is kept), to find
+  // which part of the page makes the rendering step slow during a drag.
+  // VITE_PERF_DROP_CSS=<text>|<text>: delete the style rules whose selector contains any of
+  // them, to find which selectors make WebKit's style recalculation slow during a drag.
+  if (import.meta.env.VITE_PERF_DROP_CSS) {
+    const drop = String(import.meta.env.VITE_PERF_DROP_CSS).split('|');
+    let dropped = 0;
+    for (const sheet of [...document.styleSheets]) {
+      try {
+        for (let i = sheet.cssRules.length - 1; i >= 0; i--) {
+          const rule = sheet.cssRules[i];
+          if (rule instanceof CSSStyleRule && drop.some(d => rule.selectorText.includes(d))) { sheet.deleteRule(i); dropped++; }
+        }
+      } catch { /* a sheet from another origin */ }
+    }
+    logToTerminal('info', `perf: dropped ${dropped} style rules matching ${drop.join(', ')}`);
+  }
+  if (import.meta.env.VITE_PERF_HIDE) {
+    const style = document.createElement('style');
+    style.textContent = String(import.meta.env.VITE_PERF_HIDE).split('|').map(sel => `${sel} { visibility: hidden !important; }`).join('\n');
+    document.head.append(style);
+  }
   // VITE_PERF_DETAIL=log times the trial detail order (ui/detailorder.ts).
   setDetailOrder(import.meta.env.VITE_PERF_DETAIL === 'log' ? 'log' : 'darktable');
   const out: Record<string, unknown> = { which, detailOrder: import.meta.env.VITE_PERF_DETAIL ?? 'darktable', dpr: devicePixelRatio, ua: navigator.userAgent.replace(/.*AppleWebKit\/(\S+).*/, 'WebKit $1') };

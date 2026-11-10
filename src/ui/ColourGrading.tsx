@@ -56,7 +56,7 @@ export function ColourGradingControls({ recipe }: { recipe: Recipe }) {
     return <div className="grade-row" key={key}>
       <label htmlFor={`grade-${key}`} onDoubleClick={() => reset([key])} title="Double-click to reset">{label}{percent ? ' (%)' : ''}</label>
       <LiveRange aria-label={`${label} slider`} min={softMin} max={softMax} step={step} value={Math.max(softMin, Math.min(softMax, value))} onDoubleClick={() => reset([key])} onChange={(v) => change({ [key]: v })} />
-      <input id={`grade-${key}`} type="number" min={min * scale} max={max * scale} step={step * scale} value={Number((value * scale).toFixed(3))} onChange={e => { if (e.target.value !== '' && Number.isFinite(e.target.valueAsNumber)) change({ [key]: Math.max(min, Math.min(max, e.target.valueAsNumber / scale)) }); }} />
+      <input id={`grade-${key}`} className="number" type="number" min={min * scale} max={max * scale} step={step * scale} value={Number((value * scale).toFixed(3))} onChange={e => { if (e.target.value !== '' && Number.isFinite(e.target.valueAsNumber)) change({ [key]: Math.max(min, Math.min(max, e.target.valueAsNumber / scale)) }); }} />
     </div>;
   };
   return <div className="colour-grading">

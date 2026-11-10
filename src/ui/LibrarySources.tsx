@@ -191,8 +191,8 @@ function RuleEditor({ rule, onChange, onRemove }: { rule: SmartRule; onChange: (
     {rule.field === 'rating' ? <select aria-label="Minimum rating" value={rule.value} onChange={e => onChange({ ...rule, value: Number(e.target.value) })}>{[0, 1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n ? `${n} stars and up` : 'Any rating'}</option>)}</select>
       : rule.field === 'edited' || rule.field === 'heart' ? <select aria-label="Rule value" value={String(rule.value)} onChange={e => onChange({ ...rule, value: e.target.value === 'true' })}><option value="true">{rule.field === 'edited' ? 'Edited' : 'Favourite'}</option><option value="false">{rule.field === 'edited' ? 'Unedited' : 'Not a favourite'}</option></select>
       : rule.field === 'label' ? <select aria-label="Colour label" value={rule.value} onChange={e => onChange({ ...rule, value: e.target.value as typeof rule.value })}>{LABELS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>
-      : rule.field === 'date' ? <><select aria-label="Date comparison" value={rule.before ? 'before' : 'after'} onChange={e => onChange({ ...rule, before: e.target.value === 'before' })}><option value="after">On or after</option><option value="before">On or before</option></select><input aria-label="Capture date" type="date" required value={rule.value} onChange={e => onChange({ ...rule, value: e.target.value })} /></>
-      : <input aria-label="Rule value" required placeholder={rule.field === 'folder' ? '/Photos/2026' : rule.field === 'camera' ? 'e.g. OM-3' : 'e.g. Portra'} value={String(rule.value)} onChange={e => onChange({ field: rule.field === 'camera' ? 'camera' : rule.field === 'look' ? 'look' : 'folder', value: e.target.value })} />}
+      : rule.field === 'date' ? <><select aria-label="Date comparison" value={rule.before ? 'before' : 'after'} onChange={e => onChange({ ...rule, before: e.target.value === 'before' })}><option value="after">On or after</option><option value="before">On or before</option></select><input className="text" aria-label="Capture date" type="date" required value={rule.value} onChange={e => onChange({ ...rule, value: e.target.value })} /></>
+      : <input className="text" aria-label="Rule value" required placeholder={rule.field === 'folder' ? '/Photos/2026' : rule.field === 'camera' ? 'e.g. OM-3' : 'e.g. Portra'} value={String(rule.value)} onChange={e => onChange({ field: rule.field === 'camera' ? 'camera' : rule.field === 'look' ? 'look' : 'folder', value: e.target.value })} />}
     <button type="button" className="library-icon-button" aria-label="Remove rule" onClick={onRemove}>×</button>
   </div>;
 }
@@ -235,7 +235,7 @@ export function LibrarySourceDialog({ dialog, onClose, onOpen }: { dialog: Libra
     <div ref={ref} className="dialog library-source-dialog" role="dialog" aria-modal="true" aria-labelledby="library-dialog-title">
       <header><h2 id="library-dialog-title">{title}</h2><button type="button" className="library-icon-button" aria-label="Close dialog" onClick={onClose}>×</button></header>
       {editing ? <form onSubmit={e => { e.preventDefault(); save(); }}>
-        <label className="collection-name">Name<input aria-label="Collection name" required autoComplete="off" value={name} onChange={e => setName(e.target.value)} /></label>
+        <label className="collection-name">Name<input className="text" aria-label="Collection name" required autoComplete="off" value={name} onChange={e => setName(e.target.value)} /></label>
         {smart ? <div className="smart-rules"><p>Match all of these rules. Collections update automatically.</p>
           {rules.map((rule, i) => <RuleEditor key={i} rule={rule} onChange={next => setRules(rules.map((r, n) => n === i ? next : r))} onRemove={() => setRules(rules.filter((_, n) => n !== i))} />)}
           <button type="button" className="btn" onClick={() => setRules([...rules, defaultRule('rating')])}><Plus size={13} />Add rule</button>

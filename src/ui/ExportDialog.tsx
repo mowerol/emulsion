@@ -145,7 +145,7 @@ export function ExportDialog() {
           <label className="slider compact">
             <span>JPEG quality</span>
             <output>{quality}</output>
-            <input type="range" min={60} max={100} value={quality} onChange={(e) => setQuality(Number(e.target.value))} />
+            <input className="range" type="range" min={60} max={100} value={quality} onChange={(e) => setQuality(Number(e.target.value))} />
           </label>
         </fieldset>
         <fieldset disabled={running}>

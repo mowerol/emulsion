@@ -3,10 +3,58 @@
 All work through 2026-11-10 is committed except the top section (the DCP removal, darktable camera data, app icon, DNG
 and TIFF support, and the retouch overlays went in together); "Uncommitted" notes below are out of date.
 
+## Optics direction and possible Matte control (2026-11-10)
+
+Documentation only; no processing or controls changed. Oli agreed to keep Halation and Glow as
+distinct effects, improve them using established upstream processing, and retire the separate
+Fade control. The README roadmap records this follow-up, including preserving saved edits.
+Matte is listed under Later as a **maybe**: a convenient lift of the deepest blacks, tapering out
+through the midtones, only if it earns its place alongside the tone curve. No upstream choice or
+implementation is settled, and the ordered roadmap priorities remain unchanged.
+
+## Speed session 3: sliders restyled every frame by `[type]` selectors (2026-11-10)
+
+Uncommitted. `npm run check` passes (730 frontend, 84 Rust).
+
+- **Production timing in the app:** `PROD=1 node tools/perf/inapp.mjs …` builds the interface
+  (`vite build` to a temp dir, served by `vite preview`) into the same dev shell. Checked: the
+  bundle is production React.
+- **Main-thread split per drag** (`perfrun.ts` `watchMainThread`, in each drag's `ui.mainThread`):
+  store updates up to React's flush, rAF callbacks, worker messages, inputs, and WebKit's
+  rendering step ('render': last rAF callback → a MessageChannel message), credited to the
+  blocked stretches the 2 ms timer chain finds; `renderMsPerFrame`; an idle second before each
+  drag (`ui.idle`); `mutations` (DOM changes per frame by region). Experiment switches:
+  `VITE_PERF_HIDE=<sel>|…` (visibility hidden) and `VITE_PERF_DROP_CSS=<text>|…` (deletes
+  matching rules).
+- **Finding:** in WKWebView our JS was ~20 ms/s of the blocked time; WebKit's rendering step was
+  7–12 ms a frame during drags (0 idle), and Oli's Web Inspector recording showed it was style
+  recalculation (4.3 ms/frame average, up to 17 ms). Cause: React 19 rewrites `name` and `type`
+  on every controlled input it re-renders, and any selector reading `[type]` makes WebKit restyle
+  the input (range inputs with their track and thumb). Dropping the `[type` rules took the render
+  step 9 → 2 ms and blocking to 0–45 ms/s. A GPU-contention theory from the first recording was
+  wrong: Web Inspector's screenshots instrument paces frames at ~28 ms even idle.
+- **Fix:** no stylesheet selector reads `[type]`: sliders are `input.range` (LiveRange,
+  ExportDialog, Library), colour-grading numbers `input.number`, dialog text fields `input.text`
+  / `.preset-search`. Keep it that way (comment in styles.css and LiveRange.tsx).
+- **Fix:** a photo's first edit no longer develops its thumbnail mid-drag (`thumbs.want`: frames
+  last seen unedited settle like edited ones; test in `thumbs-copies.test.ts`). Side effect: a
+  one-off first edit (paste, preset) shows its thumbnail 400 ms later.
+- **After** (production, 50%): Texture render 3 ms/frame, worst 14 ms, blocked 0; Dehaze 3 ms,
+  worst 19 ms. Exposure, always the run's first drag, still had an 81 ms block of untimed work
+  (start-up work landing?); Sharpen invalid (focus lost). The display ran above 60 Hz in that run
+  (controls ~75 fps), so read worst frames, not fps.
+- **Next:** find Exposure's untimed block (run it later in the order, or time timers/GC); a clean
+  full `PROD=1 … interaction 600` with the Mac idle; then `maskinteraction` and photo switching.
+- **Oli should try:** every slider still looks right (track, thumb, colour tracks on HSL and
+  white balance, disabled sliders dimmed) in all three themes; Export's JPEG quality and
+  Library's thumbnail size sliders; colour-grading number fields; preset search, preset name and
+  collection name fields; Library source dialog fields (rule value, date, name). Drag sliders:
+  they should feel steadier.
+
 ## Speed session 2: drag re-render fan-out cut (2026-11-10)
 
-Oli decided: the **controls bar is judged on a production build** (not dev React), and the
-**histogram may update at ~10 Hz during a drag** (exact once the photo settles). Uncommitted;
+Committed in 2df53d9 with session 1. Oli decided: the **controls bar is judged on a production build** (not dev React), and the
+**histogram may update at ~10 Hz during a drag** (exact once the photo settles);
 `npm run check` passes (729 frontend, 84 Rust).
 
 - **Measuring:** `PROD=1` in `realtime.mjs` serves production React (`mode: production`, cache
@@ -56,7 +104,7 @@ Oli decided: the **controls bar is judged on a production build** (not dev React
 
 Oli asked what keeps Emulsion from competing with Lightroom Classic; the answer became the
 README's Roadmap, now **ordered**: speed, export, XMP/keywords, culling/library scale, editing
-parity. Speed is current. Uncommitted.
+parity. Speed is current. Committed in 2df53d9.
 
 - **Bug 1 fixed: a zoomed-in RAW never settled.** With profiled denoise on (default for RAWs) and
   the region path (zoomed in), Develop re-rendered every `VIEW_SETTLE_MS` for ever (~5 fps of
