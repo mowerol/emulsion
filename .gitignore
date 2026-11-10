@@ -31,3 +31,7 @@ tools/probe/dist
 
 # TypeScript incremental build metadata
 *.tsbuildinfo
+
+# Local scratch output and other agents' settings
+.scratch/
+.codex/
