@@ -340,6 +340,29 @@ export async function openFolder(path: string) {
   }
 }
 
+/**
+ * Open what was dropped on the window or the Dock icon. A folder opens as Import Folder does.
+ * Photos open their folder (the first one's) and are imported there without asking, added to
+ * what that folder already imports, then selected; photos from other folders are left out.
+ */
+export async function openPaths(paths: string[]) {
+  if (!paths.length) return;
+  if (!await openFolder(paths[0])) return;
+  const { candidates, importChoice } = get();
+  const inFolder = new Set(candidates.map(p => p.path));
+  const files = [...new Set(paths)].filter(p => inFolder.has(p));
+  if (!files.length) return;
+  if (importChoice?.mode !== 'sync') {
+    importFolderPhotos({ mode: 'selected', paths: [...new Set([...(importChoice?.paths ?? []), ...files])] });
+  }
+  const wanted = new Set(files);
+  const photos = get().photos;
+  const active = photos.findIndex(p => wanted.has(p.path));
+  if (active >= 0) set({ active, anchor: active, selected: new Set(photos.filter(p => wanted.has(p.path)).map(photoId)) });
+  const left = paths.length - files.length;
+  if (left > 0 && files.length) showToast(`${left} ${left === 1 ? 'item' : 'items'} from other folders left out. Drop each folder's photos separately.`);
+}
+
 function displayImported(all: Photo[], choice: FolderImport | null) {
   const wanted = importedPaths(all.map(p => p.path), choice);
   const imported = all.filter(p => wanted.has(p.path));

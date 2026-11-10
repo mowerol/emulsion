@@ -171,6 +171,8 @@ export function writeExport(dir: string, stem: string, rgba: Uint8Array, width: 
 }
 
 export const startupOptions = () => invoke<StartupOptions>('startup_options');
+/** Paths macOS asked the app to open (dropped on the Dock icon, Open With), drained on read. */
+export const takeOpenPaths = () => invoke<string[]>('take_open_paths');
 
 export function logToTerminal(level: 'error' | 'warn' | 'info', message: string) {
   if (isTauri()) invoke('log_message', { level, message }).catch(() => {});

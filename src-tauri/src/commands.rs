@@ -280,6 +280,12 @@ pub fn startup_options() -> StartupOptions {
     StartupOptions { open_path, start_view: std::env::var("EMULSION_START_VIEW").ok() }
 }
 
+/// Drains the paths macOS asked us to open (see `PendingOpen`).
+#[tauri::command]
+pub fn take_open_paths(pending: tauri::State<'_, crate::PendingOpen>) -> Vec<String> {
+    std::mem::take(&mut *pending.0.lock().unwrap())
+}
+
 /// Lets the webview report errors to the terminal during development.
 #[tauri::command]
 pub fn log_message(level: String, message: String) {

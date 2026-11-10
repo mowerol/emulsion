@@ -1,9 +1,36 @@
 # Handoff
 
+All work through 2026-11-09 is committed in 7b510b7; the "Uncommitted" notes in the sections
+below are out of date.
+
+## Drop photos on the Dock icon (2026-11-10)
+
+Oli asked to import by dropping one or several photos (or a folder) on the app icon. Oli tried it
+in the built app and it works.
+
+- `src-tauri/Info.plist` (merged by Tauri into the bundle) declares the document types: images,
+  camera RAWs and folders, as Editor/Viewer at Alternate rank, so Emulsion accepts them on the Dock
+  and in Open With without becoming anyone's default app. Checked in a built `Emulsion.app`.
+- macOS delivers them as `RunEvent::Opened` (`lib.rs`): the paths go into a `PendingOpen` queue
+  and an `open-paths` event wakes the page, which drains it with `take_open_paths`. At launch the
+  page listens first and then drains, so a launch by drop opens what was dropped, not the last
+  folder.
+- `openPaths` (store.ts) is also what drops on the window use now (it used only the first path
+  before). A folder opens as Import Folder does. Photos open their folder (the first photo's) and
+  are imported without the chooser, added to that folder's `selected` import (a `sync` folder
+  already has them), then selected. Photos from other folders are left out, with a toast. Tests
+  in `store-folders.test.ts`; `npm run check` passes.
+- Dock drops only reach a real bundle: the dev binary (`target/debug/emulsion`) has no bundle id
+  or document types, so the Dock refuses drops on it. Test with `npx tauri build --bundles app`
+  and `src-tauri/target/release/bundle/macos/Emulsion.app` (it shares the dev app's data; run one
+  at a time). `open -a <app> <files>` sends the same Apple Event as a drop, for headless checks.
+- Possible next step: a script that runs the dev build inside a small .app so Dock drops work in
+  development.
+
 ## Light theme (2026-11-09)
 
 Oli asked for a light grey theme beside Mid grey and Dark, then for it lighter, off-white; it is
-now called Light (neutral, no warm cast: panels #f2f2f2, background #ebebeb, controls #fbfbfb). Uncommitted.
+now called Light (neutral, no warm cast: panels #f2f2f2, background #ebebeb, controls #fbfbfb).
 
 - `Theme` is now `'light' | 'mid' | 'dark'`; THEMES lists Light, Mid grey, Dark, so it shows in
   View › Theme, the photo menu's Interface list and Settings. Choosing it keeps the 18% mid grey

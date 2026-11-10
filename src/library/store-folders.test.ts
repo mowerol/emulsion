@@ -6,7 +6,7 @@ vi.mock('../backend/api', () => ({
   isTauri: () => false, logToTerminal: () => {},
 }));
 import { scanFolder, whitePoints, type ScanResult } from '../backend/api';
-import { closeFolder, importFolderPhotos, openFolder, setIncludeSubfolders, useApp } from './store';
+import { closeFolder, importFolderPhotos, openFolder, openPaths, setIncludeSubfolders, useApp } from './store';
 import { NO_FILTER } from './filter';
 import { lastFolder } from './folders';
 
@@ -113,4 +113,32 @@ it('remembers the last successfully browsed folder, including folders awaiting i
   vi.mocked(scanFolder).mockRejectedValue(new Error('Drive disconnected'));
   await openFolder('/unavailable');
   expect(lastFolder()).toBe('/photos');
+});
+
+it('imports and selects photos dropped on the app without asking', async () => {
+  vi.mocked(scanFolder).mockResolvedValue(scan('/dropped', ['a.jpg', 'b.jpg', 'c.jpg']));
+  await openPaths(['/dropped/b.jpg', '/dropped/c.jpg']);
+  expect(scanFolder).toHaveBeenCalledWith('/dropped/b.jpg', false);
+  const s = useApp.getState();
+  expect(s.choosingImport).toBe(false);
+  expect(s.photos.map(p => p.name)).toEqual(['b.jpg', 'c.jpg']);
+  expect([...s.selected]).toEqual(['/dropped/b.jpg', '/dropped/c.jpg']);
+  expect(s.active).toBe(0);
+});
+
+it('adds dropped photos to what the folder already imports and leaves out other folders', async () => {
+  vi.mocked(scanFolder).mockResolvedValue(scan('/added', ['a.jpg', 'b.jpg', 'c.jpg']));
+  await openFolder('/added');
+  importFolderPhotos({ mode: 'selected', paths: ['/added/a.jpg'] });
+  await openPaths(['/added/c.jpg', '/elsewhere/d.jpg']);
+  const s = useApp.getState();
+  expect(s.photos.map(p => p.name)).toEqual(['a.jpg', 'c.jpg']);
+  expect([...s.selected]).toEqual(['/added/c.jpg']);
+  expect(s.toast?.message).toContain('1 item from other folders');
+});
+
+it('opens a dropped folder as Import Folder does', async () => {
+  vi.mocked(scanFolder).mockResolvedValue(scan('/fresh'));
+  await openPaths(['/fresh']);
+  expect(useApp.getState()).toMatchObject({ choosingImport: true, photos: [] });
 });

@@ -73,7 +73,7 @@ it('drags a library photo onto a collection without invoking native folder dragg
   });
   expect(collection.classList.contains('drag-over')).toBe(true);
   expect(cell.getAttribute('draggable')).toBe('false');
-  expect(host.textContent).not.toContain('Drop a folder to open it');
+  expect(host.textContent).not.toContain('Drop a folder or photos to open them');
   await act(async () => pointer(window, 'pointerup', 50, 100));
   expect(useCatalog.getState().collections[0]).toMatchObject({ photoIds: [photo.path] });
   expect(host.textContent).toContain('Added 1 photo to Picks');
@@ -84,14 +84,14 @@ it('does not show the folder drop prompt for a drag without filesystem paths', a
     desktop.drag({ type: 'enter', paths: [], position: new PhysicalPosition(200, 100) });
     desktop.drag({ type: 'over', position: new PhysicalPosition(250, 100) });
   });
-  expect(host.textContent).not.toContain('Drop a folder to open it');
+  expect(host.textContent).not.toContain('Drop a folder or photos to open them');
 });
 
 it('keeps the folder drop prompt for external folders and clears it when they leave', async () => {
   await act(async () => desktop.drag({ type: 'enter', paths: ['/external'], position: new PhysicalPosition(200, 100) }));
-  expect(host.textContent).toContain('Drop a folder to open it');
+  expect(host.textContent).toContain('Drop a folder or photos to open them');
   await act(async () => desktop.drag({ type: 'leave' }));
-  expect(host.textContent).not.toContain('Drop a folder to open it');
+  expect(host.textContent).not.toContain('Drop a folder or photos to open them');
 });
 
 it('preserves a multiple selection and prevents a drop from navigating to the collection', async () => {

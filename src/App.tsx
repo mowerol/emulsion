@@ -4,7 +4,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
-import { isTauri, startupOptions } from './backend/api';
+import { isTauri, startupOptions, takeOpenPaths } from './backend/api';
+import { listen } from '@tauri-apps/api/event';
 import { flushSaves, onSaveError } from './library/sidecars';
 import { settingsMenuAction } from './library/backups';
 import { markForKey } from './library/marks';
@@ -12,7 +13,7 @@ import { clearRecentFolders, lastFolder } from './library/folders';
 import { dialogOpen, installAppMenu, RECENT_PREFIX } from './ui/appmenu';
 import { firstOf } from './ui/menubridge';
 import {
-  activePhoto, addToTargetCollection, openCopySettings, createVirtualCopies, markPhotos, openFolder, pasteSettings, redo, selectAll, setCompare, setExportOpen, setView, showToast, step, stepToEnd, undo, useApp,
+  activePhoto, addToTargetCollection, openCopySettings, createVirtualCopies, markPhotos, openFolder, openPaths, pasteSettings, redo, selectAll, setCompare, setExportOpen, setView, showToast, step, stepToEnd, undo, useApp,
 } from './library/store';
 import { Images } from './ui/Images';
 import { useWorkspace } from './ui/workspace';
@@ -158,20 +159,26 @@ export function useShortcuts() {
   }, []);
 }
 
-/** Desktop integration: open from the command line, drop folders, save before closing. */
+/** Desktop integration: open from the command line, drop folders or photos (on the window or the Dock icon), save before closing. */
 function useDesktop() {
   const [dropping, setDropping] = useState(false);
   useEffect(() => {
     if (!isTauri()) return;
     onSaveError((m) => showToast(`Could not save edits. ${m}`));
-    startupOptions()
-      .then((o) => {
+    // Photos or folders dropped on the Dock icon queue in Rust; this event says the queue has some.
+    const opened = () => takeOpenPaths().then(paths => { if (paths.length) void openPaths(paths); }).catch(() => {});
+    const openedListener = listen('open-paths', opened);
+    openedListener
+      .then(() => Promise.all([takeOpenPaths(), startupOptions()]))
+      .then(([dropped, o]) => {
+        if (dropped.length) return void openPaths(dropped);
         const path = o.openPath ?? lastFolder();
         if (path) openFolder(path);
       })
       .catch(() => {});
     let externalDrag = false;
     const unlisten: Promise<() => void>[] = [
+      openedListener,
       getCurrentWebview().onDragDropEvent((e) => {
         if (e.payload.type === 'enter') {
           externalDrag = e.payload.paths.length > 0;
@@ -181,7 +188,7 @@ function useDesktop() {
         else if (e.payload.type === 'drop') {
           externalDrag = false;
           setDropping(false);
-          if (e.payload.paths.length) openFolder(e.payload.paths[0]);
+          void openPaths(e.payload.paths);
         }
       }),
       installAppMenu(menuAction).catch((e) => { console.error('[menu]', e); return () => {}; }),
@@ -232,7 +239,7 @@ export default function App() {
       <SettingsDialog />
       {dropping && (
         <div className="drop">
-          <p>Drop a folder to open it</p>
+          <p>Drop a folder or photos to open them</p>
         </div>
       )}
       <div className="toast-region" role="status" aria-live="polite">

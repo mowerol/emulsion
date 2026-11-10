@@ -28,7 +28,13 @@ mod thumbs;
 mod user_looks;
 
 use std::path::PathBuf;
-use tauri::Manager;
+use std::sync::Mutex;
+use tauri::{Emitter, Manager};
+
+/// Paths macOS asked us to open (files or folders dropped on the Dock icon, or "Open With"),
+/// kept until the interface takes them: a launch by drop delivers them before the page listens.
+#[derive(Default)]
+pub struct PendingOpen(pub Mutex<Vec<String>>);
 
 pub struct AppPaths {
     pub cache_dir: PathBuf,
@@ -39,6 +45,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .manage(PendingOpen::default())
         .setup(|app| {
             let cache_dir = app.path().app_cache_dir()?.join("thumbs");
             std::fs::create_dir_all(&cache_dir)?;
@@ -92,6 +99,7 @@ pub fn run() {
             commands::show_app_backups,
             commands::write_export,
             commands::startup_options,
+            commands::take_open_paths,
             commands::log_message,
             ai_masks::ai_mask_status,
             ai_masks::ai_mask_install,
@@ -105,5 +113,17 @@ pub fn run() {
         ])
         .build(tauri::generate_context!())
         .expect("error while building Emulsion")
-        .run(|_, event| { if matches!(event, tauri::RunEvent::Exit) { noise_cache::shutdown(); ai_masks::shutdown(); inpaint_commands::shutdown(); } });
+        .run(|app, event| match event {
+            tauri::RunEvent::Exit => { noise_cache::shutdown(); ai_masks::shutdown(); inpaint_commands::shutdown(); }
+            #[cfg(any(target_os = "macos", target_os = "ios"))]
+            tauri::RunEvent::Opened { urls } => {
+                let paths: Vec<String> = urls.iter().filter_map(|u| u.to_file_path().ok()).map(|p| p.to_string_lossy().into_owned()).collect();
+                if paths.is_empty() { return; }
+                app.state::<PendingOpen>().0.lock().unwrap().extend(paths);
+                // The page drains the queue with take_open_paths; this only wakes it if it is listening.
+                let _ = app.emit("open-paths", ());
+                if let Some(w) = app.get_webview_window("main") { let _ = w.set_focus(); }
+            }
+            _ => {}
+        });
 }
