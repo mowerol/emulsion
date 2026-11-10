@@ -74,6 +74,17 @@ Engine.prototype.render = function (this: Engine, ...a: Parameters<Engine['rende
     }
   }
 };
+// Store flushes: each setState runs zustand's listeners and React's re-render of
+// every subscriber whose selection changed, so its duration is the page thread's cost of an edit.
+let flushes: number[] = [];
+const setState = useApp.setState;
+// React queues that render as a microtask, so time until a microtask queued after it runs.
+let syncs: number[] = [];
+useApp.setState = ((...a: Parameters<typeof setState>) => { const t = performance.now(); try { return setState(...a); } finally { syncs.push(performance.now() - t); queueMicrotask(() => flushes.push(performance.now() - t)); } }) as typeof setState;
+// Page frames: gaps between animation frames during the gesture (the controls bar: 58 fps, none over 25 ms).
+let rafGaps: number[] = [];
+let rafOn = false;
+const rafLoop = (last: number) => requestAnimationFrame((now) => { if (!rafOn) return; rafGaps.push(now - last); rafLoop(now); });
 let longest = 0;
 new PerformanceObserver((l) => { for (const e of l.getEntries()) longest = Math.max(longest, e.duration); }).observe({ entryTypes: ['longtask'] });
 
@@ -83,10 +94,11 @@ const p90 = (v: number[]) => v.length ? +v.slice().sort((a, b) => a - b)[Math.fl
 /** Fire `steps` inputs 8 ms apart; `fire(i)` returns the tag the resulting recipe will carry. */
 async function gesture(steps: number, fire: (i: number) => void) {
   const seen = new WeakMap<object, number>();
-  frames = []; longest = 0; draws = {}; tagOf = (r) => (r && seen.get(r)) ?? -1;
+  frames = []; longest = 0; draws = {}; flushes = []; syncs = []; rafGaps = []; rafOn = true; rafLoop(performance.now()); Object.assign((window as any).__renders, { on: true, commits: 0, byName: {}, roots: {}, host: 0 }); tagOf = (r) => (r && seen.get(r)) ?? -1;
   const sent: number[] = [];
   let handler = 0;
   const t0 = performance.now();
+  performance.mark('gesture-start');
   for (let i = 0; i < steps; i++) {
     const due = t0 + i * 8;
     while (performance.now() < due) await new Promise(r => setTimeout(r, 0));
@@ -97,6 +109,12 @@ async function gesture(steps: number, fire: (i: number) => void) {
     if (r && !seen.has(r)) seen.set(r, i);
   }
   const t1 = performance.now();
+  performance.mark('gesture-end');
+  rafOn = false;
+  const rr = (window as any).__renders; rr.on = false;
+  const per = (m: Record<string, number>, k = 40) => Object.entries(m).sort((a, b) => b[1] - a[1]).slice(0, k).map(([name, n]) => `${name}:${(n / Math.max(1, flushes.length)).toFixed(1)}`).join(' ');
+  const renders = { commits: rr.commits, componentsPerFlush: +(Object.values(rr.byName as Record<string, number>).reduce((a, b) => a + b, 0) / Math.max(1, flushes.length)).toFixed(0), roots: per(rr.roots, 25), perFlush: per(rr.byName) };
+  const gaps = rafGaps.slice(1), flush = flushes.slice();
   await wait(1000);
   // Latency: for each frame, from the first input it was the first to show.
   const lat: number[] = [];
@@ -110,6 +128,9 @@ async function gesture(steps: number, fire: (i: number) => void) {
     latencyMs: median(lat), latencyP90: p90(lat), settleMs: last ? +(last.done - sent[steps - 1]).toFixed(0) : null,
     handlerMsPerInput: +(handler / steps).toFixed(2), renderCpuMs: median(frames.map(f => f.cpu)), renderTotalMs: median(frames.map((f, i) => i ? f.done - frames[i - 1].done : 0).slice(1)),
     longestTaskMs: +longest.toFixed(0),
+    pageFps: +(gaps.length / ((t1 - t0) / 1000)).toFixed(1), worstFrameMs: +Math.max(0, ...gaps).toFixed(0), framesOver25: gaps.filter(g => g > 25).length,
+    flushes: flush.length, flushMs: median(flush), flushP90: p90(flush), flushMaxMs: +Math.max(0, ...flush).toFixed(1), flushTotalMs: +flush.reduce((a, b) => a + b, 0).toFixed(0), listenersMs: median(syncs), listenersTotalMs: +syncs.reduce((a, b) => a + b, 0).toFixed(0),
+    renders,
     draws: Object.entries(draws).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, n]) => `${k}×${n}`).join(' '),
   };
 }
@@ -147,7 +168,7 @@ async function brushStroke(steps = 180) {
 }
 
 async function main() {
-  const log: Record<string, unknown> = { dpr: devicePixelRatio };
+  const log: Record<string, unknown> = { dpr: devicePixelRatio, react: process.env.NODE_ENV };
   setWorkspace({ layout: 'workflow', imageColumns: 1, group: 'develop' } as any);
   const recipe = { ...defaultRecipe('neutral', 'straight'), dehaze: 10 };
   const mk = (n: number) => ({ path: `/p${n}.ORF`, name: `p${n}.ORF`, rel: `p${n}.ORF`, size: 1, modified: 0, recipe: n ? null : recipe, seed: 1, white: null, rating: 0, label: null, heart: false, raw: true, pair: null });

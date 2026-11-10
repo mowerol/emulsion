@@ -35,7 +35,7 @@ Version 0.1. Working today:
 - Export to JPEG at full size or a set long edge, into `Emulsion exports` inside the folder or anywhere else. Existing files are never overwritten.
 - Automatic backups of looks, presets, camera profiles and settings: daily snapshots (15 kept), plus snapshots before version upgrades and settings restores. The app menu offers Export Settings, Import Settings, Restore Settings from Backup and Show Backups in Finder. Sidecars also retain earlier edits at checkpoints; the panel's More actions menu offers **Earlier edits…** to restore one as an undoable step.
 
-Not yet: RAW highlight recovery and colour management beyond sRGB. See [Roadmap](#roadmap).
+Not yet: RAW highlight recovery, colour management beyond sRGB, and export beyond JPEG. See [Roadmap](#roadmap).
 
 The stock and scanner looks are approximations tuned by eye, not measured profiles. Film names are trademarks of their owners; Emulsion is not affiliated with them.
 
@@ -111,7 +111,15 @@ node tools/browser-tests/treatment-filters.mjs workspace  # retired Classic pref
 
 ## Roadmap
 
-Reconciled against the working tree on 2026-11-09, including uncommitted implementations. This is a status inventory; the order below does not set implementation priority. Older plans and research notes include superseded proposals. [HANDOFF.md](HANDOFF.md) records the latest validation and known failures.
+Goal (agreed 2026-11-10): make Emulsion a credible replacement for Lightroom Classic. The develop engine is already close (darktable-grade tone and colour, RL capture sharpening, SAM masks, AI Remove, profiled denoise, the looks); the gaps are speed and the work around the edit. **Priorities are in order**: finish one before starting the next unless Oli says otherwise. [HANDOFF.md](HANDOFF.md) records the latest validation and known failures; older plans and research notes include superseded proposals.
+
+### Priorities, in order
+
+1. **Speed.** Every control holds 60 fps while dragging (bar: 58 fps on the main thread, no frame over 25 ms, no stale frames; measured apart from photo fps), the photo itself aims for 40 fps while a control is dragged, no screen freeze over 100 ms, and finished detail soon after a zoom or photo change. Last measured 2026-11-04 (before AI Remove, profiled denoise and the DCP removal): most global controls at 50% miss the bar by one or two frames (58–59.5 fps, worst 25–45 ms; HSL 83 ms); masked Texture 44.8 fps, GPU-bound; Capture Sharpening's photo updates at under 1 fps while its control stays smooth; Clarity and Dehaze jump on release; a fresh zoom to 50% takes 1.7 s to sharpen; the shared thumbnail/look-tile/export/perspective engine still runs on the main thread. Unmeasured: denoise and Remove-era controls, photo switching and navigation, memory. A bounded on-disk cache of decoded Develop previews belongs here. See [perf-sessions.md](docs/plans/perf-sessions.md), [engine-worker.md](docs/research/engine-worker.md), [zoom-detail.md](docs/research/zoom-detail.md), [continuous-zoom.md](docs/research/continuous-zoom.md).
+2. **Export.** Today: 8-bit sRGB JPEG with size and quality, no metadata. Add TIFF 16-bit, PNG, AVIF/HEIF; output colour space (sRGB, Display P3, AdobeRGB, ProPhoto) with an embedded ICC; EXIF/IPTC kept (with an option to strip GPS); output sharpening for screen or print; file-name templates; saved export presets; watermark; export next to the original. Colour-managed raster input (not assuming sRGB) and a Display P3 preview go with this.
+3. **Interchange and metadata.** Read and write XMP sidecars with standard fields (`xmp:Rating`, `xmp:Label`, `dc:subject`, title/caption, copyright) so ratings, labels and keywords move in and out of other tools; keywords and IPTC editing; metadata presets.
+4. **Culling and library scale.** Pick and reject (P/X flags independent of hearts, stars and tags, saved per edit, with badges, filters, batch marking and undo; rejection never deletes); Compare and Survey views; stacks and auto-stacking bursts; text and keyword search; smart-collection rules for camera, lens, date, ISO and keywords; batch rename; capture-time offset; a catalog performance check at 50–100k photos.
+5. **Editing parity.** Live multi-photo sync / auto-sync (copy and paste settings exist); Auto tone and white balance (port decision: darktable's exposure auto vs RawTherapee's Auto Levels; ask Oli); one-click Sky, Subject and People masks; defringe (darktable `defringe`); RAW highlight recovery and a per-camera exposure baseline; colour-only Looks (see [profiles-and-presets.md](docs/plans/profiles-and-presets.md#next-ideas-oli-2026-11-01-not-built)).
 
 ### Built
 
@@ -124,23 +132,15 @@ Reconciled against the working tree on 2026-11-09, including uncommitted impleme
 
 ### Follow-up on existing features
 
-- **Interaction and zoom performance:** meet the requirement of 60 fps controls while dragging, measured separately from photo rendering. Remaining recorded problems include masked Texture, denoise drags, first full-resolution zoom, and Clarity/Dehaze changing on release. The shared thumbnail/look-tile/export/perspective engine still runs on the main thread. Measure photo switching and other navigation as well. See [engine-worker.md](docs/research/engine-worker.md), [zoom-detail.md](docs/research/zoom-detail.md) and the latest handoff; historical measurements are not a fresh benchmark.
-- **Noise-reduction validation:** verify profile scale on real photos, compare with darktable exports and measure full-resolution export memory. Phase 1 is implemented; phases 2–4 in [noise-reduction.md](docs/plans/noise-reduction.md) remain unbuilt.
+- **Noise-reduction validation:** verify profile scale on real photos, compare with darktable exports and measure full-resolution export memory. Phase 1 is implemented; phases 2–4 in [noise-reduction.md](docs/plans/noise-reduction.md) remain unbuilt (hot-pixel repair before demosaic, AI denoise for developed images, then raw denoise and RawNIND Bayer).
 - **Remove validation and speed:** real-photo seam/quality checks and large-export memory measurements remain open. The MI-GAN experiment passes its recorded fidelity checks, but an installable artifact, native adapter/benchmark and explicit model choice are not integrated. Preserve saved LaMa model identities. See [migan-fidelity.md](docs/research/migan-fidelity.md).
 - **Native interaction and polish:** verify the latest toolbar/trackpad and Look Creator shortcut changes in the app, investigate the recorded `retouch-sliders` decode regression, and review narrow-column option rows. A Transform alignment grid is not implemented. See the latest entries in [HANDOFF.md](HANDOFF.md).
 
-### Planned features, not implemented
+### Later
 
-- **Pick and reject:** P/X flags independent of hearts, stars and tags, saved per edit, with badges, Library/filmstrip and smart-collection filters, batch marking and undo. Rejection does not delete photos.
-- **Colour-only Looks:** apply the colour of an entire Look without its tone/contrast contributions. The existing Colour blend applies only to its base LUT. Control placement, ownership and B&W behavior still need decisions. See [profiles-and-presets.md](docs/plans/profiles-and-presets.md#next-ideas-oli-2026-11-01-not-built).
-- **RAW controls:** highlight recovery and a per-camera exposure baseline. RAW decoding currently clips highlights and uses a shared baseline gain.
-- **Export and colour management:** 16-bit TIFF export and colour-managed input/output, including Display P3. Current export is JPEG and the raster input path assumes sRGB.
-- **Persistent Develop previews:** a bounded disk cache of decoded previews, keyed by source identity and decode settings, with invalidation and cleanup. The current source cache is in memory; thumbnail and AI-result disk caches do not cover this feature.
-- **Further noise reduction:** hot-pixel repair before demosaic, AI denoise for developed images, then raw denoise and RawNIND Bayer. See [noise-reduction.md](docs/plans/noise-reduction.md).
-
-### Deferred ideas
-
-- **AI selection:** sky masks, scribble selection and SAM click-to-select for Remove. Existing SAM object selection already works for adjustment masks. See [masks.md](docs/plans/masks.md).
+- **Merges:** HDR merge and panorama stitching.
+- **Output and capture:** soft proofing and print, tethered capture, a map with geotagging, publish services.
+- **AI selection:** scribble selection and SAM click-to-select for Remove. See [masks.md](docs/plans/masks.md).
 - **Look authoring and sharing:** create a Look from a photo's adjustments, look sharing/LUT baking, further spatial ingredients, linked updates and unused-asset cleanup. Additional measured film-stock characterisations are separate from the bundled creative LUT packs. See [profiles-and-presets.md](docs/plans/profiles-and-presets.md).
 - **WebGPU:** migrate GLSL processing to WGSL, with the longer-term possibility of sharing the pipeline with a native Rust core.
 

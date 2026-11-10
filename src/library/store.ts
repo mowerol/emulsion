@@ -4,6 +4,8 @@ import { captureLook } from '../film/looks';
 // selection, and which view is showing.
 
 import { create } from 'zustand';
+import { useShallow } from 'zustand/react/shallow';
+import { useRef } from 'react';
 import type { Histogram } from '../engine/histogram';
 import type { Xy } from '../engine/whitebalance';
 import { catalogMetadata, isTauri, scanFolder, whitePoints, type Entry } from '../backend/api';
@@ -18,7 +20,7 @@ import { findPairs, foldPairs } from './pairs';
 import { cleanCopyName, expandCopies, photoId, savedFrames } from './copies';
 import { applyMark, describeMark, hasMark, normalizeMarks, type Label, type MarkKey, type Marks } from './marks';
 import { History, MERGE_MS, describe, type Change, type Step } from './history';
-import { addToCollection, cacheEdits, cacheFolder, catalogPhotos, recordImport, sourceMatcher, sourceMatches, targetCollection, useCatalog, viewImport, type SourceSelection } from './catalog';
+import { addToCollection, cacheEdits, cacheFolder, catalogPhotos, recordImport, sourceMatcher, sourceMatches, targetCollection, useCatalog, useSourceDefinitions, viewImport, type SourceSelection } from './catalog';
 
 export interface Photo {
   capture?: { camera: string | null; date: string | null };
@@ -240,7 +242,8 @@ export const useApp = create<State>(() => ({
   pairCount: 0,
 }));
 
-const set = useApp.setState;
+// Late-bound so tests can time each flush (tools/browser-tests/ui-latency.tsx wraps setState).
+const set = ((...a: Parameters<typeof useApp.setState>) => (useApp.setState as (...a: unknown[]) => void)(...a)) as typeof useApp.setState;
 const get = useApp.getState;
 
 let toastId = 0;
@@ -499,10 +502,33 @@ useApp.subscribe((s, old) => {
 });
 
 /** Shared by Library, Develop's Images pane and the classic filmstrip. */
+/**
+ * The shown photos' indices. Compared by value, so an edit (or a histogram update) that leaves
+ * the list as it was doesn't re-render the grid; catalogue changes re-render through useCatalog.
+ */
 export function useShown() {
-  const state = useApp();
-  useCatalog();
-  return shown(state);
+  useSourceDefinitions();
+  return useApp(useShallow(s => shown(s)));
+}
+
+const sameExceptRecipe = (a: Photo, b: Photo) => {
+  const ka = Object.keys(a) as (keyof Photo)[];
+  if (ka.length !== Object.keys(b).length) return false;
+  return ka.every(k => k === 'recipe' || a[k] === b[k]);
+};
+
+/**
+ * The active photo, kept the same object while only its recipe changes: for components that
+ * show its name, marks or metadata but not its edits, so a slider drag doesn't re-render them.
+ * Its `recipe` can be out of date; read it from activePhoto() (or subscribe to it) instead.
+ */
+export function useActivePhotoFacts(): Photo | null {
+  const last = useRef<Photo | null>(null);
+  return useApp(s => {
+    const p = activePhoto(s), q = last.current;
+    if (p && q && p !== q && sameExceptRecipe(p, q)) return q;
+    return (last.current = p);
+  });
 }
 
 export const setView = (view: View) => {

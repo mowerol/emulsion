@@ -62,9 +62,10 @@ export function CurveEditor({ curve, disabled, onChange }: { curve: ToneCurve | 
   const full = (live.local ? live.local.curve : curve) ?? IDENTITY_CURVE;
   const points = full[channel];
 
-  const photo = useApp(activePhoto);
+  const id = useApp(s => { const p = activePhoto(s); return p ? photoId(p) : null; });
   const hist = useApp((s) => s.histogram);
-  const luma = hist && photo && hist.path === photoId(photo) ? heights(hist.data).l : null;
+  const data = hist && id && hist.path === id ? hist.data : null;
+  const luma = useMemo(() => data ? heights(data).l : null, [data]);
 
   const set = (pts: CurvePoint[], dragging = false) => {
     const next = { ...full, [channel]: pts };

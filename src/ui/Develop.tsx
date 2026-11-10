@@ -6,6 +6,7 @@ import { PhotoInfo } from './PhotoInfo';
 import { PhotoTools } from './PhotoTools';
 import { useWorkspace } from './workspace';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { Histogram } from '../engine/histogram';
 import { activeTool, chooseTool, toolHint, useTools } from './tools';
 import { RetouchOverlay } from './RetouchOverlay';
 import { useRemoveUi } from './removemodel';
@@ -79,6 +80,26 @@ const recipeId = (r: Recipe | null) => {
  * (React's StrictMode runs effects twice) takes the same client back, and disposal waits a tick.
  */
 const clients = new WeakMap<HTMLCanvasElement, { client: DevelopClient; dispose: number }>();
+
+/**
+ * The histogram at most every HISTOGRAM_MS (Oli, 2026-11-10: ~10 Hz during a drag is enough).
+ * Each store update re-renders the histogram and the curve's backdrop; the last one is always
+ * shown (trailing), so the histogram is exact once the photo settles. A new photo shows at once.
+ */
+const HISTOGRAM_MS = 100;
+let histogramAt = 0, histogramTimer = 0, histogramNext: { path: string; data: Histogram } | null = null;
+function showHistogram(path: string, data: Histogram) {
+  histogramNext = { path, data };
+  const wait = useApp.getState().histogram?.path !== path ? 0 : histogramAt + HISTOGRAM_MS - performance.now();
+  if (wait <= 0) { clearTimeout(histogramTimer); histogramTimer = 0; flushHistogram(); }
+  else if (!histogramTimer) histogramTimer = window.setTimeout(() => { histogramTimer = 0; flushHistogram(); }, wait);
+}
+function flushHistogram() {
+  if (!histogramNext) return;
+  histogramAt = performance.now();
+  useApp.setState({ histogram: histogramNext });
+  histogramNext = null;
+}
 
 const dpr = () => Math.min(window.devicePixelRatio || 1, 2);
 /** A workspace colour as the engine's display-encoded RGB, painted around the photo while it is straightened. */
@@ -199,7 +220,7 @@ export function Develop() {
       const client = kept?.client ?? DevelopClient.start(canvas, {
         error: (message) => { setError(message); logToTerminal('error', message); },
         warn: (message) => logToTerminal('warn', message),
-        histogram: (path, data) => useApp.setState({ histogram: { path, data } }),
+        histogram: showHistogram,
         sharpening: setSharpeningDetail,
         presented: setPresentedPhoto,
         removals: (states, photo) => {
@@ -564,6 +585,11 @@ export function Develop() {
     if (!current || !src || !sizeKnown) return;
     zoomTo(step(current.scale, layout(FIT, box.w, box.h, dpr(), frameW, frameH).scale, direction), 0.5, 0.5);
   };
+  // Stable handlers for the memoised PhotoTools, so an edit doesn't re-render the toolbar.
+  const zoomLatest = useRef({ zoomTo, zoomStep });
+  zoomLatest.current = { zoomTo, zoomStep };
+  const onToolsZoom = useCallback((scale: number | null) => scale === null ? setZoom(FIT) : zoomLatest.current.zoomTo(scale, 0.5, 0.5), []);
+  const onToolsStep = useCallback((direction: 1 | -1) => zoomLatest.current.zoomStep(direction), []);
 
   const fraction = (e: { clientX: number; clientY: number }): [number, number] => {
     const r = canvasRef.current!.getBoundingClientRect();
@@ -811,7 +837,7 @@ export function Develop() {
   return (
     <section className={`develop${workflow ? ' develop-workflow' : ''}`}>
       {workflow && !editingLook && <div className="photo-tools-host"><PhotoTools ready={!!current && sizeKnown} scale={zoom.scale} zoomLabel={current ? label(zoom, current) : 'Fit'}
-        onZoom={scale => scale === null ? setZoom(FIT) : zoomTo(scale, 0.5, 0.5)} onStep={zoomStep} before={before} onBefore={setBefore} /></div>}
+        onZoom={onToolsZoom} onStep={onToolsStep} before={before} onBefore={setBefore} /></div>}
       <div
         className={`stage${stage.light ? ' light' : ''}${cropping ? ' cropping' : ''}`}
         style={{ background: stage.hex }}

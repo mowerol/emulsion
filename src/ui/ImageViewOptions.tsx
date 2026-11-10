@@ -1,9 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { setFoldJpegs, useApp } from '../library/store';
 import { setWorkspace, useWorkspace } from './workspace';
 
-export function ImageViewOptions() {
+export const ImageViewOptions = memo(function ImageViewOptions() {
   const columns = useWorkspace(s => s.imageColumns);
   const fold = useApp(s => s.foldJpegs), pairs = useApp(s => s.pairCount);
   const [open, setOpen] = useState(false);
@@ -30,4 +30,4 @@ export function ImageViewOptions() {
       <label className="image-view-fold"><input type="checkbox" checked={fold} disabled={!pairs} onChange={e => setFoldJpegs(e.target.checked)} /> Fold JPEGs</label>
     </div>}
   </div>;
-}
+});

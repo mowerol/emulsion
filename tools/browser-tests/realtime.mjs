@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Runs a browser test in real time on the real GPU (Metal), for timings: virtual time, which
 // treatment-filters.mjs uses, fast-forwards timers and so makes performance.now() meaningless.
-// Usage: [DPR=2] node tools/browser-tests/realtime.mjs <page> [timeout seconds] [query]
+// Usage: [DPR=2] [PROD=1] node tools/browser-tests/realtime.mjs <page> [timeout seconds] [query]
 import { createServer } from 'vite';
 import { spawn } from 'node:child_process';
 import { mkdtemp, rm } from 'node:fs/promises';
@@ -16,7 +16,11 @@ const query = process.argv[4] ?? '';
 if (!/^[a-z-]+$/.test(page ?? '') || !/^[a-z=&]*$/.test(query)) throw new Error('Usage: realtime.mjs <page>');
 const limit = Number(process.argv[3] ?? 120) * 1000;
 const profile = await mkdtemp(join(tmpdir(), 'emulsion-realtime-'));
-const server = await createServer({ logLevel: 'error', server: { host: '127.0.0.1', port: 0 } });
+// PROD=1 serves production React (and other deps) instead of their dev builds: judge the
+// controls bar this way (Oli, 2026-11-10); dev React costs ~1.75× on the page thread.
+if (process.env.PROD) process.env.NODE_ENV = 'production';
+const server = await createServer({ logLevel: 'error', server: { host: '127.0.0.1', port: 0 },
+  ...(process.env.PROD ? { mode: 'production', cacheDir: 'node_modules/.vite-prod', define: { 'process.env.NODE_ENV': '"production"' } } : {}) });
 const debugPort = 9300 + Math.floor(Math.random() * 500);
 let child;
 try {
@@ -39,12 +43,26 @@ try {
   ws.addEventListener('message', (e) => { const m = JSON.parse(e.data); pending.get(m.id)?.(m); });
   const evaluate = (expression) => new Promise((r) => { const n = ++id; pending.set(n, r); ws.send(JSON.stringify({ id: n, method: 'Runtime.evaluate', params: { expression, returnByValue: true } })); });
   if (process.env.PROFILE) { await new Promise((r) => { const n = ++id; pending.set(n, r); ws.send(JSON.stringify({ id: n, method: 'Profiler.enable' })); }); await new Promise((r) => { const n = ++id; pending.set(n, r); ws.send(JSON.stringify({ id: n, method: 'Profiler.start' })); }); }
+  // TRACE=out.json records a timeline trace (style, layout, paint, scripting) for the run.
+  const traceEvents = [];
+  let traceDone;
+  if (process.env.TRACE) {
+    ws.addEventListener('message', (e) => { const m = JSON.parse(e.data); if (m.method === 'Tracing.dataCollected') traceEvents.push(...m.params.value); if (m.method === 'Tracing.tracingComplete') traceDone?.(); });
+    await new Promise((r) => { const n = ++id; pending.set(n, r); ws.send(JSON.stringify({ id: n, method: 'Tracing.start', params: { transferMode: 'ReportEvents', traceConfig: { includedCategories: ['devtools.timeline', 'blink.user_timing', 'v8.execute', 'disabled-by-default-devtools.timeline'] } } })); });
+  }
   const t0 = Date.now();
   let result;
   while (Date.now() - t0 < limit) {
     await sleep(500);
     result = (await evaluate('document.body?.dataset.result ?? null')).result?.result?.value;
     if (result) break;
+  }
+  if (process.env.TRACE) {
+    const complete = new Promise((r) => { traceDone = r; });
+    ws.send(JSON.stringify({ id: ++id, method: 'Tracing.end' }));
+    await complete;
+    const { writeFile } = await import('node:fs/promises');
+    await writeFile(process.env.TRACE, JSON.stringify({ traceEvents }));
   }
   if (process.env.PROFILE) {
     const m = await new Promise((r) => { const n = ++id; pending.set(n, r); ws.send(JSON.stringify({ id: n, method: 'Profiler.stop' })); });

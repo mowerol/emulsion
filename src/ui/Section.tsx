@@ -7,6 +7,9 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { ChevronRight, RotateCcw } from 'lucide-react';
 
 const SOLO = 'emulsion-section-solo';
+// Made once: React skips an element it has seen before, so an edit doesn't redraw these icons.
+const CHEVRON = <ChevronRight className="chevron" size={14} strokeWidth={2} aria-hidden="true" />;
+const RESET_ICON = <RotateCcw size={14} aria-hidden="true" />;
 
 const KEY = 'emulsion.folded';
 const OPEN_KEY = 'emulsion.unfolded';
@@ -81,13 +84,13 @@ export function Section({
     <section ref={ref} hidden={hidden} className={`group${open ? '' : ' folded'}`}>
       <h2>
         <button type="button" className="section-head" aria-expanded={open} aria-controls={body} onClick={toggle} title="⌥-click to open this section alone">
-          <ChevronRight className="chevron" size={14} strokeWidth={2} aria-hidden="true" />
+          {CHEVRON}
           <span className="section-title">{title}</span>
           {!open && summary && <span className="section-summary">{summary}</span>}
         </button>
         {onReset && (
           <button type="button" className="icon-btn section-reset" onClick={onReset} aria-label={`Reset ${title}`} data-tip={`Reset ${title}`}>
-            <RotateCcw size={14} aria-hidden="true" />
+            {RESET_ICON}
           </button>
         )}
       </h2>

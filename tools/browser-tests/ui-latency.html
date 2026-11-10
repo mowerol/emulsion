@@ -1,1 +1,27 @@
-<!doctype html><html><head><meta charset="UTF-8"></head><body><div id="root" style="width:100vw;height:100vh;display:grid"></div><script>localStorage.setItem('emulsion.workspace', JSON.stringify({layout:'workflow',imageColumns:1,group:'develop'}));</script><script type="module" src="./ui-latency.tsx"></script></body></html>
+<!doctype html><html><head><meta charset="UTF-8"></head><body><div id="root" style="width:100vw;height:100vh;display:grid"></div><script>localStorage.setItem('emulsion.workspace', JSON.stringify({layout:'workflow',imageColumns:1,group:'develop'}));</script>
+<script>
+// Which components re-render on each commit, counted as React DevTools does: a fiber rendered
+// when it carries PerformedWork (flags & 1); a subtree whose child list was not cloned bailed out.
+window.__renders = { on: false, commits: 0, byName: {}, roots: {}, host: 0 };
+const nameOf = (f) => { const t = f.type; return (t && (t.displayName || t.name || (t.type && (t.type.displayName || t.type.name)) || (t.render && (t.render.displayName || t.render.name)))) || `tag${f.tag}`; };
+// `roots` are rendered components whose nearest component ancestor did not render: where each
+// re-render started (a store subscription or local state firing).
+function walk(f, r, above) {
+  for (; f; f = f.sibling) {
+    const prev = f.alternate;
+    const component = [0, 1, 11, 14, 15].includes(f.tag);
+    const rendered = !prev || !!(f.flags & 1);
+    if (rendered && component) {
+      const n = nameOf(f); r.byName[n] = (r.byName[n] || 0) + 1;
+      if (!above) r.roots[n] = (r.roots[n] || 0) + 1;
+    }
+    if (!prev || f.child !== prev.child) walk(f.child, r, component ? rendered : above);
+  }
+}
+window.__REACT_DEVTOOLS_GLOBAL_HOOK__ = {
+  supportsFiber: true, isDisabled: false, renderers: new Map(), inject() { return 1; }, checkDCE() {},
+  onScheduleFiberRoot() {}, onCommitFiberUnmount() {}, onPostCommitFiberRoot() {}, setStrictMode() {},
+  onCommitFiberRoot(_id, root) { const r = window.__renders; if (!r.on) return; r.commits++; walk(root.current.child, r, false); },
+};
+</script>
+<script type="module" src="./ui-latency.tsx"></script></body></html>

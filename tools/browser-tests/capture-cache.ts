@@ -74,6 +74,17 @@ async function main() {
     const retained = engine.captureCacheStat.retainedMiB * 2 ** 20;
     const cached = internal.fullCapture.csOut;
     assert(cached, 'No retained full-photo capture result');
+    // With the cached result as the region's input, an unchanged view must reuse the region it
+    // made, not copy and rebuild it every frame (2026-11-10: regionPlan compared the raw source,
+    // found no previous region and chose a new rectangle each frame, ~190 ms per frame).
+    {
+      const view = { x: .4, y: .35, w: .13, h: .13 };
+      engine.readPixels(full, recipe, 208, 146, 0, false, view, undefined, preview);
+      const made = internal.regionMade;
+      assert(made && made.input === cached.tex, 'Fixture: the region did not develop from the cached capture result');
+      engine.readPixels(full, { ...recipe, exposure: .3 }, 208, 146, 0, false, view, undefined, preview);
+      assert(internal.regionMade === made, 'An unchanged view rebuilt its region from the cached capture result');
+    }
     const red = reference.probeCapture(exact, iterationsFor(recipe.captureSharpening)).red;
     const read = (tex: WebGLTexture, w: number, h: number) => {
       const gl = engine.gpu.gl, fbo = gl.createFramebuffer()!;

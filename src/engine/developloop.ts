@@ -124,7 +124,9 @@ export type ToLoop =
 export interface PreparationStat { steps: number; cpuMs: number; elapsedMs: number; resumeMs: number; maxStepMs: number; capture?: CaptureWork }
 /** A finished screen render, for the perf driver: times are this realm's performance.now(). */
 export interface FrameStat { seq: number; start: number; cpu: number; done: number; srcW: number; detail: boolean; draft: boolean; preparation?: PreparationStat;
-  captureCache?: Engine['captureCacheStat']; memory?: { retainedMiB: number; peakMiB: number }; denoise?: Engine['profiledWork'] }
+  captureCache?: Engine['captureCacheStat']; memory?: { retainedMiB: number; peakMiB: number }; denoise?: Engine['profiledWork'];
+  /** Why this frame leaves another render owed: live, moving, draft and the parts of `Engine.inexact`. */
+  pending?: string[]; region?: Engine['regionStat'] }
 export interface CaptureState { cache: Engine['captureCacheStat']; work: CaptureWork; memory?: FrameStat['memory'] }
 
 export type FromLoop =
@@ -540,7 +542,8 @@ export class DevelopLoop {
         engine.render(source, st.recipe, renderOpts);
         this.presentedPhoto = st.histogramFor;
         this.post({ type: 'presented', photo: st.histogramFor });
-        if (this.stats) this.frameStat(st.seq, t0, source, !!draft, preparationStat.steps ? { ...preparationStat, capture: { ...engine.captureWork } } : undefined);
+        if (this.stats) this.frameStat(st.seq, t0, source, !!draft, preparationStat.steps ? { ...preparationStat, capture: { ...engine.captureWork } } : undefined,
+          [...(live ? ['live'] : []), ...(moving ? ['moving'] : []), ...(draft ? ['draft'] : []), ...engine.inexactParts]);
         this.sharpening(false);
         if (!live) this.releasePending = false;
         Object.assign(pace, { submitted: performance.now(), full: !draft, waited: false });
@@ -582,7 +585,7 @@ export class DevelopLoop {
   }
 
   /** When the GPU finishes a screen frame (fence polled), for the perf driver. */
-  private frameStat(seq: number, start: number, source: Source, draft: boolean, preparation?: FrameStat['preparation']) {
+  private frameStat(seq: number, start: number, source: Source, draft: boolean, preparation?: FrameStat['preparation'], pending?: string[]) {
     const gl = this.engine.gpu.gl;
     const cpu = performance.now() - start;
     const detail = !this.engine.stoodIn && !this.engine.inexact && !draft && (source.mode !== InputMode.SceneLinear || !this.state?.recipe?.captureSharpening || !!source.capture);
@@ -594,7 +597,7 @@ export class DevelopLoop {
     const poll = () => {
       if (gl.getSyncParameter(sync, gl.SYNC_STATUS) !== gl.SIGNALED) { setTimeout(poll, 1); return; }
       gl.deleteSync(sync);
-      this.post({ type: 'frame', stat: { seq, start, cpu, done: performance.now(), srcW: source.w, detail, draft, preparation, captureCache, memory, denoise: this.engine.profiledWork } });
+      this.post({ type: 'frame', stat: { seq, start, cpu, done: performance.now(), srcW: source.w, detail, draft, preparation, captureCache, memory, denoise: this.engine.profiledWork, pending, region: this.engine.regionStat } });
     };
     setTimeout(poll, 1);
   }

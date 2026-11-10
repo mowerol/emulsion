@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { photoName } from '../library/copies';
-import { activePhoto, useApp } from '../library/store';
+import { memo } from 'react';
+import { useActivePhotoFacts, useApp } from '../library/store';
 import { MarkControls } from './common';
 
 /** File information and selection marks, shared by the Workflow footer and Classic panel. */
-export function PhotoInfo({ toolbar = false, hint }: { toolbar?: boolean; hint?: string }) {
-  const photo = useApp(activePhoto), active = useApp(s => s.active), total = useApp(s => s.photos.length);
+export const PhotoInfo = memo(function PhotoInfo({ toolbar = false, hint }: { toolbar?: boolean; hint?: string }) {
+  const photo = useActivePhotoFacts(), active = useApp(s => s.active), total = useApp(s => s.photos.length);
   const selected = useApp(s => s.selected.size);
   if (!photo) return null;
   const frame = `Frame ${active + 1} of ${total}, ${photoName(photo)}${photo.pair ? ' (with its JPEG)' : ''}`;
@@ -18,4 +19,4 @@ export function PhotoInfo({ toolbar = false, hint }: { toolbar?: boolean; hint?:
     <MarkControls photo={photo} />
     {!toolbar && selected > 1 && <span className="order-note">Stars, tags and hearts apply to the {selected} selected frames.</span>}
   </div>;
-}
+});

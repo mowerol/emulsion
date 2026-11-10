@@ -54,6 +54,14 @@ function read(): Catalog {
   } catch { return empty(); }
 }
 export const useCatalog = create<Catalog>(() => read());
+/**
+ * Re-renders when what decides a source's photos changes (imports, collections: all
+ * sourceMatcher reads), not when the folder cache does, which every edit rewrites.
+ */
+export function useSourceDefinitions() {
+  useCatalog(s => s.imports);
+  return useCatalog(s => s.collections);
+}
 let saveTimer: ReturnType<typeof setTimeout>;
 function persist(state: Catalog) {
   // Keep source definitions independent of the larger, replaceable metadata cache.

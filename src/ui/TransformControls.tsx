@@ -31,9 +31,8 @@ const signed = (a: number) => `${a > 0 ? '+' : a < 0 ? '−' : ''}${Math.abs(a).
 
 /** The active photo's transform, its edits and the automatic correction, shared by the bar and the panel. */
 function useTransform(recipe: Recipe | null) {
-  const photo = useApp(activePhoto);
   const disabled = useApp(s => !!s.cropEdit || !!s.lookEdit || s.view !== 'develop');
-  const id = photo ? photoId(photo) : null;
+  const id = useApp(s => { const p = activePhoto(s); return p ? photoId(p) : null; });
   const request = useRef(0);
   const gesture = useRef<string | null>(null);
   const [busy, setBusy] = useState(false);

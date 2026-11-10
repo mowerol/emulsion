@@ -446,6 +446,13 @@ export class Engine {
   private mapsHeld = false;
   /** Whether the last screen render was live and narrowed a map, so an exact one is owed. */
   get inexact() { return this.regionLive || this.regionClarityScaled || this.regionFromPreview || this.mapsHeld || this.profiledOwed; }
+  /** The last region admission decision, for the perf driver: why a zoomed view fell back to the whole photo. */
+  regionStat: { admitted: boolean; reach: number; margin: number; visibleShare: number; share: number; kept: boolean; stages: Record<string, number> } | null = null;
+  /** Which parts of `inexact` hold, for the perf driver's settle diagnosis. */
+  get inexactParts() {
+    const parts = { regionLive: this.regionLive, regionClarityScaled: this.regionClarityScaled, regionFromPreview: this.regionFromPreview, mapsHeld: this.mapsHeld, profiledOwed: this.profiledOwed };
+    return (Object.keys(parts) as (keyof typeof parts)[]).filter(k => parts[k]);
+  }
   /**
    * A screen render showed a source without its denoise (profiled), which it had no result for
    * yet (a photo just opened, a region just made): the refining render builds it in steps.
@@ -1258,7 +1265,11 @@ export class Engine {
     const stages = stageReach(setup);
     // A margin so a little panning reuses the region's maps.
     const margin = Math.round(0.15 * Math.max(visible.w, visible.h));
-    const prev = this.regionMade?.input === src.tex ? this.regionMade.rect : null;
+    // The region is copied from the cached whole-photo capture result once it is ready (as
+    // regionHolds compares); comparing the raw source then found no previous region, chose a new
+    // rectangle each frame and rebuilt the region every frame.
+    const input = this.captureReady(src, recipe) ? this.fullCapture.csOut?.tex : src.tex;
+    const prev = this.regionMade && this.regionMade.input === input ? this.regionMade.rect : null;
     const share = REGION_SHARE;
     let rect = chooseRegionWithin(visible, reach, margin, src.w, src.h, prev, share);
     if (!compare && recipe.retouch.length) {
@@ -1268,7 +1279,10 @@ export class Engine {
       rect = chooseRegionWithin(required, 0, 0, src.w, src.h, prev, share);
     }
     // Map work is bounded at display density; the sharp source can cover most of the photo.
-    return regionWorthIt(rect, src.w, src.h) ? { rect, visible, reach, stages } : null;
+    const admitted = regionWorthIt(rect, src.w, src.h);
+    const area = src.w * src.h, r2 = (n: number) => Math.round(n * 100) / 100;
+    this.regionStat = { admitted, reach, margin, visibleShare: r2(visible.w * visible.h / area), share: r2(rect.w * rect.h / area), kept: !!prev, stages: { ...stages } as unknown as Record<string, number> };
+    return admitted ? { rect, visible, reach, stages } : null;
   }
 
   private viewSource(src: Source, scale: number): Source {
@@ -1310,7 +1324,10 @@ export class Engine {
   private *regionRenderSteps(src: Source, plan: RegionPlan, recipe: Recipe | null, opts: Parameters<Engine['render']>[2]) {
     const { rect, visible } = plan;
     const products: Products = {};
-    yield* this.renderSteps(opts.whole!, recipe, { ...opts, whole: undefined, products, prepare: undefined });
+    // A stage's prepare would stop the products early, so it is not passed on; a frame's prepare
+    // is, so the preview's profiled denoise is built here too instead of deferred (an interactive
+    // screen render's choice), which left the settle inexact and Develop re-rendering forever.
+    yield* this.renderSteps(opts.whole!, recipe, { ...opts, whole: undefined, products, prepare: opts.prepare === 'frame' ? 'frame' : undefined });
     // RawTherapee measures capture sharpening's contrast threshold on the whole photo.
     const iterations = recipe && !opts.compare && src.capture && this.gpu.float32 ? iterationsFor(recipe.captureSharpening) : 0;
     // An early zoom must not wait for a cold whole-photo build. Use the regional path

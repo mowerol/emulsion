@@ -26,7 +26,7 @@ const p90 = (v: number[]) => v.length ? +v.slice().sort((a, b) => a - b)[Math.fl
 
 // ---- Frames: every render to the screen, when the GPU finished it, and which input it showed.
 type Frame = { start: number; done: number; cpu: number; tag: number; srcW: number; detail: boolean; seq?: number; preparation?: PreparationStat;
-  captureCache?: FrameStat['captureCache']; memory?: FrameStat['memory']; denoise?: FrameStat['denoise'] };
+  captureCache?: FrameStat['captureCache']; memory?: FrameStat['memory']; denoise?: FrameStat['denoise']; pending?: string[]; region?: FrameStat['region'] };
 let frames: Frame[] = [];
 let tagOf: (r: Recipe | null) => number = () => -1;
 let depth = 0;
@@ -253,16 +253,27 @@ async function focusWindow() {
 async function settle(quiet = 400, limit = 15000) {
   const t0 = performance.now();
   let n = frames.length + preparations.length, since = performance.now();
+  // Why each 20 ms check found the engine still working, so a timeout can say what never stopped.
+  const why = { newFrames: 0, newPreparations: 0, unfinishedFrame: 0, engineBusy: 0, workerBusy: 0 };
+  const f0 = frames.length, p0 = preparations.length;
+  let nf = f0, np = p0;
   while (performance.now() - t0 < limit) {
     await wait(20);
     const now = frames.length + preparations.length;
-    if (now !== n || frames.some(f => !f.done) || lastEngine && !lastEngine.idle() || perfClient?.mode === 'worker' && perfClient.busy) { n = now; since = performance.now(); continue; }
+    const reasons = { newFrames: frames.length !== nf, newPreparations: preparations.length !== np,
+      unfinishedFrame: frames.some(f => !f.done), engineBusy: !!lastEngine && !lastEngine.idle(),
+      workerBusy: perfClient?.mode === 'worker' && !!perfClient.busy };
+    nf = frames.length; np = preparations.length;
+    if (now !== n || reasons.unfinishedFrame || reasons.engineBusy || reasons.workerBusy) {
+      for (const k of Object.keys(why) as (keyof typeof why)[]) if (reasons[k]) why[k]++;
+      n = now; since = performance.now(); continue;
+    }
     if (performance.now() - since > quiet) {
       const last = frames[frames.length - 1];
       return last?.done ?? performance.now();
     }
   }
-  throw Error(`Rendering did not settle within ${limit} ms`);
+  throw Error(`Rendering did not settle within ${limit} ms: ${JSON.stringify({ ...why, frames: frames.length - f0, preparations: preparations.length - p0, busy: perfClient?.busy ?? null, lastPending: frames.slice(-3).map(f => f.pending) })}`);
 }
 
 /** Fire `steps` inputs 8 ms apart (a trackpad's 120 Hz); `fire(i)` makes the i-th change. */
@@ -335,6 +346,13 @@ async function gesture(steps: number, fire: (i: number) => void | Promise<void>,
       valid: !interruptions.length, interruptions,
       ui,
       gpuFrameMs: median(frames.map(f => f.done - f.start).filter(v => v > 0)),
+      // Per-frame work the worker reports: profiled denoise builds and why renders stayed owed.
+      denoiseBuilds: during.reduce((n, f) => n + (f.denoise?.builds ?? 0), 0),
+      denoiseCpuMs: Math.round(during.reduce((n, f) => n + (f.denoise?.cpuMs ?? 0), 0)),
+      denoiseSizes: [...new Set(during.flatMap(f => f.denoise?.sizes ?? []))].slice(0, 6),
+      // The region decisions seen: admitted or not, and the padded region's share of the photo.
+      regions: [...new Set(during.map(f => JSON.stringify(f.region)))].slice(0, 4).map(r => JSON.parse(r)),
+      pending: during.reduce<Record<string, number>>((m, f) => { for (const p of f.pending ?? []) m[p] = (m[p] ?? 0) + 1; return m; }, {}),
       renderCpuMs: median(frames.map(f => f.cpu)),
       handlerMs: +(handler / steps).toFixed(2), worstHandlerMs: +worstHandler.toFixed(1),
       screenGapMedian: median(gaps), screenGapP90: p90(gaps), screenGapMax: gaps.length ? +Math.max(...gaps).toFixed(0) : null,
@@ -481,7 +499,7 @@ export async function run(which: string) {
       client.onFrame = (f) => {
         lastSrcW = f.srcW;
         lastScale = client.lastScale;
-        frames.push({ start: f.start, done: f.done, cpu: f.cpu, tag: tagOf(client.recipeOf(f.seq) as Recipe | null), srcW: f.srcW, detail: f.detail, seq: f.seq, preparation: f.preparation, captureCache: f.captureCache, memory: f.memory, denoise: f.denoise });
+        frames.push({ start: f.start, done: f.done, cpu: f.cpu, tag: tagOf(client.recipeOf(f.seq) as Recipe | null), srcW: f.srcW, detail: f.detail, seq: f.seq, preparation: f.preparation, captureCache: f.captureCache, memory: f.memory, denoise: f.denoise, pending: f.pending, region: f.region });
       };
     }
     const only = which.split(',');

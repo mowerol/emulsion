@@ -3,9 +3,9 @@ import { photoId } from '../library/copies';
 // Histogram of the developed frame: red, green and blue added together, so
 // overlaps read as cyan, magenta, yellow and white, over a grey luma fill.
 
-import { useEffect, useRef } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import { BINS, heights, type Histogram as Data } from '../engine/histogram';
-import { activePhoto, useApp } from '../library/store';
+import { activePhoto, useApp, useActivePhotoFacts } from '../library/store';
 import { ExposureInfo } from './ExposureInfo';
 import { setPrefs, usePrefs } from './prefs';
 
@@ -54,13 +54,14 @@ export function drawHistogram(canvas: HTMLCanvasElement, data: Data, height = HE
   for (const t of [0.25, 0.5, 0.75]) ctx.fillRect(Math.round(t * w), 0, Math.max(1, Math.round(dpr)), h);
 }
 
-export function Histogram({ compact = false }: { compact?: boolean }) {
+export const Histogram = memo(function Histogram({ compact = false }: { compact?: boolean }) {
   const small = usePrefs((p) => p.histogramSmall) && compact;
   const height = compact ? (small ? FOLDED : COMPACT) : HEIGHT;
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const photo = useApp(activePhoto);
+  const photo = useActivePhotoFacts();
+  const id = useApp(s => { const p = activePhoto(s); return p ? photoId(p) : null; });
   const hist = useApp((s) => s.histogram);
-  const data = hist && photo && hist.path === photoId(photo) ? hist.data : null;
+  const data = hist && id && hist.path === id ? hist.data : null;
   const clipping = useApp((s) => s.clipping);
   const toggleClipping = () => useApp.setState((s) => ({ clipping: !s.clipping }));
 
@@ -109,4 +110,4 @@ export function Histogram({ compact = false }: { compact?: boolean }) {
       <ExposureInfo photo={photo} />
     </div>
   );
-}
+});

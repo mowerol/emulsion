@@ -5,7 +5,7 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { EXPORT_DIR_NAME, exportPhotos } from '../library/export';
 import { setExportOpen, showToast, sourcePhotos, useApp, type Photo } from '../library/store';
-import { useCatalog } from '../library/catalog';
+import { useSourceDefinitions } from '../library/catalog';
 
 type Scope = 'active' | 'selected' | 'developed' | 'all';
 const SIZES: { value: number | null; label: string }[] = [
@@ -26,14 +26,18 @@ function joinPath(root: string, name: string) {
   return root.endsWith(sep) ? root + name : root + sep + name;
 }
 
+const NO_PHOTOS: Photo[] = [];
+const NO_SELECTION = new Set<string>();
+
 export function ExportDialog() {
   const isOpen = useApp((s) => s.exportOpen);
   const folder = useApp((s) => s.folder);
-  const photos = useApp((s) => s.photos);
+  // Closed, it follows nothing about the photos, so edits and drags don't re-render it.
+  const photos = useApp((s) => s.exportOpen ? s.photos : NO_PHOTOS);
   const active = useApp((s) => s.active);
-  const selected = useApp((s) => s.selected);
+  const selected = useApp((s) => s.exportOpen ? s.selected : NO_SELECTION);
   const source = useApp(s => s.source);
-  const catalog = useCatalog();
+  const catalog = useSourceDefinitions();
 
   const [scope, setScope] = useState<Scope>('developed');
   const [size, setSize] = useState<number | null>(null);

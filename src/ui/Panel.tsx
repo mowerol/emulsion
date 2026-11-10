@@ -365,6 +365,42 @@ const SectionSlot = memo(function SectionSlot({ hidden, children }: { hidden: bo
   return <div className="control-section-slot" hidden={hidden}>{children}</div>;
 }, (a, b) => a.hidden && b.hidden);
 
+/** The stage tabs; memoised so an edit doesn't re-render their icons. */
+const ControlStages = memo(function ControlStages({ group }: { group: string }) {
+  return <nav className="control-stages" aria-label="Control stages">
+    {CONTROL_GROUPS.map(g => { const Icon = TAB_ICONS[g.id]; return <button type="button" key={g.id} aria-label={g.name} data-tip={g.name} aria-pressed={group === g.id} onClick={() => setWorkspace({ group: g.id })}><Icon size={18} strokeWidth={1.75} aria-hidden="true" /></button>; })}
+  </nav>;
+});
+
+/** Workflow's action bar, from primitives only, so a slider drag re-renders it only when the edit count changes. */
+const ActionBar = memo(function ActionBar({ undo: undoLabel, redo: redoLabel, clipboard, multi, selectedCount, total, hasRecipe, edits }: {
+  undo: string | null | undefined; redo: string | null | undefined; clipboard: boolean; multi: boolean; selectedCount: number; total: number; hasRecipe: boolean; edits: number;
+}) {
+  return <div className="action-bar" role="toolbar" aria-label="Photo actions">
+        <button type="button" className="icon-btn action" onClick={undo} disabled={!undoLabel} aria-label="Undo" data-tip={undoLabel ? `Undo ${undoLabel} (${MOD}Z)` : 'Nothing to undo'}><Undo2 size={16} aria-hidden="true" /></button>
+        <button type="button" className="icon-btn action" onClick={redo} disabled={!redoLabel} aria-label="Redo" data-tip={redoLabel ? `Redo ${redoLabel} (⇧${MOD}Z)` : 'Nothing to redo'}><Redo2 size={16} aria-hidden="true" /></button>
+        <span className="action-sep" aria-hidden="true" />
+        <button type="button" className="icon-btn action" onClick={openCopySettings} aria-label="Copy settings" data-tip={`Copy settings (${MOD}C)`}><Copy size={16} aria-hidden="true" /></button>
+        <button type="button" className="icon-btn action" onClick={pasteSettings} disabled={!clipboard} aria-label={multi ? `Paste to ${selectedCount}` : 'Paste settings'} data-tip={`${multi ? `Paste to ${selectedCount} photos` : 'Paste settings'} (${MOD}V)`}><ClipboardPaste size={16} aria-hidden="true" /></button>
+        <span className="action-sep" aria-hidden="true" />
+        <button type="button" className="icon-btn action" disabled={!hasRecipe} onClick={() => editActive((r) => (r ? resetAdjustments(r) : r), 'Reset sliders')} aria-label="Reset sliders" data-tip="Reset sliders (keeps look, crop and masks)"><RotateCcw size={16} aria-hidden="true" /></button>
+        <ResetPhotoButton multi={multi} count={selectedCount} />
+        <span className="action-sep" aria-hidden="true" />
+        <OverflowMenu>{(close) => <>
+          <ConfirmButton menu label={`Apply to all ${total} photos`} confirm={`Overwrite all ${total}? Click again`} disabled={!hasRecipe || total < 2}
+            onConfirm={() => {
+              close();
+              const r = activePhoto()?.recipe;
+              if (!r) return;
+              editRecipes(useApp.getState().photos.map(photoId), (t) => withSettingsFrom(r, t), `Apply to all ${total} photos`);
+              showToast(`Applied to all ${total} frames`);
+            }} />
+          {!multi && <EarlierEdits close={close} />}
+        </>}</OverflowMenu>
+        <span className="action-count">{edits} {edits === 1 ? 'edit' : 'edits'}</span>
+      </div>;
+});
+
 export function Panel() {
   const view = useApp((s) => s.view);
   const photo = useApp(activePhoto);
@@ -387,9 +423,15 @@ export function Panel() {
     else editRecipes(targets().map(photoId), change, choice === 'look' ? 'Use look scanner finish' : 'Scanner finish');
   };
 
-  /** A section's Reset, offered only when the section differs from its defaults. */
-  const resetFor = (section: SectionId, title: string) =>
-    sectionChanged(recipe, section) ? () => editActive((r) => (r ? resetSection(r, section) : r), `Reset ${title}`) : undefined;
+  const classic = view === 'develop' ? ['profile', 'stock', 'presets', 'lens', 'crop', 'transform', 'adjust', 'curve', 'color', 'grading', 'masks', 'detail', 'optics', 'grain', 'noise'] : ['profile', 'stock', 'presets'];
+  const visible: readonly string[] = editing ? ['look-editor', 'look-tone', 'curve', 'color', 'grading', 'scanner'] : grouped ? CONTROL_GROUPS.find(g => g.id === workspace.group)!.sections : classic;
+  /**
+   * A section's Reset, offered only when the section differs from its defaults. Worked out only
+   * for the sections on show (`slot`, the section's key below): hidden ones skip re-rendering,
+   * and the panel renders again when a tab changes.
+   */
+  const resetFor = (section: SectionId, title: string, slot: string = section) =>
+    visible.includes(slot) && sectionChanged(recipe, section) ? () => editActive((r) => (r ? resetSection(r, section) : r), `Reset ${title}`) : undefined;
 
   if (!photo) return <aside className="panel" aria-label="Lab order" />;
 
@@ -416,7 +458,7 @@ export function Panel() {
       {rows(sliderGroup('detail'))}
       <DetailOrderToggle />
     </Section>,
-    optics: <Section id="optics" title="Optics" onReset={resetFor(grouped ? 'refine-optics' : 'optics', 'Optics')}>{rows(grouped ? [...sliderGroup('optics'), 'fade'] : sliderGroup('optics'))}</Section>,
+    optics: <Section id="optics" title="Optics" onReset={resetFor(grouped ? 'refine-optics' : 'optics', 'Optics', 'optics')}>{rows(grouped ? [...sliderGroup('optics'), 'fade'] : sliderGroup('optics'))}</Section>,
     grain: <Section id="grain" title="Grain" onReset={resetFor('grain', 'Grain')}><GrainSpeed recipe={base} />{rows(sliderGroup('grain'))}</Section>,
     noise: !editing && <Section id="noise" title="Noise reduction" onReset={resetFor('noise', 'Noise reduction')}>
       <ProfiledDenoiseControls recipe={base} raw={photo.raw} camera={photo.camera} />
@@ -427,8 +469,6 @@ export function Panel() {
     masks: <Section id="masks" title="Masks" summary={recipe?.masks.length ? `${recipe.masks.length} ${recipe.masks.length === 1 ? 'mask' : 'masks'}` : 'None'} onReset={resetFor('masks', 'Masks')}><MaskControls /></Section>,
     crop: !grouped && <Section id="crop" title="Crop" summary={cropSummary(recipe?.crop ?? null)} onReset={resetFor('crop', 'Crop')}><CropControls recipe={recipe} /></Section>,
   };
-  const classic = view === 'develop' ? ['profile', 'stock', 'presets', 'lens', 'crop', 'transform', 'adjust', 'curve', 'color', 'grading', 'masks', 'detail', 'optics', 'grain', 'noise'] : ['profile', 'stock', 'presets'];
-  const visible: readonly string[] = editing ? ['look-editor', 'look-tone', 'curve', 'color', 'grading', 'scanner'] : grouped ? CONTROL_GROUPS.find(g => g.id === workspace.group)!.sections : classic;
   // Group configuration owns both membership and ordering. Keep other sections mounted so
   // switching tabs preserves each colour module's local view state.
   if (editing) {
@@ -443,9 +483,7 @@ export function Panel() {
       {!grouped && !editing && <PhotoInfo />}
 
       {grouped && !editing && <>
-        <nav className="control-stages" aria-label="Control stages">
-          {CONTROL_GROUPS.map(g => { const Icon = TAB_ICONS[g.id]; return <button type="button" key={g.id} aria-label={g.name} data-tip={g.name} aria-pressed={workspace.group === g.id} onClick={() => setWorkspace({ group: g.id })}><Icon size={18} strokeWidth={1.75} aria-hidden="true" /></button>; })}
-        </nav>
+        <ControlStages group={workspace.group} />
       </>}
 
       <div className={grouped ? 'grouped-controls-body' : 'classic-controls-body'} ref={controlsBody}>
@@ -453,28 +491,8 @@ export function Panel() {
         {view !== 'develop' && <p className="hint panel-note">Open Develop to fine-tune exposure, colour, halation and grain.</p>}
       </div>
 
-      {!editing && grouped && <div className="action-bar" role="toolbar" aria-label="Photo actions">
-        <button type="button" className="icon-btn action" onClick={undo} disabled={!history.undo} aria-label="Undo" data-tip={history.undo ? `Undo ${history.undo} (${MOD}Z)` : 'Nothing to undo'}><Undo2 size={16} aria-hidden="true" /></button>
-        <button type="button" className="icon-btn action" onClick={redo} disabled={!history.redo} aria-label="Redo" data-tip={history.redo ? `Redo ${history.redo} (⇧${MOD}Z)` : 'Nothing to redo'}><Redo2 size={16} aria-hidden="true" /></button>
-        <span className="action-sep" aria-hidden="true" />
-        <button type="button" className="icon-btn action" onClick={openCopySettings} aria-label="Copy settings" data-tip={`Copy settings (${MOD}C)`}><Copy size={16} aria-hidden="true" /></button>
-        <button type="button" className="icon-btn action" onClick={pasteSettings} disabled={!clipboard} aria-label={multi ? `Paste to ${selectedCount}` : 'Paste settings'} data-tip={`${multi ? `Paste to ${selectedCount} photos` : 'Paste settings'} (${MOD}V)`}><ClipboardPaste size={16} aria-hidden="true" /></button>
-        <span className="action-sep" aria-hidden="true" />
-        <button type="button" className="icon-btn action" disabled={!recipe} onClick={() => editActive((r) => (r ? resetAdjustments(r) : r), 'Reset sliders')} aria-label="Reset sliders" data-tip="Reset sliders (keeps look, crop and masks)"><RotateCcw size={16} aria-hidden="true" /></button>
-        <ResetPhotoButton multi={multi} count={selectedCount} />
-        <span className="action-sep" aria-hidden="true" />
-        <OverflowMenu>{(close) => <>
-          <ConfirmButton menu label={`Apply to all ${total} photos`} confirm={`Overwrite all ${total}? Click again`} disabled={!recipe || total < 2}
-            onConfirm={() => {
-              close();
-              const r = recipe!;
-              editRecipes(useApp.getState().photos.map(photoId), (t) => withSettingsFrom(r, t), `Apply to all ${total} photos`);
-              showToast(`Applied to all ${total} frames`);
-            }} />
-          {!multi && <EarlierEdits close={close} />}
-        </>}</OverflowMenu>
-        <span className="action-count">{editCount(recipe)} {editCount(recipe) === 1 ? 'edit' : 'edits'}</span>
-      </div>}
+      {!editing && grouped && <ActionBar undo={history.undo} redo={history.redo} clipboard={!!clipboard} multi={multi} selectedCount={selectedCount}
+        total={total} hasRecipe={!!recipe} edits={editCount(recipe)} />}
       {!editing && !grouped && <div className="panel-actions">
         <button type="button" className="btn" onClick={undo} disabled={!history.undo} title={history.undo ? `Undo ${history.undo} (${MOD}Z)` : 'Nothing to undo'}>
           Undo

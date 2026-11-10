@@ -1,21 +1,20 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { useMemo } from 'react';
+import { memo } from 'react';
 import { setFilter, sourcePhotos, useApp } from '../library/store';
 import { EDIT_FILTERS, NO_FILTER, isFiltering, matchCount } from '../library/filter';
 import { LABELS } from '../library/marks';
 import { Heart, Star } from 'lucide-react';
-import { useCatalog } from '../library/catalog';
+import { useSourceDefinitions } from '../library/catalog';
 import { Segmented } from './common';
 
 /** What the Library grid and the filmstrip show: edited or not, stars and up, hearted, colour tags.
  *  Without `summary` the match count and Clear are left to the caller (the Images pane puts them in its heading). */
-export function FilterBar({ summary = true, showCount = true }: { summary?: boolean; showCount?: boolean }) {
-  const photos = useApp((s) => s.photos);
+export const FilterBar = memo(function FilterBar({ summary = true, showCount = true }: { summary?: boolean; showCount?: boolean }) {
   const filter = useApp((s) => s.filter);
-  const source = useApp(s => s.source);
-  const catalog = useCatalog();
-  const scoped = useMemo(() => sourcePhotos(useApp.getState()), [photos, source, catalog]);
-  const matching = useMemo(() => matchCount(scoped, filter), [scoped, filter]);
+  useSourceDefinitions();
+  // Counts, not the photo list, so an edit that leaves them as they were doesn't re-render the bar.
+  const scopedCount = useApp(s => sourcePhotos(s).length);
+  const matching = useApp(s => matchCount(sourcePhotos(s), s.filter));
   const on = isFiltering(filter);
 
   return (
@@ -66,7 +65,7 @@ export function FilterBar({ summary = true, showCount = true }: { summary?: bool
       {summary && on && (
         <>
           {showCount && <span className="filter-count" aria-live="polite">
-            {matching === 0 ? 'No photos match' : `${matching} of ${scoped.length}`}
+            {matching === 0 ? 'No photos match' : `${matching} of ${scopedCount}`}
           </span>}
           <button type="button" className="filter-clear" onClick={() => setFilter(NO_FILTER)}>
             Clear
@@ -75,4 +74,4 @@ export function FilterBar({ summary = true, showCount = true }: { summary?: bool
       )}
     </div>
   );
-}
+});

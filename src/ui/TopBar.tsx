@@ -2,7 +2,7 @@
 import { open } from '@tauri-apps/plugin-dialog';
 import { Download } from 'lucide-react';
 import { chooseImport, openFolder, setExportOpen, setView, sourcePhotos, useApp } from '../library/store';
-import { useCatalog } from '../library/catalog';
+import { useSourceDefinitions } from '../library/catalog';
 
 export async function chooseFolder() {
   const picked = await open({ directory: true, multiple: false, title: 'Import photos from a folder' });
@@ -13,14 +13,14 @@ export async function chooseFolder() {
 }
 
 export function TopBar() {
-  const s = useApp();
-  useCatalog();
-  const count = sourcePhotos(s).length;
+  const view = useApp(s => s.view);
+  useSourceDefinitions();
+  const count = useApp(s => sourcePhotos(s).length);
   return <header className="topbar">
     <div className="brand">Emulsion</div>
     <nav className="views" aria-label="View">
-      <button type="button" aria-pressed={s.view !== 'develop'} onClick={() => setView('library')} title="Library (G)">Library</button>
-      <button type="button" aria-pressed={s.view === 'develop'} disabled={!count} onClick={() => setView('develop')} title="Develop (D)">Develop</button>
+      <button type="button" aria-pressed={view !== 'develop'} onClick={() => setView('library')} title="Library (G)">Library</button>
+      <button type="button" aria-pressed={view === 'develop'} disabled={!count} onClick={() => setView('develop')} title="Develop (D)">Develop</button>
     </nav>
     <div className="topbar-space" />
     <div className="top-actions">

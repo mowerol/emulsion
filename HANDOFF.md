@@ -1,7 +1,130 @@
 # Handoff
 
-All work through 2026-11-10 is committed (the DCP removal, darktable camera data, app icon, DNG
+All work through 2026-11-10 is committed except the top section (the DCP removal, darktable camera data, app icon, DNG
 and TIFF support, and the retouch overlays went in together); "Uncommitted" notes below are out of date.
+
+## Speed session 2: drag re-render fan-out cut (2026-11-10)
+
+Oli decided: the **controls bar is judged on a production build** (not dev React), and the
+**histogram may update at ~10 Hz during a drag** (exact once the photo settles). Uncommitted;
+`npm run check` passes (729 frontend, 84 Rust).
+
+- **Measuring:** `PROD=1` in `realtime.mjs` serves production React (`mode: production`, cache
+  `node_modules/.vite-prod`). `ui-latency` reports `react`, `pageFps`, `worstFrameMs`, `framesOver25`,
+  per store update `flushMs`/`flushP90`/`flushMaxMs`/`flushTotalMs` (setState until React's microtask
+  render), `listenersMs` (zustand listeners alone), and `renders`: components re-rendered per update
+  and the `roots` where re-renders start (a DevTools-style `onCommitFiberRoot` hook in
+  `ui-latency.html`). `store.ts` `set` is late-bound so the test can wrap it. The flush timer swings
+  ±0.5 ms between runs; the component counts are exact and the better guide.
+- **Fixes:**
+  - `useShown` subscribed to the whole store (every histogram update re-rendered the grid): now
+    `useShallow(shown)`.
+  - Every edit rewrites the catalogue's folder cache (`cacheEdits`), and `useCatalog()` callers
+    (TopBar, FilterBar, ExportDialog, `useShown`) re-rendered on it: new `useSourceDefinitions()`
+    (imports + collections, all `sourceMatcher` reads).
+  - `useActivePhotoFacts()` (store): the active photo kept as the same object while only its
+    recipe changes (its `recipe` may be stale). Used by PhotoInfo, Histogram's ExposureInfo,
+    PresetControls (live photo only while its sheet is open).
+  - Narrow selectors: TopBar (view, count), FilterBar (counts), Histogram/CurveEditor (photo id;
+    curve backdrop memoised on the data), PhotoTools (has a photo), TransformControls (id),
+    ExportDialog (no photos/selection while closed; its form state still persists).
+  - `memo`: PhotoTools (Develop passes stable zoom handlers via a ref), PhotoInfo, Histogram,
+    FullResolutionStatus, ImageViewOptions, FilterBar; Panel's tab bar (`ControlStages`) and
+    Workflow action bar (`ActionBar`, primitives only). Section's icons are made once.
+  - Histogram store updates at most every 100 ms with a trailing update (`showHistogram` in
+    Develop.tsx); a new photo's first histogram shows at once.
+  - Panel's section Reset (`sectionChanged`) is worked out only for visible sections.
+- **Result** (headless, production React, 600-input Exposure drag): components re-rendered per
+  update **140 → 43**; JS in the drag 680 → 577 ms (React 335 → 279, icons 55 → 12; zustand
+  18 → 57 from the extra selectors). Dev React flush 4.1 → 3.1 ms median. Worst page frame 17 ms in
+  every drag (Dehaze, Exposure, two brush strokes). What's left re-renders for a reason: the edited
+  slider row, the visible sections, the edited photo's frame, Develop (it renders through the recipe).
+  Native time (style/layout/paint/IPC, ~505 ms) is now the larger share and unchanged.
+- **Next:** time it where it counts. `tools/perf/inapp.mjs` runs the **dev** app; Oli judges a
+  production build, so it needs a production mode (a `vite build` served to the Tauri dev shell, or
+  `tauri build --debug`) before the bar can be checked in WKWebView. Then the clean idle-Mac run
+  below. Further cuts if needed: TreatmentControls/LookChooser re-render on every edit (photo prop;
+  their callbacks read `photo.recipe`, so memo needs them to read `activePhoto()` instead); Images
+  re-renders for the edited frame (could subscribe per frame).
+- **Oli should try** (not checkable headlessly): drag sliders, the curve, colour wheels; the histogram
+  should still follow a drag (a little steppier) and land exact; Undo/Redo/Paste buttons and their
+  tooltips; Presets hover preview and "Update from this photo"; Export dialog opens with the right
+  scope and remembers size/quality; filter counts in the Images pane after editing (Edited filter);
+  photo info bar marks (stars/heart) after editing; zoom buttons and Cmd +/-.
+
+## Roadmap set; speed session 1: endless re-render fixed (2026-11-10)
+
+Oli asked what keeps Emulsion from competing with Lightroom Classic; the answer became the
+README's Roadmap, now **ordered**: speed, export, XMP/keywords, culling/library scale, editing
+parity. Speed is current. Uncommitted.
+
+- **Bug 1 fixed: a zoomed-in RAW never settled.** With profiled denoise on (default for RAWs) and
+  the region path (zoomed in), Develop re-rendered every `VIEW_SETTLE_MS` for ever (~5 fps of
+  full frames, worker busy, GPU and battery). Cause: `regionRenderSteps` ran the whole-photo
+  products with `prepare: undefined` (from 2026-11-02, so a stage prepare would not stop it
+  early); the profiled denoise (7b510b7) reads `prepare !== 'frame'` as "interactive screen
+  render, defer", so even `prepareFrame` deferred the preview's denoise and `profiledOwed`
+  never cleared. Fix: pass `'frame'` through (products return before the frame's own stop).
+  Regression: `GPU=1 node tools/browser-tests/realtime.mjs region-detail 120 profiled` (red
+  before, green after).
+- **Diagnostics kept:** `Engine.inexactParts`; each worker frame stat carries `pending` (live,
+  moving, draft, inexact parts); `perfrun.ts` `settle` timeouts now say what kept it busy.
+- **Fresh baseline**, `VITE_PERF_SCALE=0.5 node tools/perf/inapp.mjs ~/Pictures/1OKK6432.RAF interaction 600`
+  (26 MP RAF, WKWebView, DPR 2, one run; now fits in 600 s):
+
+  | Slider | Photo fps | GPU ms/frame | Controls fps / worst frame | Main-thread long tasks |
+  | --- | ---: | ---: | --- | ---: |
+  | Exposure | 52.5 | 18 | 58.3 / 37 ms | 253 ms/s |
+  | Texture | 50.1 | 18 | 60.2 / 29 ms (1 stale) | 384 ms/s |
+  | Dehaze | 54.7 | 15 | 58.9 / 46 ms | 159 ms/s |
+  | Clarity | 45.7 | 16 | 58.9 / 35 ms | 163 ms/s |
+  | HSL | **9.8** | **192** | 57.1 / 39 ms | 322 ms/s |
+  | Sharpen | **10.4** | **186** | 57.9 / 43 ms | 284 ms/s |
+  | Capture | 5.6 | 47 | 59.7 / 31 ms | 97 ms/s |
+
+  HSL and Sharpen were not slow sliders: after a few drags, whenever the background
+  whole-photo capture sharpening had finished, **every frame rebuilt the region** (below).
+- **Bug 2 fixed: region rebuilt every frame once capture was cached.** `regionSteps` stores
+  `regionMade.input` as the cached capture result (`fullCapture.csOut`) once it is ready;
+  `regionHolds` compared that, but `regionPlan`'s `prev` compared the raw `src.tex`, found no
+  previous region and returned a new rectangle object each frame, and `regionSteps` reuses only
+  `made.rect === rect`. So ~63 ms CPU + ~190 ms GPU per frame, timing-dependent (it began when
+  the background capture landed). Fix: `regionPlan` uses the same input as `regionHolds`.
+  Regression in `capture-cache` (red before, green after); `region-detail` main, capture,
+  density, fidelity, motion and profiled all pass. Each drag's summary now carries `regions`
+  (admission, reach, share, `kept`), `pending` counts and denoise builds.
+- **After both fixes** (only three drags valid; the window kept losing focus, so rerun with
+  nobody using the Mac): Clarity photo 57.2 fps, Sharpen **10.4 → 53.4** (GPU 186 → 16 ms),
+  Capture **5.6 → 50.4**. An invalid run showed every slider at 0–2 ms CPU with `kept: true`.
+- **Bars (Oli, 2026-11-10):** controls must pass (58 fps, no frame over 25 ms, no stale);
+  the photo aims for **40 fps** (`inapp.mjs` default `PERF_FPS` now 40). Controls still fail
+  on worst frame (28–47 ms), with 270–364 ms/s of main-thread long tasks during drags: that is
+  the next target.
+- **What blocks the page thread during a drag (diagnosed, not fixed).** Loop: `VITE_ENGINE=worker
+  DPR=2 WINDOW=1440,900 PROFILE=<f>.cpuprofile node tools/browser-tests/realtime.mjs ui-latency 200 slider`
+  (whole App, 600-input Exposure drag; `TRACE=<f>.json` now records a timeline trace; the drag is
+  marked `gesture-start`/`gesture-end`). Headless Chrome, so magnitudes understate WKWebView.
+  - Inputs are cheap (0.1 ms; LiveRange). The cost is the once-per-frame flush: store update
+    (`editActive`) then a synchronous React re-render of ~20 components that read `photos` or the
+    active photo, most of which show nothing that changed: Images (200 memoised frames), FilterBar,
+    TopBar, PhotoTools, LookChooser, TransformControls, a closed ExportDialog (subscribes to
+    `photos` and builds its lists while closed), CurveEditor (rebuilds its histogram path each
+    histogram update, i.e. every frame), Histogram.
+  - Dev React (what `tauri dev` and `inapp.mjs` run) costs ~1.75× production: busy 1891 → 1351 ms
+    of 4.8 s, JS ~1360 → ~770 ms, longest stretch 23 → 19 ms. Layout+paint are small (~170 ms).
+    Production headless has no task over 12 ms; WKWebView + dev React reaches 30–45 ms.
+  - Fix plan (proposed to Oli): cut the re-render fan-out (narrow selectors / memo; ExportDialog
+    renders nothing until open), and decide histogram cadence during drags. Open question for
+    Oli: is the controls bar judged on the dev app or a production build?
+- **Oli (2026-11-10):** "it's been good", meaning the sliders feel fine to him. He has not yet
+  answered the two decisions (dev vs production build for the controls bar; histogram at ~10 Hz
+  during drags), so don't build the fan-out fix until he does.
+- **Next session starts with:** a clean full in-app run, with Oli keeping the Mac idle:
+  `VITE_PERF_SCALE=0.5 node tools/perf/inapp.mjs ~/Pictures/1OKK6432.RAF interaction 600`
+  (any `INVALID ... blur` line means focus was lost; rerun that slider with `VITE_PERF_SLIDER`).
+  Compare with the before/after numbers above, then `maskinteraction`, then photo switching.
+- **Oli should try:** open a RAW, zoom to 50% and 100%, wait 10 s: "Loading full resolution"
+  should clear and the fans stay quiet. `npm run check` passes (729 frontend, 84 Rust).
 
 ## DCP removed; camera colour follows darktable (2026-11-10)
 

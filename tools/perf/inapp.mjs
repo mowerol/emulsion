@@ -20,9 +20,9 @@ const child = spawn('npx', ['tauri', 'dev', '--config', config], {
   cwd: new URL('../..', import.meta.url).pathname, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
   env: { ...process.env, VITE_PERF: which, EMULSION_OPEN_FOLDER: dir },
 });
-// The budget a drag must meet to feel live (Oli, 2026-11-03: "60fps throughout"): 55 fps on a
-// 60 Hz screen and no freeze over 50 ms (about three dropped frames).
-const FPS = Number(process.env.PERF_FPS ?? 55), FREEZE = Number(process.env.PERF_FREEZE ?? 50);
+// The photo's budget while a control is dragged (Oli, 2026-11-10: the controls must pass their own
+// bar below; the applied change over the photo aims for 40 fps), and no freeze over 50 ms.
+const FPS = Number(process.env.PERF_FPS ?? 40), FREEZE = Number(process.env.PERF_FREEZE ?? 50);
 // The controls' own budget, apart from the photo's (Oli, 2026-11-04: sliders and knobs never
 // below 60 fps, even when the photo drops to 30): screen frames on the main thread at 60 Hz,
 // no frame longer than 25 ms (one dropped), and no frame showing an older value than was input.

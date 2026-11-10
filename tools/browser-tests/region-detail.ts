@@ -1124,6 +1124,44 @@ async function density(textured = false) {
     document.body.dataset.result = `PASS: arbitrary display densities, exact 1:1 input, reuse, settled equivalence and capture replacement ${JSON.stringify(results)}`;
   } finally { engine.release(preview); engine.dispose(); }
 }
+/**
+ * Profiled denoise on the region path. The region's screen render denoises the whole-photo
+ * preview for its products as well as the region; a settled frame (prepareFrame, then the
+ * screen render, as DevelopLoop runs them) must hold an exact result for both, or `inexact`
+ * stays true and Develop re-renders forever (2026-11-10: the products pass dropped
+ * prepare 'frame', so it deferred the preview's denoise during preparation too).
+ */
+async function profiledRegion() {
+  const canvas = document.createElement('canvas'); canvas.width = 600; canvas.height = 400;
+  const engine = new Engine(canvas), W = 2400, H = 1600;
+  const upload = (w: number, h: number) => {
+    const data = new Uint16Array(w * h * 4);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+      const n = ((x * 7919 + y * 104729) % 97) - 48;
+      data.set([0x3400 + Math.round(400 * x / w) + n, 0x3400 + Math.round(400 * y / h) - n, 0x3200 + n, 0x3c00], 4 * (y * w + x));
+    }
+    return engine.sourceFromHalf({ width: w, height: h, fullWidth: W, fullHeight: H, mode: InputMode.DisplayLinear, white: null, data });
+  };
+  const full = upload(W, H), preview = upload(600, 400);
+  const r: Recipe = { ...defaultRecipe('neutral', 'straight'), captureSharpening: 0, grain: 0, dehaze: 20,
+    profiledDenoise: { enabled: true, strength: 1.2, luma: 30, chroma: 50, shadows: 0, bias: 0 } };
+  try {
+    assert(engine.profiledJob(full, r) && engine.profiledJob(preview, r), 'Fixture: profiled denoise must apply to both sources');
+    for (const scale of [.5, 1]) {
+      document.body.dataset.progress = `profiled ${scale}`;
+      const w = canvas.width / (W * scale), h = canvas.height / (H * scale);
+      const opts = { target: 'screen' as const, width: canvas.width, height: canvas.height, seed: 0, view: { x: (1 - w) / 2, y: (1 - h) / 2, w, h }, whole: preview };
+      assert((engine as any).regionPlan(full, r, opts), `${scale}: fixture must take the region path`);
+      for (const _ of engine.prepareFrame(full, r, opts)) { /* drain, as DevelopLoop's settle does */ }
+      engine.render(full, r, opts);
+      assert(!engine.inexact, `${scale}: a prepared, settled frame is still inexact (${JSON.stringify((engine as any).inexactParts)})`);
+      engine.render(full, r, opts);
+      assert(!engine.inexact, `${scale}: a second settled frame is still inexact`);
+      assert(engine.gpu.gl.getError() === engine.gpu.gl.NO_ERROR, `${scale}: GL error`);
+    }
+    document.body.dataset.result = 'PASS: profiled denoise on the region path settles exactly after preparation';
+  } finally { engine.release(full); engine.release(preview); engine.dispose(); }
+}
 async function readback() {
   const engine = new Engine(document.createElement('canvas'));
   const w = 96, h = 64, data = new Uint16Array(w * h * 4);
@@ -1150,4 +1188,4 @@ async function readback() {
   } finally { engine.release(source); engine.dispose(); }
 }
 const mode = new URLSearchParams(location.search);
-(mode.has('maskdehaze') ? maskedDehazeCache() : mode.has('readback') ? readback() : mode.has('density') || mode.has('fidelity') ? density(mode.has('fidelity')) : mode.has('motion') ? motion() : mode.has('capture') ? captureArrival() : mode.has('colorpreview') ? colorPreview() : mode.has('hsl') ? hslDrag() : mode.has('gesture') ? gesture() : mode.has('timing') ? timing() : main()).catch(error => { document.body.dataset.result = `FAIL: ${document.body.dataset.progress ?? ''}: ${String(error)} ${error?.stack ?? ''}`; });
+(mode.has('profiled') ? profiledRegion() : mode.has('maskdehaze') ? maskedDehazeCache() : mode.has('readback') ? readback() : mode.has('density') || mode.has('fidelity') ? density(mode.has('fidelity')) : mode.has('motion') ? motion() : mode.has('capture') ? captureArrival() : mode.has('colorpreview') ? colorPreview() : mode.has('hsl') ? hslDrag() : mode.has('gesture') ? gesture() : mode.has('timing') ? timing() : main()).catch(error => { document.body.dataset.result = `FAIL: ${document.body.dataset.progress ?? ''}: ${String(error)} ${error?.stack ?? ''}`; });

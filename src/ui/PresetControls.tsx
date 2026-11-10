@@ -11,7 +11,7 @@ import { captureLook, lookName } from '../film/looks';
 import { SCANNER } from '../film/scanners';
 import { addPresetCollection, deletePreset, importPresetFiles, savePreset, togglePresetFavourite, usePresetPrefs, usePresets } from '../library/presets';
 import { uuid } from '../library/userlooks';
-import { activePhoto, editRecipes, showToast, targets, undo, useApp } from '../library/store';
+import { activePhoto, editRecipes, showToast, targets, undo, useApp, useActivePhotoFacts } from '../library/store';
 import { photoId } from '../library/copies';
 import { setPreview } from './tools';
 import { useWorkspace } from './workspace';
@@ -57,7 +57,7 @@ type Sheet = { id: string; name: string; groups: PresetGroup[]; collection: stri
 export function PresetControls() {
   const entries = usePresets();
   const prefs = usePresetPrefs();
-  const photo = useApp(activePhoto);
+  const facts = useActivePhotoFacts();
   const selected = useApp(s => s.selected.size);
   const visible = useWorkspace(s => s.layout !== 'workflow' || s.group === 'presets');
   const [query, setQuery] = useState('');
@@ -66,6 +66,9 @@ export function PresetControls() {
   const [applied, setApplied] = useState<string | null>(null);
   const [naming, setNaming] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // The open sheet shows the photo's settings, so only then does an edit re-render the list.
+  const live = useApp(s => sheet ? activePhoto(s) : null);
+  const photo = live ?? facts;
   const fail = (e: unknown) => showToast(String(e));
   const count = Math.max(1, selected);
 

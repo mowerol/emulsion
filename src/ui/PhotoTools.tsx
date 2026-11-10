@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { useEffect, useRef, useState, type ComponentType } from 'react';
+import { memo, useEffect, useRef, useState, type ComponentType } from 'react';
 import { Bandage, ChevronDown, Columns2, Crop, Eraser, Eye, Hand, Minus, MousePointer2, Pipette, Plus, Slash, SquareDashedMousePointer, type LucideIcon } from 'lucide-react';
 import { setCompare, useApp } from '../library/store';
 import { CropBar } from './CropBar';
@@ -32,11 +32,12 @@ const ZOOMS: { scale: number | null; label: string; key?: string }[] = [
 ];
 
 /** The bar above the photo: compare on the left, the tools in the middle, zoom on the right. */
-export function PhotoTools({ scale, zoomLabel, onZoom, onStep, before, onBefore, ready }: {
+// Memoised: Develop re-renders on every edit, and nothing here follows the recipe.
+export const PhotoTools = memo(function PhotoTools({ scale, zoomLabel, onZoom, onStep, before, onBefore, ready }: {
   scale: number | null; zoomLabel: string; onZoom: (scale: number | null) => void; onStep: (direction: 1 | -1) => void;
   before: Before; onBefore: (before: Before) => void; ready: boolean;
 }) {
-  const photo = useApp(activePhoto);
+  const hasPhoto = useApp(s => !!activePhoto(s));
   const cropping = useApp(s => !!s.cropEdit);
   const picking = useApp(s => s.picking);
   const canCrop = useApp(s => !!s.developSize && s.developSize.path === activePhoto(s)?.path);
@@ -61,7 +62,7 @@ export function PhotoTools({ scale, zoomLabel, onZoom, onStep, before, onBefore,
     return () => { document.removeEventListener('pointerdown', outside); window.removeEventListener('keydown', esc, true); };
   }, [zoomMenu]);
 
-  const disabled = (id: ToolId) => id === 'crop' || id === 'heal' || id === 'remove' || id === 'transform' ? !canCrop : id === 'pick' ? !photo : false;
+  const disabled = (id: ToolId) => id === 'crop' || id === 'heal' || id === 'remove' || id === 'transform' ? !canCrop : id === 'pick' ? !hasPhoto : false;
 
   return <>
   <div className="photo-tools" role="toolbar" aria-label="Photo tools">
@@ -112,4 +113,4 @@ export function PhotoTools({ scale, zoomLabel, onZoom, onStep, before, onBefore,
   {transforming && !cropping && <TransformBar />}
   {healing && !cropping && !transforming && <RetouchBar />}
   </>;
-}
+});
