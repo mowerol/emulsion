@@ -14,7 +14,6 @@ import { FULL, isFull, type Crop } from '../film/crop';
 import { NO_FILTER, normalizeFilter, passes, rangeWithin, shownIndices, stepWithin, type Filter } from './filter';
 import { seedFor } from '../engine/engine';
 import { flushSaves, savePhoto } from './sidecars';
-import { withAutoProfile } from '../engine/profilestore';
 import { findPairs, foldPairs } from './pairs';
 import { cleanCopyName, expandCopies, photoId, savedFrames } from './copies';
 import { applyMark, describeMark, hasMark, normalizeMarks, type Label, type MarkKey, type Marks } from './marks';
@@ -620,6 +619,16 @@ const history = new History();
 
 const historyState = () => ({ history: { undo: history.undoLabel, redo: history.redoLabel } });
 
+/** Tool drafts share Undo/Redo with photo edits without writing a sidecar. */
+export function recordTransientEdit(label: string, transient: NonNullable<Step['transient']>) {
+  history.recordTransient(label, transient);
+  set(historyState());
+}
+
+export function discardTransientEdits(scope: string) {
+  if (history.discardTransient(scope)) set(historyState());
+}
+
 /**
  * Persist one complete source family, so edits to two copies cannot overwrite each other.
  * `checkpoint` keeps the edits being replaced in the sidecar's history (sidecar.rs).
@@ -631,7 +640,7 @@ function persistSources(ids: string[], checkpoint = false) {
     const family = [...get().photos, ...get().hidden].filter(p => p.path === path)
       .map(p => editing?.path === photoId(p) ? { ...p, recipe: editing.original } : p);
     if (!family.some(p => !p.copyId)) continue;
-    savePhoto({ path, ...savedFrames(family.map(withAutoProfile)) }, checkpoint);
+    savePhoto({ path, ...savedFrames(family) }, checkpoint);
     // Import management must retain versions created or removed since the last scan.
     if (!get().candidates.some(p => p.path === path)) continue;
     let inserted = false;
@@ -808,6 +817,12 @@ export function markPhotos(mark: MarkKey) {
 
 /** Put recipes and marks back as a history step recorded them, without recording a new step. */
 function applyStep(step: Step, side: 'before' | 'after', verb: string) {
+  if (step.transient) {
+    step.transient[side]();
+    set(historyState());
+    showToast(`${verb} ${step.label}`);
+    return;
+  }
   const families = new Map<string, Photo[]>();
   for (const c of step.changes) if (c.frames) families.set(c.path, c[side]);
   if (families.size) {

@@ -3,9 +3,6 @@ import { planRemovals, removeContext, removeSetup, removalIdentity } from '../..
 // Engine probe: renders a synthetic frame through the real engine in any
 // browser and reports pixel values, so stage changes and ports can be checked
 // numerically. See docs/ARCHITECTURE.md, "Testing".
-import dcpNative from '../../src/engine/fixtures/dcp-native.json';
-import { dcpCommit, dcpEarly, dcpLate, toneCurve as dcpToneCurve, type DcpProfile } from '../../src/engine/dcp';
-import { ProfileGpu } from '../../src/engine/profilegpu';
 import { parsePayload } from '../../src/backend/api';
 import lensFixtures from '../../src/engine/fixtures/lens-metadata.json';
 import { LENS_DEFAULTS, lensCenter, lensColourUniforms, lensCorrectPixels, lensSpline, lensUniforms, type LensMetadata } from '../../src/engine/lenscorrection';
@@ -41,6 +38,8 @@ import { Filmstrip } from '../../src/ui/Filmstrip';
 import { Library } from '../../src/ui/Library';
 import { StageMenu } from '../../src/ui/StageMenu';
 import { Panel } from '../../src/ui/Panel';
+import { CameraColourWarning } from '../../src/ui/CameraProfile';
+import { Section } from '../../src/ui/Section';
 import { startLookEdit, useApp } from '../../src/library/store';
 import { bandFactors, bandGains, correction, luminance, toneEqualize } from '../../src/engine/toneequalizer';
 import denoiseFixture from '../../src/engine/fixtures/denoiseprofile-reference.json';
@@ -877,7 +876,17 @@ view.width = W; view.height = H;
 document.body.append(view);
 const out: Record<string, unknown> = {};
 try {
-  if (new URLSearchParams(location.search).has('nrpanel')) {
+  if (new URLSearchParams(location.search).has('profilerow')) {
+    // The camera colour warning (only the uncalibrated RAW shows one), above a folded section.
+    const host = document.createElement('aside');
+    host.className = 'panel panel-workflow';
+    host.style.cssText = 'position:fixed;left:0;top:0;width:340px;height:100%';
+    document.body.append(host);
+    const cam = (kind?: 'darktable' | 'none') => ({ make: 'Sony', model: 'ILCE-7RM6', cameraToWorking: [[1, 0, 0], [0, 1, 0], [0, 0, 1]] as [Vec3, Vec3, Vec3], neutral: null, baselineGain: 1.8, colour: kind ? { kind } : undefined });
+    createRoot(host).render(createElement('div', { className: 'grouped-controls-body' },
+      ...[[true, cam('darktable')], [true, cam('none')], [false, null], [true, null]].map(([raw, camera], i) => createElement('div', { key: i, className: 'control-section-slot' }, createElement(CameraColourWarning, { raw: raw as boolean, camera: camera as never }))),
+      createElement('div', { className: 'control-section-slot' }, createElement(Section, { id: 'probe-wb', title: 'White Balance', defaultOpen: false, children: createElement('p', null, 'x') }))));
+  } else if (new URLSearchParams(location.search).has('nrpanel')) {
     // The Detail section's noise rows, for a screenshot: an OM-3 RAW at ISO 4000, a JPEG below.
     const host = document.createElement('aside');
     host.className = 'panel';
@@ -2448,28 +2457,6 @@ if (photoArg) {
   document.body.append(p);
 })();
 
-
-// Focused camera-profile processing check: ?profiles. Native fixtures independently
-// validate the TypeScript reference; this check verifies both GPU stages and texture layout.
-(async()=>{
-  if(!new URLSearchParams(location.search).has('profiles'))return;
-  const out:Record<string,unknown>={};
-  try{
-    const eng=new Engine(document.createElement('canvas')),gpu=new ProfileGpu(eng.gpu);
-    const t=dcpNative.tables[2];
-    const profile:DcpProfile={name:'Synthetic reference',camera:'Test',copyright:'GPL',matrix1:dcpNative.matrix1 as import('../../src/film/stocks').Mat3,matrix2:dcpNative.matrix2 as import('../../src/film/stocks').Mat3,forward1:dcpNative.forward1 as import('../../src/film/stocks').Mat3,forward2:dcpNative.forward2 as import('../../src/film/stocks').Mat3,temperature1:2850,temperature2:6500,map1:{dims:t.dims as Vec3,gamma:t.gamma,data:new Float32Array(t.data)},map2:null,look:null,curve:null,exposure:.25};
-    const camera={make:'Test',model:'Camera',cameraToWorking:[[1,0,0],[0,1,0],[0,0,1]] as import('../../src/film/stocks').Mat3,neutral:[.5,1,.7] as Vec3,baselineGain:1.8};
-    for(const [i,c]of dcpNative.step2.entries()){
-      const p={...profile,look:c.look?{dims:t.dims as Vec3,gamma:t.gamma,data:new Float32Array(t.data)}:null,curve:c.tone?dcpToneCurve(c.points):null};
-      const state=dcpCommit(p,camera,'case'+i);gpu.upload(state);gpu.bind(state);eng.gpu.scratch();
-      out['early'+i]=probeStage(eng,['stages/dcp.glsl'],'stageDcpEarly(c)',COLOURS,{reference:{uniforms:gpu.uniforms(state),ref:rgb=>dcpEarly(rgb,state)}});
-      gpu.bind(state);eng.gpu.scratch();
-      out['late'+i]=probeStage(eng,['stages/dcp.glsl'],'stageDcpLate(c)',COLOURS,{reference:{uniforms:gpu.uniforms(state),ref:rgb=>dcpLate(rgb,state)}});
-    }
-    out.errorCode=eng.gpu.gl.getError();gpu.dispose();eng.dispose();
-  }catch(e){out.error=String(e)+(e instanceof Error?e.stack:'');}
-  const pre=document.createElement('pre');pre.id='profiles';pre.textContent=JSON.stringify(out);document.body.append(pre);
-})();
 
 // Region rendering (docs/plans/roi.md): ?region. A full-size source developed only where a
 // zoomed view shows it must give the pixels a whole full-size render gives there. `exact` takes

@@ -51,7 +51,6 @@ function bmp(W: number, H: number) {
     return payload(FULL_W, FULL_H);
   }
   if (command === 'plugin:event|listen') return 1;
-  if (command === 'camera_profiles') return [];
   if (command === 'write_sidecar' || command === 'plugin:event|unlisten') return;
 } };
 

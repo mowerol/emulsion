@@ -5,7 +5,6 @@
 mod ai_masks;
 mod ai_models;
 mod app_data;
-mod camera_profiles;
 mod capture;
 mod commands;
 mod decode;
@@ -13,6 +12,7 @@ pub mod denoise;
 pub mod inpaint;
 mod inpaint_cache;
 mod inpaint_commands;
+mod jxl;
 mod noise_cache;
 mod noiseprofiles;
 mod export;
@@ -20,6 +20,7 @@ mod exposure;
 mod library;
 mod lens;
 mod raw;
+mod rawspeed_cameras;
 mod presets;
 mod perspective;
 mod segment;
@@ -72,10 +73,6 @@ pub fn run() {
             commands::computer_folders,
             commands::thumbnail,
             commands::load_image,
-            commands::camera_profiles,
-            commands::read_camera_profile,
-            commands::read_camera_profile_file,
-            commands::install_camera_profile,
             commands::custom_looks,
             commands::list_presets,
             commands::save_preset,

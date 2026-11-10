@@ -14,11 +14,11 @@ const STUBS: [string, string][] = [
   ['maskExposure', 'x = stageMaskExposure(x);'], ['teq', 'x = stageToneEqualizer(x, uv);'], ['maskTeq', 'x = stageMaskToneEqualizer(x, uv);'],
   ['texture', 'x = stageTexture(x, ruv);'], ['colorEqual', 'x = stageColorEqual(x, ruv);'], ['profileCb', 'x = stageProfileColorBalance(x);'],
   ['colorBalance', 'x = stageColorBalance(x);'], ['maskCb', 'x = stageMaskColorBalance(x);'], ['lens', 'x = stageLens(x, uv);'], ['optics', 'x = stageOptics(x, uv);'],
-  ['dcpLate', 'vec3 base = stageDcpLate(x);'], ['toneProfile', '} else e = stageToneProfile(base);'], ['clarity', 'e = stageClarity(e, ruv);'], ['usm', 'e = stageUnsharpMask(e, ruv);'],
+  ['toneProfile', 'vec3 e = stageToneProfile(x);'], ['clarity', 'e = stageClarity(e, ruv);'], ['usm', 'e = stageUnsharpMask(e, ruv);'],
   ['grain', 'e = stageGrain(e, uv);'], ['output', 'vec3 d = stageOutput(e);'], ['scanner', 'd = stageScanner(d);'], ['curve', 'd = stageCurve(d);'], ['finish', 'd = stageFinish(d);'],
   ['overlay', 'd = maskOverlay(d);'], ['computeMasks', 'computeMasks(uv, whole);'], ['input', 'vec3 x = stageInput(texture(uSrc, ruv));'],
 ];
-const replacement: Record<string, string> = { dcpLate: 'vec3 base = x;', toneProfile: '} else e = base;', output: 'vec3 d = e;', input: 'vec3 x = texture(uSrc, ruv).rgb;' };
+const replacement: Record<string, string> = { toneProfile: 'vec3 e = x;', output: 'vec3 d = e;', input: 'vec3 x = texture(uSrc, ruv).rgb;' };
 // ?combo: shader edits beyond one call, to tell per-pixel arithmetic from the uber-shader's shape
 // (register pressure from stages and taps that are present but switched off).
 const COMBOS: Record<string, (t: string) => string> = {
@@ -31,7 +31,7 @@ const COMBOS: Record<string, (t: string) => string> = {
     exposure: 'x = stageExposure(x);', maskExposure: 'computeMasks(uv, whole); x = stageMaskExposure(x);', sharpen: 'x = stageSharpen(x, ruv);', dehaze: 'x = stageDehaze(x, ruv);',
     teq: 'x = stageToneEqualizer(x, uv);', maskTeq: 'computeMasks(uv, whole); x = stageMaskToneEqualizer(x, uv);', texture: 'x = stageTexture(x, ruv);',
     colorEqual: 'x = stageColorEqual(x, ruv);', profileCb: 'x = stageProfileColorBalance(x);', maskCb: 'computeMasks(uv, whole); x = stageMaskColorBalance(x);',
-    lens: 'x = stageLens(x, uv);', optics: 'x = stageOptics(x, uv);', dcpLate: 'x = stageDcpLate(x);', toneProfile: 'x = stageToneProfile(x);',
+    lens: 'x = stageLens(x, uv);', optics: 'x = stageOptics(x, uv);', toneProfile: 'x = stageToneProfile(x);',
     lut: 'if (uLutOn > 0.5) x = stageLookPrint(x);', clarity: 'x = stageClarity(x, ruv);', usm: 'x = stageUnsharpMask(x, ruv);', grain: 'x = stageGrain(x, uv);',
     display: 'computeMasks(uv, whole); x = maskOverlay(stageFinish(stageCurve(stageScanner(stageOutput(x)))));',
   }).map(([k, code]) => [`only:${k}`, (t: string) => t.replace(/(void main\(\) \{[\s\S]*?vec3 x = stageInput\(texture\(uSrc, ruv\)\);)[\s\S]*?(\n  outColor = vec4\(d, 1\.0\);)/, `$1\n  ${code}\n  vec3 d = stageOutput(x);$2`)])),

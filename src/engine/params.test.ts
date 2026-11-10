@@ -117,13 +117,9 @@ describe('develop uniforms', () => {
 
 describe('LUT white and black targets', () => {
   const lut = { level: 2, data: new Float32Array(24), id: 1, eightBit: true };
-  it('enables target adjustments for either Whites direction and lifted Blacks, preserving the zero path', () => {
+  it('sets the curve for Whites and Blacks, preserving the zero path', () => {
     const r = defaultRecipe('portra400');
     const at = (whites: number, blacks: number) => developUniforms({ ...r, whites, blacks }, { ...ctx, look: lut });
-    expect(at(0, 0).uProfileTargetsOn).toBe(0);
-    for (const whites of [-100, 100]) expect(at(whites, 0).uProfileTargetsOn).toBe(1);
-    expect(at(0, 100).uProfileTargetsOn).toBe(1);
-    expect(at(0, -100).uProfileTargetsOn).toBe(0);
     expect(at(0, -100).uExpBlack).toBeCloseTo(0.008, 9);
     expect(at(50, 25).uSigS).toEqual(packCurve(toneCurveFor(50, 25)));
     expect(developUniforms({ ...r, whites: 50, blacks: 25 }, ctx).uSigS).toEqual(at(50, 25).uSigS);
@@ -136,7 +132,6 @@ it('tone character changes the output curve without changing grain or the Contra
   for (const toneCharacter of [-100, 100]) {
     const u = developUniforms({ ...base, toneCharacter }, ctx);
     expect(u.uSigS).not.toEqual(neutral.uSigS);
-    expect(u.uProfileTargetsOn).toBe(1); // Includes camera profiles supplying a tone curve.
     expect(u.uCbP).toEqual(neutral.uCbP);
     expect(u.uGrain).toEqual(neutral.uGrain);
     expect((u.uGrain as number[])[0]).toBe(0);

@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { assemble } from './glsl';
 
-import dcp from './shaders/stages/dcp.glsl?raw';
-import dcpPass from './shaders/dcp.frag.glsl?raw';
 import quadVert from './shaders/quad.vert.glsl?raw';
 import common from './shaders/common.glsl?raw';
 import previewmap from './shaders/stages/previewmap.glsl?raw';
@@ -54,7 +52,6 @@ import llboundary from './shaders/llboundary.frag.glsl?raw';
 import llkeep from './shaders/llkeep.frag.glsl?raw';
 
 export const SHADER_FILES: Record<string, string> = {
-  'stages/dcp.glsl': dcp,
   'common.glsl': common,
   'stages/previewmap.glsl': previewmap,
   'lenscorrect.frag.glsl': lenscorrect,
@@ -82,7 +79,6 @@ export const SHADER_FILES: Record<string, string> = {
 };
 
 export const SHADERS = {
-  dcp: assemble(dcpPass, SHADER_FILES),
   vertex: quadVert,
   lenscorrect: assemble(lenscorrect, SHADER_FILES),
   develop: assemble(develop, SHADER_FILES),

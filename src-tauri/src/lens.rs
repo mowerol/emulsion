@@ -133,6 +133,8 @@ impl<'a> Tiff<'a> {
             if !matches!(
                 id,
                 0x10f
+                    | 0x103
+                    | 0x7038
                     | 0x110
                     | 0x112
                     | 0x14a
@@ -396,6 +398,28 @@ fn dng(bytes: &[u8]) -> Result<Option<Correction>, String> {
         }))
     };
     parse().unwrap_or_else(|| Err("Invalid DNG lens opcodes".into()))
+}
+
+/// A Sony ARW's raw directory: its compression and SonyRawImageSize (0x7038), the image size
+/// rawspeed's ArwDecoder crops to (`TiffTag::SONYRAWIMAGESIZE`). Walks IFD0 and its SubIFDs only.
+pub fn sony_raw_ifd(path: &Path) -> Option<(u32, Option<(u32, u32)>)> {
+    let file = File::open(path).ok()?;
+    let data = Data {
+        len: file.metadata().ok()?.len(),
+        file: RefCell::new(file),
+    };
+    let (t, first) = Tiff::at(&data, 0)?;
+    let (root, _) = t.tags(first)?;
+    let subs = root.iter().find(|tag| tag.id == 0x14a).and_then(|tag| t.numbers(tag)).unwrap_or_default();
+    for offset in subs.into_iter().take(8) {
+        let Some((tags, _)) = t.tags(offset as u32) else { continue };
+        let num = |id: u16| tags.iter().find(|tag| tag.id == id).and_then(|tag| t.numbers(tag));
+        let Some(size) = num(0x7038) else { continue };
+        let compression = num(0x103)?.first().copied()? as u32;
+        let size = (size.len() == 2 && size[0] >= 1.0 && size[1] >= 1.0).then(|| (size[0] as u32, size[1] as u32));
+        return Some((compression, size));
+    }
+    None
 }
 
 /// No unbounded file reads, tag allocations or directory recursion. Invalid/unknown profiles

@@ -24,7 +24,6 @@ mockIPC(async command => {
     for (let i = 0; i < data.length; i += 4) data.set([0x3400, 0x3400, 0x3400, 0x3c00], i);
     return buf;
   }
-  if (command === 'camera_profiles') return [];
   if (command === 'remove_inpaint') throw Error('Remove model missing');
   if (command === 'write_export') { writes++; return '/exports/holiday.jpg'; }
 });

@@ -11,8 +11,7 @@ import { flushSaves } from '../library/sidecars';
 
 import { type ReactNode, memo, useEffect, useRef, useState } from 'react';
 import { Blend, ClipboardPaste, Copy, Ellipsis, Eraser, Redo2, RotateCcw, SlidersHorizontal, Sparkle, SquareDashedMousePointer, SwatchBook, Undo2, type LucideIcon } from 'lucide-react';
-import { CameraProfileControls } from './CameraProfile';
-import { profileLabel, useProfileVersion } from '../engine/profilestore';
+import { CameraColourWarning } from './CameraProfile';
 import { TransformControls, transformSummary } from './TransformControls';
 import { LensControls } from './LensControls';
 import { ColourGradingControls } from './ColourGrading';
@@ -367,7 +366,6 @@ const SectionSlot = memo(function SectionSlot({ hidden, children }: { hidden: bo
 }, (a, b) => a.hidden && b.hidden);
 
 export function Panel() {
-  useProfileVersion();
   const view = useApp((s) => s.view);
   const photo = useApp(activePhoto);
   const total = useApp((s) => s.photos.length);
@@ -399,9 +397,7 @@ export function Panel() {
   const sliderGroup = (group: SliderDef['group']) => SLIDERS.filter(d => d.group === group).map(d => d.key);
   const scanner = <ScannerFinishControls recipe={base} editor={!!editing} onChange={pickScanner} />;
   const sections: Record<string, ReactNode> = {
-    profile: <Section id="profile" title="Camera Profile" summary={profileLabel(base.profile)}>
-      <CameraProfileControls raw={photo.raw} camera={photo.camera??null} value={base.profile} onChange={profile=>editActive(r=>({...(r??defaultRecipe()),profile}), 'Camera profile')} />
-    </Section>,
+    profile: <CameraColourWarning raw={photo.raw} camera={photo.camera??null} />,
     stock: !editing && <Section defaultOpen id="stock" title="Look" summary={base.lookEnabled ? base.lookSnapshot?.name ?? lookName(base.pack, base.stock) : 'None'}><TreatmentControls key={photoId(photo)} photo={photo} /></Section>,
     presets: grouped ? <PresetControls /> : <Section defaultOpen id="presets" title="Presets"><PresetControls /></Section>,
     scanner: editing && scanner,

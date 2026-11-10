@@ -5,13 +5,12 @@ import { framePixels } from '../film/crop';
 import type { Recipe } from '../film/recipe';
 import type { Photo } from '../library/store';
 import type { Source } from '../engine/engine';
-import { useProfileVersion } from '../engine/profilestore';
 import { offscreenEngine, sourceForPreview, thumbs } from '../library/thumbs';
 
 /**
  * Previews of the current photo in a grid of choices (base LUTs, looks), one canvas per key.
  * A canvas is drawn when it scrolls into view (within `root`) and kept until `baseKey`
- * (what every tile shares, such as the recipe without the choice) or the profiles change,
+ * (what every tile shares, such as the recipe without the choice) changes,
  * so scrolling only draws tiles not drawn yet. The plain photo is returned as `placeholder`
  * to show under a canvas until its render lands. Canvases are sized to cover `size`
  * (device pixels) and are meant to be shown with object-fit: cover.
@@ -28,7 +27,6 @@ export function useTileRenders({ photo, keys, recipeFor, baseKey, root, size }: 
   const path = photo?.path;
   const seed = photo?.seed ?? 0;
   const white = photo?.white ?? null;
-  const profileVersion = useProfileVersion();
   const latest = useRef({ recipeFor, keys });
   latest.current = { recipeFor, keys };
 
@@ -83,7 +81,7 @@ export function useTileRenders({ photo, keys, recipeFor, baseKey, root, size }: 
     decoded.current = null;
   }, []);
 
-  const drawKey = `${path}|${baseKey}|${profileVersion}|${seed}|${white}`;
+  const drawKey = `${path}|${baseKey}|${seed}|${white}`;
   const keyList = keys.join('\n');
   const [tw, th] = size;
   useEffect(() => {
@@ -118,7 +116,7 @@ export function useTileRenders({ photo, keys, recipeFor, baseKey, root, size }: 
         if (c.width !== cw) c.width = cw;
         if (c.height !== ch) c.height = ch;
         const r = latest.current.recipeFor(k);
-        await eng.prepare(r, src.camera);
+        await eng.prepare(r);
         if (cancelled) return;
         eng.renderToCanvas(src, r, c, seed);
         drawn.current.set(c, mark);

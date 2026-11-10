@@ -102,6 +102,7 @@ body { background: var(--bg); color: var(--fg); font-family: var(--font); font-s
 button, input { font: inherit; color: inherit; }
 [hidden] { display: none !important; }
 .muted { color: var(--muted); }
+.nowrap { white-space: nowrap; }
 code { font-size: 12.5px; background: var(--raise); padding: 1px 5px; border-radius: 4px; }
 
 .app { display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100%; }
@@ -439,6 +440,10 @@ input[type='range']:disabled { opacity: 0.35; cursor: default; }
 
 .grain-speed { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: center; gap: 10px; }
 .grain-speed label { font-size: 13px; }
+.colour-warning { flex-direction: row; align-items: flex-start; gap: 8px; }
+.colour-warning p { margin: 0; font-size: 12px; line-height: 1.45; color: var(--text); }
+.colour-warning svg { width: 14px; height: 14px; margin-top: 2px; flex: none; fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.panel-workflow .group.colour-warning { padding: 12px 0; }
 .grain-speed select, .wb-head select { background: var(--raise); border: 1px solid var(--line); border-radius: 6px; padding: 5px 8px; font-size: 13px; min-width: 0; }
 .curve { display: grid; gap: 8px; }
 .curve-graph { display: block; width: 100%; aspect-ratio: 1; touch-action: none; cursor: crosshair; --curve: var(--fg); }
@@ -1042,16 +1047,25 @@ body { font-variant-numeric: tabular-nums; min-width: 1200px; }
 .retouch-hit { fill: transparent; stroke: transparent; stroke-width: 10; pointer-events: all; cursor: move; }
 .retouch-cursor { pointer-events: none; }
 .retouch-hit.line { fill: none; stroke-linecap: round; stroke-linejoin: round; pointer-events: stroke; }
-.retouch-band { fill: none; stroke: #fff; stroke-linecap: round; stroke-linejoin: round; }
-.retouch-bands { opacity: .16; }
-/* The selected spot in the accent, as its ellipse handles; its source (.retouch-source) stays white. */
-/* Strokes waiting for Apply look the same: they are what Apply will make. */
-.retouch-overlay [data-spot].active .mask-line, .retouch-waiting .mask-line { stroke: var(--accent); }
-.retouch-overlay [data-spot].active .mask-line:not(.dashed), .retouch-waiting .mask-line { opacity: 1; }
-.retouch-overlay [data-spot].active .retouch-band, .retouch-waiting .retouch-band { stroke: var(--accent); }
-.retouch-overlay [data-spot].active .retouch-bands, .retouch-waiting .retouch-bands { opacity: .24; }
+/* Saved edits share a quiet white boundary; drawing and unfilled removals are red. */
+.retouch-overlay { --retouch-color: #fff; --retouch-opacity: .5; }
+.retouch-overlay [data-spot].active, .retouch-overlay .retouch-source { --retouch-opacity: .75; }
+.retouch-overlay [data-spot][data-remove-state="pending"],
+.retouch-overlay [data-spot][data-remove-state="failed"],
+.retouch-overlay .retouch-waiting,
+.retouch-overlay .retouch-painting { --retouch-color: #ff5c5c; --retouch-opacity: .95; }
+.retouch-brush-outline { color: var(--retouch-color); opacity: var(--retouch-opacity); pointer-events: none; }
+.retouch-overlay .mask-shape-outline .mask-line { stroke: var(--retouch-color); opacity: var(--retouch-opacity); filter: none; }
+.retouch-line-keyline { fill: none; stroke: #111; stroke-width: 3; opacity: var(--retouch-opacity); pointer-events: none; }
+.retouch-overlay .mask-handle { fill: var(--retouch-color); stroke: #fff; }
+.retouch-spot-pin { pointer-events: all; cursor: move; color: #fff; }
+.retouch-spot-pin .retouch-pin-ring { fill: #161616; stroke: var(--retouch-color); stroke-width: 1.5; }
+.retouch-spot-pin > svg { pointer-events: none; }
+.retouch-spot-pin:hover .retouch-pin-ring, .retouch-spot-pin:focus-visible .retouch-pin-ring { stroke-width: 3; }
+.retouch-spot-pin:focus-visible { outline: none; }
+.remove-pending .retouch-pin-ring { stroke-dasharray: 3 2; animation: remove-march .9s linear infinite; }
 .dashed-shape .mask-line { stroke-dasharray: 5 5; }
-.retouch-link { opacity: .5; }
+.retouch-overlay .retouch-link { opacity: .5; }
 .retouch-cross { fill: none; stroke: #ddd; stroke-width: 1.5; filter: drop-shadow(0 0 1.5px #000c); pointer-events: none; }
 .retouch-bar .tool-seg.icons button { display: grid; place-items: center; padding: 0 6px; }
 .retouch-scales { position: relative; flex: 0 1 auto; min-width: 54px; margin-left: 4px; }
@@ -1570,12 +1584,14 @@ body:has(.workspace-look) { min-width: 960px; }
 .remove-controls p { margin: 0; flex: 1; min-width: 0; font-size: 12px; line-height: 1.5; color: var(--text2); overflow-wrap: anywhere; }
 .remove-controls .btn { flex: none; }
 .remove-controls progress { width: 140px; height: 6px; accent-color: var(--text2); }
-/* Removing: the outline's dashes travel, leaving its opacity and colour to say whether it is selected. */
+/* Travelling highlights signify processing without pulsing or hiding the area boundary. */
+.remove-outline-flow { animation: remove-flow .9s linear infinite; }
+@keyframes remove-flow { to { transform: translateX(-12px); } }
 .remove-pending .mask-line:not(.dashed) { stroke-dasharray: 6 4; animation: remove-march .9s linear infinite; }
 .remove-warning { pointer-events: none; color: var(--accent); }
 .remove-warning rect { fill: var(--histo); }
 @keyframes remove-march { to { stroke-dashoffset: -10; } }
-@media (prefers-reduced-motion: reduce) { .remove-pending .mask-line { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .remove-pending .mask-line, .remove-outline-flow, .remove-pending .retouch-pin-ring { animation: none; } }
 .export-remove-warning { padding: 12px; background: var(--ctl); border-radius: 8px; color: var(--text); }
 .export-remove-warning p { margin: 0 0 8px; line-height: 1.5; overflow-wrap: anywhere; }
 .export-remove-warning .dialog-actions { margin-top: 12px; }

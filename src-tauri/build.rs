@@ -83,6 +83,8 @@ fn build_libraw() {
 }
 
 fn main() {
+    // Tauri embeds the development Dock icon during code generation.
+    println!("cargo:rerun-if-changed=icons");
     build_libraw();
     cc::Build::new().cpp(true).std("c++14")
         .include("vendor/rawtherapee-perspective")

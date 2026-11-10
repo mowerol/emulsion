@@ -448,7 +448,6 @@ describe("a Remove spot's patch key", () => {
     const k = preRetouchKey('photo.raf', r);
     for (const changed of [
       { ...r, lens: { enabled: false, distortion: true, ca: true, vignette: true, distortionAmount: 1, redAmount: 1, blueAmount: 1, vignetteAmount: 1 } },
-      { ...r, profile: 'standard' as const },
       { ...r, wb: { temperature: 4000, tint: 10 } },
       { ...r, noiseReduction: { enabled: true, amount: 50, model: 'rawnind-linear-v1' as const } },
       { ...r, captureSharpening: 20 },

@@ -39,7 +39,6 @@ let releaseInstall: (() => void) | null = null, releasePatch: (() => void) | nul
   if (command === 'thumbnail') throw Error('No camera preview');
   if (command === 'load_image') return payload();
   if (command === 'plugin:event|listen') return 1;
-  if (command === 'camera_profiles') return [];
   if (command === 'remove_status') return { supported: true, installed, download: 208_000_000, model: 'lama' };
   if (command === 'remove_install') { installs++; await new Promise<void>(r => { releaseInstall = r; }); installed = true; }
   if (command === 'remove_inpaint') {
@@ -117,9 +116,9 @@ async function main() {
   for (let i = 0; i < 40 && !workerAnswers; i++) await wait(50);
   assert(workerAnswers > 0, 'The retouch worker never answered');
 
-  // Scroll up over the photo: the spot grows by darktable's 3% a step.
+  // Option-scroll up over the photo: the spot grows by darktable's 3% a step.
   const stage = capture;
-  stage.dispatchEvent(new WheelEvent('wheel', { deltaY: -10, bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
+  stage.dispatchEvent(new WheelEvent('wheel', { deltaY: -10, altKey: true, bubbles: true, cancelable: true, clientX: cx, clientY: cy }));
   await wait(50);
   assert((spots()[0].shape as { radius: number }).radius === 0.02, 'Scrolling healed before it paused');
   await wait(350);
@@ -207,7 +206,7 @@ async function main() {
   pointer(capture, 'pointerdown', cx - 150, cy - 100);
   for (let i = 1; i <= 10; i++) pointer(capture, 'pointermove', cx - 150 + i * 8, cy - 100 + i * 3);
   await wait(50);
-  assert(document.querySelector('.retouch-band'), 'No stroke drawn while painting');
+  assert(document.querySelector('.retouch-painting .retouch-brush-outline'), 'No area boundary drawn while painting');
   pointer(capture, 'pointerup', cx - 70, cy - 70);
   await wait(50);
   assert(spots().length === n1 + 1, 'A brush stroke did not make one spot');
@@ -229,10 +228,10 @@ async function main() {
   assert(activePhoto(useApp.getState())!.recipe!.retouchScales.scales === 4, 'The scales slider did not set 4 scales');
   const scaleButtons = Array.from(document.querySelectorAll('.retouch-scale-list button')) as HTMLButtonElement[];
   assert(scaleButtons.length === 6, `Expected Photo, 1-4 and Residual, got ${scaleButtons.length}`);
-  const shownBefore = document.querySelectorAll('.retouch-overlay .retouch-hit').length;
+  const shownBefore = document.querySelectorAll('.retouch-overlay [data-spot]').length;
   scaleButtons[3].click(); await wait(50);
   assert(useRetouchUi.getState().settings.scale === 3, 'Choosing scale 3 did not make it current');
-  assert(document.querySelectorAll('.retouch-overlay .retouch-hit').length < shownBefore, "Other scales' spots still show");
+  assert(document.querySelectorAll('.retouch-overlay [data-spot]').length < shownBefore, "Other scales' spots still show");
   click(cx + 150, cy - 120); await wait(50);
   assert(spots()[spots().length - 1].scale === 3, 'A new spot did not go on the current scale');
   const show = pop.querySelector('.retouch-check input') as HTMLInputElement;
@@ -362,6 +361,6 @@ async function main() {
   barButton('Clear all').click(); await wait(50);
   assert(spots().length === removes && spots().every(s => s.tool === 'remove'), "Heal's Clear all touched Remove's spots");
   key('Escape'); await wait(50);
-  document.body.dataset.result = 'PASS: Remove is its own tool (E) with only its spots, Heal comes back as left (Q) and clears only its own; Remove consent, sized download, decline, pending outline, warning, retry, brush, move, resize, delete and undo/redo; with After each stroke off, strokes wait, ⌫ drops the last, Apply/Enter makes one spot per touching group as one edit, Esc lets them go; Q holds Heal; a click adds a heal circle with darktable\'s first source; dragging the source moves only it, as an outline until released; scroll sizes by 3%, saved once it pauses; a tool click is for the next spot and ⌘-click switches the selected one; Backspace removes; hover previews the spot and its source; ellipses at darktable defaults with handles; fill, colour, blur and bilateral change the spot; ⇧-click and ⌘⇧-click place sources; a brush stroke makes a brush spot; detail scales set, new spots go on the current scale and only its spots show, Show this scale toggles; Escape puts it down; the view retouches in a worker';
+  document.body.dataset.result = 'PASS: Remove is its own tool (E) with only its spots, Heal comes back as left (Q) and clears only its own; Remove consent, sized download, decline, pending outline, warning, retry, brush, move, resize, delete and undo/redo; with After each stroke off, strokes wait, ⌫ drops the last, Apply/Enter makes one spot per touching group as one edit, Esc lets them go; Q holds Heal; a click adds a heal circle with darktable\'s first source; dragging the source moves only it, as an outline until released; Option-scroll sizes by 3%, saved once it pauses; a tool click is for the next spot and ⌘-click switches the selected one; Backspace removes; hover previews the spot and its source; ellipses at darktable defaults with handles; fill, colour, blur and bilateral change the spot; ⇧-click and ⌘⇧-click place sources; a brush stroke makes a brush spot; detail scales set, new spots go on the current scale and only its spots show, Show this scale toggles; Escape puts it down; the view retouches in a worker';
 }
 main().catch(error => { document.body.dataset.result = `FAIL: ${String(error)}`; });

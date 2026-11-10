@@ -7,8 +7,8 @@
 //! plus one before each version upgrade (darktable's `data.db-pre-<version>`), an archive to move
 //! everything to another computer, and a restore that merges a snapshot or archive back in.
 //!
-//! Snapshot layout = data layout: `backups/<name>/{looks,presets,camera-profiles,settings.json}`.
-//! Content-addressed files (LUTs, DCPs) are hard-linked rather than copied; every writer replaces
+//! Snapshot layout = data layout: `backups/<name>/{looks,presets,settings.json}`.
+//! Content-addressed files (LUTs) are hard-linked rather than copied; every writer replaces
 //! files by renaming a temporary file over them, so a link never sees a later change.
 
 use serde::Serialize;
@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// What a snapshot or archive holds, relative to the data folder.
-pub const DIRS: [&str; 3] = ["looks", "presets", "camera-profiles"];
+pub const DIRS: [&str; 2] = ["looks", "presets"];
 pub const SETTINGS: &str = "settings.json";
 const BACKUPS: &str = "backups";
 const VERSION_FILE: &str = "last-version";
@@ -28,7 +28,7 @@ pub const KEEP_DAILY: usize = 15;
 /// Snapshots made before an upgrade or a restore, kept per kind.
 const KEEP_EVENT: usize = 5;
 /// Files an archive or snapshot may bring in.
-const EXTENSIONS: [&str; 5] = ["json", "cube", "3dl", "png", "dcp"];
+const EXTENSIONS: [&str; 4] = ["json", "cube", "3dl", "png"];
 /// An archive larger than this when unpacked is refused.
 const MAX_ARCHIVE: u64 = 4 * 1024 * 1024 * 1024;
 /// `settings.json` is small; anything larger is not ours.
@@ -73,8 +73,7 @@ fn has_data(root: &Path) -> bool {
 
 /// Content-addressed files never change once written, so snapshots share them.
 fn immutable(rel: &Path) -> bool {
-    let ext = rel.extension().and_then(|e| e.to_str()).unwrap_or("");
-    ext == "dcp" || rel.components().any(|c| c.as_os_str() == "luts")
+    rel.components().any(|c| c.as_os_str() == "luts")
 }
 
 fn allowed(path: &Path) -> bool {
@@ -374,13 +373,11 @@ mod tests {
     fn data(root: &Path) {
         fs::create_dir_all(root.join("looks/luts")).unwrap();
         fs::create_dir_all(root.join("presets")).unwrap();
-        fs::create_dir_all(root.join("camera-profiles")).unwrap();
         fs::write(root.join("looks/a.json"), r#"{"id":"a"}"#).unwrap();
         fs::write(root.join("looks/luts/abc.cube"), "LUT").unwrap();
         fs::write(root.join("presets/p.json"), r#"{"id":"p"}"#).unwrap();
         fs::write(root.join("presets/p.tmp"), "half written").unwrap();
-        fs::write(root.join("camera-profiles/x.dcp"), "II*").unwrap();
-        write_settings(root, &json!({ "emulsion.cameraProfiles": { "fujifilmxt30ii": "x" } })).unwrap();
+        write_settings(root, &json!({ "emulsion.theme": "dark" })).unwrap();
     }
 
     #[test]
@@ -414,7 +411,7 @@ mod tests {
         assert!(launch_snapshots(root, "0.1.0", "2026-01-01").unwrap().is_empty());
         let snap = root.join("backups/2026-01-01");
         assert_eq!(fs::read_to_string(snap.join("looks/luts/abc.cube")).unwrap(), "LUT");
-        assert!(snap.join("settings.json").is_file() && snap.join("camera-profiles/x.dcp").is_file());
+        assert!(snap.join("settings.json").is_file());
         assert!(!snap.join("presets/p.tmp").exists());
         #[cfg(unix)]
         {
@@ -443,15 +440,15 @@ mod tests {
         fs::remove_file(root.join("looks/a.json")).unwrap();
         fs::write(root.join("presets/p.json"), r#"{"id":"p","edited":true}"#).unwrap();
         fs::write(root.join("presets/q.json"), r#"{"id":"q"}"#).unwrap();
-        write_settings(root, &json!({ "emulsion.cameraProfiles": {}, "emulsion.lookBrowser": { "favourites": ["x"] } })).unwrap();
+        write_settings(root, &json!({ "emulsion.theme": "light", "emulsion.lookBrowser": { "favourites": ["x"] } })).unwrap();
 
         let r = restore(root, &root.join("backups/2026-01-01")).unwrap();
-        assert_eq!(r.files, 4);
+        assert_eq!(r.files, 3);
         assert_eq!(r.settings, 1);
         assert_eq!(fs::read_to_string(root.join("looks/a.json")).unwrap(), r#"{"id":"a"}"#);
         assert_eq!(fs::read_to_string(root.join("presets/p.json")).unwrap(), r#"{"id":"p"}"#);
         assert!(root.join("presets/q.json").is_file(), "a restore never deletes");
-        assert_eq!(read_settings(root), json!({ "emulsion.cameraProfiles": { "fujifilmxt30ii": "x" }, "emulsion.lookBrowser": { "favourites": ["x"] } }));
+        assert_eq!(read_settings(root), json!({ "emulsion.theme": "dark", "emulsion.lookBrowser": { "favourites": ["x"] } }));
         let before = root.join("backups").join(r.before.unwrap());
         assert!(before.join("presets/q.json").is_file() && !before.join("looks/a.json").exists());
         assert!(restore(root, &root.join("presets")).is_err());
@@ -463,12 +460,12 @@ mod tests {
         let (a, b) = (dir.path().join("a"), dir.path().join("b"));
         data(&a);
         let archive = dir.path().join("mine.emulsion-settings");
-        assert_eq!(export(&a, &archive, "0.1.0").unwrap(), 5);
+        assert_eq!(export(&a, &archive, "0.1.0").unwrap(), 4);
         let unpacked = dir.path().join("unpacked");
         fs::create_dir_all(&unpacked).unwrap();
         unpack(&archive, &unpacked).unwrap();
         let r = restore(&b, &unpacked).unwrap();
-        assert_eq!((r.files, r.settings, r.before), (4, 1, None));
+        assert_eq!((r.files, r.settings, r.before), (3, 1, None));
         assert_eq!(fs::read_to_string(b.join("looks/luts/abc.cube")).unwrap(), "LUT");
         assert_eq!(read_settings(&b), read_settings(&a));
 

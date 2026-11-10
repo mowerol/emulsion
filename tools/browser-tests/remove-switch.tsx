@@ -86,7 +86,6 @@ function payload(full = false) {
     [1,0,0,0,1,0,0,0,1].forEach((v,i) => dv.setFloat32(12 + i * 4, v, true));
     new Uint8Array(buf, 48).fill(1); return buf;
   }
-  if (command === 'camera_profiles') return [];
   if (command === 'remove_status') return { supported: true, installed: true, download: 0, model: 'lama' };
   if (command === 'plugin:event|listen') return 1;
   if (command === 'remove_inpaint') {

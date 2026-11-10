@@ -297,12 +297,13 @@ export const digest = (s: string) => cyrb53(s, 0) + cyrb53(s, 0x9e3779b9);
 
 /**
  * The part of a patch key from the edits before the retouch step: the source (its identity and
- * decode settings, which the caller names), capture sharpening, lens correction, the camera
- * profile, white balance and noise reduction. Nothing after the step (Exposure, tones, the look).
+ * decode settings, which the caller names), capture sharpening, lens correction, white balance
+ * and noise reduction. Nothing after the step (Exposure, tones, the look).
  */
-export function preRetouchKey(source: string, recipe: Pick<Recipe, 'profile' | 'autoProfile' | 'lens' | 'wb' | 'noiseReduction' | 'profiledDenoise' | 'captureSharpening'>): string {
+export function preRetouchKey(source: string, recipe: Pick<Recipe, 'lens' | 'wb' | 'noiseReduction' | 'profiledDenoise' | 'captureSharpening'>): string {
   const nr = recipe.noiseReduction?.enabled ? recipe.noiseReduction : null;
-  const key: unknown[] = [source, recipe.captureSharpening, recipe.lens, recipe.profile, recipe.profile === 'auto' ? recipe.autoProfile ?? null : null, recipe.wb, nr];
+  const key: unknown[] = [source, recipe.captureSharpening, recipe.lens, 'auto', null, recipe.wb, nr];
+  // 'auto', null stand where the retired camera profile choice was, so keys made before stay valid.
   // Appended only when present, so keys (and the native patch cache) made before it stay valid.
   if (recipe.profiledDenoise != null) key.push(recipe.profiledDenoise);
   return JSON.stringify(key);

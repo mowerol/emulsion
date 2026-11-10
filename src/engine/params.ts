@@ -115,8 +115,6 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uLutTex: LUT_UNIT,
     uLutOn: 0,
     uLutColor: 0,
-    uDcpOn: 0,
-    uDcpHasCurve: 0,
   };
   if (!recipe || ctx.compare) {
     return { ...base, ...NO_MASKS, uCompare: 1, uExposure: 0, uExpBlack: 0, uWbMat: IDENTITY, uTeqOn: 0, uCurveOn: 0, uClarityOn: 0, uClarityScale: 1, uTextureOn: 0, uUsmOn: 0, uCeOn: 0 };
@@ -163,7 +161,6 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uTeqF1: teq.slice(4, 8),
     uTeqParams: [EXPOSURE_BOOST, FEATHERING, 2 * SMOOTHING * SMOOTHING],
     uExpBlack: recipe.blacks < 0 ? (-recipe.blacks / 100) * MAX_BLACK_LEVEL : 0,
-    uProfileTargetsOn: recipe.whites !== 0 || recipe.blacks > 0 || recipe.toneCharacter !== 0 ? 1 : 0,
     uSigS: packCurve(toneCurveFor(recipe.whites, recipe.blacks, recipe.toneCharacter)),
     uSigMag: whiteTargetFor(recipe.whites) / 100,
     uWbMat: wbMat,

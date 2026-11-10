@@ -40,11 +40,14 @@ pub fn get_or_create(cache_dir: &Path, path: &Path, max_edge: u32) -> Result<Vec
 
     // RAW thumbnails come from the camera's embedded preview, which is far
     // quicker than developing the file.
-    let img = match classify(path) {
-        Kind::Raw => raw::embedded_preview(path)?,
-        _ => decode::open_oriented(path)?,
-    };
-    let thumb = img.thumbnail(max_edge, max_edge).to_rgb8();
+    let thumb = match classify(path) {
+        Kind::Raw => raw::embedded_preview(path)?.thumbnail(max_edge, max_edge),
+        _ => {
+            let (img, icc) = decode::open_tagged(path)?;
+            decode::to_srgb(img.thumbnail(max_edge, max_edge), icc.as_deref())
+        }
+    }
+    .to_rgb8();
     let mut bytes = Vec::new();
     JpegEncoder::new_with_quality(&mut bytes, QUALITY)
         .encode_image(&thumb)

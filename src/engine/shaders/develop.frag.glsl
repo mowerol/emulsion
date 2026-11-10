@@ -20,7 +20,6 @@ uniform sampler2D uSrc;
 #include "stages/lens.glsl"
 #include "stages/output.glsl"
 #include "stages/lut.glsl"
-#include "stages/dcp.glsl"
 #include "stages/grain.glsl"
 #include "stages/scanner.glsl"
 #include "stages/curve.glsl"
@@ -90,9 +89,7 @@ void main() {
   }
   vec3 x = stageInput(texture(uSrc, ruv));
   if (uCompare > 0.5 || vUv.x < uSplit) {
-    vec3 original = stageDcpLate(x);
-    vec3 originalPrint = uDcpHasCurve > 0.5 ? srgbOetf(max(original, vec3(0.0))) : stageToneNeutral(original);
-    outColor = vec4(stageOutput(originalPrint), 1.0);
+    outColor = vec4(stageOutput(stageToneNeutral(x)), 1.0);
     return;
   }
   computeMasks(uv, whole);
@@ -167,13 +164,8 @@ void main() {
   x = stageLens(x, uv);
   x = stageOptics(x, uv);
   x = stageClarityLog(x, ruv);
-  // The camera profile renders the print, then the optional look applies to it.
-  vec3 e;
-  vec3 base = stageDcpLate(x);
-  if (uDcpHasCurve > 0.5) {
-    e = srgbOetf(max(base, vec3(0.0)));
-    if (uProfileTargetsOn > 0.5) e = stageToneProfile(vec3(toneInverse(e.r), toneInverse(e.g), toneInverse(e.b)));
-  } else e = stageToneProfile(base);
+  // The neutral curve renders the print, then the optional look applies to it.
+  vec3 e = stageToneProfile(x);
   if (uLutOn > 0.5) e = stageLookPrint(e);
   if (uTap > 0.5 && uTap < 1.5) {
     outColor = vec4(clarityLightness(e), 0.0, 0.0, 1.0);

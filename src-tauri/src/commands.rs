@@ -292,42 +292,6 @@ pub fn log_message(level: String, message: String) {
     eprintln!("[webview:{level}] {message}");
 }
 
-/// The user's DCP library, under the app's data folder.
-fn profiles_root(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
-    use tauri::Manager;
-    app.path().app_data_dir().map(|p| p.join("camera-profiles")).map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub async fn camera_profiles(app: tauri::AppHandle) -> Result<Vec<crate::camera_profiles::ProfileEntry>, String> {
-    let root = profiles_root(&app)?;
-    Ok(crate::camera_profiles::list(&root))
-}
-
-#[tauri::command]
-pub async fn read_camera_profile(app: tauri::AppHandle, id: String) -> Result<Response, String> {
-    let path = crate::camera_profiles::file(&profiles_root(&app)?, &id)?;
-    blocking(move || crate::camera_profiles::read_file(&path).map(Response::new)).await
-}
-
-#[tauri::command]
-pub async fn read_camera_profile_file(path: String) -> Result<Response, String> {
-    blocking(move || crate::camera_profiles::read_file(std::path::Path::new(&path)).map(Response::new)).await
-}
-
-#[tauri::command]
-pub async fn install_camera_profile(app: tauri::AppHandle, request: Request<'_>) -> Result<crate::camera_profiles::ProfileEntry, String> {
-    let name = header(&request, "x-emulsion-profile-name")?;
-    let camera = header(&request, "x-emulsion-profile-camera")?;
-    let copyright = header(&request, "x-emulsion-profile-copyright")?;
-    let bytes = match request.body() {
-        InvokeBody::Raw(bytes) => bytes.clone(),
-        _ => return Err("Expected binary DCP data".into()),
-    };
-    let root = profiles_root(&app)?;
-    blocking(move || crate::camera_profiles::install(&root, &bytes, name, camera, copyright)).await
-}
-
 /// Custom looks, under the app's data folder.
 fn looks_root(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     use tauri::Manager;

@@ -160,7 +160,7 @@ fn run() -> Result<(), String> {
         max_change = max_change.max(d.abs());
     }
     let report = json!({
-        "experiment": "RawNIND linear v1; no lens correction, DCP, sharpening or creative edits",
+        "experiment": "RawNIND linear v1; no lens correction, sharpening or creative edits",
         "source_file": input.file_name().map(|name| name.to_string_lossy()),
         "model_sha256": denoise::MODEL_SHA256, "runtime": runtime,
         "provider_requested": provider, "metadata": metadata, "crop": crop,

@@ -33,7 +33,6 @@ window.createImageBitmap = (async () => Object.assign(document.createElement('ca
     return args.maxEdge <= 2560 ? payload(args.maxEdge, Math.round(args.maxEdge * full[1] / full[0])) : payload(...full as [number, number]);
   }
   if (command === 'plugin:event|listen') return 1;
-  if (command === 'camera_profiles') return [];
 } };
 
 type Draw = { exposure: number | undefined; source: string; output: string; ms: number };

@@ -4,7 +4,6 @@
 import { defaultRecipe, type Recipe } from './recipe';
 
 export const COPY_GROUPS = {
-  'Camera profile': ['profile', 'autoProfile'],
   Look: ['lookEnabled', 'stock', 'pack', 'lookAmount', 'lookBlend', 'lookSnapshot'],
   'White balance': ['wb'],
   Exposure: ['exposure'],
@@ -40,11 +39,11 @@ export const COPY_GROUPS = {
 
 export type CopyGroup = keyof typeof COPY_GROUPS;
 export const ALL_COPY_GROUPS = Object.keys(COPY_GROUPS) as CopyGroup[];
-const OPT_IN: readonly CopyGroup[] = ['Camera profile', 'Crop', 'Transform', 'Masks', 'Heal and Remove'];
+const OPT_IN: readonly CopyGroup[] = ['Crop', 'Transform', 'Masks', 'Heal and Remove'];
 export const DEFAULT_COPY_GROUPS = ALL_COPY_GROUPS.filter(g => !OPT_IN.includes(g));
 
 export const COPY_SECTIONS = [
-  { title: 'Develop', groups: ['Camera profile', 'Look', 'White balance', 'Exposure', 'Contrast', 'Tone character', 'Highlights', 'Shadows', 'Whites', 'Blacks', 'Tone curve'] },
+  { title: 'Develop', groups: ['Look', 'White balance', 'Exposure', 'Contrast', 'Tone character', 'Highlights', 'Shadows', 'Whites', 'Blacks', 'Tone curve'] },
   { title: 'Colour and finish', groups: ['Vibrance', 'Saturation', 'Colour mixer', 'Colour Grading', 'Scanner finish', 'Fade', 'Halation', 'Glow', 'Vignette', 'Grain'] },
   { title: 'Detail and optics', groups: ['Texture', 'Clarity', 'Dehaze', 'Capture sharpening', 'Sharpening', 'Noise reduction', 'Lens corrections'] },
   { title: 'Geometry and local edits', groups: ['Crop', 'Transform', 'Masks', 'Heal and Remove'] },

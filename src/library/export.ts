@@ -75,7 +75,7 @@ export async function exportPhotos(
       // Everything after the upload is guarded, so a failed capture or profile still frees the source and its targets.
       try {
         if (recipe.captureSharpening > 0) await ensureCapture(engine, src, p.path);
-        await engine.prepare(recipe, src.camera);
+        await engine.prepare(recipe);
         if (recipe.retouch.some(s => s.tool === 'remove' && s.opacity > 0)) releaseRemovals = await prepareRemovals(engine, src, recipe, () => signal.canceled,
           JSON.stringify([p.size, p.modified]), onUnfilled ? error => onUnfilled(p, error) : undefined);
         if (signal.canceled) { result.canceled = true; break; }

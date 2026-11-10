@@ -11,7 +11,6 @@ import { RetouchOverlay } from './RetouchOverlay';
 import { useRemoveUi } from './removemodel';
 import { KEY_STEPS, applyPending, cancelPending, removeSpot, scrollSpot, useRetouchUi } from './retouchui';
 import { cycleCropOverlay } from './prefs';
-import { profilePending, useProfileVersion } from '../engine/profilestore';
 import { lutPending, useLutVersion } from '../engine/lutstore';
 import { recipeLookFile } from '../film/looks';
 import { logToTerminal } from '../backend/api';
@@ -21,7 +20,6 @@ import { InputMode } from '../engine/params';
 import { DevelopClient, type SourceRef } from './developclient';
 import { VIEW_SETTLE_MS } from '../engine/developloop';
 import type { Recipe } from '../film/recipe';
-import type { CameraMetadata } from '../film/profiles';
 import { pickStats, pickedRange } from '../engine/masks';
 import { RANGE_CHANNELS } from '../film/masks';
 import { warmStageOf, type WarmStage } from '../engine/warm';
@@ -62,10 +60,10 @@ interface Loaded {
   res: Res;
 }
 
-/** Keep the previous frame until the recipe's base profile and optional creative LUT are ready (Engine.waiting). */
-const assetsPending = (recipe: Recipe | null, camera?: CameraMetadata | null, compare = false) => {
+/** Keep the previous frame until the recipe's optional creative LUT is ready (Engine.waiting). */
+const assetsPending = (recipe: Recipe | null, compare = false) => {
   const file = compare ? null : recipeLookFile(recipe);
-  return (!!file && lutPending(file)) || profilePending(recipe?.profile ?? 'auto', camera, recipe?.autoProfile);
+  return !!file && lutPending(file);
 };
 /** A number per recipe object, so a change of recipe is a change of key. */
 const recipeIds = new WeakMap<object, number>();
@@ -176,7 +174,6 @@ export function Develop() {
   const path = photo?.path;
   const wantsNoise = !!photo?.raw && noiseEnabled(photo.recipe);
   const frameId = photo ? photoId(photo) : null;
-  const profileVersion = useProfileVersion();
   const lutVersion = useLutVersion();
   const maskSelected = useMaskUi((s) => s.selected);
   const maskOverlay = useMaskUi((s) => s.overlay);
@@ -538,18 +535,18 @@ export function Develop() {
     if (!engine || !l || l.path !== path || !current || !saved) return;
     // Compare also needs the base camera profile, but never the creative LUT. Waiting here also
     // starts their loading; the change of version when they arrive runs this again.
-    if (assetsPending(recipe, l.source.camera, compare)) return;
+    if (assetsPending(recipe, compare)) return;
     const whole = wholeOf(l);
     engine.render({
       source: l.source.key, whole: whole?.key ?? null, sizeKnown, full: l.res === 'full', recipe, saved, seed, compare, viewKey,
       sourceVersion: JSON.stringify([photo?.size, photo?.modified]),
       width: current.pxW, height: current.pxH, view: current.view, clipping, split, frame, outside: rgb(stage.hex), sharpenMask, maskShow,
       retouchShow: healing ? showScale : 0, detailOrder,
-      histogram: `${recipeId(recipe)}|${seed}|${compare}|${loadedVersion}|${path}|${lutVersion}|${profileVersion}`, histogramFor: frameId!,
+      histogram: `${recipeId(recipe)}|${seed}|${compare}|${loadedVersion}|${path}|${lutVersion}`, histogramFor: frameId!,
       prepare: `${sizeKnown}|${loadedVersion}|${path}|${viewKey}`,
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [recipe, seed, compare, loadedVersion, viewKey, path, clipping, split, JSON.stringify(frame), stage, sharpenMask, lutVersion, profileVersion, maskShow, healing, showScale, detailOrder, sizeKnown, engineReady]);
+  }, [recipe, seed, compare, loadedVersion, viewKey, path, clipping, split, JSON.stringify(frame), stage, sharpenMask, lutVersion, maskShow, healing, showScale, detailOrder, sizeKnown, engineReady]);
 
   // ---------- Zoom and pan ----------
 

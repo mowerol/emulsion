@@ -58,7 +58,6 @@ const mask = () => { const [w, h] = encodeSize; const m = new Uint8Array(w * h);
   if (command === 'thumbnail') throw Error('No camera preview');
   if (command === 'load_image') return args.maxEdge <= 2560 ? payload(args.maxEdge, Math.round(args.maxEdge * FH / FW)) : payload(FW, FH);
   if (command === 'plugin:event|listen') return 1;
-  if (command === 'camera_profiles') return [];
   if (command === 'ai_mask_status') return { supported: true, installed: true, download: 0 };
   if (command === 'segment_encode') { encodeSize = [+opts.headers['x-emulsion-width'], +opts.headers['x-emulsion-height']]; return null; }
   if (command === 'segment_decode' || command === 'segment_refine') return mask();

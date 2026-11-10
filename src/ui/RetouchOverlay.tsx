@@ -8,8 +8,8 @@
 // darktable), drag its source to choose where the pixels come from, and an ellipse's handles to
 // size and turn it. While dragging only the outline moves: the photo is healed once, on release.
 
-import { useEffect, useRef, useState } from 'react';
-import { TriangleAlert } from 'lucide-react';
+import { useEffect, useId, useRef, useState } from 'react';
+import { Bandage, Blend, Eraser, PaintBucket, Stamp, TriangleAlert } from 'lucide-react';
 import { activePhoto, useApp } from '../library/store';
 import { photoId } from '../library/copies';
 import { useRemoveUi } from './removemodel';
@@ -29,6 +29,7 @@ type Handle = 'spot' | 'source' | 'e-a' | 'e-b' | 'e-feather';
 
 /** A pointer that moves less than this (CSS pixels) is a click. */
 const CLICK_SLOP = 4;
+const SPOT_ICONS = { heal: Bandage, clone: Stamp, remove: Eraser, fill: PaintBucket, blur: Blend };
 
 export function RetouchOverlay({ spots: saved, transform, frame, W, H, view, cssW, cssH }: {
   spots: RetouchSpot[];
@@ -89,23 +90,25 @@ export function RetouchOverlay({ spots: saved, transform, frame, W, H, view, css
   };
   const line = (nodes: BrushNode[]) => nodes.map((n, i) => `${i ? 'L' : 'M'}${fmt(toScreen([n.x, n.y]))}`).join('') + (nodes.length === 1 ? 'l0.01 0' : '');
 
-  /** The shape's outline (and feather, dashed); for a brush its band, the width it covers. */
-  const outline = (s: RetouchShape, key: string, cls = '') => {
+  /** A hollow area boundary, with a dashed source and feather edge. */
+  const outline = (s: RetouchShape, key: string, cls = '', processing = false) => {
     if (s.kind === 'circle') return <g key={key} className={cls}>
+      <path d={circle(s.center, s.radius)} className="retouch-line-keyline" />
       <path d={circle(s.center, s.radius)} className="mask-line" />
+      <path d={circle(s.center, s.radius + s.border)} className="retouch-line-keyline" />
       <path d={circle(s.center, s.radius + s.border)} className="mask-line dashed" />
     </g>;
     if (s.kind === 'ellipse') return <g key={key} className={cls}>
+      <path d={polygon(ellipseOutline(s, W, H))} className="retouch-line-keyline" />
       <path d={polygon(ellipseOutline(s, W, H))} className="mask-line" />
+      <path d={polygon(ellipseOutline(s, W, H, true))} className="retouch-line-keyline" />
       <path d={polygon(ellipseOutline(s, W, H, true))} className="mask-line dashed" />
     </g>;
-    const strokes = brushStrokes(s);
     return <g key={key} className={cls}>
-      {/* The bands' opacity is the group's, so overlapping strokes show as one area. */}
-      <g className="retouch-bands">
-        {strokes.map((st, i) => <path key={i} d={line(st)} className="retouch-band" style={{ strokeWidth: 2 * screenLength([st[0].x, st[0].y], st[0].border) }} />)}
-      </g>
-      {strokes.map((st, i) => <path key={`l${i}`} d={line(st)} className="mask-line" />)}
+      <RetouchBrushOutline width={cssW} height={cssH} processing={processing} dashed={cls === 'dashed-shape'} strokes={brushStrokes(s).map(st => ({
+        points: st.map(n => toScreen([n.x, n.y])),
+        radius: screenLength([st[0].x, st[0].y], st[0].border),
+      }))} />
     </g>;
   };
   /** An invisible target covering the shape, for dragging it. */
@@ -200,18 +203,34 @@ export function RetouchOverlay({ spots: saved, transform, frame, W, H, view, css
   const preview = hover && !painting ? nextShape(hover) : null;
   const toolUsesSource = usesSource(ui.settings.tool);
   return (
-    <svg ref={ref} className="mask-overlay drawing retouch-overlay" width={cssW} height={cssH} onPointerMove={move} onPointerUp={end}
+    <svg ref={ref} className={`mask-overlay drawing retouch-overlay${mode === 'remove' ? ' remove-overlay' : ''}`} width={cssW} height={cssH} onPointerMove={move} onPointerUp={end}
       onPointerCancel={() => { drag.current = null; stroke.current = null; setPainting(null); commitDraft(); }} onPointerLeave={() => setHover(null)}>
       <rect className="mask-capture" width={cssW} height={cssH} onPointerDown={(e) => begin(e, 'add', null)} />
       {/* The selected spot last, so its outline sits above the others. */}
       {[...spots.filter((s) => s.id !== selected), ...spots.filter((s) => s.id === selected)].map((s) => {
         const state = s.tool === 'remove' && s.opacity > 0 ? states.find(r => r.spot === s.id) : undefined;
         const [x, y] = toScreen(spotAnchor(s.shape));
-        return <g key={s.id} data-spot={s.id} data-remove-state={state?.status}
+        const Icon = SPOT_ICONS[s.tool];
+        return <g key={s.id} data-spot={s.id} data-remove-state={s.tool === 'remove' && s.opacity > 0 ? state?.status ?? 'pending' : undefined}
           className={`mask-shape-outline${s.id === selected ? ' active' : ''}${state?.status === 'pending' ? ' remove-pending' : ''}`}>
           {state?.status === 'pending' && <title>Removing…</title>}
-          {outline(s.shape, 'o')}
-          {hitArea(s.shape, (e) => begin(e, 'spot', s), `${TOOL_NAMES[s.tool]} spot: drag to move`)}
+          {s.id !== selected ? (
+            <g className="retouch-spot-pin" transform={`translate(${x} ${y})`} role="button" tabIndex={0}
+              aria-label={`Select ${TOOL_NAMES[s.tool]} spot${state?.status === 'pending' ? ', removing' : state?.status === 'failed' ? ', removal failed' : ''}`}
+              onPointerDown={(e) => begin(e, 'spot', s)}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter' && e.key !== ' ') return;
+                e.preventDefault(); e.stopPropagation();
+                setHover(null); setRetouchUi({ selected: s.id });
+              }}>
+              <title>{`Select ${TOOL_NAMES[s.tool]} spot; drag to move`}</title>
+              <circle r={12} className="retouch-pin-ring" />
+              <Icon x={-7} y={-7} size={14} strokeWidth={1.75} aria-hidden="true" />
+            </g>
+          ) : <>
+            {outline(s.shape, 'o', '', state?.status === 'pending')}
+            {hitArea(s.shape, (e) => begin(e, 'spot', s), `${TOOL_NAMES[s.tool]} spot: drag to move`)}
+          </>}
           {state?.status === 'failed' && <g className="remove-warning" transform={`translate(${x + 8} ${y - 24})`} role="img" aria-label="Remove spot could not be filled">
             <title>{state.error ?? 'Remove spot could not be filled. Retry in the retouch bar.'}</title>
             <rect x="-3" y="-3" width="24" height="24" rx="4" />
@@ -227,6 +246,7 @@ export function RetouchOverlay({ spots: saved, transform, frame, W, H, view, css
           <g className="mask-shape-outline active retouch-source">
             <line x1={a[0]} y1={a[1]} x2={b[0]} y2={b[1]} className="mask-line dashed retouch-link" />
             {outline(src, 's', 'dashed-shape')}
+            {cross(sel.source, 'source-anchor')}
             {hitArea(src, (e) => begin(e, 'source', sel), 'Source: drag to choose where the pixels come from')}
           </g>
         );
@@ -243,7 +263,7 @@ export function RetouchOverlay({ spots: saved, transform, frame, W, H, view, css
         );
       })()}
       {pending && outline({ kind: 'brush', nodes: pending[0], more: pending.slice(1) }, 'pending', 'mask-shape-outline active retouch-cursor retouch-waiting')}
-      {painting && outline({ kind: 'brush', nodes: painting }, 'paint', 'mask-shape-outline active retouch-cursor')}
+      {painting && outline({ kind: 'brush', nodes: painting }, 'paint', 'mask-shape-outline active retouch-cursor retouch-painting')}
       {painting && toolUsesSource && cross(nextSource({ kind: 'brush', nodes: painting }), 'paint-src')}
       {preview && (
         // The next spot under the pointer, as darktable previews a new shape, and a + at its source.
@@ -261,4 +281,41 @@ export function RetouchOverlay({ spots: saved, transform, frame, W, H, view, css
       )}
     </svg>
   );
+}
+
+/** Erode the opaque union once, then subtract it: crossings have no seams or centre lines. */
+function RetouchBrushOutline({ strokes, width, height, processing, dashed }: { strokes: { points: Pt[]; radius: number }[]; width: number; height: number; processing: boolean; dashed: boolean }) {
+  const filter = useId();
+  const pattern = `${filter}-hatch`;
+  let left = Infinity, top = Infinity, right = -Infinity, bottom = -Infinity;
+  for (const { points, radius } of strokes) for (const [x, y] of points) {
+    left = Math.min(left, x - radius - 3); top = Math.min(top, y - radius - 3);
+    right = Math.max(right, x + radius + 3); bottom = Math.max(bottom, y + radius + 3);
+  }
+  // Keep filter surfaces within the viewport when panning or zooming far into a spot.
+  left = Math.max(-3, left); top = Math.max(-3, top);
+  right = Math.min(width + 3, right); bottom = Math.min(height + 3, bottom);
+  if (right <= left || bottom <= top) return null;
+  return <g className="retouch-brush-outline">
+    <defs>
+      {/* Explicit bounds also cover single clicks and perfectly horizontal/vertical strokes. */}
+      <filter id={filter} filterUnits="userSpaceOnUse" x={left} y={top} width={right - left} height={bottom - top}>
+        <feMorphology in="SourceAlpha" operator="erode" radius="1.5" result="inside" />
+        <feComposite in="SourceGraphic" in2="inside" operator="out" result="edge" />
+        <feMorphology in="edge" operator="dilate" radius=".75" result="border" />
+        <feFlood floodColor="#111" result="black" />
+        <feComposite in="black" in2="border" operator="in" result="keyline" />
+        <feMerge><feMergeNode in="keyline" /><feMergeNode in="edge" /></feMerge>
+      </filter>
+      {(processing || dashed) && <pattern id={pattern} patternUnits="userSpaceOnUse" width="12" height="12">
+        <rect width="12" height="12" fill={dashed ? '#111' : 'currentColor'} />
+        <path className={processing ? 'remove-outline-flow' : undefined} d="M-12 0L0 12M0 0L12 12M12 0L24 12M24 0L36 12" stroke="#fff" strokeWidth="4" />
+      </pattern>}
+    </defs>
+    <g filter={`url(#${filter})`}>
+      {strokes.map(({ points, radius }, i) => <path key={i}
+        d={points.map(([x, y], j) => `${j ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`).join('') + (points.length === 1 ? 'l0.01 0' : '')}
+        fill="none" stroke={processing || dashed ? `url(#${pattern})` : 'currentColor'} strokeWidth={2 * radius} strokeLinecap="round" strokeLinejoin="round" />)}
+    </g>
+  </g>;
 }

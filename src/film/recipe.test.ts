@@ -148,19 +148,16 @@ describe('crop in recipes', () => {
 });
 
 describe('camera base and optional creative look', () => {
-  it('starts new edits from Auto, a straight scanner, and no LUT', () => {
-    expect(defaultRecipe()).toMatchObject({ profile: 'auto', lookEnabled: false, stock: 'neutral', scanner: 'straight' });
+  it('starts new edits from a straight scanner and no LUT', () => {
+    expect(defaultRecipe()).toMatchObject({ lookEnabled: false, stock: 'neutral', scanner: 'straight' });
   });
   it('keeps existing LUTs and retires parametric stock selections', () => {
-    expect(normalizeRecipe({ stock: 'portra400', pack: 't3mujinpack' })).toMatchObject({ profile: 'auto', lookEnabled: true, scanner: 'frontier' });
-    expect(normalizeRecipe({ stock: 'pro400h' })).toMatchObject({ profile: 'auto', lookEnabled: false, stock: 'neutral', pack: 't3mujinpack' });
+    expect(normalizeRecipe({ stock: 'portra400', pack: 't3mujinpack' })).toMatchObject({ lookEnabled: true, scanner: 'frontier' });
+    expect(normalizeRecipe({ stock: 'pro400h' })).toMatchObject({ lookEnabled: false, stock: 'neutral', pack: 't3mujinpack' });
   });
-  it('keeps a base profile through look changes, slider resets, and JSON', () => {
-    const r={...defaultRecipe(), profile: `dcp:${'a'.repeat(64)}` as const};
-    const look=withStock(r,'portra400');
-    expect(look).toMatchObject({profile:r.profile,lookEnabled:true});
-    expect(resetAdjustments(look).profile).toBe(r.profile);
-    expect(normalizeRecipe(JSON.parse(JSON.stringify(look)))).toEqual(look);
-    expect(withSettingsFrom(look,{...defaultRecipe(),profile:'standard'}).profile).toBe('standard');
+  it('drops the retired camera profile choice from older sidecars', () => {
+    const r = normalizeRecipe({ ...defaultRecipe(), profile: `dcp:${'a'.repeat(64)}`, autoProfile: 'a'.repeat(64) });
+    expect(r).not.toHaveProperty('profile');
+    expect(r).not.toHaveProperty('autoProfile');
   });
 });

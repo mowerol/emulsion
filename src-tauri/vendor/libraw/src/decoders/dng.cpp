@@ -25,10 +25,92 @@ void LibRaw::vc5_dng_load_raw_placeholder()
     	throw LIBRAW_EXCEPTION_IO_EOF; // never reached
     throw LIBRAW_EXCEPTION_UNSUPPORTED_FORMAT;
 }
+// Emulsion: DNG 1.7 JPEG XL tiles without the DNG SDK. Upstream leaves this a placeholder
+// for its DNG SDK build. Emulsion decodes each tile's codestream in Rust (src/jxl.rs, with
+// jxl-oxide) and stores the samples as adobe_copy_pixel does for the other DNG loaders:
+// through curve[] (the LinearizationTable), into raw_image for CFA data or image for
+// LinearRaw. The tile walk follows lossy_dng_load_raw.
+extern "C" int emu_jxl_decode_tile(const unsigned char *, size_t, int, int *, int *, int *,
+                                   unsigned short **);
+extern "C" void emu_jxl_free(unsigned short *, size_t);
+
 void LibRaw::jxl_dng_load_raw_placeholder()
 {
-  // placeholder only, real decoding implemented in DNG SDK
-  throw LIBRAW_EXCEPTION_UNSUPPORTED_FORMAT;
+  if (!dng_version || !(raw_image || image))
+    throw LIBRAW_EXCEPTION_IO_CORRUPT;
+  // The raw IFD, for its TileByteCounts: a codestream has no end marker LibRaw could find.
+  int ifd = -1;
+  for (int i = 0; i < (int)tiff_nifds && i < LIBRAW_IFD_MAXCOUNT; i++)
+    if (tiff_ifd[i].comp == 52546 && tiff_ifd[i].offset == data_offset)
+      ifd = i;
+  if (ifd < 0)
+    throw LIBRAW_EXCEPTION_IO_CORRUPT;
+  const bool tiled = tile_length < INT_MAX;
+  const unsigned tw = tiled ? tile_width : raw_width;
+  const unsigned th = tiled ? tile_length : raw_height;
+  if (!tw || !th)
+    throw LIBRAW_EXCEPTION_IO_CORRUPT;
+  const unsigned samples = raw_image ? 1 : MIN(MAX(tiff_samples, 1u), 4u);
+  const INT64 fsize = libraw_internal_data.internal_data.input->size();
+
+  std::vector<unsigned char> buf;
+  unsigned trow = 0, tcol = 0, tile = 0;
+  while (trow < raw_height)
+  {
+    checkCancel();
+    INT64 offset, length;
+    if (tiled)
+    {
+      fseek(ifp, data_offset + 4 * INT64(tile), SEEK_SET);
+      offset = get4();
+      fseek(ifp, tiff_ifd[ifd].bytes + 4 * INT64(tile), SEEK_SET);
+      length = get4();
+    }
+    else
+    {
+      offset = data_offset;
+      length = tiff_ifd[ifd].bytes;
+    }
+    if (offset <= 0 || length <= 0 || offset + length > fsize || length > INT64(1) << 30)
+      throw LIBRAW_EXCEPTION_IO_CORRUPT;
+    buf.resize(size_t(length));
+    fseek(ifp, offset, SEEK_SET);
+    if (fread(buf.data(), 1, size_t(length), ifp) != size_t(length))
+      throw LIBRAW_EXCEPTION_IO_EOF;
+
+    int w = 0, h = 0, ch = 0;
+    unsigned short *px = 0;
+    if (emu_jxl_decode_tile(buf.data(), buf.size(), tiff_bps, &w, &h, &ch, &px) != 0)
+      throw LIBRAW_EXCEPTION_DECODE_RAW;
+    const size_t count = size_t(w) * size_t(h) * size_t(ch);
+    if (ch < int(samples) || w <= 0 || h <= 0)
+    {
+      emu_jxl_free(px, count);
+      throw LIBRAW_EXCEPTION_DECODE_RAW;
+    }
+    for (unsigned r = 0; r < unsigned(h) && r < th; r++)
+    {
+      const unsigned row = trow + r;
+      if (row >= raw_height)
+        break;
+      const unsigned short *src = px + size_t(r) * w * ch;
+      for (unsigned c = 0; c < unsigned(w) && c < tw; c++, src += ch)
+      {
+        const unsigned col = tcol + c;
+        if (col >= raw_width)
+          break;
+        if (raw_image)
+          RAW(row, col) = curve[src[0]];
+        else
+          for (unsigned s = 0; s < samples; s++)
+            image[size_t(row) * raw_width + col][s] = curve[src[s]];
+      }
+    }
+    emu_jxl_free(px, count);
+    tile++;
+    if ((tcol += tw) >= raw_width)
+      trow += th + (tcol = 0);
+  }
 }
 
 void LibRaw::adobe_copy_pixel(unsigned row, unsigned col, ushort **rp)

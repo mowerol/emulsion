@@ -13,7 +13,6 @@ import type { Recipe } from '../film/recipe';
 import type { Xy } from '../engine/whitebalance';
 import type { WarmStage } from '../engine/warm';
 import type { Histogram } from '../engine/histogram';
-import { profileSnapshot, profileVersion } from '../engine/profilestore';
 import { loadedLuts, lutVersion } from '../engine/lutstore';
 import { userLookSnapshot, userLookVersion } from '../film/looks';
 import { InputMode } from '../engine/params';
@@ -61,7 +60,6 @@ export class DevelopClient {
   private seq = 0;
   private requests = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   private requestIds = 0;
-  private sentProfiles = -1;
   private sentLuts = -1;
   private sentLooks = -1;
   private sentLutFiles = new Set<string>();
@@ -238,12 +236,9 @@ export class DevelopClient {
     return seq;
   }
 
-  /** Send camera profiles, LUTs and user looks this thread has loaded that the worker's stores lack. */
+  /** Send LUTs and user looks this thread has loaded that the worker's stores lack. */
   private syncAssets() {
     if (!this.worker) return;
-    const pv = profileVersion();
-    const profiles = pv !== this.sentProfiles ? profileSnapshot() : null;
-    if (profiles) this.sentProfiles = pv;
     let luts: ReturnType<typeof loadedLuts> | undefined;
     if (lutVersion() !== this.sentLuts) {
       this.sentLuts = lutVersion();
@@ -256,7 +251,7 @@ export class DevelopClient {
       this.sentLooks = userLookVersion();
       looks = userLookSnapshot();
     }
-    if (profiles || luts?.length || looks?.length) this.send({ type: 'assets', profiles: profiles ?? undefined, luts, looks });
+    if (luts?.length || looks?.length) this.send({ type: 'assets', luts, looks });
   }
 
   pointer(held: boolean, brush = false) {

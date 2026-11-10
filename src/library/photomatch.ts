@@ -12,7 +12,7 @@ export const referenceName = (path: string) => path.split(/[\\/]/).pop()?.slice(
 
 /** Preserve the photo's camera rendering and exposure, excluding the look being authored. */
 export function photoMatchBase(r: Recipe): Recipe {
-  return { ...defaultRecipe(), profile: r.profile, autoProfile: r.autoProfile, exposure: r.exposure, wb: r.wb, lens: r.lens };
+  return { ...defaultRecipe(), exposure: r.exposure, wb: r.wb, lens: r.lens };
 }
 
 export async function readReference(path: string): Promise<{ image: MatchImage; blob: Blob }> {
@@ -38,7 +38,7 @@ export async function photoMatchTarget(photo: Photo, signal: AbortSignal): Promi
   try {
     signal.throwIfAborted();
     if (recipe.captureSharpening > 0) await ensureCapture(engine, src, photo.path);
-    await engine.prepare(recipe, src.camera);
+    await engine.prepare(recipe);
     signal.throwIfAborted();
     const scale = Math.min(1, 512 / Math.max(w, h));
     const width = Math.max(1, Math.round(w * scale)), height = Math.max(1, Math.round(h * scale));

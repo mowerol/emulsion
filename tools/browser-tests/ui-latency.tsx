@@ -31,7 +31,6 @@ const jpeg = await (await new Promise<Blob>((r) => jpegCanvas.toBlob((b) => r(b!
   if (command === 'thumbnail') return jpeg;
   if (command === 'load_image') return args.maxEdge <= 2560 ? payload(args.maxEdge, Math.round(args.maxEdge * FH / FW)) : payload(FW, FH);
   if (command === 'plugin:event|listen') return 1;
-  if (command === 'camera_profiles') return [];
   return null;
 } };
 

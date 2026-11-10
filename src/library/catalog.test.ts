@@ -116,7 +116,7 @@ it('evaluates edited, favourite, label, camera, look, capture date, and folder r
   expect(matchesRules(p, [{ field: 'edited', value: true }, { field: 'rating', value: 4 }, { field: 'heart', value: true }, { field: 'label', value: 'red' },
     { field: 'camera', value: 'om-3' }, { field: 'folder', value: '/Photos/2026/' }, { field: 'date', value: '2026-10-01', before: false }, { field: 'date', value: '2026-11-01', before: true }])).toBe(true);
   expect(matchesRules(p, [{ field: 'folder', value: '/Photos/202' }])).toBe(false);
-  expect(matchesRules({ ...p, recipe: null }, [{ field: 'look', value: 'Auto' }])).toBe(true);
+  expect(matchesRules({ ...p, recipe: null }, [{ field: 'look', value: 'Neutral' }])).toBe(true);
   expect(matchesRules(p, [{ field: 'camera', value: 'Canon' }])).toBe(false);
   expect(matchesRules({ ...p, capture: undefined, modified: new Date(2026, 9, 12).getTime() }, [{ field: 'date', value: '2026-10-12', before: true }])).toBe(true);
 });

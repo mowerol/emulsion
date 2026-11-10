@@ -91,7 +91,6 @@ async function loopChecks(mode: 'main' | 'worker', needsFull = false) {
       [img.width, img.height, img.mode, 0, 0, 0, img.fullWidth, img.fullHeight].forEach((v, i) => header.setUint32(i * 4, v, true));
       new Uint16Array(bytes, 32).set(img.data); return bytes;
     }
-    if (command === 'camera_profiles') return [];
     return undefined;
   });
   const canvas = document.createElement('canvas'); canvas.width = 160; canvas.height = 120; document.body.append(canvas);
@@ -135,7 +134,6 @@ async function restoredChecks(mode: 'main' | 'worker') {
   mockIPC(async (command, args) => {
     if (command === 'remove_cached_patch') { reads++; return disk.get((args as { key: string }).key)?.slice().buffer ?? new ArrayBuffer(0); }
     if (['load_image', 'capture_info', 'remove_inpaint'].includes(command)) { work++; throw Error('A cached patch must not prepare or regenerate'); }
-    if (command === 'camera_profiles') return [];
   });
   let reference: Uint8Array | undefined;
   for (let visit = 0; visit < 2; visit++) {

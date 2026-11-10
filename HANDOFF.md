@@ -1,7 +1,190 @@
 # Handoff
 
-All work through 2026-11-09 is committed in 7b510b7; the "Uncommitted" notes in the sections
-below are out of date.
+All work through 2026-11-10 is committed (the DCP removal, darktable camera data, app icon, DNG
+and TIFF support, and the retouch overlays went in together); "Uncommitted" notes below are out of date.
+
+## DCP removed; camera colour follows darktable (2026-11-10)
+
+Oli found the Camera Profile panel misleading ("Standard" plus a camera name implied a profile), then
+chose to follow darktable: camera matrices only, no DCP (ICC input and darktable's enhanced matrices
+maybe later). No DCPs had ever been installed. Uncommitted.
+
+- **Camera Profile section removed:** nothing in it could change, so the panel says nothing about
+  camera colour unless a RAW's camera has no matrix; then `CameraColourWarning` (`src/ui/CameraProfile.tsx`)
+  shows "No colour data for the … yet, so colours are approximate." at the top. Probe view: `?profilerow`.
+
+- **Removed:** the RawTherapee DCP port (`dcp.ts`, `profilegpu.ts`, `profilestore.ts`, `dcp.glsl`,
+  `dcp.frag.glsl`, the Adobe curve, fixtures, `tools/probe/dcp-reference/`, the probe's `?profiles`,
+  `histogram-profile` browser test), `camera_profiles.rs` and its four commands, `camera-profiles/` in
+  backups/archives, the `emulsion.cameraProfiles` setting, the "Camera profile" copy group, and
+  `recipe.profile`/`autoProfile` (`normalizeRecipe` drops them from old sidecars). The neutral sigmoid
+  always renders the base; texture units 13-15 are free. `preRetouchKey` keeps `'auto', null` in place
+  of the old fields so existing retouch caches stay valid. The two Rec.2020↔D50 matrices retouch used
+  moved into `retouch.ts` (NOTICE updated). Unedited photos' look label is now "Neutral" (was "Auto").
+- **Panel:** `raw.rs` `ColourSource` (`camera` / `darktable` / `none`) rides on
+  `CameraMetadata.colour` (`noise_cache.rs` fills it for older cache entries). The section shows a
+  "Colour" row: "Standard matrix" (LibRaw's or darktable's, said in the detail line) or an orange
+  "None" warning; summary `Standard matrix` / `Uncalibrated`.
+- **Checked:** `npm run check` passes; probe (no errors, tone/roundTrip ~1e-7); `treatment-filters.mjs
+  dehaze` PASS; panel states rendered from `.scratch/profile-panel/` and inspected. Not yet in WKWebView.
+- **darktable camera data (done, same session):** `tools/rawspeed/generate.py` turns rawspeed's
+  `cameras.xml` (develop 62052260182413a6ccd834efad81fda10153d760, CC-BY-SA 3.0) into
+  `src-tauri/src/rawspeed_cameras.rs` (crop + matrix for ~590 cameras). Regenerate when rawspeed
+  updates; never hand-add cameras (Oli). Matrix order follows darktable: DNG's own, then
+  `cameras.xml` exact model, then LibRaw's table. This replaced the hand-written OM-3 → OM-1
+  `SAME_SENSOR` entry: the OM-3 now uses darktable's own OM-3 matrix, so **OM-3 colours change**.
+  The ILCE-7RM6 had been coloured with the 2013 ILCE-7R's matrix (LibRaw prefix match); it now
+  uses darktable's. Where LibRaw kept a Sony's whole readout, `emu_open` crops as rawspeed does:
+  lossless ARWs to SonyRawImageSize (the 7RM6 file: 10240 × 7168 → 10008 × 6672; darktable's
+  `applyCrop = false` skips the cameras.xml trim there), other ARWs by cameras.xml. Verified on
+  `~/Documents/1613056030.arw` (`EMULSION_SONY_ARW=… cargo test --release crops_unknown_sony --
+  --ignored`): edges carry picture, colour source darktable. The noise cache key gained
+  `darktable1`, so AI denoise reruns once per photo. Licence note for Oli: cameras.xml is
+  CC-BY-SA 3.0 (darktable ships it as a separate data file); it's compiled in here.
+- Not yet: rawspeed crops for non-Sony cameras LibRaw doesn't size (needs each decoder's base
+  size, as `ArwDecoder`'s SonyRawImageSize); black/white levels from cameras.xml.
+
+## App icon (2026-11-10)
+
+Oli supplied `~/Documents/emulsion-logo.png` and asked to use it as the app icon.
+
+- Replaced all 17 desktop assets in `src-tauri/icons` using Tauri's icon generator,
+  including macOS ICNS, Windows ICO/AppX and the PNG sizes used by the app.
+- Oli then supplied a new 852 × 852 version with a beveled dark background and orange
+  gradient E; it replaces the original flat logo across all desktop assets.
+- Preserved that supplied PNG as `src-tauri/icons/source.png`. Regenerate with
+  `swift tools/generate-icons.swift` from the repository root; mobile assets are not used here.
+- The generator measures the visible tile (alpha ≥ 128), excluding the source's transparent
+  border and shadow. It scales and centers that tile inside a transparent 1024 × 1024 canvas.
+  The original fixed inset shrank the tile to 797 px and put it 10.5 px above center.
+- Reference ICNS files for WhatsApp, Proton VPN, Notes and Calculator have 824 px visible tiles
+  on the normalized 1024 px canvas. After matching that size, Oli still wanted it a touch bigger:
+  the final tile is **848 × 848**, centered at (512, 512), about 3% larger for this dark artwork.
+  Both `icon.icns` and `icon.png` use that layout; other desktop assets use the unpadded source.
+- References: [Apple app icon guidance](https://developer.apple.com/design/human-interface-guidelines/app-icons/),
+  [Icon Composer workflow](https://developer.apple.com/documentation/xcode/creating-your-app-icon-using-icon-composer),
+  [Tauri icon packaging](https://v2.tauri.app/develop/icons/). This app still uses Tauri's ICNS
+  packaging, not an Xcode Icon Composer asset.
+- Verified PNG dimensions/RGBA, ICNS/ICO headers, configured asset paths and source fidelity.
+- The screenshot still showed the original full-size flat icon because the running dev
+  executable embedded old ICNS data; `cargo build` considered it fresh after icon changes.
+  `build.rs` now declares `cargo:rerun-if-changed=icons`, so assets invalidate code generation.
+  The active Tauri watcher rebuilds/relaunches after this build-script change.
+- `npm run tauri -- build --bundles app` passes; the rebuilt
+  `src-tauri/target/release/bundle/macos/Emulsion.app` contains the new ICNS (byte-checked).
+  The dev build also passes; its executable embeds the exact new ICNS (byte-checked),
+  and the Tauri watcher relaunched it automatically. Generated artwork was visually checked;
+  capturing the live Dock was unavailable (`screencapture` could not capture the rectangle).
+- `/tmp/emulsion-check-layout.swift` initially failed against the undersized/off-center ICNS;
+  all ten final ICNS representations pass size and centering checks (16 through 1024 px).
+  `/tmp/emulsion-icon-comparison.png` shows the actual ICNS beside native icons on equal
+  canvases at 112 and 80 px; inspected visually. This is a generated preview, not a live Dock capture.
+
+## Heal and Clone: match Remove’s overlay (2026-11-10)
+
+Oli asked to improve Heal and Clone in the same way as Remove. Uncommitted, extending the
+existing Remove work below.
+
+- All retouch tools now share the hollow union boundary renderer, white saved outlines with a
+  black keyline, and red boundaries while painting. No brush centre line or filled band.
+- Unselected spots use 24 px selection pins: bandage for Heal, stamp for Clone, eraser for
+  Remove (and appropriate icons for legacy Fill/Blur). Click/keyboard selection and pin dragging
+  use the same interaction. Only the selected spot exposes its area hit target and handles.
+- Heal/Clone keep a draggable source: a static dashed boundary, dashed link and source cross.
+  Moving a target keeps its source fixed; source dragging changes only the source; both save
+  once on release. Remove’s processing animation and completion/error colours are preserved.
+- Shared styles/classes now use `retouch-*` names instead of `remove-*`; processing classes
+  remain Remove-specific. The earlier `.scratch/removal-outline/check.mjs` uses the old names;
+  `.scratch/retouch-outline/check.mjs` covers the shared renderer and all its Remove regressions.
+- `RetouchOverlay.test.ts`: 19 interaction cases across Remove, Heal and Clone, including source
+  dragging and ellipse handles. `tools/browser-tests/heal.tsx` now checks hollow painting and
+  counts spots instead of invisible hit areas; its stale resize check now uses Option-scroll.
+- Verified: `npm test` (739 passed, 1 skipped), `npm run build`, `git diff --check`, `heal` browser
+  fixture in both main/worker engine modes, and `remove-switch`. The focused browser check passes
+  all three themes, pin selection, red painting, source outlines, circles/ellipses/handles,
+  bounded filters, Remove animation/reduced motion and transparent interiors without seams.
+  Screenshots inspected: `/tmp/emulsion-heal-cross.png`, `/tmp/emulsion-clone-pins-light.png`,
+  `/tmp/emulsion-heal-ellipse.png`. Native WKWebView appearance still needs a human look.
+
+## DNG and TIFF support (2026-11-10)
+
+Oli asked to fix DNG and TIFF support. Uncommitted; `npm run check` passes.
+
+- **JPEG XL DNGs decode** (iPhone 17 Pro 48 MP ProRAW on iOS 26, DxO PureRAW 6): previously
+  refused (and the message blamed DxO). LibRaw's `jxl_dng_load_raw_placeholder`
+  (`vendor/libraw/src/decoders/dng.cpp`) is filled in after `lossy_dng_load_raw`/`adobe_copy_pixel`
+  and calls `emu_jxl_decode_tile` in the new `src-tauri/src/jxl.rs` (jxl-oxide 0.12, pure Rust).
+  Apple codes 10-bit samples in 16-bit JPEG XL, so the codestream's bit depth sets the integer range.
+  48 MP full decode about 0.8 s. NOTICE records the LibRaw edit; CLAUDE.md/ARCHITECTURE say to keep it on update.
+- **DNG colour from the file:** LibRaw leaves `color.cam_xyz` at its camera table, so iPhone ProRAW
+  (any size) was decoded with an identity matrix ("no colour data"). `raw_shim.cpp` `dng_cam_xyz`
+  now builds it from the DNG (D65 ColorMatrix × CameraCalibration × AnalogBalance) as LibRaw's
+  identify does. Also changes X-T5 Pixel Shift DNGs slightly (file matrix instead of LibRaw's table).
+- **Float resize no longer clamps:** `image`'s resize clamped Rgb32F to 0..1, so every downscaled
+  RAW preview clipped highlights at 1.0 (clipping is 1.8) and lost negative values. New
+  `resize_rgb32f` (same triangle filter, unit-tested against the crate).
+- **ICC profiles:** rasters (TIFF, JPEG, PNG, WebP) were all read as sRGB; Adobe RGB/ProPhoto TIFFs and
+  Display P3 JPEGs looked desaturated. `decode::to_srgb` converts with moxcms after the resize
+  (engine) or thumbnail. CMYK stays the decoder's naive conversion; float images untouched; display
+  input still clips to Rec.2020 0..1 in `input.glsl`, so gamut beyond sRGB is clipped (follow-up: keep
+  negatives for mode 0).
+- **JPEG-compressed (YCbCr) TIFFs** still can't be read (tiff crate); the error now says so plainly.
+- Not done: Apple's ProfileGainTableMap (local tone map) is ignored, as LibRaw does, so ProRAW looks
+  flatter than the camera JPEG. The 160 MP X-T5 Pixel Shift DNG takes ~10 s even for a preview
+  (linear DNG, no half-size path).
+- **For Oli to try:** open `~/Downloads/IMG_4299.DNG` (48 MP JPEG XL) and `NO_FUSION_0624_018/IMG_4370.dng`
+  in the app, check colour against the thumbnails, and an Adobe RGB/ProPhoto TIFF.
+
+## Remove: area outline and completion colour (2026-11-10)
+
+Oli asked for an LRC-style boundary instead of the brush's centre line: red after drawing,
+then translucent white once removal finishes. Uncommitted.
+
+- `RetouchOverlay.tsx`: Remove brushes now show a hollow boundary of the union of their strokes.
+  An SVG erosion/subtraction removes the interior, including seams where strokes overlap;
+  there is no centre line or filled band. Explicit filter bounds cover dots and straight strokes
+  and stay within the viewport during zoom/pan. Heal keeps its previous rendering.
+- `styles.css`: painting, waiting for Apply, pending processing and failed removals are red;
+  completed spots are white at .5 opacity, .75 when selected. Selection no longer leaves Remove
+  orange. Circles/ellipses use the same completion colours; their processing dashes remain.
+  A crisp black keyline keeps the boundary visible on bright and dark areas. Oli confirmed the
+  first outline refinement works well, then asked for this black/white treatment, processing
+  animation, and an on-photo Remove icon. The toolbar change was a misunderstanding and is
+  now fully reverted.
+- Processing brushes have travelling white highlights on the red boundary, with a steady black
+  keyline. Waiting/failed strokes stay still; completed spots settle to white. Reduced motion
+  uses static highlights. The on-photo brush cursor is unchanged.
+- **Selection pins:** unselected saved removals show a 24 px dark circular pin with the white
+  Lucide eraser and a white/red rim at their anchor, replacing the outline and full-area hit
+  target. Only the selected removal shows its area boundary. Click a pin to select, drag to move,
+  or Tab then Enter/Space to select. Processing pins have marching red rims (static under Reduce
+  Motion), and failed pins retain their warning marker. Pending strokes before Apply still show
+  their red area outline. `RetouchOverlay.test.ts` covers mouse/keyboard selection swapping and
+  the absence of invisible full-area hit targets on unselected removals, and dragging a pin through
+  its switch to an outline (the move reaches the recipe only on release).
+- Oli found Undo did not remove strokes waiting for Apply: only saved edits reached history.
+  `History` now supports scoped in-memory steps; `retouchui.ts` records each pending stroke and
+  last-stroke deletion. Native menu, keyboard and panel Undo/Redo all use the existing store
+  actions. Apply drops the draft history and makes one saved edit; Cancel and photo/copy changes
+  drop both draft undo and redo. No sidecar write or inference for a waiting stroke.
+- Regression `src/App-retouch-undo.test.ts` first failed for both keyboard and menu; now covers
+  those paths, key/menu duplicate suppression, redo order across photo edits, Apply, Cancel,
+  new-stroke redo invalidation, deletion, and switching virtual copies after undoing all strokes.
+- Verified: `npm test` (724 passed, 1 skipped), the additional pin-drag regression (five overlay
+  interaction cases pass), `npm run build`, `git diff --check`, and
+  `remove-switch` in main and worker modes. `.scratch/removal-outline/check.mjs` confirms transparent
+  interiors, no crossing seams, colours/selection and the restored toolbar in all themes, changing
+  processing frames and identical frames under reduced motion, dots, loops and clipped boundaries.
+  Real browser clicks also verify a pin becomes the selected outline and the old selection
+  becomes a pin. Screenshots inspected: `/tmp/emulsion-outline-*.png`, including `pin-selection`.
+- The existing `heal` browser fixture stops before reaching Remove because it still expects
+  plain scroll to resize a spot, despite the Nov 9 change to pan. Left that unrelated fixture
+  unchanged. The focused overlay check and `remove-switch` pass.
+- Oli to try in the desktop WKWebView: turn off After each stroke, paint two strokes, ⌘Z removes
+  the last, ⌘⇧Z restores it; Apply shows travelling highlights before white. Paint another removal
+  and switch selection with the on-photo pins; drag a pin to move its removal. Native WKWebView
+  motion and pin interaction still need a human look.
+  No PRODUCT.md/DESIGN.md yet; `/impeccable init` can capture that context separately.
 
 ## Drop photos on the Dock icon (2026-11-10)
 

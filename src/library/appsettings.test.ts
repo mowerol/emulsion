@@ -25,20 +25,20 @@ afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('app settings file', () => {
   it('moves settings out of the webview storage once, and the file wins after that', async () => {
-    storage.set('emulsion.cameraProfiles', JSON.stringify({ x: 'a' }));
+    storage.set('emulsion.lookBrowser', JSON.stringify({ x: 'a' }));
     storage.set('emulsion.presetFavourites', '{ broken');
     storage.set('emulsion.libraryIndex', '{}');
     const s = await import('./appsettings');
     await s.loadAppSettings();
-    expect(file).toEqual({ 'emulsion.cameraProfiles': { x: 'a' } });
-    expect(s.getSetting('emulsion.cameraProfiles')).toEqual({ x: 'a' });
+    expect(file).toEqual({ 'emulsion.lookBrowser': { x: 'a' } });
+    expect(s.getSetting('emulsion.lookBrowser')).toEqual({ x: 'a' });
 
     // Later launches read the file, not the old storage.
-    file = { 'emulsion.cameraProfiles': { x: 'b' } };
+    file = { 'emulsion.lookBrowser': { x: 'b' } };
     vi.resetModules();
     const again = await import('./appsettings');
     await again.loadAppSettings();
-    expect(again.getSetting('emulsion.cameraProfiles')).toEqual({ x: 'b' });
+    expect(again.getSetting('emulsion.lookBrowser')).toEqual({ x: 'b' });
   });
 
   it('writes changes together after a pause, and not once frozen', async () => {

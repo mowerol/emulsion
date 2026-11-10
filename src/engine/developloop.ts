@@ -23,7 +23,6 @@ import type { LensMetadata } from './lenscorrection';
 import { histogram } from './histogram';
 import { framePixels } from '../film/crop';
 import type { WarmStage } from './warm';
-import { adoptProfileSnapshot, type ProfileSnapshot } from './profilestore';
 import { provideLut, type LoadedLut } from './lutstore';
 import { adoptUserLooks } from '../film/looks';
 import { trackTextures } from '../dev/gpumemory';
@@ -112,7 +111,7 @@ export type ToLoop =
   | { type: 'pointer'; held: boolean; brush: boolean; dpr: number }
   | { type: 'motion' }
   | { type: 'warm'; stage: WarmStage }
-  | { type: 'assets'; profiles?: ProfileSnapshot; luts?: [string, LoadedLut][]; looks?: Parameters<typeof adoptUserLooks>[0] }
+  | { type: 'assets'; luts?: [string, LoadedLut][]; looks?: Parameters<typeof adoptUserLooks>[0] }
   | { type: 'request'; id: number; call: 'sampleScene'; key: number; u: number; v: number; recipe: Recipe | null }
   | { type: 'request'; id: number; call: 'sampleMaskInput'; key: number; recipe: Recipe; mask: number; box: View }
   | { type: 'request'; id: number; call: 'readPixels'; key: number; recipe: Recipe | null; w: number; h: number; seed: number }
@@ -248,7 +247,6 @@ export class DevelopLoop {
         case 'motion': this.viewMotion = performance.now(); break;
         case 'warm': this.warm(m.stage); break;
         case 'assets':
-          if (m.profiles) adoptProfileSnapshot(m.profiles);
           for (const [file, lut] of m.luts ?? []) provideLut(file, lut);
           if (m.looks) adoptUserLooks(m.looks);
           this.restart();
@@ -486,7 +484,7 @@ export class DevelopLoop {
         settle = setTimeout(() => { id = raf(() => tick(false, true)); }, motionLeft) as unknown as number;
         return;
       }
-      if (engine.waiting(st.recipe, source.camera, st.compare)) return;
+      if (engine.waiting(st.recipe, st.compare)) return;
       const pace = this.pace;
       if (!engine.idle()) {
         pace.waited = true;
@@ -606,7 +604,7 @@ export class DevelopLoop {
     const st = this.state;
     const source = st && this.sources.get(st.source);
     if (!st || !source || this.warmed.has(which) || this.held || this.renderPending || !st.width) return;
-    if (this.engine.waiting(st.recipe, source.camera, st.compare)) return;
+    if (this.engine.waiting(st.recipe, st.compare)) return;
     if (!this.engine.idle()) {
       setTimeout(() => this.state === st && this.warm(which), WARM_RETRY_MS);
       return;
@@ -639,7 +637,7 @@ export class DevelopLoop {
       const hw = Math.max(1, Math.round(w * Math.min(1, k)));
       const hh = Math.max(1, Math.round(h * Math.min(1, k)));
       try {
-        if (this.engine.waiting(st.recipe, source.camera, st.compare)) return;
+        if (this.engine.waiting(st.recipe, st.compare)) return;
         const pixels = await this.engine.readPixelsAsync(hs, st.recipe, hw, hh, st.seed, st.compare);
         if (cancelled) return;
         this.post({ type: 'histogram', path: st.histogramFor, data: histogram(pixels) });

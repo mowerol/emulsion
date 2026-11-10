@@ -28,6 +28,8 @@ struct EmuRawInfo {
   float aperture;
   float focal_length;
   float focal_length35;
+  // Nonzero for a DNG, whose own matrix cam_xyz holds.
+  int dng;
 };
 
 struct EmuRawThumb {
@@ -68,12 +70,84 @@ static void copy_str(char *dst, const char *src, size_t len) {
   dst[len - 1] = '\0';
 }
 
+// A DNG's own camera-from-XYZ matrix, built as LibRaw's identify() builds it for its
+// cmatrix (src/metadata/identify.cpp): the D65 ColorMatrix, else another daylight-type one,
+// times CameraCalibration and AnalogBalance. LibRaw keeps the result private and leaves
+// color.cam_xyz to its own camera table, which has no entry for many DNG writers (Apple
+// ProRAW, phones, converters). False when the file carries no usable matrix.
+static bool dng_cam_xyz(LibRaw *raw, float out[3][3]) {
+  const libraw_colordata_t &c = raw->imgdata.color;
+  if (!raw->imgdata.idata.dng_version || raw->imgdata.idata.colors != 3) return false;
+  int pick = -1;
+  for (int i = 0; i < 2 && pick < 0; i++)
+    if (c.dng_color[i].illuminant == LIBRAW_WBI_D65) pick = i;
+  for (int i = 0; i < 2 && pick < 0; i++) {
+    const int ill = c.dng_color[i].illuminant;
+    if (ill == LIBRAW_WBI_Daylight || ill == LIBRAW_WBI_D55 || ill == LIBRAW_WBI_D75 || ill == LIBRAW_WBI_D50 ||
+        ill == LIBRAW_WBI_Flash)
+      pick = i;
+  }
+  if (pick < 0) return false;
+  const libraw_dng_color_t &d = c.dng_color[pick];
+  double cc[3][3];
+  const bool calibrated = d.parsedfields & LIBRAW_DNGFM_CALIBRATION;
+  bool any = false;
+  for (int i = 0; i < 3; i++)
+    for (int j = 0; j < 3; j++) {
+      cc[i][j] = calibrated ? d.calibration[i][j] : (i == j);
+      any |= d.colormatrix[i][j] != 0;
+    }
+  if (!any) return false;
+  const bool balanced = c.dng_levels.parsedfields & LIBRAW_DNGFM_ANALOGBALANCE;
+  for (int i = 0; i < 3; i++) {
+    const double ab = balanced && c.dng_levels.analogbalance[i] > 0 ? c.dng_levels.analogbalance[i] : 1.0;
+    for (int j = 0; j < 3; j++) cc[i][j] *= ab;
+  }
+  for (int r = 0; r < 3; r++)
+    for (int k = 0; k < 3; k++) {
+      double v = 0;
+      for (int j = 0; j < 3; j++) v += cc[r][j] * d.colormatrix[j][k];
+      out[r][k] = float(v);
+    }
+  return true;
+}
+
+// darktable's crop for a camera whose whole sensor readout LibRaw kept (src/raw.rs).
+int emu_camera_crop(const char *path, const char *make, const char *model, int raw_w, int raw_h, int *out);
+
+// open_file, then darktable's crop where LibRaw has no size for the camera: it leaves the whole
+// readout (no margins), which for a Sony ARW it doesn't know includes the black padding around
+// the image. Set before unpack, which keeps these sizes for processing.
+static int emu_open(LibRaw *raw, const char *path) {
+  int rc = raw->open_file(path);
+  if (rc != LIBRAW_SUCCESS) return rc;
+  libraw_image_sizes_t &s = raw->imgdata.sizes;
+  if (raw->imgdata.idata.dng_version || s.left_margin || s.top_margin || s.width != s.raw_width ||
+      s.height != s.raw_height)
+    return rc;
+  int c[4];
+  if (emu_camera_crop(path, raw->imgdata.idata.normalized_make, raw->imgdata.idata.normalized_model, s.raw_width,
+                      s.raw_height, c) &&
+      c[0] + c[2] <= s.raw_width && c[1] + c[3] <= s.raw_height) {
+    s.left_margin = c[0];
+    s.top_margin = c[1];
+    s.width = c[2];
+    s.height = c[3];
+    s.iwidth = s.width;
+    s.iheight = s.height;
+  }
+  return rc;
+}
+
 // Colour metadata, read after open_file.
 static void fill_colour_info(LibRaw *raw, EmuRawInfo *info) {
   for (int i = 0; i < 3; i++) {
     for (int j = 0; j < 3; j++) info->cam_xyz[i][j] = raw->imgdata.color.cam_xyz[i][j];
     info->cam_mul[i] = raw->imgdata.color.cam_mul[i];
   }
+  // For DNGs, LibRaw colours from the file's matrix, not its table: do the same.
+  dng_cam_xyz(raw, info->cam_xyz);
+  info->dng = raw->imgdata.idata.dng_version != 0;
   const libraw_image_sizes_t &s = raw->imgdata.sizes;
   const bool turned = s.flip & 4;
   info->full_width = turned ? s.height : s.width;
@@ -127,7 +201,7 @@ int emu_raw_decode(const char *path, int half, EmuRawInfo *info, void **out, con
   p.half_size = half ? 1 : 0;
   p.highlight = 0;  // clip
 
-  int rc = raw->open_file(path);
+  int rc = emu_open(raw, path);
   if (rc != LIBRAW_SUCCESS) {
     set_error(err, errlen, "open", rc);
     delete raw;
@@ -179,7 +253,7 @@ int emu_raw_decode(const char *path, int half, EmuRawInfo *info, void **out, con
 int emu_raw_info(const char *path, EmuRawInfo *info, char *err, size_t errlen) {
   LibRaw *raw = new (std::nothrow) LibRaw(0);
   if (!raw) return LIBRAW_UNSUFFICIENT_MEMORY;
-  int rc = raw->open_file(path);
+  int rc = emu_open(raw, path);
   if (rc != LIBRAW_SUCCESS) {
     set_error(err, errlen, "open", rc);
     delete raw;
@@ -196,7 +270,7 @@ int emu_raw_info(const char *path, EmuRawInfo *info, char *err, size_t errlen) {
 int emu_raw_thumb(const char *path, EmuRawThumb *thumb, void **out, char *err, size_t errlen) {
   LibRaw *raw = new (std::nothrow) LibRaw(0);
   if (!raw) return LIBRAW_UNSUFFICIENT_MEMORY;
-  int rc = raw->open_file(path);
+  int rc = emu_open(raw, path);
   if (rc != LIBRAW_SUCCESS) {
     set_error(err, errlen, "open", rc);
     delete raw;
@@ -229,7 +303,7 @@ int emu_raw_thumb(const char *path, EmuRawThumb *thumb, void **out, char *err, s
 int emu_raw_mosaic(const char *path, EmuRawMosaic *m, unsigned short **data, char *err, size_t errlen) {
   LibRaw *raw = new (std::nothrow) LibRaw(0);
   if (!raw) return LIBRAW_UNSUFFICIENT_MEMORY;
-  int rc = raw->open_file(path);
+  int rc = emu_open(raw, path);
   if (rc != LIBRAW_SUCCESS) {
     set_error(err, errlen, "open", rc);
     delete raw;

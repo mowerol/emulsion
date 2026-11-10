@@ -4,7 +4,6 @@ import { create } from 'zustand';
 import type { Photo } from './store';
 import { photoId } from './copies';
 import { lookName } from '../film/looks';
-import { profileLabel } from '../engine/profilestore';
 import { normalizeRecipe } from '../film/recipe';
 import { normalizeMarks, type Label } from './marks';
 import { getSetting, setSetting } from './appsettings';
@@ -130,7 +129,7 @@ export function matchesRules(photo: Photo, rules: SmartRule[]): boolean {
       case 'camera': return (photo.capture?.camera ?? `${photo.camera?.make ?? ''} ${photo.camera?.model ?? ''}`).toLowerCase().includes(rule.value.toLowerCase());
       case 'look': {
         const r = photo.recipe;
-        const name = r ? r.lookEnabled ? r.lookSnapshot?.name ?? lookName(r.pack, r.stock) : profileLabel(r.profile) : 'Auto';
+        const name = r?.lookEnabled ? r.lookSnapshot?.name ?? lookName(r.pack, r.stock) : 'Neutral';
         return name.toLowerCase().includes(rule.value.toLowerCase());
       }
       case 'folder': return photo.path.toLowerCase().startsWith(rule.value.replace(/[\\/]$/, '').toLowerCase() + (rule.value.includes('\\') ? '\\' : '/'));

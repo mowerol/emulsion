@@ -27,11 +27,12 @@ struct EmuRawInfo {
     aperture: f32,
     focal_length: f32,
     focal_length35: f32,
+    dng: c_int,
 }
 
 impl EmuRawInfo {
     fn empty() -> Self {
-        EmuRawInfo { width: 0, height: 0, cam_xyz: [[0.0; 3]; 3], cam_mul: [0.0; 3], full_width: 0, full_height: 0, make: [0; 64], model: [0; 64], iso: 0.0, shutter: 0.0, aperture: 0.0, focal_length: 0.0, focal_length35: 0.0 }
+        EmuRawInfo { width: 0, height: 0, cam_xyz: [[0.0; 3]; 3], cam_mul: [0.0; 3], full_width: 0, full_height: 0, make: [0; 64], model: [0; 64], iso: 0.0, shutter: 0.0, aperture: 0.0, focal_length: 0.0, focal_length35: 0.0, dng: 0 }
     }
 }
 
@@ -102,18 +103,6 @@ const REC2020_TO_XYZ: Mat3 = [
 /// about 87% of display white.
 pub const BASELINE_GAIN: f32 = 1.8;
 
-/// Cameras LibRaw reads but has no colour data for yet, mapped to a camera with
-/// the same sensor. Matches are on LibRaw's normalised model name.
-const SAME_SENSOR: &[(&str, &str, Mat3)] = &[
-    // The OM-3 shares the OM-1's 20 MP stacked sensor. Values are LibRaw's OM-1
-    // entry (src/tables/colordata.cpp), which matches Adobe's OM-1 ColorMatrix2.
-    (
-        "OM-3",
-        "OM-1",
-        [[0.9488, -0.3984, -0.0714], [-0.2887, 1.0945, 0.2229], [-0.0137, 0.0960, 0.5786]],
-    ),
-];
-
 fn mul(a: &Mat3, b: &Mat3) -> Mat3 {
     let mut m = [[0f32; 3]; 3];
     for i in 0..3 {
@@ -157,15 +146,78 @@ fn is_zero(m: &Mat3) -> bool {
     m.iter().flatten().all(|v| *v == 0.0)
 }
 
-/// The camera's XYZ matrix, or a same-sensor camera's when LibRaw has none.
-fn colour_matrix(model: &str, cam_xyz: &Mat3) -> (Option<Mat3>, Option<&'static str>) {
+/// darktable's (rawspeed's `cameras.xml`) entry for a camera, by LibRaw's normalised make and model.
+fn darktable_camera(make: &str, model: &str) -> Option<&'static crate::rawspeed_cameras::Camera> {
+    let key = |s: &str| s.to_lowercase().replace(|c: char| !c.is_ascii_alphanumeric(), "");
+    let (make, model) = (key(make), key(model));
+    crate::rawspeed_cameras::CAMERAS.iter().find(|c| key(c.model) == model && c.makes.iter().any(|m| key(m) == make))
+}
+
+/// darktable's crop (x, y, width, height) for a Sony ARW whose full readout LibRaw kept, as
+/// rawspeed makes it: lossless-compressed ARWs (compression 7) are cut to SonyRawImageSize and
+/// take no further crop (`ArwDecoder::decodeRawInternal`, `applyCrop = false`); others take the
+/// camera's `cameras.xml` crop, a width or height ≤ 0 counting back from the edge
+/// (`RawDecoder::setMetaData`).
+fn darktable_crop(make: &str, model: &str, compression: u32, size: Option<(u32, u32)>, raw: (u32, u32)) -> Option<[u32; 4]> {
+    if !make.eq_ignore_ascii_case("sony") {
+        return None;
+    }
+    let crop = if compression == 7 {
+        let (w, h) = size?;
+        [0, 0, w as i64, h as i64]
+    } else {
+        let [x, y, w, h] = darktable_camera(make, model)?.crop?.map(i64::from);
+        let w = if w <= 0 { raw.0 as i64 - x + w } else { w };
+        let h = if h <= 0 { raw.1 as i64 - y + h } else { h };
+        [x, y, w, h]
+    };
+    let [x, y, w, h] = crop;
+    let fits = x >= 0 && y >= 0 && w > 0 && h > 0 && x + w <= raw.0 as i64 && y + h <= raw.1 as i64;
+    // Even offsets keep LibRaw's CFA pattern.
+    (fits && x % 2 == 0 && y % 2 == 0 && (w, h) != (raw.0 as i64, raw.1 as i64)).then(|| crop.map(|v| v as u32))
+}
+
+/// Called by the shim (`emu_open`) when LibRaw has kept a camera's whole sensor readout, having
+/// no size for it: fills `out` with darktable's crop and returns 1, or returns 0.
+#[unsafe(no_mangle)]
+pub extern "C" fn emu_camera_crop(path: *const c_char, make: *const c_char, model: *const c_char, raw_w: c_int, raw_h: c_int, out: *mut c_int) -> c_int {
+    if path.is_null() || make.is_null() || model.is_null() || out.is_null() || raw_w <= 0 || raw_h <= 0 {
+        return 0;
+    }
+    let text = |p: *const c_char| unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned();
+    // `c_path` made it from a UTF-8 path.
+    let path = std::path::PathBuf::from(text(path));
+    let Some((compression, size)) = crate::lens::sony_raw_ifd(&path) else { return 0 };
+    match darktable_crop(&text(make), &text(model), compression, size, (raw_w as u32, raw_h as u32)) {
+        Some(crop) => {
+            for (i, v) in crop.into_iter().enumerate() {
+                unsafe { *out.add(i) = v as c_int };
+            }
+            1
+        }
+        None => 0,
+    }
+}
+
+/// The camera's XYZ matrix, chosen as darktable does: a DNG's own, else darktable's for the
+/// camera (rawspeed's `cameras.xml`), else LibRaw's table. LibRaw's table matches models by
+/// prefix, so a camera it doesn't know can take an older one's matrix (ILCE-7RM6 got the
+/// 2013 ILCE-7R's); `cameras.xml` matches the model exactly.
+fn colour_matrix(make: &str, model: &str, cam_xyz: &Mat3, dng: bool) -> (Option<Mat3>, ColourSource) {
+    if dng && !is_zero(cam_xyz) {
+        return (Some(*cam_xyz), ColourSource::Camera);
+    }
+    if let Some(m) = darktable_camera(make, model).and_then(|c| c.matrix) {
+        return (Some(m.map(|row| row.map(|v| v as f32 / 10000.0))), ColourSource::Darktable);
+    }
     if !is_zero(cam_xyz) {
-        return (Some(*cam_xyz), None);
+        return (Some(*cam_xyz), ColourSource::Camera);
     }
-    match SAME_SENSOR.iter().find(|(m, _, _)| *m == model) {
-        Some((_, donor, matrix)) => (Some(*matrix), Some(*donor)),
-        None => (None, None),
-    }
+    (None, ColourSource::None)
+}
+
+fn colour_of(info: &EmuRawInfo) -> (Option<Mat3>, ColourSource) {
+    colour_matrix(&error_text(&info.make), &error_text(&info.model), &info.cam_xyz, info.dng != 0)
 }
 
 fn error_text(buf: &[c_char]) -> String {
@@ -211,6 +263,28 @@ pub fn noise_profile(path: &Path) -> Option<crate::noiseprofiles::NoiseProfile> 
     (rc == 0).then(|| crate::noiseprofiles::for_camera(&error_text(&info.make), &error_text(&info.model), info.iso))
 }
 
+/// Where a RAW's standard colour matrix comes from, shown in the Camera Profile panel.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase")]
+pub enum ColourSource {
+    /// The DNG's own matrix, or LibRaw's for a camera darktable has none for.
+    Camera,
+    /// darktable's matrix for the camera (rawspeed's `cameras.xml`).
+    Darktable,
+    /// No matrix: camera RGB is treated as Rec.2020.
+    None,
+}
+
+/// [`ColourSource`] for `path`, reading metadata only (for cached decodes made before it was sent).
+pub fn colour_source_of(path: &Path) -> Option<ColourSource> {
+    let path = c_path(path).ok()?;
+    let mut info = EmuRawInfo::empty();
+    let mut err = [0 as c_char; 256];
+    openmp_root();
+    let rc = unsafe { emu_raw_info(path.as_ptr(), &mut info, err.as_mut_ptr(), err.len()) };
+    (rc == 0).then(|| colour_of(&info).1)
+}
+
 /// Profile metadata is independent of lens-profile availability.
 #[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -223,6 +297,9 @@ pub struct CameraMetadata {
     /// darktable's noise profile for this camera at the shot's ISO (denoise, profiled).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub noise: Option<crate::noiseprofiles::NoiseProfile>,
+    /// Where `camera_to_working` comes from; absent from older cached payloads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub colour: Option<ColourSource>,
 }
 
 /// A decoded RAW.
@@ -253,8 +330,7 @@ pub fn white_point(cam_xyz: &Mat3, cam_mul: &[f32; 3]) -> Option<[f32; 2]> {
 }
 
 fn white_for(info: &EmuRawInfo) -> Option<[f32; 2]> {
-    let model = error_text(&info.model);
-    let (matrix, _) = colour_matrix(&model, &info.cam_xyz);
+    let (matrix, _) = colour_of(&info);
     white_point(&matrix?, &info.cam_mul)
 }
 
@@ -283,7 +359,7 @@ pub fn working_to_camera(path: &Path) -> Result<Mat3, String> {
     if rc != 0 {
         return Err(format!("Could not read {}: {}", file_name(path), error_text(&err)));
     }
-    let (matrix, _) = colour_matrix(&error_text(&info.model), &info.cam_xyz);
+    let (matrix, _) = colour_of(&info);
     let m = matrix.and_then(|cx| camera_to(&cx, &REC2020_TO_XYZ)).unwrap_or([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]);
     let inv = invert(&m).ok_or("singular camera matrix")?;
     let k = 65535.0 / BASELINE_GAIN;
@@ -305,19 +381,21 @@ pub fn decode(path: &Path, half: bool) -> Result<Decoded, String> {
     if rc != 0 {
         if uses_jpeg_xl(path) {
             return Err(format!(
-                "{} is a DNG compressed with JPEG XL (DNG 1.7, as written by DxO PureRAW 6), which Emulsion can't decode yet.",
-                file_name(path)
+                "{} is a JPEG XL DNG (DNG 1.7) that Emulsion couldn't decode: {}",
+                file_name(path),
+                error_text(&err)
             ));
         }
         return Err(format!("Could not decode RAW {}: {}", file_name(path), error_text(&err)));
     }
     let (w, h) = (info.width as u32, info.height as u32);
     let model = error_text(&info.model);
-    let (matrix, borrowed_from) = colour_matrix(&model, &info.cam_xyz);
-    match (matrix, borrowed_from) {
-        (_, Some(donor)) => eprintln!("[raw] {model}: using the {donor}'s colour data (same sensor)"),
-        (None, _) => eprintln!("[raw] {model}: no colour data, colours are approximate"),
-        _ => {}
+    let make = error_text(&info.make);
+    let (matrix, source) = colour_of(&info);
+    match source {
+        ColourSource::Darktable => eprintln!("[raw] {model}: using darktable's colour matrix"),
+        ColourSource::None => eprintln!("[raw] {model}: no colour data, colours are approximate"),
+        ColourSource::Camera => {}
     }
     // Without colour data, treat camera RGB as Rec.2020: roughly right, never broken.
     let m = matrix.and_then(|cx| camera_to(&cx, &REC2020_TO_XYZ)).unwrap_or([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]);
@@ -344,9 +422,9 @@ pub fn decode(path: &Path, half: bool) -> Result<Decoded, String> {
         n.iter_mut().for_each(|v| *v /= maximum);
         Some(n)
     } else { None };
-    let make = error_text(&info.make);
     let noise = Some(crate::noiseprofiles::for_camera(&make, &model, info.iso));
-    let camera = CameraMetadata { make, model, camera_to_working: m, neutral, baseline_gain: BASELINE_GAIN, noise };
+    let colour = Some(source);
+    let camera = CameraMetadata { make, model, camera_to_working: m, neutral, baseline_gain: BASELINE_GAIN, noise, colour };
     Ok(Decoded { image: DynamicImage::ImageRgb32F(buf), white: white_for(&info), full_size, camera_to_working: m, camera })
 }
 
@@ -357,8 +435,8 @@ fn file_name(path: &Path) -> String {
 /// TIFF compression code for JPEG XL, added in DNG 1.7.
 const COMPRESSION_JPEG_XL: u32 = 52546;
 
-/// Whether any image in this TIFF-based file (a DNG) is JPEG XL compressed.
-/// Only used to explain a failed decode, so it reads the whole file.
+/// Whether any image in this TIFF-based file (a DNG) is JPEG XL compressed. LibRaw decodes
+/// these through `jxl.rs`; this only explains a failed decode, so it reads the whole file.
 fn uses_jpeg_xl(path: &Path) -> bool {
     std::fs::read(path).map(|d| tiff_compressions(&d).contains(&COMPRESSION_JPEG_XL)).unwrap_or(false)
 }
@@ -440,6 +518,34 @@ mod tests {
 
     const SRGB_TO_XYZ: Mat3 = [[0.412_453, 0.357_580, 0.180_423], [0.212_671, 0.715_160, 0.072_169], [0.019_334, 0.119_193, 0.950_227]];
 
+    #[test]
+    fn darktable_crops_sony_readouts_as_rawspeed_does() {
+        // ILCE-7RM6 lossless ARW: 10240 × 7168 readout, SonyRawImageSize 10008 × 6672.
+        assert_eq!(darktable_crop("Sony", "ILCE-7RM6", 7, Some((10008, 6672)), (10240, 7168)), Some([0, 0, 10008, 6672]));
+        // Other ARWs take cameras.xml's crop: width -8.
+        assert_eq!(darktable_crop("Sony", "ILCE-7RM6", 32767, None, (10240, 7168)), Some([0, 0, 10232, 7168]));
+        assert_eq!(darktable_crop("Sony", "ILCE-7RM6", 7, None, (10240, 7168)), None);
+        assert_eq!(darktable_crop("Sony", "ILCE-7RM6", 7, Some((10240, 7168)), (10240, 7168)), None);
+        assert_eq!(darktable_crop("Fujifilm", "X-T30 II", 7, Some((100, 100)), (200, 200)), None);
+    }
+
+    #[test]
+    fn colour_source_names_where_the_matrix_comes_from() {
+        let zero = [[0.0; 3]; 3];
+        // A DNG keeps its own matrix.
+        assert_eq!(colour_matrix("Fujifilm", "X-T30 II", &SRGB_TO_XYZ, true), (Some(SRGB_TO_XYZ), ColourSource::Camera));
+        // darktable's exact entry wins over LibRaw's (prefix-matched) table: for the ILCE-7RM6,
+        // LibRaw supplies the 2013 ILCE-7R's matrix.
+        let (m, from) = colour_matrix("Sony", "ILCE-7RM6", &SRGB_TO_XYZ, false);
+        assert_eq!((m.unwrap()[0], from), ([1.1765, -0.5595, -0.1192], ColourSource::Darktable));
+        let (m, from) = colour_matrix("OM Digital Solutions", "OM-3", &zero, false);
+        assert_eq!((m.unwrap()[0][0], from), (0.909, ColourSource::Darktable));
+        // LibRaw's table where darktable has nothing; nothing at all is uncalibrated.
+        assert_eq!(colour_matrix("Nobody", "Camera 1", &SRGB_TO_XYZ, false), (Some(SRGB_TO_XYZ), ColourSource::Camera));
+        assert_eq!(colour_matrix("Nobody", "Camera 1", &zero, false), (None, ColourSource::None));
+        assert_eq!(serde_json::to_string(&ColourSource::Darktable).unwrap(), r#"{"kind":"darktable"}"#);
+    }
+
     /// Fujifilm X-T30 II, from LibRaw's colour table.
     const XT30II: Mat3 = [[1.3426, -0.6334, -0.1177], [-0.4244, 1.2136, 0.2371], [-0.0580, 0.1303, 0.5980]];
 
@@ -462,14 +568,29 @@ mod tests {
         }
     }
 
+    /// A Sony ARW LibRaw has no size for decodes at darktable's crop, without the black padding.
+    /// `EMULSION_SONY_ARW=a.arw cargo test crops_unknown_sony -- --ignored --nocapture`
+    /// (an ILCE-7RM6 lossless ARW: 10240 × 7168 readout, 10008 × 6672 image).
     #[test]
-    fn om3_borrows_the_om1_matrix() {
-        let (m, from) = colour_matrix("OM-3", &[[0.0; 3]; 3]);
-        assert_eq!(from, Some("OM-1"));
-        assert_eq!(m.unwrap()[0][0], 0.9488);
-        let (m, from) = colour_matrix("X-T30 II", &XT30II);
-        assert_eq!((m, from), (Some(XT30II), None));
-        assert_eq!(colour_matrix("Unknown", &[[0.0; 3]; 3]), (None, None));
+    #[ignore]
+    fn crops_unknown_sony_readouts() {
+        let path = std::path::PathBuf::from(std::env::var("EMULSION_SONY_ARW").expect("set EMULSION_SONY_ARW"));
+        for half in [true, false] {
+            let d = decode(&path, half).unwrap();
+            let img = d.image.to_rgb32f();
+            let (w, h) = img.dimensions();
+            eprintln!("half={half}: {w} × {h}, full {:?}, colour {:?}", d.full_size, d.camera.colour);
+            assert_eq!(d.camera.colour, Some(ColourSource::Darktable));
+            let (fw, fh) = d.full_size;
+            assert_eq!((fw.max(fh), fw.min(fh)), (10008, 6672));
+            // The last column and row carry the picture, not padding.
+            let mean = |pixels: Vec<f32>| pixels.iter().sum::<f32>() / pixels.len() as f32;
+            let col = mean((0..h).flat_map(|y| img.get_pixel(w - 1, y).0).collect());
+            let row = mean((0..w).flat_map(|x| img.get_pixel(x, h - 1).0).collect());
+            let centre = mean((0..w).flat_map(|x| img.get_pixel(x, h / 2).0).collect());
+            eprintln!("  edge means: column {col:.4}, row {row:.4}, centre row {centre:.4}");
+            assert!(col > centre * 0.05 && row > centre * 0.05, "black band at the edge");
+        }
     }
 
     /// `EMULSION_RAW_SAMPLES=a.RAF cargo test libraw_survives -- --ignored`.
@@ -585,6 +706,24 @@ mod tests {
         std::fs::write(&p, tiff_with_subifd(52546)).unwrap();
         let err = decode(&p, true).err().expect("a JPEG XL DNG must not decode");
         assert!(err.contains("JPEG XL"), "{err}");
+    }
+
+    /// A real JPEG XL DNG (Apple ProRAW 48 MP, DxO PureRAW 6) decodes at full and half size,
+    /// with the colour matrix from the file.
+    #[test]
+    #[ignore = "set EMULSION_JXL_DNG to a JPEG XL compressed DNG"]
+    fn decodes_jpeg_xl_dngs() {
+        let path = std::env::var("EMULSION_JXL_DNG").expect("set EMULSION_JXL_DNG");
+        let path = Path::new(&path);
+        assert!(uses_jpeg_xl(path), "not a JPEG XL DNG");
+        for half in [false, true] {
+            let d = decode(path, half).unwrap();
+            let px = d.image.to_rgb32f();
+            let mean: f32 = px.as_raw().iter().sum::<f32>() / px.as_raw().len() as f32;
+            eprintln!("half={half}: {}x{} of {:?}, mean {mean:.3}", px.width(), px.height(), d.full_size);
+            assert!(mean > 0.005 && mean < 1.0, "implausible mean {mean}");
+            assert_ne!(d.camera_to_working, [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], "no colour matrix");
+        }
     }
 
     #[test]

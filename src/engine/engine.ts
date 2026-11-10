@@ -11,8 +11,6 @@ import { MASK_UNIT, MaskStack, refinedLayer } from './maskstack';
 import { MaskRefineGpu, refineSize, type RefineJob } from './maskrefinegpu';
 import { postOperations } from './maskrefine';
 import { packShapes } from './masks';
-import { ProfileGpu, type ProfileEarly } from './profilegpu';
-import { prepareProfile, profilePending } from './profilestore';
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The develop engine: uploads sources and runs the pass graph.
 //
@@ -51,8 +49,6 @@ import { warmRecipe, type WarmStage } from './warm';
 import { chooseRegionWithin, REGION_SHARE, regionReach, regionWorthIt, stageReach, visibleSource, type PixelRect, type StageReach } from './region';
 import { displayDensity, workingScale } from './viewscale';
 
-// DCP calibration uses 12 only in its separate early pass. The develop shader
-// reads the late DCP tables (13–15), leaving 12 for the cached dark channel.
 const DEHAZE_UNIT = 12;
 const LIVE_ANALYSIS_EDGE = 768;
 
@@ -217,7 +213,7 @@ const TEXTURE_STAGE = uniformsOf('stages/texture.glsl').concat('uTextureMix');
 const BEFORE_TEXTURE_LOG = ['stages/input.glsl', 'stages/dehaze.glsl'].flatMap(uniformsOf).concat('uSharp', 'uStore', 'uDehazeKey');
 const TEXTURE_INPUT = TEXTURE_STAGE.filter(k => k !== 'uTextureMix');
 const COLOR_STAGE = uniformsOf('stages/colorequal.glsl');
-const BEFORE_CLARITY = ['stages/colorbalance.glsl', 'stages/lens.glsl', 'stages/tone.glsl', 'stages/lut.glsl', 'stages/dcp.glsl'].flatMap(uniformsOf).concat('uHal', 'uHalCol', 'uGlow', 'uLutId');
+const BEFORE_CLARITY = ['stages/colorbalance.glsl', 'stages/lens.glsl', 'stages/tone.glsl', 'stages/lut.glsl'].flatMap(uniformsOf).concat('uHal', 'uHalCol', 'uGlow', 'uLutId');
 // uClarityScale only rescales a finished map, so it is never part of one's key.
 const CLARITY_STAGE = uniformsOf('stages/clarity.glsl').filter((n) => n !== 'uClarityScale').concat('uLl');
 const pick = (u: Uniforms, names: string[]) => JSON.stringify(names.map((n) => u[n] ?? null));
@@ -340,8 +336,6 @@ class Lane {
   lensMade: { input: WebGLTexture; key: string; out: Target } | null = null;
   /** The retouched source: made from `input` at 1/k for `spots`; `src` is the source it stands for. */
   retouchMade: { input: WebGLTexture; spots: string; removeKey: string; k: number; out: Target; src: Source } | null = null;
-  /** The camera profile's early pass, kept per source. */
-  profileEarly: ProfileEarly = { early: null };
   /** Haze removal's targets for the latest source size (see dehazeMap), and what they were made from. */
   dh: DehazeTargets | null = null;
   /** The bounded live transmission, retained separately from the settled preview's maps. */
@@ -468,8 +462,6 @@ export class Engine {
   private draftTarget: Target | null = null;
   private develop: Program;
   private dehazeP: Program;
-  private dcpPass: Program;
-  private profiles: ProfileGpu;
   private extract: Program;
   private teqMask: Program;
   private sampleP: Program;
@@ -509,9 +501,7 @@ export class Engine {
 
   constructor(canvas: HTMLCanvasElement | OffscreenCanvas) {
     this.gpu = new Gpu(canvas);
-    this.profiles = new ProfileGpu(this.gpu);
     this.noiseP = this.gpu.program(SHADERS.vertex, noiseShader);
-    this.dcpPass = this.gpu.program(SHADERS.vertex, SHADERS.dcp);
     this.lensP = this.gpu.program(SHADERS.vertex, SHADERS.lenscorrect);
     this.develop = this.gpu.program(SHADERS.vertex, SHADERS.develop);
     this.dehazeP = this.gpu.program(SHADERS.vertex, SHADERS.dehaze);
@@ -725,7 +715,6 @@ export class Engine {
     if (L.lensMade) g.free(L.lensMade.out);
     if (L.retouchMade) g.free(L.retouchMade.out);
     if (L.csOut) g.free(L.csOut);
-    if (L.profileEarly.early) g.free(L.profileEarly.early.out);
     this.freeEq();
     if (L.usm) [L.usm.a, L.usm.b].forEach((t) => g.free(t));
     if (L.printGroup) g.freePair(L.printGroup.t);
@@ -744,7 +733,6 @@ export class Engine {
     L.objects.reset();
     L.noiseMade = L.profMade = L.lensMade = L.retouchMade = L.eq = L.usm = L.ce = null;
     L.csOut = null;
-    L.profileEarly.early = null;
     L.csMade = L.eqMade = L.eqPhoto = L.usmMade = L.ceMade = L.ceScene = L.ceLookMade = L.llMade = L.refineMade = null;
   }
 
@@ -2234,16 +2222,15 @@ export class Engine {
     return this.lutTex.get(String(lut.id), () => this.gpu.lutTexture(textureData(lut), lut.level, lut.eightBit));
   }
 
-  /** Keep the previous frame until its base profile and optional creative LUT are ready. */
-  waiting(recipe: Recipe | null, camera?: import('../film/profiles').CameraMetadata | null, compare = false): boolean {
+  /** Keep the previous frame until the optional creative LUT is ready. */
+  waiting(recipe: Recipe | null, compare = false): boolean {
     const file = compare ? null : recipeLookFile(recipe);
-    return (!!file && lutPending(file)) || profilePending(recipe?.profile ?? 'auto', camera, recipe?.autoProfile);
+    return !!file && lutPending(file);
   }
 
-  /** Wait for the base profile and optional creative LUT before export or thumbnails. */
-  async prepare(recipe: Recipe | null, camera?: import('../film/profiles').CameraMetadata | null) {
+  /** Wait for the optional creative LUT before export or thumbnails. */
+  async prepare(recipe: Recipe | null) {
     const file = recipeLookFile(recipe);
-    await prepareProfile(recipe?.profile ?? 'auto', camera, recipe?.autoProfile);
     if (file) await loadLut(file);
   }
 
@@ -2790,18 +2777,6 @@ export class Engine {
       this.L.refiner.release();
       this.L.refineMade = null;
     }
-    const profile = this.profiles.resolve(recipe?.profile ?? 'auto', src.mode === InputMode.SceneLinear ? src.camera : null, undefined, recipe?.autoProfile);
-    if (profile) {
-      if (!g.hdr) throw Error('Camera profiles require floating-point WebGL render targets');
-      const input = src.tex;
-      const target = this.profiles.source(this.L.profileEarly, input, profile.key, src.w, src.h, (out) => {
-        g.bind(0, input);
-        this.profiles.bind(profile);
-        this.dcpPass.set({ ...this.profiles.uniforms(profile), uTex: 0 });
-        g.draw(this.dcpPass, out, src.w, src.h);
-      });
-      src = { ...src, tex: target.tex };
-    }
     if (opts.removeInput && recipe) {
       const job = opts.removeInput;
       job.result = this.collectRemoveInput(src, recipe, job.request, job.context);
@@ -2809,7 +2784,7 @@ export class Engine {
     }
     const view = opts.view ?? FULL_VIEW;
     const frame = opts.frame ?? recipe?.crop ?? FULL;
-    // Retouch replaces the source, after the profile's early pass and before haze removal. A view
+    // Retouch replaces the source before haze removal. A view
     // showing the photo at half its working size or less retouches at that scale (1/k), as
     // darktable's darkroom runs at the zoom's scale; an export or a 1:1 view at full size.
     if (!opts.compare) {
@@ -2869,7 +2844,6 @@ export class Engine {
     const u = developUniforms(recipe, {
       width: turned ? fullH : fullW, height: turned ? fullW : fullH, seed: opts.seed, inputMode: src.mode, store: this.store, compare: opts.compare, white: src.white, look, maskShow: opts.maskShow,
     });
-    Object.assign(u,this.profiles.uniforms(profile));
     u.uTextureLog = (this.detailOrder ?? Engine.detailOrder) === 'log' ? 1 : 0;
     const geo = geometryMatrix({ ...FULL, ...frame }, src.fullW, src.fullH, recipe?.transform);
     u.uGeoU = geo[0];
@@ -2944,7 +2918,6 @@ export class Engine {
           for (const unit of [1, 2, 3, 4, 5, 6, 8, 9, 10]) g.bind(unit, g.blackTexture);
           g.bind(DEHAZE_UNIT, prev?.tex ?? g.blackTexture);
           g.bind3d(LUT_UNIT, lutTex);
-          this.profiles.bind(profile);
           this.develop.set({
             ...u, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3, uTeqTex: 4, uTeqLocal: 0, uCurveTex: 5, uClarityTex: 6, uTextureTex: 8, uUsmTex: 9, uCeTex: 10, uDehazeTex: DEHAZE_UNIT, uDehazeOn: prev ? 1 : 0,
             uView: [0, 0, 1, 1], ...tapGeo, uSplit: -1, uClipShow: 0, uUsmOn: 0, uUsmShowMask: 0, uCeOn: 0, uTextureOn: 0, uClarityOn: 0, uTap, uTapMask: slot, uMaskTap: -1,
@@ -3056,7 +3029,6 @@ export class Engine {
           for (const unit of [2, 3, 4, 5, 6, 8, 9, 10]) g.bind(unit, g.blackTexture);
           g.bind(DEHAZE_UNIT, dehaze);
           g.bind3d(LUT_UNIT, lutTex);
-          this.profiles.bind(profile);
           this.develop.set({
             ...u, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3, uTeqTex: 4, uTeqLocal: 0, uCurveTex: 5, uClarityTex: 6, uTextureTex: 8, uUsmTex: 9, uCeTex: 10, uDehazeTex: DEHAZE_UNIT,
             uView: [0, 0, 1, 1], ...tapGeo, uSplit: -1, uClipShow: 0, uUsmOn: 0, uUsmShowMask: 0, uCeOn: 0, uTextureOn: 0, uClarityOn: 0, uTap: 6, uMaskTap: slot,
@@ -3113,7 +3085,6 @@ export class Engine {
       g.bind(10, ceTex);
       g.bind(DEHAZE_UNIT, dehaze);
       g.bind3d(LUT_UNIT, lutTex);
-      this.profiles.bind(profile);
     };
     // A pass over the whole source that stops at a filter's input (see uTap in develop.frag).
     const tap = (t: Target, uTap: number, extra: Uniforms) => {
@@ -3576,7 +3547,6 @@ export class Engine {
       this.L.objects.dispose();
       this.L.stack.dispose();
     });
-    this.profiles.dispose();
     this.gpu.freeSpares();
     this.retouchCache.clear();
     if (this.retouchAsync) { this.retouchAsync.worker.terminate(); this.retouchAsync = null; }

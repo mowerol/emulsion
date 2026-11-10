@@ -24,7 +24,7 @@ Input modes (`engine/params.ts`, `InputMode`):
 
 | Mode | Meaning | Used for |
 | --- | --- | --- |
-| 0 | Linear light, sRGB primaries, display-referred | Decoded JPEG, PNG, TIFF, WebP |
+| 0 | Linear light, sRGB primaries, display-referred | Decoded JPEG, PNG, TIFF, WebP, converted from their embedded ICC profile to sRGB (`decode::to_srgb`, moxcms) after resizing; CMYK uses the decoder's naive conversion and float images are taken as linear sRGB |
 | 1 | sRGB-encoded, display-referred | 8-bit thumbnails in the browser |
 | 2 | Scene-linear Rec.2020 | Decoded RAW |
 
@@ -32,26 +32,27 @@ Input modes (`engine/params.ts`, `InputMode`):
 
 RAW sources first pass through cached embedded lens correction (`engine/lenscorrection.ts`, `lenscorrect.frag.glsl`), after capture sharpening but before all analysis maps and creative edits. Rust's bounded TIFF/maker-note reader supplies Fuji/Sony/Olympus/DNG profiles in the decoder payload. The pass recovers white-balanced camera RGB with the decoder's matrix, applies source-space vignette gain and per-channel radial bilinear resampling, then returns to Rec.2020. RAW working values retain their sign until after this pass so camera channels can be reconstructed. The correction is on by default, independently switchable per photo; DNG's combined warp has one switch/strength as upstream. Camera JPEG previews are never corrected twice: edited RAW thumbnails and stock previews decode a small RAW instead.
 
-Camera profiles form the base rendering independently of creative film LUTs. RAW
-sources carry a separate camera metadata block (payload flag 4, available with or
-without flag 2 lens data): make/model, the exact camera-to-working matrix,
-as-shot camera neutral and existing exposure gain. `engine/dcp.ts` ports
-RawTherapee's DCP processing; `profilegpu.ts` owns the calibration/look/gamma/tone
-textures and a cached early profile target. The early pass runs after embedded
-lens correction and before every scene analysis map. The late profile pass runs
-after scene edits, supplying baseline exposure, an optional look table and tone
-curve. A DCP curve replaces the neutral sigmoid; otherwise the neutral sigmoid
-renders the base. The optional film LUT is applied to this base print. Amount
-zero returns the same base profile. Compare retains the camera rendering.
+The camera's standard colour matrix forms the base rendering, as darktable's input
+color profile does by default; Emulsion has no DCP or ICC camera profiles. RAW
+sources carry a camera metadata block (payload flag 4, available with or without
+flag 2 lens data): make/model, the camera-to-working matrix, as-shot camera
+neutral, existing exposure gain, and where the matrix came from (`colour`).
+The matrix is chosen as darktable does (`colour_matrix` in `raw.rs`): a DNG's
+own, else darktable's for the exact model (rawspeed's `cameras.xml`, generated
+into `rawspeed_cameras.rs` by `tools/rawspeed/generate.py`), else LibRaw's table,
+which matches models by prefix (an unknown ILCE-7RM6 took the 2013 ILCE-7R's).
+With none, camera RGB is treated as Rec.2020 and the Develop panel shows a colour warning at its top.
 
-The user DCP library lives under `app_data_dir()/camera-profiles/`, addressed by
-content hash. `profilestore.ts` resolves Auto/Standard and explicit DCP choices,
-checks camera binding and coordinates asynchronous loading. Preview, thumbnails,
-look tiles and export all prepare the same profile. Explicit missing/wrong-camera
-profiles fail rather than exporting a substitute. New photos use Auto with LUT
-None and the Straight scanner. No manufacturer camera-matching dataset is
-bundled. See [camera profile reference](plans/camera-profiles-reference.md) for
-the exact port, processing order and limits.
+Where LibRaw has no size for a camera it keeps the whole sensor readout; for a
+Sony ARW that includes black padding. The shim's `emu_open` then asks Rust
+(`emu_camera_crop`) for rawspeed's crop, set before unpack so every decode path
+(preview, full, mosaic, info) agrees: lossless ARWs (compression 7) are cut to
+SonyRawImageSize (0x7038) with no further crop, as `ArwDecoder` does; other ARWs
+take the `cameras.xml` crop (`RawDecoder::setMetaData`). Cameras LibRaw sizes
+are untouched, so their saved edits keep their framing. The neutral sigmoid renders the base print;
+the optional film LUT is applied to it. Amount zero returns the same base. New
+photos use LUT None and the Straight scanner. Sidecars from before 2026-11-10 may
+hold `profile`/`autoProfile` (the retired DCP choice); `normalizeRecipe` drops them.
 
 Each stage is one GLSL file in `src/engine/shaders/stages/`, included into `develop.frag.glsl` in this order. Its parameters come from the recipe through `engine/params.ts`.
 
@@ -72,8 +73,8 @@ Each stage is one GLSL file in `src/engine/shaders/stages/`, included into `deve
 | Masks (colour) | `masks.glsl` | scene | Each mask's colour balance instance (contrast, shadows, vibrance, saturation), after the photo's own, blended in by the value its exposure instance found | |
 | Creative vignette | `lens.glsl` | scene | Manual light falloff, separate from embedded lens correction | |
 | Optics | `optics.glsl` | scene | Halation and glow, added back from blurred highlights | |
-| Profile tone | `dcp.glsl`, `tone.glsl` | scene to print | RawTherapee DCP baseline exposure/look/Adobe tone curve, or the neutral darktable sigmoid per channel (**ported from darktable sigmoid**) when the profile has no curve. Whites/positive Blacks set display targets. | |
-| Look | `lut.glsl` | print | Optional creative LUT (a bundled pack's, or a custom look's: its own LUT file or the system look it refers to; `library/userlooks.ts`, `src-tauri/src/user_looks.rs`) on the camera profile’s print, with Blend Normal or Colour (darktable's color blend mode, `engine/blend.ts`: the LUT's hue and saturation, the print's lightness): convert to sRGB, tetrahedral lookup, blend by Amount, return to print encoding. Never supplies the base rendering. **Ported from darktable lut3d** | |
+| Profile tone | `tone.glsl` | scene to print | The neutral darktable sigmoid per channel (**ported from darktable sigmoid**). Whites/positive Blacks set display targets. | |
+| Look | `lut.glsl` | print | Optional creative LUT (a bundled pack's, or a custom look's: its own LUT file or the system look it refers to; `library/userlooks.ts`, `src-tauri/src/user_looks.rs`) on the base print, with Blend Normal or Colour (darktable's color blend mode, `engine/blend.ts`: the LUT's hue and saturation, the print's lightness): convert to sRGB, tetrahedral lookup, blend by Amount, return to print encoding. Never supplies the base rendering. **Ported from darktable lut3d** | |
 | Clarity | `clarity.glsl` | print | Clarity: darktable's local laplacian filter (its local contrast module's clarity preset) on CIE lightness, from a map the `ll*` passes make over the whole photo; keeps Lab a and b. The map folds in each mask's Clarity the same way as Texture's. **Ported from darktable local contrast** | |
 | Sharpening | `usm.glsl` | print | Sharpening, Radius, Masking: RawTherapee's unsharp mask on CIE lightness of the finished print, from a map the `usm` passes make over the whole photo; keeps Lab a and b. Runs after Tone and Clarity, before grain. **Ported from RawTherapee sharpening** | |
 | Grain | `grain.glsl` | print | Grain, Size (ISO), Mid-tones: darktable's grain on CIE lightness of the finished print, after Sharpening and before output: three octaves of simplex noise fitted to real grain scans, sized by film speed relative to the frame (pushing doubles the speed per stop), through darktable's paper response so it fades in shadows and highlights; away from 1:1 it averages 21 samples per pixel. **Ported from darktable grain** | |
@@ -82,11 +83,11 @@ Each stage is one GLSL file in `src/engine/shaders/stages/`, included into `deve
 | Curve | `curve.glsl` | display | Point curve: master, then red, green and blue, from a 256-step lookup table sampled in `film/curve.ts` (darktable's monotone spline); a saved profile's curve is composed in front of the photo's own into the same table (`composedCurveTable`) | |
 | Finish | `finish.glsl` | display | Matte fade and dither | |
 
-The neutral sigmoid’s maths is mirrored in `engine/tone.ts` so it can be unit-tested; the shader receives its constants from there. Emulsion's neutral curve uses sigmoid contrast 1.15 and skew 0.11 rather than darktable's 1.5 and 0, fitted to the curve the stocks were first tuned on, and a display black of 0 so the inverse is exact. Without a DCP tone curve, the base renders the neutral curve per channel, the exact inverse of the display-referred input stage. A DCP uses its own tone curve for both the edited photo and Compare.
+The neutral sigmoid’s maths is mirrored in `engine/tone.ts` so it can be unit-tested; the shader receives its constants from there. Emulsion's neutral curve uses sigmoid contrast 1.15 and skew 0.11 rather than darktable's 1.5 and 0, fitted to the curve the stocks were first tuned on, and a display black of 0 so the inverse is exact. Without a DCP tone curve, the base renders the neutral curve per channel, the exact inverse of the display-referred input stage.
 
 ### Haze removal
 
-Dehaze is darktable's haze removal (`hazeremoval.c`, He et al.'s dark channel prior and guided filter), in darktable's place: on the scene-linear input, after lens correction and the camera profile's early pass, before exposure (`stageDehaze`, also in the tone equalizer map and highlight extraction passes). `engine/dehaze.ts` is the reference.
+Dehaze is darktable's haze removal (`hazeremoval.c`, He et al.'s dark channel prior and guided filter), in darktable's place: on the scene-linear input, after lens correction, before exposure (`stageDehaze`, also in the tone equalizer map and highlight extraction passes). `engine/dehaze.ts` is the reference.
 
 - **Ambient light and depth** (`Engine.dehazeAmbient`): the module's input drawn at most 1280 px across, read back, and darktable's `_ambient_light` run on it: the most hazy 5% by dark channel, the brightest 5% of those, their mean colour as A0, and the depth from the haze level at the 95% quantile. darktable's darkroom takes these from its small preview pipe; Emulsion always does, so the preview and an export agree. Kept per source.
 - **Transmission** (`dehazegf.frag.glsl`, `Engine.dehazeMap`): the module's input at the source's size (`dehaze.frag.glsl`), darktable's transition map, its box maximum then box minimum, then darktable's colour guided filter (Cramer's rule, eps 0.025). Box windows are separable passes truncated at the edges, scaled by darktable's adaptive w1 = 2 + ⌈4s⌉ and w2 = 3 + ⌈6s⌉, where s is the source's width over the full image's. The guide's means are kept per source. The transition map and filter run for a strength of ±1 and are kept until the sign or A0 changes: with strength s = σk, 1 − s·m = (1 − k) + k(1 − σm), the box maximum and minimum commute with that increasing map and the guided filter is linear and keeps constants, so mode 7 takes t = (1 − k) + k(a · I + b) (`uGfScale`) and a Dehaze drag redoes one pass instead of ten (exact up to float rounding; probe ≤ 9e-7 against `dehaze.ts`, which stays darktable's literal order). Each instance is (x − A0) / max(t, tmin) + A0, with tmin from Distance; that is affine per pixel, so mode 7 folds it into one (β, α) image and the develop pass applies αx + β (unit 12).
@@ -96,7 +97,7 @@ Dehaze is darktable's haze removal (`hazeremoval.c`, He et al.'s dark channel pr
   input, geometry and refinement. Transmission rebuilding invalidates the mask because
   the filter reuses its scratch target; source/input changes invalidate the guide too.
 - **Memory:** nine 32-bit images per instance at the source's size (six RGBA, three single-channel), about 450 MB per instance at the 2560 px preview, freed with the export buffers.
-- **Checks:** probe `out.dehaze` (ambient light and depth equal to the reference, transmission within 1e-6, the stage within 4e-6) and `node tools/browser-tests/treatment-filters.mjs dehaze` (with a synthetic DCP on the shared unit 12, cache reuse, cleanup). Unit 12 is free in develop because DCP calibration runs in a separate early pass.
+- **Checks:** probe `out.dehaze` (ambient light and depth equal to the reference, transmission within 1e-6, the stage within 4e-6) and `node tools/browser-tests/treatment-filters.mjs dehaze` (no WebGL errors, cache reuse, cleanup).
 
 ### Transform geometry
 
@@ -213,8 +214,8 @@ drafts, stand-ins while the view moves, `prepareFrame` stepping, release and set
 preparation, warming and the histogram. `ui/developclient.ts` is the main thread's handle:
 `Develop` sends the latest view state and pointer presses and releases, uploads sources
 (`SourceRef`s mirror what layout reads), and asks for pickers and the object encoder's pixels
-by promise. Camera profiles and LUTs load on the main thread (they need the app's IPC) and the
-client sends them to the worker's copies of the stores (`profileSnapshot`, `provideLut`).
+by promise. LUTs and user looks load on the main thread (they need the app's IPC) and the
+client sends them to the worker's copies of the stores (`provideLut`, `adoptUserLooks`).
 
 - **Short GPU submissions:** WebKit paints the page through the same GPU, and one long
   submission held the controls' painting for its whole length (Capture Sharpening at 50%: 430 ms
@@ -263,11 +264,13 @@ LibRaw 0.22.3 is vendored in `src-tauri/vendor/libraw` and compiled into the app
 
 - **Preparing zoom detail:** as soon as the active Develop preview is available, `prepareFullImage` prepares its exact ordinary decode in the existing 512 MiB payload cache without changing Fit. For an eligible RAW with capture sharpening enabled, its completion also uploads the active full source and starts the independent idle capture cache described above. Only one background decode runs and only the latest photo can wait; foreground zoom shares its keyed request or starts immediately. Pending work is cancelled on navigation/edit/unmount; already-running LibRaw calls finish. Payloads over 256 MiB and noise-reduction decodes are not prepared speculatively. `ImageLoadCache` generations prevent old completions after a clear from repopulating the cache or removing newer requests.
 - **Decoding:** LibRaw demosaics, applies the white balance as shot and returns 16-bit linear camera RGB, oriented. Previews (2560 px and under) use LibRaw's half-size mode, which skips the demosaic and is several times faster; export decodes at full size.
-- **Colour:** `raw.rs` converts camera RGB to Rec.2020 from the camera's XYZ matrix, the same way dcraw converts to sRGB (a test checks it reproduces LibRaw's sRGB matrix). Cameras LibRaw reads but has no colour data for can borrow a same-sensor camera's matrix from `SAME_SENSOR`; the OM-3 uses the OM-1's.
+- **Colour:** `raw.rs` converts camera RGB to Rec.2020 from the camera's XYZ matrix, the same way dcraw converts to sRGB (a test checks it reproduces LibRaw's sRGB matrix). For DNGs the shim takes the file's own matrix (D65 ColorMatrix × CameraCalibration × AnalogBalance, built as LibRaw's `identify` builds its `cmatrix`) rather than LibRaw's camera table, which has no entry for most phones and converters. Cameras LibRaw reads but has no colour data for can borrow a same-sensor camera's matrix from `SAME_SENSOR`; the OM-3 uses the OM-1's.
+- **JPEG XL DNGs** (DNG 1.7: Apple ProRAW 48 MP, DxO PureRAW 6): LibRaw's placeholder loader is filled in (`vendor/libraw/src/decoders/dng.cpp`) and decodes each tile with jxl-oxide (`jxl.rs`). The tile's integer range is the codestream's own bit depth: Apple codes 10-bit samples in 16-bit JPEG XL.
+- **Resizing** float images uses `decode::resize_rgb32f`, the image crate's triangle filter without its clamp to 0..1, so previews keep RAW highlights (clipping sits at `BASELINE_GAIN`) and negative out-of-gamut values.
 - **Exposure:** LibRaw's output has sensor clipping at 1.0. `BASELINE_GAIN` (1.8) scales it so a RAW lands at about the brightness of the camera's own JPEG; the ignored test `calibrate_baseline_gain` measures this over sample files.
 - **Thumbnails** come from the camera's embedded preview, so the grid shows the camera's rendering until a frame is developed.
 
-To update LibRaw, replace `src`, `libraw` and `internal` in the vendor folder from a release tarball, check its checksum, and rerun the RAW tests and calibration.
+To update LibRaw, replace `src`, `libraw` and `internal` in the vendor folder from a release tarball, check its checksum, reapply the two "Emulsion:" edits (JPEG XL loader in `dng.cpp`, its flags in `decoder_info.cpp`), and rerun the RAW tests (with `EMULSION_JXL_DNG` set) and calibration.
 
 ## White balance
 
@@ -314,13 +317,11 @@ Writes are debounced in the webview and atomic in Rust (write to a temporary fil
 
 **Edit history.** A sidecar also keeps earlier states of the edits (`history`: recipe and copies, oldest first, at most 20 and 4 MB), as darktable keeps the history stack in its XMP. A state is kept when it is replaced at a checkpoint: a reset, a paste, an edit of several photos, removing a copy, restoring an earlier edit (the webview passes `checkpoint` with the write), or the first change 30 minutes after the last checkpoint (`checkpoint` time in the file). Stars, tags and hearts never make history. A photo with history keeps its sidecar after a reset. The panel's ⋯ menu → Earlier edits lists them (`sidecar_history`).
 
-**Auto profile fallback.** With `profile: 'auto'`, the saved recipe also records `autoProfile`, the DCP Auto chose here (`withAutoProfile` in `profilestore.ts`, applied on save). Auto still follows the camera's default; `autoProfile` is used only where that default isn't set, so a photo renders the same on another computer.
-
 ## App data and backups
 
-The app data folder holds `looks/`, `presets/`, `camera-profiles/` and `settings.json`. The last holds what the webview used to keep in localStorage and matters beyond one window: per-camera default profiles, preset and look favourites, preset collections, imports and photo collections (`library/appsettings.ts`, keys in `APP_SETTING_KEYS`; moved from localStorage once). `main.tsx` reads it before importing the app, so stores read it synchronously. Interface preferences and the folder index cache stay in localStorage.
+The app data folder holds `looks/`, `presets/` and `settings.json`. The last holds what the webview used to keep in localStorage and matters beyond one window: preset and look favourites, preset collections, imports and photo collections (`library/appsettings.ts`, keys in `APP_SETTING_KEYS`; moved from localStorage once). `main.tsx` reads it before importing the app, so stores read it synchronously. Interface preferences and the folder index cache stay in localStorage.
 
-`src-tauri/src/app_data.rs` snapshots those four into `backups/<local date>/` on the first launch of each day (15 kept) and into `backups/before-<new>-from-<old>/` on a version change (5 kept), as darktable snapshots `data.db`. LUTs and DCPs are hard-linked, so every writer in those folders must replace files by rename, never rewrite in place. The app menu has Export Settings (a zip, `.emulsion-settings`), Import Settings, Restore Settings from Backup and Show Backups in Finder (`library/backups.ts`). Import and restore merge (files added or replaced, never deleted; settings key by key), snapshot what was there first (`before-restore-…`), then reload the window. Choosing LUT None only disables the creative LUT and retains the camera profile and adjustments.
+`src-tauri/src/app_data.rs` snapshots those three into `backups/<local date>/` on the first launch of each day (15 kept) and into `backups/before-<new>-from-<old>/` on a version change (5 kept), as darktable snapshots `data.db`. LUTs are hard-linked, so every writer in those folders must replace files by rename, never rewrite in place. The app menu has Export Settings (a zip, `.emulsion-settings`), Import Settings, Restore Settings from Backup and Show Backups in Finder (`library/backups.ts`). Import and restore merge (files added or replaced, never deleted; settings key by key), snapshot what was there first (`before-restore-…`), then reload the window. Choosing LUT None only disables the creative LUT and retains the adjustments.
 
 ## Adding or replacing a stage
 

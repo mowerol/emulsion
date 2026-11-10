@@ -44,7 +44,7 @@ struct Meta {
 fn key(path: &Path) -> Result<String, String> {
     let m = path.metadata().map_err(|e| e.to_string())?;
     let id = format!(
-        "raw-nind-v1-libraw0223-baseline{}|{}|{}|{}|{}",
+        "raw-nind-v1-libraw0223-darktable1-baseline{}|{}|{}|{}|{}",
         raw::BASELINE_GAIN,
         path.canonicalize().map_err(|e| e.to_string())?.display(),
         m.len(),
@@ -351,6 +351,7 @@ fn load_cached(
         camera: raw::CameraMetadata {
             // Entries written before noise profiles were sent lack one; read the ISO again.
             noise: m.camera.noise.clone().or_else(|| raw::noise_profile(path)),
+            colour: m.camera.colour.clone().or_else(|| raw::colour_source_of(path)),
             ..m.camera.clone()
         },
     };

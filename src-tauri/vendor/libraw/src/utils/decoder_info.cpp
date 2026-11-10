@@ -50,10 +50,9 @@ int LibRaw::get_decoder_info(libraw_decoder_info_t *d_info)
   }
   else if (load_raw == &LibRaw::jxl_dng_load_raw_placeholder)
   {
+    // Emulsion: decoded through src/jxl.rs (see dng.cpp), stored as adobe_copy_pixel does.
     d_info->decoder_name = "jxl_dng_load_raw_placeholder()";
-#ifndef USE_DNGSDK
-    d_info->decoder_flags = LIBRAW_DECODER_UNSUPPORTED_FORMAT;
-#endif
+    d_info->decoder_flags = LIBRAW_DECODER_HASCURVE | LIBRAW_DECODER_ADOBECOPYPIXEL;
   }
   else if (load_raw == &LibRaw::canon_600_load_raw)
   {

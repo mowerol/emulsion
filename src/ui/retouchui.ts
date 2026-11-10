@@ -11,7 +11,7 @@
 // change it (rt_shape_selection_changed); with nothing selected they set up the next spot.
 
 import { create } from 'zustand';
-import { activePhoto, editActive, showToast, useApp } from '../library/store';
+import { activePhoto, discardTransientEdits, editActive, recordTransientEdit, showToast, useApp } from '../library/store';
 import { photoId } from '../library/copies';
 import { removeGroups } from '../engine/remove';
 import { defaultRecipe, type Recipe } from '../film/recipe';
@@ -211,15 +211,28 @@ export function setEachStroke(on: boolean) {
 
 /** A Remove stroke to wait with the others on this photo (strokes waiting on another photo are let go). */
 export function addPendingStroke(photo: string, W: number, H: number, nodes: BrushNode[]) {
+  if (useRetouchUi.getState().pending?.photo !== photo) cancelPending();
   const p = useRetouchUi.getState().pending;
   const strokes = p && p.photo === photo ? p.strokes : [];
-  setRetouchUi({ pending: { photo, W, H, strokes: [...strokes, nodes] }, selected: null });
+  changePending({ photo, W, H, strokes: [...strokes, nodes] }, 'Remove stroke');
+}
+
+const PENDING_HISTORY = 'remove-strokes';
+
+function changePending(pending: RetouchUi['pending'], label: string) {
+  const before = useRetouchUi.getState().pending;
+  setRetouchUi({ pending, selected: null });
+  recordTransientEdit(label, { scope: PENDING_HISTORY,
+    before: () => setRetouchUi({ pending: before, selected: null }),
+    after: () => setRetouchUi({ pending, selected: null }),
+  });
 }
 
 /** Let the waiting strokes go: all of them (Cancel, Esc), or the last one (⌫). */
 export function cancelPending(last = false) {
   const p = useRetouchUi.getState().pending;
-  setRetouchUi({ pending: last && p && p.strokes.length > 1 ? { ...p, strokes: p.strokes.slice(0, -1) } : null });
+  if (last && p) changePending(p.strokes.length > 1 ? { ...p, strokes: p.strokes.slice(0, -1) } : null, 'Delete Remove stroke');
+  else { discardTransientEdits(PENDING_HISTORY); setRetouchUi({ pending: null }); }
 }
 
 /**
@@ -229,6 +242,7 @@ export function cancelPending(last = false) {
  */
 export function applyPending() {
   const p = useRetouchUi.getState().pending;
+  discardTransientEdits(PENDING_HISTORY);
   if (!p) return;
   setRetouchUi({ pending: null });
   const photo = activePhoto(useApp.getState());
@@ -350,3 +364,9 @@ export function setRetouchTool(tool: Exclude<SpotSettings['tool'], 'remove'>, sp
   if (!toSelected && useRetouchUi.getState().selected !== null) { commitDraft(); setRetouchUi({ selected: null }); }
   setSetting('tool', tool, spots, `${TOOL_NAMES[tool]} spot`);
 }
+
+// A draft (and its redo steps) belongs to one frame, including virtual copies.
+useApp.subscribe((state, previous) => {
+  const current = activePhoto(state), before = activePhoto(previous);
+  if ((current ? photoId(current) : null) !== (before ? photoId(before) : null)) cancelPending();
+});

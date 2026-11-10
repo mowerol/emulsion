@@ -134,7 +134,7 @@ export function PresetControls() {
             <span>{GROUP_LABEL(g)}</span><span>{groupValue(g, r)}</span>
           </label>)}
         </div>
-        <p className="presets-hint">Unchecked settings are left alone when the preset is applied, so presets can stack. Camera profile, crop, geometry, masks and retouching are never included.</p>
+        <p className="presets-hint">Unchecked settings are left alone when the preset is applied, so presets can stack. Crop, geometry, masks and retouching are never included.</p>
       </>}
       <footer>
         <button type="button" className="btn" disabled={saving} onClick={() => setSheet(null)}>Cancel</button>

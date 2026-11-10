@@ -1,99 +1,25 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { useEffect, useState } from 'react';
-import { open } from '@tauri-apps/plugin-dialog';
-import { cameraKey, type CameraProfileId, type CameraMetadata } from '../film/profiles';
-import {
-  importProfile,
-  profileEntries,
-  profileLabel,
-  refreshProfiles,
-  sameCamera,
-  setDefaultProfile,
-  useProfileVersion,
-} from '../engine/profilestore';
+// The camera colour warning. As darktable's input color profile defaults to the camera's standard
+// matrix, that is the only camera profile Emulsion applies, so there is nothing to choose and the
+// panel says nothing about it, except when a RAW's camera has no colour data at all.
+import { cameraKey, type CameraMetadata } from '../film/profiles';
 
-export function CameraProfileControls({
-  raw,
-  camera,
-  value,
-  onChange,
-}: {
-  raw: boolean;
-  camera: CameraMetadata | null;
-  value: CameraProfileId;
-  onChange: (value: CameraProfileId) => void;
-}) {
-  useProfileVersion();
-  const [error, setError] = useState<string | null>(null),
-    [busy, setBusy] = useState(false);
-  useEffect(() => {
-    void refreshProfiles().catch((e) => setError(String(e)));
-  }, []);
-  const available = camera ? profileEntries().filter((p) => sameCamera(p.camera, cameraKey(camera))) : [];
-  const custom = value.startsWith('dcp:');
-  const importDcp = async () => {
-    if (!camera) return;
-    try {
-      const path = await open({
-        multiple: false,
-        filters: [{ name: 'DNG camera profile', extensions: ['dcp'] }],
-        title: 'Import a camera profile',
-      });
-      if (typeof path !== 'string') return;
-      setBusy(true);
-      setError(null);
-      const entry = await importProfile(path, camera);
-      onChange(`dcp:${entry.id}`);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-  if (!raw)
-    return <p className="hint">This photo already has its camera rendering. Camera profiles apply to RAW files.</p>;
+/** The warning for a RAW whose camera has no colour matrix, or null when colours are calibrated. */
+export function colourWarning(raw: boolean, camera: CameraMetadata | null): string | null {
+  if (!raw || camera?.colour?.kind !== 'none') return null;
+  return `No colour data for the ${cameraKey(camera)} yet, so colours are approximate.`;
+}
+
+export function CameraColourWarning({ raw, camera }: { raw: boolean; camera: CameraMetadata | null }) {
+  const warning = colourWarning(raw, camera);
+  if (!warning) return null;
   return (
-    <>
-      <div className="grain-speed">
-        <label htmlFor="camera-profile">Profile</label>
-        <select id="camera-profile" value={value} onChange={(e) => onChange(e.target.value as CameraProfileId)}>
-          <option value="auto">Auto</option>
-          <option value="standard">Standard</option>
-          {!!available.length && (
-            <optgroup label="Camera profiles">
-              {available.map((p) => (
-                <option key={p.id} value={`dcp:${p.id}`}>
-                  {p.name}
-                </option>
-              ))}
-            </optgroup>
-          )}
-          {custom && !available.some((p) => `dcp:${p.id}` === value) && (
-            <option value={value}>{profileLabel(value)}</option>
-          )}
-        </select>
-      </div>
-      <p className="hint">{camera ? cameraKey(camera) : 'Reading camera information…'}</p>
-      {value === 'auto' && (
-        <p className="hint">
-          Uses this camera’s default profile, with the standard matrix when no profile is installed.
-        </p>
-      )}
-      <div className="actions">
-        <button type="button" className="btn" disabled={!camera || busy} onClick={importDcp}>
-          {busy ? 'Importing…' : 'Import DCP…'}
-        </button>
-        {custom && camera && available.some((p) => `dcp:${p.id}` === value) && (
-          <button type="button" className="btn" onClick={() => setDefaultProfile(camera, value.slice(4))}>
-            Use as camera default
-          </button>
-        )}
-      </div>
-      {error && (
-        <p className="hint" role="alert">
-          {error}
-        </p>
-      )}
-    </>
+    <section className="group colour-warning" role="status">
+      <svg viewBox="0 0 16 16" aria-hidden="true">
+        <path d="M8 2.2 14.3 13.5H1.7Z" />
+        <path d="M8 6.5v3.2M8 11.6v.1" />
+      </svg>
+      <p>{warning}</p>
+    </section>
   );
 }

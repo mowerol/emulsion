@@ -8,8 +8,8 @@ import { defaultRecipe, normalizeRecipe } from '../film/recipe';
 
 describe('photo match LUT', () => {
   it('fits from the camera rendering, excluding the previous look', () => {
-    const original = { ...defaultRecipe('portra400'), exposure: .7, contrast: 35, scanner: 'frontier' as const, autoProfile: 'a'.repeat(64) };
-    expect(photoMatchBase(original)).toMatchObject({ lookEnabled: false, exposure: .7, contrast: 0, scanner: 'straight', autoProfile: original.autoProfile });
+    const original = { ...defaultRecipe('portra400'), exposure: .7, contrast: 35, scanner: 'frontier' as const };
+    expect(photoMatchBase(original)).toMatchObject({ lookEnabled: false, exposure: .7, contrast: 0, scanner: 'straight' });
     expect(referenceName('C:\\Photos\\Warm reference.jpg')).toBe('Warm reference.jpg');
   });
   it('replaces a LUT and reopens its saved file, reference identity, intensity and blend', () => {

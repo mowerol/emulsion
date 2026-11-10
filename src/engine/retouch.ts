@@ -36,15 +36,28 @@
 // RetouchSetup.remove's patches; the crop, key and colour encode are engine/remove.ts (from IOPaint).
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import type { Mat3 } from '../film/stocks';
 import type { RetouchEllipse, RetouchShape, RetouchSpot } from '../film/retouch';
 import { brushStrokes, spotAnchor, usesSource } from '../film/retouch';
 import { strokeSegments, segmentValue, type Segment } from './brush';
 import { heal, MAX_HEAL_ITER } from './heal';
 import { gaussianBlur } from './maskrefine';
 import { BilateralGrid } from './bilateral';
-import { REC2020_XYZ_D50, XYZ_REC2020_D50 } from './dcp';
 import { dwtDecompose, dwtReach, type DwtParams } from './dwt';
 import { PATCH_SIZE, axisWeights, decodeRetouchPatch, encodeRetouchInput, fullMask, modelMask, patchKey, patchSource, removeCrop, resample, type Patch, type PatchRequest, type RetouchEncoding } from './remove';
+
+// Rec.2020 to and from D50-adapted XYZ, from RawTherapee's iccmatrices.h at
+// b2ee504c47e5e6d5e054395aa12bf1fe43bd1c3c (see NOTICE.md).
+const XYZ_REC2020_D50: Mat3 = [
+  [0.6734241, 0.1656411, 0.1251286],
+  [0.2790177, 0.6753402, 0.0456377],
+  [-0.00193, 0.0299784, 0.797333],
+];
+const REC2020_XYZ_D50: Mat3 = [
+  [1.6473376, -0.3935675, -0.2359961],
+  [-0.6826036, 1.6475887, 0.012819],
+  [0.0296524, -0.0628993, 1.2531279],
+];
 
 /** darktable's dt_iop_roi_t without the scale: a rectangle of pixels. */
 export interface Roi {

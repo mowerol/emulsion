@@ -16,7 +16,7 @@ import '../../src/styles.css';
 
 (window as any).__TAURI_INTERNALS__ = { invoke: async (cmd: string) => {
   if (cmd === 'remove_status') return { supported: true, installed: true, download: 208_000_000 };
-  if (cmd === 'camera_profiles' || cmd === 'list_presets' || cmd === 'custom_looks') return [];
+  if (cmd === 'list_presets' || cmd === 'custom_looks') return [];
   return null;
 } };
 

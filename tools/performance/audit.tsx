@@ -25,7 +25,7 @@ const measure = (f: () => void, n = 30) => {
 };
 (window as any).__TAURI_INTERNALS__ = { transformCallback: () => 1, invoke: async (cmd: string) => {
   if (cmd === 'thumbnail') throw Error('Audit: no thumbnail I/O');
-  if (cmd === 'computer_folders' || cmd === 'browse_directory' || cmd === 'camera_profiles') return [];
+  if (cmd === 'computer_folders' || cmd === 'browse_directory' ) return [];
   return null;
 } };
 const photo = (i: number, recipe = null as ReturnType<typeof defaultRecipe> | null) => ({ path: `/audit/${i}.JPG`, rel: `${i}.JPG`, name: `${i}.JPG`, size: 1, modified: 0, recipe, seed: i, white: null, rating: i % 6, label: null, heart: false, raw: false, pair: null });

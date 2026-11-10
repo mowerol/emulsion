@@ -11,7 +11,7 @@ import { setTheme, type Theme } from '../../src/ui/prefs';
 import '../../src/styles.css';
 
 (window as any).__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} };
-(window as any).__TAURI_INTERNALS__ = { invoke: async (cmd: string) => (cmd === 'camera_profiles' || cmd === 'list_presets' || cmd === 'custom_looks' ? [] : null),
+(window as any).__TAURI_INTERNALS__ = { invoke: async (cmd: string) => (cmd === 'list_presets' || cmd === 'custom_looks' ? [] : null),
   transformCallback: () => 1, unregisterCallback: () => {}, metadata: { currentWindow: { label: 'main' }, currentWebview: { label: 'main', windowLabel: 'main' } } };
 const theme = (new URLSearchParams(location.search).get('theme') ?? 'light') as Theme;
 const done = (r: string) => { document.body.dataset.result = r; };

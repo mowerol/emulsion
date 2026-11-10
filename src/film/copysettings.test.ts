@@ -11,7 +11,6 @@ it('covers every recipe setting once and presents each copy option once', () => 
   const fields = Object.values(COPY_GROUPS).flat();
   expect(new Set(fields).size).toBe(fields.length);
   for (const key of Object.keys(defaultRecipe())) if (key !== 'v') expect(fields).toContain(key);
-  expect(fields).toContain('autoProfile');
   const visible = COPY_SECTIONS.flatMap(s => [...s.groups]);
   expect([...visible].sort()).toEqual([...ALL_COPY_GROUPS].sort());
 });
@@ -24,11 +23,11 @@ it('copies only checked settings, including zero values that clear earlier edits
   expect(target.exposure).toBe(2);
 });
 
-it('leaves camera profiles and geometry/local edits with the photo by default', () => {
+it('leaves geometry/local edits with the photo by default', () => {
   const source = { ...defaultRecipe('portra400'), exposure: 1, lens: { ...LENS_DEFAULTS, enabled: false }, crop: { ...FULL, w: .7 }, masks: [newMask(newEllipse(), 0)] };
-  const target = { ...defaultRecipe(), profile: 'standard' as const, crop: { ...FULL, h: .6 }, retouch: [newCircleSpot([.2, .3])] };
+  const target = { ...defaultRecipe(), crop: { ...FULL, h: .6 }, retouch: [newCircleSpot([.2, .3])] };
   expect(applyCopiedSettings({ recipe: source, groups: DEFAULT_COPY_GROUPS }, target)).toEqual(withSettingsFrom(source, target));
-  for (const option of ['Camera profile', 'Crop', 'Transform', 'Masks', 'Heal and Remove']) expect(DEFAULT_COPY_GROUPS).not.toContain(option);
+  for (const option of ['Crop', 'Transform', 'Masks', 'Heal and Remove']) expect(DEFAULT_COPY_GROUPS).not.toContain(option);
 });
 
 it('copies opted-in crop, masks and retouch as replacements with independent nested data', () => {

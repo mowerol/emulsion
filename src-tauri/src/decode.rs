@@ -32,20 +32,95 @@ const RAW_HALF_MAX_EDGE: u32 = 2560;
 
 pub const HEADER_BYTES: usize = 32;
 
-/// Open a photo and apply its EXIF orientation.
+/// Open a photo, apply its EXIF orientation and convert it to sRGB from its embedded ICC
+/// profile.
 pub fn open_oriented(path: &Path) -> Result<DynamicImage, String> {
+    let (img, icc) = open_tagged(path)?;
+    Ok(to_srgb(img, icc.as_deref()))
+}
+
+/// Open a photo and apply its EXIF orientation, returning its embedded ICC profile
+/// unapplied so callers can shrink the image before converting it with [`to_srgb`].
+pub fn open_tagged(path: &Path) -> Result<(DynamicImage, Option<Vec<u8>>), String> {
     let reader = ImageReader::open(path)
         .map_err(|e| format!("Could not open {}: {e}", path.display()))?
         .with_guessed_format()
         .map_err(|e| format!("Could not read {}: {e}", path.display()))?;
-    let mut decoder = reader
-        .into_decoder()
-        .map_err(|e| format!("Unsupported or damaged image {}: {e}", path.display()))?;
+    let mut decoder = reader.into_decoder().map_err(|e| unsupported(path, &e.to_string()))?;
     let orientation = decoder.orientation().unwrap_or(image::metadata::Orientation::NoTransforms);
-    let mut img = DynamicImage::from_decoder(decoder)
-        .map_err(|e| format!("Could not decode {}: {e}", path.display()))?;
+    let icc = decoder.icc_profile().ok().flatten();
+    let mut img = DynamicImage::from_decoder(decoder).map_err(|e| unsupported(path, &e.to_string()))?;
     img.apply_orientation(orientation);
-    Ok(img)
+    Ok((img, icc))
+}
+
+fn unsupported(path: &Path, e: &str) -> String {
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| path.display().to_string());
+    if e.contains("YCbCr") {
+        return format!("{name} is a JPEG-compressed TIFF, which Emulsion can't read yet. Save it as an uncompressed, LZW or ZIP TIFF.");
+    }
+    format!("Unsupported or damaged image {name}: {e}")
+}
+
+/// Convert an 8- or 16-bit image from its embedded ICC profile to sRGB (relative
+/// colorimetric, through moxcms), keeping its bit depth. Images without a profile, with an
+/// sRGB one, or with one moxcms can't use are returned unchanged, so they read as sRGB as
+/// before. Float images are left alone: they are taken as linear sRGB already.
+pub fn to_srgb(img: DynamicImage, icc: Option<&[u8]>) -> DynamicImage {
+    use moxcms::{ColorProfile, DataColorSpace, Layout, TransformOptions};
+    let Some(icc) = icc else { return img };
+    let Ok(src) = ColorProfile::new_from_slice(icc) else { return img };
+    if matches!(img, DynamicImage::ImageRgb32F(_) | DynamicImage::ImageRgba32F(_)) || is_srgb(&src) {
+        return img;
+    }
+    let srgb = ColorProfile::new_srgb();
+    let opts = TransformOptions::default();
+    let (w, h) = (img.width(), img.height());
+    let wide = matches!(img, DynamicImage::ImageLuma16(_) | DynamicImage::ImageLumaA16(_) | DynamicImage::ImageRgb16(_) | DynamicImage::ImageRgba16(_));
+    let layout = match src.color_space {
+        DataColorSpace::Rgb => Layout::Rgb,
+        DataColorSpace::Gray => Layout::Gray,
+        // CMYK and other spaces were already converted naively by the decoder.
+        _ => return img,
+    };
+    let converted = if wide {
+        let px: Vec<u16> = if layout == Layout::Gray { img.to_luma16().into_raw() } else { img.to_rgb16().into_raw() };
+        let Ok(t) = src.create_transform_16bit(layout, &srgb, Layout::Rgb, opts) else { return img };
+        let mut out = vec![0u16; w as usize * h as usize * 3];
+        if t.transform(&px, &mut out).is_err() {
+            return img;
+        }
+        image::ImageBuffer::<image::Rgb<u16>, _>::from_raw(w, h, out).map(DynamicImage::ImageRgb16)
+    } else {
+        let px: Vec<u8> = if layout == Layout::Gray { img.to_luma8().into_raw() } else { img.to_rgb8().into_raw() };
+        let Ok(t) = src.create_transform_8bit(layout, &srgb, Layout::Rgb, opts) else { return img };
+        let mut out = vec![0u8; w as usize * h as usize * 3];
+        if t.transform(&px, &mut out).is_err() {
+            return img;
+        }
+        image::RgbImage::from_raw(w, h, out).map(DynamicImage::ImageRgb8)
+    };
+    converted.unwrap_or(img)
+}
+
+/// Whether a profile is sRGB in all but name: sRGB primaries and white, and the sRGB curve
+/// on every channel, checked by converting a ramp through it.
+fn is_srgb(p: &moxcms::ColorProfile) -> bool {
+    use moxcms::{ColorProfile, Layout, TransformOptions};
+    if p.color_space != moxcms::DataColorSpace::Rgb {
+        return false;
+    }
+    let Ok(t) = p.create_transform_8bit(Layout::Rgb, &ColorProfile::new_srgb(), Layout::Rgb, TransformOptions::default()) else {
+        return false;
+    };
+    // Primaries, secondaries, greys and some mid colours.
+    let probe: Vec<u8> = [
+        [255, 0, 0], [0, 255, 0], [0, 0, 255], [255, 255, 0], [0, 255, 255], [255, 0, 255],
+        [255, 255, 255], [128, 128, 128], [32, 32, 32], [200, 120, 60], [40, 90, 170], [90, 180, 120],
+    ]
+    .concat();
+    let mut out = vec![0u8; probe.len()];
+    t.transform(&probe, &mut out).is_ok() && probe.iter().zip(&out).all(|(a, b)| a.abs_diff(*b) <= 1)
 }
 
 /// Size that fits within `max_edge` on the long side, never upscaling.
@@ -64,9 +139,67 @@ pub fn resize_to(img: DynamicImage, max_edge: Option<u32>) -> DynamicImage {
     let (nw, nh) = fit(w, h, max_edge);
     if (nw, nh) == (w, h) {
         img
+    } else if let DynamicImage::ImageRgb32F(buf) = &img {
+        // The image crate clamps float pixels to 0..1 when it resizes, which clipped RAW
+        // previews (sensor clipping sits at BASELINE_GAIN, out-of-gamut values are negative)
+        // and HDR float TIFFs. Same triangle filter, without the clamp.
+        DynamicImage::ImageRgb32F(resize_rgb32f(buf, nw, nh))
     } else {
         img.resize_exact(nw, nh, FilterType::Triangle)
     }
+}
+
+/// Triangle-filter weights for each output position along one axis, as the image crate's
+/// `resize` computes them (filter support scaled by the reduction ratio).
+fn triangle_weights(src: u32, dst: u32) -> Vec<(usize, Vec<f32>)> {
+    let ratio = src as f32 / dst as f32;
+    let sratio = ratio.max(1.0);
+    let support = sratio;
+    (0..dst)
+        .map(|o| {
+            let centre = (o as f32 + 0.5) * ratio;
+            let left = ((centre - support).floor() as i64).clamp(0, src as i64 - 1) as usize;
+            let right = ((centre + support).ceil() as i64).clamp(left as i64 + 1, src as i64) as usize;
+            let mut w: Vec<f32> = (left..right).map(|i| (1.0 - ((i as f32 - (centre - 0.5)) / sratio).abs()).max(0.0)).collect();
+            let sum: f32 = w.iter().sum();
+            if sum > 0.0 {
+                w.iter_mut().for_each(|v| *v /= sum);
+            }
+            (left, w)
+        })
+        .collect()
+}
+
+fn resize_rgb32f(src: &image::Rgb32FImage, nw: u32, nh: u32) -> image::Rgb32FImage {
+    let (w, h) = (src.width() as usize, src.height() as usize);
+    let s = src.as_raw();
+    let xs = triangle_weights(w as u32, nw);
+    let ys = triangle_weights(h as u32, nh);
+    // Horizontal pass over every source row, then vertical.
+    let mut mid = vec![0f32; nw as usize * h * 3];
+    mid.par_chunks_mut(nw as usize * 3).enumerate().for_each(|(y, row)| {
+        let line = &s[y * w * 3..(y + 1) * w * 3];
+        for (x, (left, wt)) in xs.iter().enumerate() {
+            let mut acc = [0f32; 3];
+            for (k, wv) in wt.iter().enumerate() {
+                let p = (left + k) * 3;
+                for c in 0..3 {
+                    acc[c] += line[p + c] * wv;
+                }
+            }
+            row[x * 3..x * 3 + 3].copy_from_slice(&acc);
+        }
+    });
+    let stride = nw as usize * 3;
+    let mut out = vec![0f32; stride * nh as usize];
+    out.par_chunks_mut(stride).enumerate().for_each(|(y, row)| {
+        let (top, wt) = &ys[y];
+        for (k, wv) in wt.iter().enumerate() {
+            let line = &mid[(top + k) * stride..(top + k + 1) * stride];
+            row.iter_mut().zip(line).for_each(|(o, v)| *o += v * wv);
+        }
+    });
+    image::Rgb32FImage::from_raw(nw, nh, out).expect("resized buffer size")
 }
 
 #[inline]
@@ -173,9 +306,10 @@ pub fn load_for_engine(path: &Path, max_edge: Option<u32>) -> Result<Vec<u8>, St
         }
         return raw_for_engine(path, raw, max_edge);
     }
-    let original = open_oriented(path)?;
+    let (original, icc) = open_tagged(path)?;
     let full = (original.width(), original.height());
-    let img = resize_to(original, max_edge);
+    // Convert after shrinking: a preview costs a fraction of a full-size conversion.
+    let img = to_srgb(resize_to(original, max_edge), icc.as_deref());
     let (w, h) = (img.width(), img.height());
     Ok(payload(w, h, InputMode::DisplayLinear, None, full, linear_f16_rgba(&img)))
 }
@@ -235,6 +369,49 @@ mod tests {
         let first=|bytes:Vec<u8>|f16::from_bits(u16::from_le_bytes([bytes[0],bytes[1]])).to_f32();
         assert_eq!(first(linear_f16_rgba_impl(&image,true)),-0.25);
         assert_eq!(first(linear_f16_rgba(&image)),0.0);
+    }
+
+    #[test]
+    fn float_resize_keeps_scene_values_and_matches_the_image_crate() {
+        let (w, h) = (37u32, 23u32);
+        let vals: Vec<f32> = (0..w * h * 3).map(|i| ((i * 7919) % 997) as f32 / 997.0).collect();
+        let img = ImageBuffer::<Rgb<f32>, _>::from_raw(w, h, vals.clone()).unwrap();
+        let ours = resize_rgb32f(&img, 11, 7);
+        let theirs = DynamicImage::ImageRgb32F(img).resize_exact(11, 7, FilterType::Triangle).to_rgb32f();
+        for (a, b) in ours.as_raw().iter().zip(theirs.as_raw()) {
+            assert!((a - b).abs() < 1e-4, "{a} vs {b}");
+        }
+        // Scaled out of 0..1, the same filter gives the same values scaled: nothing is clamped.
+        let wide: Vec<f32> = vals.iter().map(|v| v * 4.0 - 1.0).collect();
+        let big = resize_rgb32f(&ImageBuffer::from_raw(w, h, wide).unwrap(), 11, 7);
+        for (a, b) in big.as_raw().iter().zip(ours.as_raw()) {
+            assert!((a - (b * 4.0 - 1.0)).abs() < 1e-4);
+        }
+        let flat = resize_to(DynamicImage::ImageRgb32F(ImageBuffer::from_raw(4, 4, vec![1.8f32; 48]).unwrap()), Some(2));
+        assert!(flat.to_rgb32f().as_raw().iter().all(|v| (v - 1.8).abs() < 1e-5));
+    }
+
+    #[test]
+    fn converts_embedded_profiles_to_srgb() {
+        use moxcms::ColorProfile;
+        // Pure Display P3 red is outside sRGB: it converts to a clipped, still red value.
+        let p3 = ColorProfile::new_display_p3().encode().unwrap();
+        let red = DynamicImage::ImageRgb8(ImageBuffer::from_raw(1, 1, vec![255u8, 0, 0]).unwrap());
+        let out = to_srgb(red.clone(), Some(&p3)).to_rgb8();
+        assert_eq!(out.get_pixel(0, 0).0[0], 255);
+        // A P3 mid grey stays grey (same white and curve as sRGB).
+        let grey = DynamicImage::ImageRgb16(ImageBuffer::from_raw(1, 1, vec![30000u16; 3]).unwrap());
+        let g = to_srgb(grey, Some(&p3)).to_rgb16().get_pixel(0, 0).0;
+        assert!(g.iter().all(|v| v.abs_diff(30000) < 40), "{g:?}");
+        // A less saturated P3 colour lands inside sRGB, more saturated than it was.
+        let mid = DynamicImage::ImageRgb8(ImageBuffer::from_raw(1, 1, vec![200u8, 100, 80]).unwrap());
+        let m = to_srgb(mid, Some(&p3)).to_rgb8().get_pixel(0, 0).0;
+        assert!(m[0] > 200 && m[1] < 100, "{m:?}");
+        // sRGB, missing or unreadable profiles leave the pixels alone.
+        let srgb = ColorProfile::new_srgb().encode().unwrap();
+        assert_eq!(to_srgb(red.clone(), Some(&srgb)).to_rgb8().into_raw(), vec![255, 0, 0]);
+        assert_eq!(to_srgb(red.clone(), None).to_rgb8().into_raw(), vec![255, 0, 0]);
+        assert_eq!(to_srgb(red, Some(b"junk")).to_rgb8().into_raw(), vec![255, 0, 0]);
     }
 
     #[test]

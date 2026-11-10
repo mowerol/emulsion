@@ -2,13 +2,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { photoId } from '../library/copies';
 import { useThumb } from '../library/thumbs';
-import { profileLabel } from '../engine/profilestore';
 import { lookName } from '../film/looks';
 import { STOCK } from '../film/stocks';
 import { markPhotos, type Photo } from '../library/store';
 import { LABEL, LABELS, stars } from '../library/marks';
 
-export const recipeLabel = (photo: Photo) => photo.recipe ? (photo.recipe.lookEnabled ? (photo.recipe.lookSnapshot?.name ?? lookName(photo.recipe.pack, photo.recipe.stock)) : profileLabel(photo.recipe.profile)) : 'Original';
+export const recipeLabel = (photo: Photo) => photo.recipe ? (photo.recipe.lookEnabled ? (photo.recipe.lookSnapshot?.name ?? lookName(photo.recipe.pack, photo.recipe.stock)) : 'Neutral') : 'Original';
 
 /** True while the element is on (or near) the screen. */
 export function useVisible<T extends Element>(rootMargin = '300px') {
@@ -54,7 +53,7 @@ export function Thumb({ photo, visible, className }: { photo: Photo; visible: bo
   return <div className={`${className ?? ''} thumb-empty`}>{failed ? 'Unreadable' : ''}</div>;
 }
 
-export const edgeText = (photo: Photo) => (photo.recipe ? (photo.recipe.lookEnabled ? (photo.recipe.lookSnapshot?.name.toUpperCase() ?? STOCK[photo.recipe.stock].edge) : profileLabel(photo.recipe.profile).toUpperCase()) : 'ORIGINAL');
+export const edgeText = (photo: Photo) => (photo.recipe ? (photo.recipe.lookEnabled ? (photo.recipe.lookSnapshot?.name.toUpperCase() ?? STOCK[photo.recipe.stock].edge) : 'NEUTRAL') : 'ORIGINAL');
 
 export const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 export const MOD = isMac ? '⌘' : 'Ctrl+';

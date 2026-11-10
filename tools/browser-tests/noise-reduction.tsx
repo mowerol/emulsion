@@ -30,7 +30,6 @@ function payload(paired: boolean) {
   if (command === 'thumbnail') throw Error('No camera preview');
   if (command === 'load_image') { loads.push(args.noiseReduction); return payload(args.noiseReduction); }
   if (command === 'plugin:event|listen') return 1;
-  if (command === 'camera_profiles') return [];
   if (command === 'write_sidecar' || command === 'plugin:event|unlisten') return;
 } };
 

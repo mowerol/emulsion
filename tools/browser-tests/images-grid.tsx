@@ -18,7 +18,7 @@ async function jpeg(seed: number) {
 }
 (window as any).__TAURI_INTERNALS__ = { invoke: async (cmd: string, args: any) => {
   if (cmd === 'thumbnail') return jpeg(Number(/\d+/.exec(args.path)?.[0] ?? 0));
-  if (cmd === 'camera_profiles' || cmd === 'list_presets' || cmd === 'custom_looks') return [];
+  if (cmd === 'list_presets' || cmd === 'custom_looks') return [];
   return null;
 } };
 

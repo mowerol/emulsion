@@ -5,7 +5,6 @@ import { normalizeNoiseReduction, normalizeProfiledDenoise } from './noisereduct
 
 import { normalizeSettings, type ProfileSettings } from './creative';
 import { captureLook } from './looks';
-import { normalizeProfile, type CameraProfileId } from './profiles';
 import { normalizeLens, type LensAdjust } from '../engine/lenscorrection';
 import { normalizePerspective, type Perspective } from '../engine/perspective';
 import { normalizeGrading, type ColourGrading } from './grading';
@@ -30,15 +29,7 @@ export interface Recipe {
   profiledDenoise?: import('./noisereduction').ProfiledSetting;
   v: typeof RECIPE_VERSION;
   lookSnapshot?: { id: string; name: string; revision: number; kind?: 'lut' | 'look'; settings: ProfileSettings };
-  /** Base camera rendering. Missing in older sidecars: preserve their original pipeline. */
-  profile: CameraProfileId;
-  /**
-   * With `profile` 'auto': the camera profile Auto last chose where the photo was saved. Auto still
-   * follows the camera's default; this is used only where none is set (another computer), so the
-   * photo renders the same there (written by `withAutoProfile`, profilestore.ts).
-   */
-  autoProfile?: string;
-  /** A creative LUT is optional and never selects or replaces the camera profile. */
+  /** A creative look is optional; the camera's standard matrix is always the base. */
   lookEnabled: boolean;
   stock: StockId;
   /** The look pack whose LUT renders the stock (Emulsion's own rendering where it has none). */
@@ -148,7 +139,7 @@ export function normalizeColor(input: unknown): ColorAdjust | null {
   return tidyColor({ hue: list(o.hue, -HUE_MAX, HUE_MAX), sat: list(o.sat, -100, 100), bright: list(o.bright, -100, 100) });
 }
 
-export type SliderKey = Exclude<keyof Recipe, 'noiseReduction' | 'profiledDenoise' | 'v' | 'profile' | 'autoProfile' | 'lookEnabled' | 'stock' | 'pack' | 'lookBlend' | 'push' | 'scanner' | 'scannerFromLook' | 'curve' | 'wb' | 'crop' | 'color' | 'grading' | 'lens' | 'transform' | 'masks' | 'retouch' | 'retouchScales' | 'lookSnapshot'>;
+export type SliderKey = Exclude<keyof Recipe, 'noiseReduction' | 'profiledDenoise' | 'v' | 'lookEnabled' | 'stock' | 'pack' | 'lookBlend' | 'push' | 'scanner' | 'scannerFromLook' | 'curve' | 'wb' | 'crop' | 'color' | 'grading' | 'lens' | 'transform' | 'masks' | 'retouch' | 'retouchScales' | 'lookSnapshot'>;
 
 export interface SliderDef {
   key: SliderKey;
@@ -222,7 +213,6 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
     v: RECIPE_VERSION,
     noiseReduction: null,
     profiledDenoise: 'auto',
-    profile: 'auto',
     lookEnabled: stock !== 'neutral',
     stock,
     pack: DEFAULT_PACK,
@@ -277,14 +267,14 @@ export function withStock(recipe: Recipe | null, stock: StockId): Recipe {
 
 /** Reset the sliders, keeping stock, development, scanner, crop, masks and retouching. */
 export function resetAdjustments(recipe: Recipe): Recipe {
-  return { ...defaultRecipe(recipe.stock, recipe.scanner), profile: recipe.profile, lookEnabled: recipe.lookEnabled, pack: recipe.pack, lookAmount: recipe.lookAmount, lookBlend: recipe.lookBlend, push: recipe.push, scannerFromLook: recipe.scannerFromLook, lookSnapshot: recipe.lookSnapshot, crop: recipe.crop, transform: recipe.transform, masks: recipe.masks, retouch: recipe.retouch, retouchScales: recipe.retouchScales };
+  return { ...defaultRecipe(recipe.stock, recipe.scanner), lookEnabled: recipe.lookEnabled, pack: recipe.pack, lookAmount: recipe.lookAmount, lookBlend: recipe.lookBlend, push: recipe.push, scannerFromLook: recipe.scannerFromLook, lookSnapshot: recipe.lookSnapshot, crop: recipe.crop, transform: recipe.transform, masks: recipe.masks, retouch: recipe.retouch, retouchScales: recipe.retouchScales };
 }
 
 /**
  * Another frame's settings applied to this one. The crop, masks and retouching stay this frame's own:
  * they belong to the composition, and frames differ in shape and content.
  */
-export const withSettingsFrom = (from: Recipe, target: Recipe | null): Recipe => ({ ...from, profile: target?.profile ?? 'auto', autoProfile: target?.autoProfile, crop: target?.crop ?? null, transform: target?.transform ?? null, masks: target?.masks ?? [], retouch: target?.retouch ?? [], retouchScales: target?.retouchScales ?? { scales: 0, mergeFrom: 0 } });
+export const withSettingsFrom = (from: Recipe, target: Recipe | null): Recipe => ({ ...from, crop: target?.crop ?? null, transform: target?.transform ?? null, masks: target?.masks ?? [], retouch: target?.retouch ?? [], retouchScales: target?.retouchScales ?? { scales: 0, mergeFrom: 0 } });
 
 /** Panel sections that can be reset on their own. */
 export type SectionId = 'masks' | 'development' | 'scanner' | 'crop' | 'transform' | 'adjust' | 'curve' | 'color' | 'grading' | 'lens' | 'whitebalance' | 'colour-basics' | 'tone' | 'exposure' | 'hdr' | 'refine-optics' | 'detail' | 'optics' | 'grain' | 'noise';
@@ -352,7 +342,7 @@ export function normalizeRecipe(input: unknown): Recipe | null {
   const base = defaultRecipe(stock, scanner);
   const push = typeof o.push === 'number' && [-1, 0, 1, 2].includes(o.push) ? (o.push as Push) : 0;
   const lookEnabled = supplied && (typeof o.lookEnabled === 'boolean' ? o.lookEnabled : true);
-  const out: Recipe = { ...base, noiseReduction: normalizeNoiseReduction(o.noiseReduction), profile: normalizeProfile(o.profile), ...(typeof o.autoProfile === 'string' && /^[0-9a-f]{64}$/.test(o.autoProfile) ? { autoProfile: o.autoProfile } : {}), lookEnabled, pack, push, lookBlend: o.lookBlend === 'color' ? 'color' : 'normal', curve: normalizeCurve(o.curve), wb: normalizeWhiteBalance(o.wb), crop: normalizeCrop(o.crop), color: normalizeColor(o.color), grading: normalizeGrading(o.grading), lens: normalizeLens(o.lens), transform: normalizePerspective(o.transform), masks: normalizeMasks(o.masks), retouch: normalizeRetouch(o.retouch), retouchScales: normalizeRetouchScales(o.retouchScales) };
+  const out: Recipe = { ...base, noiseReduction: normalizeNoiseReduction(o.noiseReduction), lookEnabled, pack, push, lookBlend: o.lookBlend === 'color' ? 'color' : 'normal', curve: normalizeCurve(o.curve), wb: normalizeWhiteBalance(o.wb), crop: normalizeCrop(o.crop), color: normalizeColor(o.color), grading: normalizeGrading(o.grading), lens: normalizeLens(o.lens), transform: normalizePerspective(o.transform), masks: normalizeMasks(o.masks), retouch: normalizeRetouch(o.retouch), retouchScales: normalizeRetouchScales(o.retouchScales) };
   // Capture sharpening was saved as `sharpening` before the unsharp mask came. Edits saved before
   // either existed had them off, and keep them off rather than taking today's defaults.
   const read = (key: string) =>

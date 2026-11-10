@@ -18,7 +18,7 @@ export async function fitPhotoPerspective(photo: Photo, axis: 'vertical' | 'hori
   const source = engine.sourceFromHalf(image);
   let pixels: Uint8Array;
   try {
-    await engine.prepare(neutral, source.camera);
+    await engine.prepare(neutral);
     pixels = engine.readPixels(source, neutral, image.width, image.height, 0);
   } finally { engine.release(source); }
   return { ...current, ...await autoPerspective(pixels, image.width, image.height, axis, current) };

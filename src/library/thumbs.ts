@@ -4,7 +4,6 @@ import { noiseEnabled } from '../film/noisereduction';
 // rendered on the GPU from those originals, only for frames that are on screen.
 
 import { useEffect, useSyncExternalStore } from 'react';
-import { profileVersion, useProfileVersion } from '../engine/profilestore';
 import { captureInfo, loadImage, logToTerminal, thumbnail } from '../backend/api';
 import { recipeKey, type Recipe } from '../film/recipe';
 import { framePixels } from '../film/crop';
@@ -255,7 +254,7 @@ export function ensureCapture<S extends { capture?: unknown; mode: InputMode; w:
 }
 
 /** A developed thumbnail depends on the photo's white point only when the recipe changes white balance. */
-const thumbKey = (recipe: Recipe | null, white: Xy | null, sourceVersion?: string) => (sourceVersion ?? '') + recipeKey(recipe) + `|profile:${profileVersion()}` + (recipe?.wb && white ? `|${white[0]},${white[1]}` : '');
+const thumbKey = (recipe: Recipe | null, white: Xy | null, sourceVersion?: string) => (sourceVersion ?? '') + recipeKey(recipe) + (recipe?.wb && white ? `|${white[0]},${white[1]}` : '');
 
 /** Decode a thumbnail blob into an engine source; `white` is the photo's as-shot white point. */
 export async function sourceFromBlob(eng: Engine, blob: Blob, white: Xy | null = null) {
@@ -278,7 +277,7 @@ async function developBlob(blob: Blob, recipe: Recipe | null, seed: number, edge
     canvas.width = Math.max(1, Math.round(w * s));
     canvas.height = Math.max(1, Math.round(h * s));
     const removal = hasRemove(recipe) ? await cachedRemovals(src, recipe!, sourceVersion) : null;
-    await eng.prepare(recipe, src.camera);
+    await eng.prepare(recipe);
     // The render submits synchronously before its readback yields. Do not leave a shared
     // engine's removal context changed across that asynchronous readback.
     const previous = eng.removeContext;
@@ -297,11 +296,10 @@ async function developBlob(blob: Blob, recipe: Recipe | null, seed: number, edge
 
 /** The best thumbnail URL for a frame; requests it while `visible`. */
 export function useThumb(path: string, recipe: Recipe | null, seed: number, visible: boolean, white: Xy | null, raw = false, id = path, sourceVersion?: string) {
-  const profileChange = useProfileVersion();
   useSyncExternalStore(thumbs.subscribe, thumbs.snapshot);
   useEffect(() => {
     if (visible) thumbs.want(path, recipe, seed, white, raw, id, sourceVersion);
-  }, [path, recipe, seed, visible, white, raw, profileChange, id, sourceVersion]);
+  }, [path, recipe, seed, visible, white, raw, id, sourceVersion]);
   return { url: thumbs.url(path, recipe, id, white, sourceVersion), failed: thumbs.hasFailed(path) };
 }
 

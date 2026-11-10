@@ -22,6 +22,8 @@ export interface Step {
   /** Edits with the same key in quick succession merge into one step. */
   key: string;
   at: number;
+  /** In-memory tool edits, discarded when their session is applied or cancelled. */
+  transient?: { scope: string; before: () => void; after: () => void };
 }
 
 /** A slider drag sends a stream of edits; ones this close together are one step. */
@@ -65,6 +67,19 @@ export class History {
     if (this.past.length > LIMIT) this.past.shift();
   }
 
+  recordTransient(label: string, transient: NonNullable<Step['transient']>) {
+    this.future = [];
+    this.past.push({ label, changes: [], key: transient.scope, at: -Infinity, transient });
+    if (this.past.length > LIMIT) this.past.shift();
+  }
+
+  discardTransient(scope: string) {
+    const count = this.past.length + this.future.length;
+    this.past = this.past.filter(s => s.transient?.scope !== scope);
+    this.future = this.future.filter(s => s.transient?.scope !== scope);
+    return count !== this.past.length + this.future.length;
+  }
+
   /** The step to undo; apply each change's `before`. */
   undo(): Step | null {
     const s = this.past.pop();
@@ -87,7 +102,6 @@ export class History {
 }
 
 const FIELD_LABELS: Partial<Record<keyof Recipe, string>> = {
-  profile: 'Camera profile',
   lookEnabled: 'Look',
   lookBlend: 'LUT blend',
   stock: 'Film look',

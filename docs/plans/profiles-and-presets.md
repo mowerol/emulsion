@@ -39,8 +39,8 @@ settings; a saved look is a **profile**. "Recipe" stays an internal word (the pe
 1. **A creative profile adapts to the base.** It never stores a camera profile; it sits on whatever
    base the photo has (Oli, 2026-10-31: "it would always point to the base profile of whatever is
    being used"). This supersedes the earlier "references a base profile the user doesn't see" and the
-   plan's `base` field. The base is remembered per camera (`profilestore.setDefaultProfile`, DCPs only
-   so far). Presets leave the base out too.
+   plan's `base` field. The base is the camera's standard matrix (DCP support was removed on 2026-11-10 to follow
+   darktable). Presets leave the base out too.
 2. **Legacy rendering is gone** (done 2026-10-31): no `legacy` base, no Emulsion parametric stocks.
    Every built-in look is a LUT on the camera profile's print.
 3. **A creative profile is a JSON file with hidden settings plus an optional LUT** (Oli's "hybrid"

@@ -63,7 +63,6 @@ let embedded: ArrayBuffer;
 (window as any).__TAURI_INTERNALS__ = { transformCallback: () => 1, invoke: async (command: string, args: any) => {
   if (command === 'thumbnail') return embedded;
   if (command === 'load_image') return payload();
-  if (command === 'camera_profiles') return [];
   if (command === 'plugin:event|listen') return 1;
   if (command === 'remove_cached_patch') {
     lookups++;
