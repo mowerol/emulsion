@@ -51,6 +51,8 @@ image = { version = "0.25.10", default-features = false, features = ["jpeg", "pn
 # Direct for TIFF export: LZW and Deflate with the horizontal predictor (image's encoder writes uncompressed only).
 tiff = { version = "0.11.3", default-features = false, features = ["lzw", "deflate"] }
 kamadak-exif = "0.6.1"
+# Adobe XMP Toolkit SDK: XMP sidecars and embedded XMP (xmp.rs).
+xmp_toolkit = "1.12.1"
 tauri-plugin-opener = "2"
 percent-encoding = "2.3.2"
 tauri = { version = "2", features = [] }

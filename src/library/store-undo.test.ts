@@ -10,7 +10,7 @@ vi.mock('../backend/api', () => ({
   logToTerminal: () => {},
 }));
 
-const { editRecipes, markPhotos, setFilter, setFoldJpegs, undo, redo, useApp } = await import('./store');
+const { editMeta, editRecipes, markPhotos, setFilter, setFoldJpegs, undo, redo, useApp } = await import('./store');
 const { NO_FILTER } = await import('./filter');
 const { writeSidecar } = await import('../backend/api');
 const { withStock, defaultRecipe } = await import('../film/recipe');
@@ -53,6 +53,25 @@ describe('undo in the store', () => {
     expect(useApp.getState().photos.map((p) => p.rating)).toEqual([0, 0]);
     // The look made before the rating stays.
     expect(useApp.getState().photos[0].recipe?.stock).toBe('portra400');
+    vi.useRealTimers();
+  });
+
+  it('edits a source\'s keywords and fields on every copy as one undoable step, saved with its sidecar', async () => {
+    vi.useFakeTimers();
+    const { NO_META, addKeywords, withField } = await import('./meta');
+    useApp.setState({ photos: [photo('a'), { ...photo('a'), copyId: 'c1', copyName: 'Warm' }, photo('b')], active: 1, selected: new Set(['a\0c1']) });
+    editMeta(m => addKeywords(m, ['Sea']), 'Keyword Sea');
+    editMeta(m => withField(m, 'title', 'Harbour'), 'Edit title');
+    expect(useApp.getState().photos.map(p => p.meta?.keywords ?? [])).toEqual([['Sea'], ['Sea'], []]);
+    await vi.runAllTimersAsync();
+    expect(writeSidecar).toHaveBeenLastCalledWith('a', expect.objectContaining({ meta: { ...NO_META, keywords: ['Sea'], title: 'Harbour' } }), expect.any(Boolean));
+    undo();
+    expect(useApp.getState().photos[0].meta?.title).toBe('');
+    expect(useApp.getState().photos[1].meta?.keywords).toEqual(['Sea']);
+    undo();
+    expect(useApp.getState().photos.every(p => !p.meta?.keywords.length)).toBe(true);
+    redo();
+    expect(useApp.getState().photos[1].meta?.keywords).toEqual(['Sea']);
     vi.useRealTimers();
   });
 

@@ -205,6 +205,12 @@ Implemented from the papers, not from code.
 - Changes: `jxl_dng_load_raw_placeholder` in `src/decoders/dng.cpp` is filled in to decode DNG 1.7 JPEG XL tiles through Emulsion's `src-tauri/src/jxl.rs` (jxl-oxide) instead of the DNG SDK, storing samples as LibRaw's `adobe_copy_pixel` does, and `src/utils/decoder_info.cpp` no longer marks that loader unsupported. Both edits are marked "Emulsion:". Only the library sources (`src`, `libraw`, `internal`) are included; samples, build files and RawSpeed/DNG SDK integrations are left out. It is compiled into Emulsion by `src-tauri/build.rs`
 - The OM-3 colour matrix in `src-tauri/src/raw.rs` is LibRaw's OM-1 entry from `src/tables/colordata.cpp`
 
+### Adobe XMP Toolkit SDK (XMP sidecars and embedded XMP)
+- Upstream: https://github.com/adobe/XMP-Toolkit-SDK, compiled into Emulsion through the `xmp_toolkit` crate 1.12.1 (https://github.com/adobe/xmp-toolkit-rs), which vendors it
+- Licence: BSD-3-Clause (the SDK, Copyright (c) 2020, Adobe. All rights reserved.); MIT OR Apache-2.0 (the crate)
+- Used by: `src-tauri/src/xmp.rs`, to read and write `<name>.xmp` sidecars (Lightroom Classic's convention) and to read XMP embedded in photos
+- Changes: none. The SDK is what Lightroom and exiv2 build on; Emulsion only chooses which fields it reads and writes (`xmp:Rating`, `xmp:Label`, `dc:subject`, `lr:hierarchicalSubject`, `dc:title`, `dc:description`, `dc:creator`, `dc:rights`, `Iptc4xmpCore:Location`, `photoshop:City/State/Country`, `xmp:MetadataDate`)
+
 ### LLVM OpenMP runtime (macOS parallel RAW builds)
 - Upstream: https://github.com/llvm/llvm-project/tree/main/openmp
 - Licence: Apache-2.0 WITH LLVM-exception; full text in `src-tauri/vendor/openmp/LICENSE.TXT`
@@ -258,6 +264,7 @@ These are used as libraries, not copied, and keep their own licences.
 | `walkdir` | Unlicense OR MIT |
 | `natord` | MIT |
 | `kamadak-exif`, `mutate_once` | BSD-2-Clause |
+| `xmp_toolkit` (Adobe XMP Toolkit SDK, above) | MIT OR Apache-2.0; SDK BSD-3-Clause |
 | `cc` (build only) | MIT OR Apache-2.0 |
 | `blake3` | CC0-1.0 OR Apache-2.0 |
 | React, React DOM | MIT |

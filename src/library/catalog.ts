@@ -6,6 +6,7 @@ import { photoId } from './copies';
 import { lookName } from '../film/looks';
 import { normalizeRecipe } from '../film/recipe';
 import { normalizeMarks, type Label } from './marks';
+import { hasKeyword, normalizeMeta } from './meta';
 import { getSetting, setSetting } from './appsettings';
 
 export interface ImportSession {
@@ -21,7 +22,7 @@ export type SmartRule =
   | { field: 'rating'; value: number }
   | { field: 'edited' | 'heart'; value: boolean }
   | { field: 'label'; value: Label }
-  | { field: 'camera' | 'look' | 'folder'; value: string }
+  | { field: 'camera' | 'look' | 'folder' | 'keyword'; value: string }
   | { field: 'date'; value: string; before: boolean };
 export type Collection = { id: string; name: string; createdAt: number } & (
   { type: 'manual'; photoIds: string[] } | { type: 'smart'; rules: SmartRule[] }
@@ -50,7 +51,7 @@ function read(): Catalog {
     for (const root of value.roots ?? []) index[root] ??= [];
     const targetCollectionId = value.collections.some((c: Collection) => c.id === value.targetCollectionId && c.type === 'manual') ? value.targetCollectionId : null;
     return { imports: value.imports, collections: value.collections, targetCollectionId, folders: Object.fromEntries(Object.entries(index as Record<string, Photo[]>).map(([root, photos]) => [root,
-      (Array.isArray(photos) ? photos : []).filter(p => p && typeof p.path === 'string').map(p => ({ ...p, recipe: normalizeRecipe(p.recipe), ...normalizeMarks(p.rating, p.label, p.heart), pair: null }))])) };
+      (Array.isArray(photos) ? photos : []).filter(p => p && typeof p.path === 'string').map(p => ({ ...p, recipe: normalizeRecipe(p.recipe), ...normalizeMarks(p.rating, p.label, p.heart), meta: normalizeMeta(p.meta), pair: null }))])) };
   } catch { return empty(); }
 }
 export const useCatalog = create<Catalog>(() => read());
@@ -134,6 +135,7 @@ export function matchesRules(photo: Photo, rules: SmartRule[]): boolean {
       case 'edited': return !!photo.recipe === rule.value;
       case 'heart': return photo.heart === rule.value;
       case 'label': return photo.label === rule.value;
+      case 'keyword': return hasKeyword(photo.meta, rule.value);
       case 'camera': return (photo.capture?.camera ?? `${photo.camera?.make ?? ''} ${photo.camera?.model ?? ''}`).toLowerCase().includes(rule.value.toLowerCase());
       case 'look': {
         const r = photo.recipe;

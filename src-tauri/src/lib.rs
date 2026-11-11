@@ -27,6 +27,7 @@ mod segment;
 mod sidecar;
 mod thumbs;
 mod user_looks;
+mod xmp;
 
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -84,6 +85,7 @@ pub fn run() {
             commands::save_custom_look,
             commands::delete_custom_look,
             commands::white_points,
+            commands::embedded_metadata,
             commands::capture_info,
             commands::write_sidecar,
             commands::sidecar_history,

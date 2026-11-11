@@ -1637,3 +1637,20 @@ body:has(.workspace-look) { min-width: 960px; }
 
 /* An edited photo's pencil, at the picture's top right (the frame's tooltip names the look). */
 .image-frame-picture > .image-frame-edited { left: auto; right: 4px; width: 15px; height: 15px; padding: 0; display: flex; align-items: center; justify-content: center; }
+
+/* Keywords and Metadata (MetadataControls): chips, then label-over-field rows. */
+.keyword-controls, .metadata-controls { display: grid; gap: 10px; padding: 2px 0 6px; }
+.keyword-chips { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
+.keyword-chip { display: inline-flex; align-items: center; max-width: 100%; border: 1px solid var(--line); border-radius: 999px; background: var(--raise); font-size: 12px; color: var(--text); }
+.keyword-chip.partial { border-style: dashed; color: var(--text3); background: none; }
+.keyword-name { padding: 3px 2px 3px 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; font: inherit; color: inherit; background: none; border: 0; }
+button.keyword-name { cursor: pointer; }
+button.keyword-name:hover { color: var(--text); }
+.keyword-remove { display: inline-flex; align-items: center; justify-content: center; width: 20px; height: 20px; margin-right: 2px; padding: 0; border: 0; border-radius: 50%; background: none; color: var(--text3); cursor: pointer; }
+.keyword-remove:hover { color: var(--text); background: var(--line); }
+.keyword-add input.text, .metadata-controls .meta-input { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 5px; background: var(--raise); padding: 6px 8px; font: inherit; font-size: 12px; color: var(--text); }
+.metadata-controls textarea.meta-input { resize: vertical; min-height: 54px; line-height: 1.4; }
+.keyword-add input.text:focus-visible, .metadata-controls .meta-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 0; border-color: transparent; }
+.keyword-add input.text::placeholder, .metadata-controls .meta-input::placeholder { color: var(--faint); }
+.meta-row { display: grid; gap: 4px; }
+.meta-row label { font-size: 12px; color: var(--text2); }

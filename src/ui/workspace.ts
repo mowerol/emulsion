@@ -9,6 +9,7 @@ export const CONTROL_GROUPS = [
   { id: 'refine', name: 'Refine', sections: ['detail', 'optics', 'grain', 'noise', 'lens'] },
   { id: 'masks', name: 'Masks', sections: ['masks'] },
   { id: 'presets', name: 'Presets', sections: ['presets'] },
+  { id: 'metadata', name: 'Keywords and Metadata', sections: ['keywords', 'metadata'] },
 ] as const;
 export type ControlGroupId = typeof CONTROL_GROUPS[number]['id'];
 export type ControlSectionId = typeof CONTROL_GROUPS[number]['sections'][number];

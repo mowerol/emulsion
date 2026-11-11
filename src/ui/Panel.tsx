@@ -10,7 +10,7 @@ import { flushSaves } from '../library/sidecars';
 // The lab order: what this frame is developed with.
 
 import { type ReactNode, memo, useEffect, useRef, useState } from 'react';
-import { Blend, ClipboardPaste, Copy, Ellipsis, Eraser, Redo2, RotateCcw, SlidersHorizontal, Sparkle, SquareDashedMousePointer, SwatchBook, Undo2, type LucideIcon } from 'lucide-react';
+import { Blend, ClipboardPaste, Copy, Ellipsis, Eraser, Redo2, RotateCcw, SlidersHorizontal, Sparkle, SquareDashedMousePointer, SwatchBook, Tags, Undo2, type LucideIcon } from 'lucide-react';
 import { CameraColourWarning } from './CameraProfile';
 import { TransformControls, transformSummary } from './TransformControls';
 import { LensControls } from './LensControls';
@@ -31,6 +31,7 @@ import { CONTROL_GROUPS, setWorkspace, useWorkspace } from './workspace';
 import { CropControls, cropSummary } from './CropControls';
 import { commitTyped } from './typed';
 import { Section } from './Section';
+import { KeywordControls, MetadataControls } from './MetadataControls';
 import { setDetailOrder, useDetailOrder } from './detailorder';
 import { ISOS } from '../engine/grain';
 import { WhiteBalanceControls } from './WhiteBalanceControls';
@@ -262,7 +263,7 @@ function ConfirmButton({ label, confirm, onConfirm, disabled, menu = false }: { 
 }
 
 /** The tab icons, in CONTROL_GROUPS order. */
-const TAB_ICONS: Record<string, LucideIcon> = { develop: SlidersHorizontal, colour: Blend, refine: Sparkle, masks: SquareDashedMousePointer, presets: SwatchBook };
+const TAB_ICONS: Record<string, LucideIcon> = { develop: SlidersHorizontal, colour: Blend, refine: Sparkle, masks: SquareDashedMousePointer, presets: SwatchBook, metadata: Tags };
 
 /** Settings that are not edits of their own (they travel with the look). */
 const NOT_EDITS = new Set(['v', 'pack', 'stock', 'lookSnapshot', 'lookBlend', 'scannerFromLook']);
@@ -466,6 +467,8 @@ export function Panel() {
     </Section>,
     lens: photo.raw && <Section id="lens" title="Lens corrections" summary={photo.lens?.correction ? (base.lens?.enabled === false ? 'Off' : 'Embedded profile') : 'No profile'} onReset={resetFor('lens', 'Lens')}><LensControls recipe={base} metadata={photo.lens} /></Section>,
     transform: <Section id="transform" title="Transform" summary={transformSummary(base.transform)} onReset={resetFor('transform', 'Transform')}><TransformControls recipe={base} /></Section>,
+    keywords: grouped && !editing && <Section id="keywords" title="Keywords"><KeywordControls /></Section>,
+    metadata: grouped && !editing && <Section id="metadata" title="Metadata"><MetadataControls /></Section>,
     masks: <Section id="masks" title="Masks" summary={recipe?.masks.length ? `${recipe.masks.length} ${recipe.masks.length === 1 ? 'mask' : 'masks'}` : 'None'} onReset={resetFor('masks', 'Masks')}><MaskControls /></Section>,
     crop: !grouped && <Section id="crop" title="Crop" summary={cropSummary(recipe?.crop ?? null)} onReset={resetFor('crop', 'Crop')}><CropControls recipe={recipe} /></Section>,
   };

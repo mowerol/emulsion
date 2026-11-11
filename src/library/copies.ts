@@ -3,6 +3,7 @@
 import type { Saved, SavedCopy } from '../backend/api';
 import { normalizeRecipe } from '../film/recipe';
 import { normalizeMarks } from './marks';
+import { isEmptyMeta } from './meta';
 import type { Photo } from './store';
 
 export const photoId = (p: Pick<Photo, 'path' | 'copyId'>): string => p.copyId ? `${p.path}\0${p.copyId}` : p.path;
@@ -30,7 +31,7 @@ export function savedFrames(frames: Photo[]): Saved {
   if (!original) throw new Error('A virtual copy must have an original');
   const saved = ({ recipe, rating, label, heart }: Photo): Saved => ({ recipe, rating, label, heart });
   const copies: SavedCopy[] = frames.filter(p => p.copyId).map(p => ({ ...saved(p), id: p.copyId!, name: versionName(p) }));
-  return { ...saved(original), ...(copies.length ? { copies } : {}) };
+  return { ...saved(original), ...(original.meta && !isEmptyMeta(original.meta) ? { meta: original.meta } : {}), ...(copies.length ? { copies } : {}) };
 }
 
 /** Stable, copy-specific export names even when two versions have the same label. */

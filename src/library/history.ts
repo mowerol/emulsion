@@ -5,16 +5,19 @@
 import { SLIDER, defaultRecipe, type Recipe, type SliderKey } from '../film/recipe';
 import { STOCK } from '../film/stocks';
 import type { Marks } from './marks';
+import type { PhotoMeta } from './meta';
 import type { Photo } from './store';
 
 const keysChanged = (a: Recipe, b: Recipe) =>
   (Object.keys(b) as (keyof Recipe)[]).filter((k) => JSON.stringify(a[k]) !== JSON.stringify(b[k]));
 
-/** One photo's look, or (with `marks`) its stars and colour tag, before and after. */
+/** One photo's look, or (with `marks`) its stars and colour tag, or (with `meta`) its source's metadata, before and after. */
 export type Change =
-  | { path: string; frames?: false; marks?: false; before: Recipe | null; after: Recipe | null }
-  | { path: string; frames?: false; marks: true; before: Marks; after: Marks }
-  | { path: string; frames: true; marks?: false; before: Photo[]; after: Photo[] };
+  | { path: string; frames?: false; marks?: false; meta?: false; before: Recipe | null; after: Recipe | null }
+  | { path: string; frames?: false; marks: true; meta?: false; before: Marks; after: Marks }
+  /** A source's keywords and IPTC fields: `path` is the source file, shared by its copies. */
+  | { path: string; frames?: false; marks?: false; meta: true; before: PhotoMeta; after: PhotoMeta }
+  | { path: string; frames: true; marks?: false; meta?: false; before: Photo[]; after: Photo[] };
 
 export interface Step {
   label: string;

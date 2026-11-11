@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Folder scanning: find the photos in a folder (and its subfolders) that
-//! Emulsion can open, with any saved edits from their sidecars.
+//! Emulsion can open, with any saved edits from their sidecars. Stars, labels, keywords and
+//! IPTC fields come from the photo's XMP sidecar instead when it changed after Emulsion's last
+//! save (another app wrote it; `xmp.rs`).
 
 use serde::Serialize;
 use std::path::{Path, PathBuf};
 use std::time::UNIX_EPOCH;
 use walkdir::{DirEntry, WalkDir};
 
-use crate::sidecar;
+use crate::{sidecar, xmp};
 
 /// Formats decoded by the `image` crate today.
 pub const RASTER_EXTS: &[&str] = &["jpg", "jpeg", "png", "tif", "tiff", "webp"];
@@ -58,6 +60,8 @@ pub struct Entry {
     pub rating: u8,
     pub label: Option<String>,
     pub heart: bool,
+    /// Keywords and IPTC fields.
+    pub meta: xmp::Meta,
     /// A camera RAW, as opposed to an ordinary image.
     pub raw: bool,
     pub copies: Vec<sidecar::VirtualCopy>,
@@ -131,7 +135,7 @@ pub fn scan(target: &Path, recursive: bool) -> std::io::Result<ScanResult> {
         .follow_links(false)
         .max_depth(if recursive { usize::MAX } else { 1 });
 
-    let mut entries = Vec::new();
+    let mut entries: Vec<(Option<(sidecar::Saved, sidecar::Sync)>, Entry)> = Vec::new();
     let mut folders = Vec::new();
     let mut unreadable = 0;
 
@@ -177,21 +181,52 @@ pub fn scan(target: &Path, recursive: bool) -> std::io::Result<ScanResult> {
             .map(|c| c.as_os_str().to_string_lossy().into_owned())
             .collect::<Vec<_>>()
             .join("/");
-        let saved = sidecar::read(item.path()).unwrap_or_default();
-        entries.push(Entry {
+        let saved = sidecar::read_synced(item.path());
+        entries.push((saved, Entry {
             path: item.path().to_string_lossy().into_owned(),
             rel,
             name: item.file_name().to_string_lossy().into_owned(),
             size: meta.len(),
             modified,
-            recipe: saved.recipe,
-            rating: saved.rating,
-            label: saved.label,
-            heart: saved.heart,
+            recipe: None,
+            rating: 0,
+            label: None,
+            heart: false,
+            meta: xmp::Meta::default(),
             raw: kind == Kind::Raw,
-            copies: saved.copies,
-        });
+            copies: Vec::new(),
+        }));
     }
+
+    // Which photo owns each stem's XMP needs its folder's other photos.
+    let mut by_dir: std::collections::HashMap<PathBuf, Vec<PathBuf>> = std::collections::HashMap::new();
+    for (_, e) in &entries {
+        let p = PathBuf::from(&e.path);
+        by_dir.entry(p.parent().map(Path::to_path_buf).unwrap_or_default()).or_default().push(p);
+    }
+    let mut entries: Vec<Entry> = entries
+        .into_iter()
+        .map(|(saved, mut e)| {
+            let path = PathBuf::from(&e.path);
+            let siblings = &by_dir[&path.parent().map(Path::to_path_buf).unwrap_or_default()];
+            let owner = xmp::owns(&path, siblings.iter().map(PathBuf::as_path));
+            let (mut saved, sync) = saved.map_or((sidecar::Saved::default(), None), |(s, y)| (s, Some(y)));
+            if let Some(found) = xmp::read_sidecar(&path, owner) {
+                if xmp_is_newer(&found, sync) {
+                    saved.rating = found.values.rating;
+                    saved.label = found.values.label;
+                    saved.meta = found.values.meta;
+                }
+            }
+            e.recipe = saved.recipe;
+            e.rating = saved.rating;
+            e.label = saved.label;
+            e.heart = saved.heart;
+            e.meta = saved.meta;
+            e.copies = saved.copies;
+            e
+        })
+        .collect();
 
     entries.sort_by(|a, b| natord::compare_ignore_case(&a.rel, &b.rel));
     folders.sort_by(|a, b| natord::compare_ignore_case(&a.name, &b.name));
@@ -209,6 +244,16 @@ pub fn scan(target: &Path, recursive: bool) -> std::io::Result<ScanResult> {
         focus,
         folders,
     })
+}
+
+/// Whether an XMP sidecar says something newer than Emulsion's own sidecar: it changed since
+/// Emulsion last wrote it, or (never written by Emulsion) it is newer than the last save.
+fn xmp_is_newer(found: &xmp::Found, sync: Option<sidecar::Sync>) -> bool {
+    match sync {
+        None => true,
+        Some(sidecar::Sync { xmp: Some(t), .. }) if found.own => found.mtime != t,
+        Some(sidecar::Sync { updated, .. }) => found.mtime > updated,
+    }
 }
 
 #[cfg(test)]
@@ -275,7 +320,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let img = dir.path().join("a.jpg");
         touch(&img);
-        let look = sidecar::Saved { recipe: Some(serde_json::json!({ "stock": "portra400" })), rating: 3, label: None, heart: false,
+        let look = sidecar::Saved { recipe: Some(serde_json::json!({ "stock": "portra400" })), rating: 3, label: None, heart: false, meta: xmp::Meta::default(),
             copies: vec![sidecar::VirtualCopy { id: "one".into(), name: "Warm".into(), recipe: None, rating: 5, label: None, heart: false }] };
         sidecar::write(&img, &look, false).unwrap();
         let res = scan(dir.path(), true).unwrap();
@@ -284,6 +329,48 @@ mod tests {
         assert_eq!(res.entries[0].rating, 3);
         assert_eq!(res.entries[0].copies, look.copies);
         assert!(!res.entries[0].raw);
+    }
+
+    #[test]
+    fn a_newer_xmp_from_another_app_wins_and_emulsions_own_write_does_not() {
+        let dir = tempfile::tempdir().unwrap();
+        let raw = dir.path().join("X.RAF");
+        let jpg = dir.path().join("X.JPG");
+        touch(&raw);
+        touch(&jpg);
+        // Emulsion rates the RAW: its XMP gets the stars, the JPEG twin none.
+        let saved = sidecar::Saved { rating: 2, heart: true, ..Default::default() };
+        sidecar::write(&raw, &saved, false).unwrap();
+        sidecar::write(&jpg, &sidecar::Saved { rating: 1, ..Default::default() }, false).unwrap();
+        let rated = |res: &ScanResult, name: &str| res.entries.iter().find(|e| e.name == name).map(|e| (e.rating, e.heart, e.meta.keywords.clone())).unwrap();
+        let res = scan(dir.path(), false).unwrap();
+        assert_eq!(rated(&res, "X.RAF"), (2, true, vec![]));
+        assert_eq!(rated(&res, "X.JPG"), (1, false, vec![]));
+        // Another app rewrites the XMP: its stars and keywords come in, the heart stays.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let text = std::fs::read_to_string(dir.path().join("X.xmp")).unwrap();
+        let text = text.replace("<xmp:Rating>2</xmp:Rating>", "<xmp:Rating>5</xmp:Rating>").replace("<rdf:Description rdf:about=\"\"", "<rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\"");
+        let text = text.replace("</rdf:Description>", "<dc:subject><rdf:Bag><rdf:li>Sea</rdf:li></rdf:Bag></dc:subject></rdf:Description>");
+        assert!(text.contains("<xmp:Rating>5<"), "{text}");
+        std::fs::write(dir.path().join("X.xmp"), text).unwrap();
+        let res = scan(dir.path(), false).unwrap();
+        assert_eq!(rated(&res, "X.RAF"), (5, true, vec!["Sea".to_string()]));
+        assert_eq!(rated(&res, "X.JPG"), (1, false, vec![]));
+    }
+
+    #[test]
+    fn an_xmp_older_than_emulsions_edits_is_not_taken() {
+        let dir = tempfile::tempdir().unwrap();
+        let img = dir.path().join("a.CR3");
+        touch(&img);
+        std::fs::write(dir.path().join("a.xmp"), r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Rating="1"/></rdf:RDF></x:xmpmeta>"#).unwrap();
+        // A sidecar from before XMP support, saved after the XMP was written.
+        let later = xmp::mtime_ms(&dir.path().join("a.xmp")).unwrap() + 1000;
+        std::fs::write(sidecar::path_for(&img), format!(r#"{{"format":"emulsion","version":2,"updated":{later},"recipe":null,"rating":4}}"#)).unwrap();
+        assert_eq!(scan(dir.path(), false).unwrap().entries[0].rating, 4);
+        // With no sidecar of Emulsion's, the XMP is all there is.
+        std::fs::remove_file(sidecar::path_for(&img)).unwrap();
+        assert_eq!(scan(dir.path(), false).unwrap().entries[0].rating, 1);
     }
 
     #[test]

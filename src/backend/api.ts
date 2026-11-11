@@ -17,6 +17,8 @@ export interface Entry {
   rating: number;
   label: string | null;
   heart: boolean;
+  /** Keywords and IPTC fields (src-tauri/src/xmp.rs `Meta`). */
+  meta?: unknown;
   /** A camera RAW. */
   raw: boolean;
 }
@@ -129,6 +131,10 @@ export async function captureInfo(path: string, width: number, height: number): 
   return { radius: dv.getFloat32(0, true), toCam, mask: new Uint8Array(buf, 48, width * height) };
 }
 
+/** What is embedded in each photo, for photos with no stars, label or metadata of their own yet. */
+export interface EmbeddedMetadata { rating: number; label: string | null; meta: unknown }
+export const embeddedMetadata = (paths: string[]) => invoke<(EmbeddedMetadata | null)[]>('embedded_metadata', { paths });
+
 /** As-shot white points (CIE xy) of `paths`; null for anything that is not a RAW. */
 export const whitePoints = (paths: string[]) => invoke<([number, number] | null)[]>('white_points', { paths });
 
@@ -148,6 +154,8 @@ export interface Saved {
   rating: number;
   label: string | null;
   heart: boolean;
+  /** The source's keywords and IPTC fields; also written to its XMP sidecar. */
+  meta?: import('../library/meta').PhotoMeta;
 }
 
 /** Save a photo's sidecar; `checkpoint` keeps the edits it replaces in the sidecar's history. */

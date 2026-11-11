@@ -3,6 +3,8 @@
 // name in the same folder, shown as one frame (the RAW), as Lightroom does.
 // Pure, so it can be tested.
 
+import { isEmptyMeta, type PhotoMeta } from './meta';
+
 export interface Pairable {
   copyId?: string;
   path: string;
@@ -12,13 +14,14 @@ export interface Pairable {
   rating: number;
   label: string | null;
   heart: boolean;
+  meta?: PhotoMeta;
 }
 
 const JPEG = /\.jpe?g$/i;
 /** Folder and file name without its extension, case-insensitive: what pairs a RAW with its JPEG. */
 const stemOf = (rel: string) => rel.replace(/\.[^./]+$/, '').toLowerCase();
 /** A JPEG with an edit, stars, a tag or a heart is never folded away, so no work is hidden. */
-const marked = (p: Pairable) => p.recipe !== null || p.rating > 0 || p.label !== null || p.heart;
+const marked = (p: Pairable) => p.recipe !== null || p.rating > 0 || p.label !== null || p.heart || !isEmptyMeta(p.meta);
 
 /** Each RAW's JPEG twin, by RAW path, whether or not it can be folded. */
 export function findPairs<T extends Pairable>(photos: T[]): Map<string, T> {

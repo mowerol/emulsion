@@ -3,6 +3,42 @@
 All work through 2026-11-10 is committed except the top section (the DCP removal, darktable camera data, app icon, DNG
 and TIFF support, and the retouch overlays went in together); "Uncommitted" notes below are out of date.
 
+## XMP sidecars, keywords and IPTC fields (2026-11-11)
+
+Committed. Built while Codex built Select sky in the same tree (uncommitted; the two share
+`lib.rs`, `api.ts`, `styles.css` and the docs, staged apart). Roadmap priority 3.
+Oli's choices: Lightroom-style `<stem>.xmp`; written automatically; the newer file wins on scan;
+first pass covers stars and labels, keywords, IPTC fields and reading embedded XMP.
+
+- **Library:** Adobe's XMP Toolkit SDK through the `xmp_toolkit` crate (what Lightroom and
+  exiv2 build on; it builds in ~20 s), not a hand-written XML reader, so other tools' fields
+  round-trip exactly. NOTICE updated.
+- **Rust:** `xmp.rs` (ownership of a stem's XMP: RAW > DNG > other, a tie is nobody; read, darktable's
+  `<name>.<ext>.xmp` as a read-only fallback, embedded reads, merge-writes touching only changed fields
+  plus `xmp:MetadataDate`, never replacing a file that isn't XMP). `sidecar.rs` gains `meta` and an
+  `xmp` record (the XMP's mtime after our write) and writes the XMP when the stars/label/meta change;
+  an XMP failure still saves the edits and returns the error (shown as the usual save toast).
+  `library::scan` takes a newer XMP's values without writing. `embedded_metadata` command.
+- **Webview:** `library/meta.ts` (model, tidy, shared values for a selection); `Photo.meta` (optional,
+  same on every frame of a source); `editMeta` in the store with a `meta` history change per source;
+  `loadEmbedded` after a folder opens, beside the white points; `MetadataControls.tsx` in a new
+  **Keywords and Metadata** tab (Tags icon); smart-collection **Keyword is** rule; a JPEG with
+  keywords is never folded under its RAW. Probe: `?metapanel` (or `?metapanel=one`) mounts it.
+- **Not done (README roadmap):** metadata presets, keyword hierarchy/list, keyword filter in the
+  filter bar, more IPTC fields, metadata in exports, pick/reject mapping. Virtual copies' stars
+  aren't in XMP (Lightroom doesn't write them either). A label Emulsion lacks (Purple) reads as none
+  and stays in the file.
+- **Checks:** `cargo test` 106 pass (xmp, sidecar and scan tests: Lightroom fixture with `crs:`,
+  hierarchy, Purple and reject kept; RAW+JPEG ownership; newer-wins both ways; broken XMP).
+  Vitest: all pass except `builtin-looks.test.ts`, which fails on the uncommitted
+  `src/film/emulsion-looks.json` (look names changed; not this work). Build passes. Panel screenshots
+  checked in dark and light.
+- **Oli should try (can't be checked headlessly):** rate and label a RAW → `<stem>.xmp` appears and
+  Lightroom/Bridge show them; edit a rating in Lightroom (Save Metadata to File), reopen the folder
+  in Emulsion → it shows Lightroom's; type keywords with commas and Enter, remove a chip, Cmd+Z;
+  select two photos and edit City (shows Mixed first); a Fuji RAF rated in camera shows its stars
+  after opening the folder; typing digits in the fields must not rate the photo.
+
 ## Fade removed; Vignette is RawTherapee's post-crop vignette (2026-11-10)
 
 Uncommitted. Oli asked to remove Fade and to see whether Vignette could be better or based on an

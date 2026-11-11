@@ -9,7 +9,7 @@ use tauri::State;
 
 use rayon::prelude::*;
 
-use crate::{decode, export, library, raw, sidecar, thumbs, AppPaths};
+use crate::{decode, export, library, raw, sidecar, thumbs, xmp, AppPaths};
 
 #[derive(Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -148,6 +148,14 @@ pub async fn white_points(paths: Vec<String>) -> Result<Vec<Option<[f32; 2]>>, S
             .collect())
     })
     .await
+}
+
+/// Stars, labels, keywords and IPTC fields embedded in each photo, for photos with none of
+/// their own yet and no XMP sidecar (in-camera ratings, files from other apps). `None` where
+/// there is nothing to take.
+#[tauri::command]
+pub async fn embedded_metadata(paths: Vec<String>) -> Result<Vec<Option<xmp::Interchange>>, String> {
+    blocking(move || Ok(paths.par_iter().map(|p| sidecar::embedded(Path::new(p))).collect())).await
 }
 
 #[tauri::command]

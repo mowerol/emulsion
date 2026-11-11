@@ -28,6 +28,8 @@ import { toneForward, toneProfileRgb } from '../../src/engine/tone';
 import { histogram } from '../../src/engine/histogram';
 import { drawHistogram } from '../../src/ui/Histogram';
 import { createElement } from 'react';
+import { KeywordControls, MetadataControls } from '../../src/ui/MetadataControls';
+import { NO_META } from '../../src/library/meta';
 import { createRoot } from 'react-dom/client';
 import { CurveEditor } from '../../src/ui/CurveEditor';
 import { WhiteBalanceControls } from '../../src/ui/WhiteBalanceControls';
@@ -958,6 +960,22 @@ try {
     document.body.append(host);
     createRoot(host).render(createElement(ExportDialog));
     out.exportdialog = 'mounted';
+  } else if (new URLSearchParams(location.search).has('metapanel')) {
+    // Keywords and Metadata for two selected photos that share some keywords: ?metapanel&theme=<mid|light|dark>.
+    const q = new URLSearchParams(location.search);
+    if (q.get('theme')) document.documentElement.dataset.theme = q.get('theme')!;
+    const meta = (keywords: string[], city: string) => ({ ...NO_META, keywords, title: 'Low tide', city, country: 'United Kingdom', creator: 'Oli Mower', copyright: '© 2026 Oli Mower' });
+    const photo = (name: string, m: ReturnType<typeof meta>) => ({ path: `/p/${name}`, rel: name, name, size: 1, modified: 0, recipe: null, seed: 1, white: null, rating: 0, label: null, heart: false, raw: true, pair: null, meta: m });
+    const photos = [photo('A.RAF', meta(['Beach', 'Kent', 'Morning light'], 'Margate')), photo('B.RAF', meta(['Beach', 'Dog'], 'Broadstairs'))];
+    useApp.setState({ photos, active: 0, selected: new Set(q.get('metapanel') === 'one' ? [photos[0].path] : photos.map(p => p.path)) });
+    const host = document.createElement('aside');
+    host.className = 'panel panel-workflow';
+    host.style.cssText = 'position:fixed;left:0;top:0;width:340px;height:100%';
+    document.body.append(host);
+    createRoot(host).render(createElement('div', { className: 'grouped-controls-body' },
+      createElement('div', { className: 'control-section-slot' }, createElement(Section, { id: 'keywords', title: 'Keywords', children: createElement(KeywordControls) })),
+      createElement('div', { className: 'control-section-slot' }, createElement(Section, { id: 'metadata', title: 'Metadata', children: createElement(MetadataControls) }))));
+    out.metapanel = 'mounted';
   } else if (new URLSearchParams(location.search).has('profilerow')) {
     // The camera colour warning (only the uncalibrated RAW shows one), above a folded section.
     const host = document.createElement('aside');

@@ -8,12 +8,18 @@
 //! the webview marks (pasting or applying to several photos, restoring), or the first change
 //! after `SESSION_MS` since the last checkpoint. Stars, tags and hearts are not edits and never
 //! make history. A photo with history keeps its sidecar after a reset.
+//!
+//! The original frame's stars, colour label, keywords and IPTC fields are also shared through an
+//! XMP sidecar (`xmp.rs`): a save that changes them writes the XMP too, and `xmp` records the XMP's
+//! modified time after that write, so a scan can tell when another app changed it since.
 
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use crate::xmp::{self, Interchange, Meta};
 
 pub const SUFFIX: &str = ".emulsion.json";
 const FORMAT: &str = "emulsion";
@@ -38,8 +44,13 @@ struct Sidecar {
     label: Option<String>,
     #[serde(default, skip_serializing_if = "is_false")]
     heart: bool,
+    #[serde(default, skip_serializing_if = "Meta::is_empty")]
+    meta: Meta,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     copies: Vec<VirtualCopy>,
+    /// The XMP sidecar's modified time after Emulsion last wrote it, ms.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    xmp: Option<u64>,
     /// When the last earlier state was kept (or the sidecar was first written), ms.
     #[serde(default)]
     checkpoint: u64,
@@ -98,14 +109,30 @@ pub struct Saved {
     /// A favourite.
     #[serde(default)]
     pub heart: bool,
+    /// Keywords and IPTC fields of the source file (its copies share them).
+    #[serde(default)]
+    pub meta: Meta,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub copies: Vec<VirtualCopy>,
 }
 
 impl Saved {
     fn is_empty(&self) -> bool {
-        self.recipe.is_none() && self.rating == 0 && self.label.is_none() && !self.heart && self.copies.is_empty()
+        self.recipe.is_none() && self.rating == 0 && self.label.is_none() && !self.heart && self.meta.is_empty() && self.copies.is_empty()
     }
+
+    /// What the XMP sidecar shares of it.
+    pub fn interchange(&self) -> Interchange {
+        Interchange { rating: self.rating.min(5), label: self.label.clone(), meta: self.meta.tidy() }
+    }
+}
+
+/// How a sidecar last stood against the XMP: when it was written, and the XMP's modified time
+/// after Emulsion's last write of it.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+pub struct Sync {
+    pub updated: u64,
+    pub xmp: Option<u64>,
 }
 
 pub fn path_for(image: &Path) -> PathBuf {
@@ -122,15 +149,31 @@ fn read_car(image: &Path) -> Option<Sidecar> {
 }
 
 pub fn read(image: &Path) -> Option<Saved> {
+    read_synced(image).map(|(saved, _)| saved)
+}
+
+/// What is saved for `image`, and how it stood against the XMP.
+pub fn read_synced(image: &Path) -> Option<(Saved, Sync)> {
     let car = read_car(image)?;
+    let sync = Sync { updated: car.updated, xmp: car.xmp };
     let saved = Saved {
         recipe: Some(car.recipe).filter(|r| !r.is_null()),
         rating: car.rating.min(5),
         label: car.label,
         heart: car.heart,
+        meta: car.meta,
         copies: car.copies,
     };
-    Some(saved).filter(|s| !s.is_empty())
+    Some((saved, sync)).filter(|(s, _)| !s.is_empty())
+}
+
+/// What `image` has embedded in it, when it has nothing of its own to share yet: no stars,
+/// label, keywords or IPTC fields in its sidecar, and no XMP sidecar.
+pub fn embedded(image: &Path) -> Option<Interchange> {
+    if read(image).is_some_and(|s| !s.interchange().is_empty()) || xmp::has_sidecar(image) {
+        return None;
+    }
+    xmp::read_embedded(image).filter(|v| !v.is_empty())
 }
 
 /// Earlier states of `image`'s edits, newest first.
@@ -157,6 +200,9 @@ fn now_ms() -> u64 {
 /// no recipe, rating or label and no history the sidecar is removed, returning the photo to its
 /// original state. Writes go to a temporary file first and are renamed into place so a crash
 /// never leaves a half-written sidecar.
+///
+/// When the stars, label, keywords or IPTC fields differ from the last save, the XMP sidecar is
+/// updated first. If that fails the edits are still saved and the error is returned.
 pub fn write(image: &Path, saved: &Saved, checkpoint: bool) -> io::Result<()> {
     write_at(image, saved, checkpoint, now_ms())
 }
@@ -165,6 +211,17 @@ fn write_at(image: &Path, saved: &Saved, checkpoint: bool, now: u64) -> io::Resu
     let target = path_for(image);
     let recipe = saved.recipe.clone().unwrap_or(serde_json::Value::Null);
     let old = read_car(image);
+    let before = old.as_ref().map(|o| Interchange { rating: o.rating.min(5), label: o.label.clone(), meta: o.meta.tidy() }).unwrap_or_default();
+    let mut xmp_time = old.as_ref().and_then(|o| o.xmp);
+    let mut xmp_error = None;
+    let interchange = saved.interchange();
+    if interchange != before {
+        match xmp::write(image, &interchange) {
+            Ok(Some(t)) => xmp_time = Some(t),
+            Ok(None) => {}
+            Err(e) => xmp_error = Some(e),
+        }
+    }
     let mut history = Vec::new();
     let mut last_checkpoint = now;
     if let Some(old) = old {
@@ -188,7 +245,7 @@ fn write_at(image: &Path, saved: &Saved, checkpoint: bool, now: u64) -> io::Resu
     if saved.is_empty() && history.is_empty() {
         return match fs::remove_file(&target) {
             Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
-            _ => Ok(()),
+            _ => xmp_error.map_or(Ok(()), Err),
         };
     }
     let updated = now;
@@ -200,7 +257,9 @@ fn write_at(image: &Path, saved: &Saved, checkpoint: bool, now: u64) -> io::Resu
         rating: saved.rating.min(5),
         label: saved.label.clone(),
         heart: saved.heart,
+        meta: interchange.meta,
         copies: saved.copies.clone(),
+        xmp: xmp_time,
         checkpoint: last_checkpoint,
         history,
     };
@@ -209,7 +268,8 @@ fn write_at(image: &Path, saved: &Saved, checkpoint: bool, now: u64) -> io::Resu
     tmp.push(".tmp");
     let tmp = PathBuf::from(tmp);
     fs::write(&tmp, text)?;
-    fs::rename(&tmp, &target)
+    fs::rename(&tmp, &target)?;
+    xmp_error.map_or(Ok(()), |e| Err(io::Error::new(e.kind(), format!("edits saved, but the XMP sidecar was not updated: {e}"))))
 }
 
 #[cfg(test)]
@@ -342,6 +402,44 @@ mod tests {
         assert!(read(&img).is_none());
         assert_eq!(history(&img)[0].copies, saved.copies);
         assert_eq!(fs::read(&img).unwrap(), b"original bytes");
+    }
+
+    #[test]
+    fn shares_marks_and_metadata_through_the_xmp_and_records_when() {
+        let dir = tempfile::tempdir().unwrap();
+        let img = dir.path().join("DSCF1.RAF");
+        fs::write(&img, b"x").unwrap();
+        let xmp_path = dir.path().join("DSCF1.xmp");
+        // A look alone says nothing to other apps.
+        write(&img, &Saved { recipe: Some(json!({ "exposure": 1 })), ..Saved::default() }, false).unwrap();
+        assert!(!xmp_path.exists());
+        let meta = Meta { keywords: vec!["Sea".into()], title: "Harbour".into(), ..Meta::default() };
+        let saved = Saved { recipe: Some(json!({ "exposure": 1 })), rating: 3, label: Some("blue".into()), heart: true, meta: meta.clone(), ..Saved::default() };
+        write(&img, &saved, false).unwrap();
+        let (back, sync) = read_synced(&img).unwrap();
+        assert_eq!(back, saved);
+        assert_eq!(sync.xmp, xmp::mtime_ms(&xmp_path));
+        let found = xmp::read_sidecar(&img, true).unwrap();
+        assert_eq!(found.values, Interchange { rating: 3, label: Some("blue".into()), meta });
+        // A recipe change leaves the XMP alone.
+        let before = fs::read_to_string(&xmp_path).unwrap();
+        write(&img, &Saved { recipe: Some(json!({ "exposure": 2 })), ..saved.clone() }, false).unwrap();
+        assert_eq!(fs::read_to_string(&xmp_path).unwrap(), before);
+        // Clearing the marks clears them in the XMP, which stays for other apps' fields.
+        write(&img, &Saved::default(), false).unwrap();
+        assert!(xmp::read_sidecar(&img, true).unwrap().values.is_empty());
+    }
+
+    #[test]
+    fn a_broken_xmp_still_saves_the_edits() {
+        let dir = tempfile::tempdir().unwrap();
+        let img = dir.path().join("a.nef");
+        fs::write(&img, b"x").unwrap();
+        fs::write(dir.path().join("a.xmp"), "garbage").unwrap();
+        let saved = Saved { rating: 2, ..Saved::default() };
+        let e = write(&img, &saved, false).unwrap_err();
+        assert!(e.to_string().contains("XMP"), "{e}");
+        assert_eq!(read(&img).unwrap(), saved);
     }
 
     #[test]

@@ -8,7 +8,8 @@ import { useShallow } from 'zustand/react/shallow';
 import { useRef } from 'react';
 import type { Histogram } from '../engine/histogram';
 import type { Xy } from '../engine/whitebalance';
-import { catalogMetadata, isTauri, scanFolder, whitePoints, type Entry } from '../backend/api';
+import { catalogMetadata, embeddedMetadata, isTauri, scanFolder, whitePoints, type Entry } from '../backend/api';
+import { isEmptyMeta, normalizeMeta, sameMeta, type PhotoMeta } from './meta';
 import { folderImport, importedPaths, importedRoots, rememberFolder, saveFolderImport, type FolderImport } from './folders';
 import { defaultRecipe, normalizeRecipe, type Recipe } from '../film/recipe';
 import { applyCopiedSettings, DEFAULT_COPY_GROUPS, normalizeCopyGroups, type CopiedSettings, type CopyGroup } from '../film/copysettings';
@@ -44,6 +45,8 @@ export interface Photo {
   label: Label | null;
   /** A favourite. */
   heart: boolean;
+  /** Keywords and IPTC fields of the source file, the same on each of its copies; absent is none. */
+  meta?: PhotoMeta;
   /** A camera RAW. */
   raw: boolean;
   /** The JPEG folded into this RAW (same name, same folder), when JPEGs are folded. */
@@ -258,7 +261,7 @@ export function showToast(message: string, action?: Toast['action'], ms = 3200) 
 const scannedPhoto = (e: Entry): Photo => ({
   path: e.path, rel: e.rel, name: e.name, size: e.size, modified: e.modified,
   recipe: normalizeRecipe(e.recipe), seed: seedFor(e.path), white: null,
-  ...normalizeMarks(e.rating, e.label, e.heart), raw: e.raw, pair: null,
+  ...normalizeMarks(e.rating, e.label, e.heart), meta: normalizeMeta(e.meta), raw: e.raw, pair: null,
 });
 
 function withCachedMetadata(photo: Photo, cached?: Photo): Photo {
@@ -375,7 +378,10 @@ function displayImported(all: Photo[], choice: FolderImport | null) {
   set({ photos, hidden, pairCount: findPairs(imported.filter(p => !p.copyId)).size, active, anchor: active,
     selected: active >= 0 ? new Set([photoId(photos[active])]) : new Set(), histogram: null });
   const root = get().folder?.root;
-  if (root && photos.length) void loadWhitePoints(root, [...new Set(photos.map(p => p.path))]);
+  if (root && photos.length) {
+    void loadWhitePoints(root, [...new Set(photos.map(p => p.path))]);
+    void loadEmbedded(root, imported);
+  }
 }
 
 export function importFolderPhotos(choice: FolderImport, name?: string) {
@@ -478,7 +484,10 @@ export async function selectSource(source: SourceSelection) {
       selected: first >= 0 ? new Set([photoId(photos[first])]) : new Set(),
       view: 'library', compare: false, histogram: null, ...historyState() });
     if (session) viewImport(session.id);
-    if (root) void loadWhitePoints(root, [...new Set(all.map(p => p.path))]);
+    if (root) {
+      void loadWhitePoints(root, [...new Set(all.map(p => p.path))]);
+      void loadEmbedded(root, all);
+    }
     void loadCatalogMetadata(all);
   } catch (err) {
     if (request === folderRequest) showToast(`Could not open that source. ${String(err)}`);
@@ -841,6 +850,36 @@ export function markPhotos(mark: MarkKey) {
   persistSources(changes.map(c => c.path));
 }
 
+/**
+ * Change the keywords and IPTC fields of the selected frames' sources (or the active one's), as one
+ * undoable step. `key` merges quick successive edits of one field (typing) into one step.
+ */
+export function editMeta(change: (m: PhotoMeta) => PhotoMeta, label: string, key?: string) {
+  const sources = [...new Set(targets().map(p => p.path))];
+  if (!sources.length) return;
+  const changes: Change[] = [];
+  const after = new Map<string, PhotoMeta>();
+  for (const path of sources) {
+    const before = familyOf(path).find(p => !p.copyId)?.meta ?? normalizeMeta(null);
+    const next = normalizeMeta(change(before));
+    if (sameMeta(before, next)) continue;
+    after.set(path, next);
+    changes.push({ path, meta: true, before, after: next });
+  }
+  if (!changes.length) return;
+  const name = changes.length > 1 ? `${label} on ${changes.length} photos` : label;
+  history.record(name, changes, performance.now(), key ? `${key}|${sources.join('|')}` : undefined);
+  setSourceMeta(after);
+  set(historyState());
+  persistSources([...after.keys()]);
+}
+
+/** Give every frame of each source its metadata. */
+function setSourceMeta(bySource: Map<string, PhotoMeta>) {
+  const update = (photos: Photo[]) => photos.map(p => bySource.has(p.path) ? { ...p, meta: bySource.get(p.path)! } : p);
+  set({ photos: update(get().photos), hidden: update(get().hidden), candidates: update(get().candidates) });
+}
+
 /** Put recipes and marks back as a history step recorded them, without recording a new step. */
 function applyStep(step: Step, side: 'before' | 'after', verb: string) {
   if (step.transient) {
@@ -856,10 +895,12 @@ function applyStep(step: Step, side: 'before' | 'after', verb: string) {
     const restored = [...families.values()].flat().filter(p => p.copyId && !present.has(photoId(p))).map(photoId);
     replaceFamilies(families, restored.length ? restored : undefined);
   }
-  const byPath = new Map(step.changes.filter(c => !c.frames).map(c => [c.path, c]));
+  const metas = new Map(step.changes.flatMap(c => c.meta ? [[c.path, c[side]] as const] : []));
+  if (metas.size) setSourceMeta(metas);
+  const byPath = new Map(step.changes.filter(c => !c.frames && !c.meta).map(c => [c.path, c]));
   const photos = get().photos.map((p) => {
     const c = byPath.get(photoId(p));
-    if (!c || c.frames) return p;
+    if (!c || c.frames || c.meta) return p;
     return c.marks ? { ...p, ...c[side] } : { ...p, recipe: c[side] };
   });
   set({ photos, ...historyState() });
@@ -954,6 +995,39 @@ async function loadWhitePoints(root: string, paths: string[]) {
     const byPath = new Map(chunk.map((p, k) => [p, whites[k]]));
     if (![...byPath.values()].some(Boolean)) continue;
     set({ photos: get().photos.map((p) => (byPath.get(p.path) && !sameWhite(p.white, byPath.get(p.path)!) ? { ...p, white: byPath.get(p.path)! } : p)) });
+  }
+}
+
+/**
+ * Take the stars, label, keywords and IPTC fields embedded in photos that have none of their own
+ * (in-camera ratings, files from other apps), in the background. Nothing is saved until the photo
+ * is next edited or marked, which also writes them to its XMP sidecar.
+ */
+async function loadEmbedded(root: string, frames: Photo[]) {
+  if (!isTauri()) return;
+  const BATCH = 32;
+  const bare = (p: Photo) => !p.copyId && p.rating === 0 && p.label === null && isEmptyMeta(p.meta);
+  const paths = [...new Set(frames.filter(bare).map(p => p.path))];
+  for (let i = 0; i < paths.length; i += BATCH) {
+    const chunk = paths.slice(i, i + BATCH);
+    let found: Awaited<ReturnType<typeof embeddedMetadata>>;
+    try {
+      found = await embeddedMetadata(chunk);
+    } catch {
+      return;
+    }
+    if (get().folder?.root !== root) return;
+    const byPath = new Map<string, NonNullable<(typeof found)[number]>>();
+    chunk.forEach((p, k) => { if (found[k]) byPath.set(p, found[k]!); });
+    if (!byPath.size) continue;
+    const update = (photos: Photo[]) => photos.map(p => {
+      const e = byPath.get(p.path);
+      // A frame marked while this was read keeps its own.
+      if (!e || (!p.copyId && !bare(p)) || (p.copyId && !isEmptyMeta(p.meta))) return p;
+      const meta = normalizeMeta(e.meta);
+      return p.copyId ? { ...p, meta } : { ...p, ...normalizeMarks(e.rating, e.label, p.heart), meta };
+    });
+    set({ photos: update(get().photos), hidden: update(get().hidden), candidates: update(get().candidates) });
   }
 }
 

@@ -1,0 +1,518 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+//! XMP interchange: stars, colour labels, keywords and IPTC fields shared with other tools
+//! through `<name>.xmp` beside the photo, as Lightroom Classic, Bridge and Capture One write it
+//! (the extension replaced, so `DSCF0001.RAF` → `DSCF0001.xmp`). Parsing and serialising use
+//! Adobe's XMP Toolkit SDK (the `xmp_toolkit` crate, BSD), the reference implementation that
+//! Lightroom and exiv2 are built on.
+//!
+//! - **Ownership.** One `<stem>.xmp` serves every file of that stem, so it belongs to one photo:
+//!   a RAW over a DNG over anything else (Lightroom's RAW+JPEG pairs), and nobody when two files
+//!   tie (two cameras' RAWs of the same name). A file that doesn't own it neither reads nor
+//!   writes it; its marks stay in its `.emulsion.json`.
+//! - **Writing** touches only the fields that changed and keeps everything else in the file
+//!   (Lightroom's develop settings, darktable's history, other namespaces), then stamps
+//!   `xmp:MetadataDate`. Nothing is ever written into a photo.
+//! - **Reading.** `<stem>.xmp` (any case of `.xmp`); without it, darktable's `<name>.xmp` is read
+//!   but never written. `read_embedded` reads the XMP inside JPEG, TIFF, DNG and RAW files.
+//!
+//! Lightroom's colour label names are written (`Red`, `Yellow`, `Green`, `Blue`); a label
+//! Emulsion doesn't have (`Purple`, a custom set's name) reads as none and is left in the file
+//! until another label replaces it. A rejected rating (`-1`) reads as unrated and is kept the
+//! same way. Hearts have no standard field and stay in Emulsion's sidecar.
+
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::str::FromStr;
+use std::time::UNIX_EPOCH;
+use xmp_toolkit::{xmp_ns, OpenFileOptions, ToStringOptions, XmpDateTime, XmpFile, XmpMeta, XmpValue};
+
+use crate::library::{classify, Kind};
+
+/// Lightroom's namespace, for its keyword hierarchy (`lr:hierarchicalSubject`).
+const LR: &str = "http://ns.adobe.com/lightroom/1.0/";
+const PHOTOSHOP: &str = xmp_ns::PHOTOSHOP;
+const IPTC: &str = xmp_ns::IPTC_CORE;
+
+/// Lightroom's default label set, in Emulsion's order.
+const LABELS: &[(&str, &str)] = &[("red", "Red"), ("yellow", "Yellow"), ("green", "Green"), ("blue", "Blue")];
+
+/// Keywords and IPTC Core fields: what Lightroom's Keywording and Metadata panels edit.
+/// Empty strings are unset.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Meta {
+    /// `dc:subject`, in the order given.
+    pub keywords: Vec<String>,
+    /// `dc:title`.
+    pub title: String,
+    /// `dc:description`.
+    pub caption: String,
+    /// `dc:creator`, its items joined with `; `.
+    pub creator: String,
+    /// `dc:rights`.
+    pub copyright: String,
+    /// `Iptc4xmpCore:Location` (IPTC's sublocation).
+    pub location: String,
+    /// `photoshop:City`.
+    pub city: String,
+    /// `photoshop:State`.
+    pub state: String,
+    /// `photoshop:Country`.
+    pub country: String,
+}
+
+impl Meta {
+    pub fn is_empty(&self) -> bool {
+        *self == Meta::default()
+    }
+
+    /// Trimmed, with empty and repeated keywords dropped (case-insensitively, the first kept).
+    pub fn tidy(&self) -> Meta {
+        let mut keywords: Vec<String> = Vec::new();
+        for k in &self.keywords {
+            let k = k.trim();
+            if !k.is_empty() && !keywords.iter().any(|x| x.to_lowercase() == k.to_lowercase()) {
+                keywords.push(k.to_string());
+            }
+        }
+        let t = |s: &String| s.trim().to_string();
+        Meta {
+            keywords,
+            title: t(&self.title),
+            caption: self.caption.trim().to_string(),
+            creator: t(&self.creator),
+            copyright: t(&self.copyright),
+            location: t(&self.location),
+            city: t(&self.city),
+            state: t(&self.state),
+            country: t(&self.country),
+        }
+    }
+}
+
+/// What Emulsion shares through XMP for one photo.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Interchange {
+    pub rating: u8,
+    pub label: Option<String>,
+    pub meta: Meta,
+}
+
+impl Interchange {
+    pub fn is_empty(&self) -> bool {
+        self.rating == 0 && self.label.is_none() && self.meta.is_empty()
+    }
+}
+
+fn stem_key(p: &Path) -> Option<String> {
+    Some(p.file_stem()?.to_string_lossy().to_lowercase())
+}
+
+/// How strongly a file claims its stem's XMP: higher wins, a tie means nobody.
+fn claim(p: &Path) -> u8 {
+    let dng = p.extension().is_some_and(|e| e.eq_ignore_ascii_case("dng"));
+    match classify(p) {
+        Kind::Raw if !dng => 3,
+        Kind::Raw => 2,
+        Kind::Raster => 1,
+        Kind::Other => 0,
+    }
+}
+
+/// Whether `image` owns its stem's XMP among the photo files in its folder (`siblings` may
+/// include `image` itself and files of other stems).
+pub fn owns<'a>(image: &Path, siblings: impl IntoIterator<Item = &'a Path>) -> bool {
+    let (Some(key), mine) = (stem_key(image), claim(image)) else { return false };
+    if mine == 0 {
+        return false;
+    }
+    let name = image.file_name();
+    siblings.into_iter().filter(|s| s.file_name() != name && stem_key(s).as_ref() == Some(&key)).all(|s| claim(s) < mine)
+}
+
+/// `<stem>.xmp` beside `image`, preferring one that exists in any case of the extension.
+fn stem_path(image: &Path) -> PathBuf {
+    let lower = image.with_extension("xmp");
+    if lower.exists() {
+        return lower;
+    }
+    let upper = image.with_extension("XMP");
+    if upper.exists() { upper } else { lower }
+}
+
+/// The XMP sidecar `image` reads and writes, or `None` when another file of its stem owns it.
+/// Looks at the folder; `scan` uses `owns` with the listing it already has.
+pub fn sidecar_for(image: &Path) -> Option<PathBuf> {
+    let dir = image.parent()?;
+    let siblings: Vec<PathBuf> = fs::read_dir(dir).ok()?.filter_map(|e| e.ok().map(|e| e.path())).collect();
+    owns(image, siblings.iter().map(PathBuf::as_path)).then(|| stem_path(image))
+}
+
+/// Darktable's sidecar, `<name>.<ext>.xmp`: read when there is no `<stem>.xmp`.
+fn darktable_path(image: &Path) -> PathBuf {
+    let mut s = image.as_os_str().to_owned();
+    s.push(".xmp");
+    PathBuf::from(s)
+}
+
+/// Whether `image` has an XMP sidecar to read, its own or darktable's.
+pub fn has_sidecar(image: &Path) -> bool {
+    sidecar_for(image).is_some_and(|p| p.exists()) || darktable_path(image).exists()
+}
+
+pub fn mtime_ms(p: &Path) -> Option<u64> {
+    let t = fs::metadata(p).ok()?.modified().ok()?;
+    Some(t.duration_since(UNIX_EPOCH).ok()?.as_millis() as u64)
+}
+
+/// A sidecar found for `image`: what it says, when it last changed, and whether it is the one
+/// Emulsion writes (`false` for darktable's).
+pub struct Found {
+    pub values: Interchange,
+    pub mtime: u64,
+    pub own: bool,
+}
+
+/// Read the XMP sidecar of `image`, given whether `image` owns its stem's (`owns`).
+pub fn read_sidecar(image: &Path, owner: bool) -> Option<Found> {
+    if owner {
+        let p = stem_path(image);
+        if let Some(found) = read_file(&p, true) {
+            return Some(found);
+        }
+    }
+    read_file(&darktable_path(image), false)
+}
+
+fn read_file(p: &Path, own: bool) -> Option<Found> {
+    let text = fs::read_to_string(p).ok()?;
+    if !text.contains("rdf:RDF") {
+        return None;
+    }
+    let m = XmpMeta::from_str(&text).ok()?;
+    Some(Found { values: values_of(&m), mtime: mtime_ms(p)?, own })
+}
+
+/// The XMP inside `image` (JPEG, TIFF, DNG, most RAWs), if it has any.
+pub fn read_embedded(image: &Path) -> Option<Interchange> {
+    let mut f = XmpFile::new().ok()?;
+    let base = || OpenFileOptions::default().for_read().only_xmp();
+    if f.open_file(image, base().use_smart_handler()).is_err() {
+        f = XmpFile::new().ok()?;
+        f.open_file(image, base().use_packet_scanning()).ok()?;
+    }
+    let m = f.xmp();
+    f.close();
+    m.map(|m| values_of(&m))
+}
+
+fn text(m: &XmpMeta, ns: &str, name: &str) -> String {
+    m.property(ns, name).map(|v| v.value.trim().to_string()).unwrap_or_default()
+}
+
+fn lang_alt(m: &XmpMeta, ns: &str, name: &str) -> String {
+    m.localized_text(ns, name, None, "x-default").map(|(v, _)| v.value.trim().to_string()).unwrap_or_default()
+}
+
+fn items(m: &XmpMeta, ns: &str, name: &str) -> Vec<String> {
+    m.property_array(ns, name).map(|v| v.value).collect()
+}
+
+fn values_of(m: &XmpMeta) -> Interchange {
+    let rating = m.property(xmp_ns::XMP, "Rating").and_then(|v| v.value.trim().parse::<f64>().ok()).unwrap_or(0.0);
+    let label = m.property(xmp_ns::XMP, "Label").and_then(|v| label_id(&v.value));
+    let meta = Meta {
+        keywords: items(m, xmp_ns::DC, "subject"),
+        title: lang_alt(m, xmp_ns::DC, "title"),
+        caption: lang_alt(m, xmp_ns::DC, "description"),
+        creator: items(m, xmp_ns::DC, "creator").iter().map(|s| s.trim()).filter(|s| !s.is_empty()).collect::<Vec<_>>().join("; "),
+        copyright: lang_alt(m, xmp_ns::DC, "rights"),
+        location: text(m, IPTC, "Location"),
+        city: text(m, PHOTOSHOP, "City"),
+        state: text(m, PHOTOSHOP, "State"),
+        country: text(m, PHOTOSHOP, "Country"),
+    }
+    .tidy();
+    Interchange { rating: rating.round().clamp(0.0, 5.0) as u8, label, meta }
+}
+
+fn label_id(name: &str) -> Option<String> {
+    LABELS.iter().find(|(_, n)| n.eq_ignore_ascii_case(name.trim())).map(|(id, _)| id.to_string())
+}
+
+fn label_name(id: &str) -> Option<&'static str> {
+    LABELS.iter().find(|(i, _)| *i == id).map(|(_, n)| *n)
+}
+
+fn err(e: impl std::fmt::Display) -> io::Error {
+    io::Error::other(e.to_string())
+}
+
+fn set_text(m: &mut XmpMeta, ns: &str, name: &str, value: &str) -> io::Result<()> {
+    if value.is_empty() { m.delete_property(ns, name) } else { m.set_property(ns, name, &value.into()) }.map_err(err)
+}
+
+fn set_lang_alt(m: &mut XmpMeta, ns: &str, name: &str, value: &str) -> io::Result<()> {
+    // Replaced whole: other languages' text would no longer describe the photo.
+    m.delete_property(ns, name).map_err(err)?;
+    if value.is_empty() { Ok(()) } else { m.set_localized_text(ns, name, None, "x-default", value).map_err(err) }
+}
+
+fn set_items(m: &mut XmpMeta, ns: &str, name: &str, values: &[String], ordered: bool) -> io::Result<()> {
+    m.delete_property(ns, name).map_err(err)?;
+    let array = XmpValue::new(name.to_string()).set_is_array(true).set_is_ordered(ordered);
+    for v in values {
+        m.append_array_item(ns, &array, &v.as_str().into()).map_err(err)?;
+    }
+    Ok(())
+}
+
+/// Set `want` on `m`, touching only what differs from what it holds. Returns whether anything
+/// changed.
+fn apply(m: &mut XmpMeta, want: &Interchange) -> io::Result<bool> {
+    let have = values_of(m);
+    let want = Interchange { meta: want.meta.tidy(), ..want.clone() };
+    let mut changed = false;
+    if want.rating != have.rating {
+        set_text(m, xmp_ns::XMP, "Rating", &if want.rating == 0 { String::new() } else { want.rating.min(5).to_string() })?;
+        changed = true;
+    }
+    if want.label != have.label {
+        set_text(m, xmp_ns::XMP, "Label", want.label.as_deref().and_then(label_name).unwrap_or(""))?;
+        changed = true;
+    }
+    let (w, h) = (&want.meta, &have.meta);
+    if w.keywords != h.keywords {
+        set_items(m, xmp_ns::DC, "subject", &w.keywords, false)?;
+        // Keep the hierarchy paths whose leaf is still a keyword, as Lightroom reads them.
+        let kept: Vec<String> = items(m, LR, "hierarchicalSubject")
+            .into_iter()
+            .filter(|path| {
+                let leaf = path.rsplit('|').next().unwrap_or("").trim().to_lowercase();
+                w.keywords.iter().any(|k| k.to_lowercase() == leaf)
+            })
+            .collect();
+        if m.contains_property(LR, "hierarchicalSubject") {
+            if kept.is_empty() { m.delete_property(LR, "hierarchicalSubject").map_err(err)? } else { set_items(m, LR, "hierarchicalSubject", &kept, false)? }
+        }
+        changed = true;
+    }
+    for (ns, name, wv, hv) in [
+        (xmp_ns::DC, "title", &w.title, &h.title),
+        (xmp_ns::DC, "description", &w.caption, &h.caption),
+        (xmp_ns::DC, "rights", &w.copyright, &h.copyright),
+    ] {
+        if wv != hv {
+            set_lang_alt(m, ns, name, wv)?;
+            changed = true;
+        }
+    }
+    if w.creator != h.creator {
+        let names: Vec<String> = w.creator.split(';').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+        if names.is_empty() { m.delete_property(xmp_ns::DC, "creator").map_err(err)? } else { set_items(m, xmp_ns::DC, "creator", &names, true)? }
+        changed = true;
+    }
+    for (ns, name, wv, hv) in [
+        (IPTC, "Location", &w.location, &h.location),
+        (PHOTOSHOP, "City", &w.city, &h.city),
+        (PHOTOSHOP, "State", &w.state, &h.state),
+        (PHOTOSHOP, "Country", &w.country, &h.country),
+    ] {
+        if wv != hv {
+            set_text(m, ns, name, wv)?;
+            changed = true;
+        }
+    }
+    if changed {
+        if let Ok(now) = XmpDateTime::current() {
+            m.set_property_date(xmp_ns::XMP, "MetadataDate", &now.into()).map_err(err)?;
+        }
+    }
+    Ok(changed)
+}
+
+/// Write `values` into `image`'s XMP sidecar, keeping everything else in it. Returns the
+/// sidecar's modified time afterwards, or `None` when `image` has no sidecar of its own (another
+/// file owns its stem) or there is nothing to say and no file yet. A file that can't be parsed
+/// is left alone (an error), never replaced.
+pub fn write(image: &Path, values: &Interchange) -> io::Result<Option<u64>> {
+    let Some(target) = sidecar_for(image) else { return Ok(None) };
+    write_to(&target, values)
+}
+
+fn write_to(target: &Path, values: &Interchange) -> io::Result<Option<u64>> {
+    let mut m = match fs::read_to_string(target) {
+        // The toolkit reads text without RDF as empty XMP, which a write would replace.
+        Ok(text) if !text.contains("rdf:RDF") => return Err(err(format!("{} is not XMP", target.display()))),
+        Ok(text) => XmpMeta::from_str(&text).map_err(|e| err(format!("{} is not readable XMP: {e}", target.display())))?,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            if values.is_empty() {
+                return Ok(None);
+            }
+            XmpMeta::new().map_err(err)?
+        }
+        Err(e) => return Err(e),
+    };
+    XmpMeta::register_namespace(LR, "lr").map_err(err)?;
+    if apply(&mut m, values)? {
+        let text = m.to_string_with_options(ToStringOptions::default().omit_packet_wrapper().set_newline("\n".into())).map_err(err)?;
+        let mut tmp = target.as_os_str().to_owned();
+        tmp.push(".tmp");
+        let tmp = PathBuf::from(tmp);
+        fs::write(&tmp, text)?;
+        fs::rename(&tmp, target)?;
+    }
+    Ok(mtime_ms(target))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn p(s: &str) -> PathBuf {
+        PathBuf::from(s)
+    }
+
+    fn some(rating: u8, label: Option<&str>, keywords: &[&str]) -> Interchange {
+        Interchange { rating, label: label.map(Into::into), meta: Meta { keywords: keywords.iter().map(|s| s.to_string()).collect(), ..Meta::default() } }
+    }
+
+    #[test]
+    fn a_raw_owns_its_stem_over_its_jpeg() {
+        let files = [p("/a/X.RAF"), p("/a/X.JPG"), p("/a/Y.jpg")];
+        let s = || files.iter().map(PathBuf::as_path);
+        assert!(owns(&files[0], s()));
+        assert!(!owns(&files[1], s()));
+        assert!(owns(&files[2], s()));
+        // Two RAWs of one name: nobody.
+        let twins = [p("/a/X.RAF"), p("/a/X.CR3")];
+        assert!(!owns(&twins[0], twins.iter().map(PathBuf::as_path)));
+        // A DNG yields to a camera RAW but not to a JPEG.
+        let dng = [p("/a/X.dng"), p("/a/x.jpg")];
+        assert!(owns(&dng[0], dng.iter().map(PathBuf::as_path)));
+        assert_eq!(stem_path(Path::new("/a/X.RAF")), p("/a/X.xmp"));
+    }
+
+    #[test]
+    fn writes_and_reads_back_in_lightrooms_fields() {
+        let dir = tempfile::tempdir().unwrap();
+        let img = dir.path().join("DSCF0001.RAF");
+        fs::write(&img, b"x").unwrap();
+        let mut v = some(4, Some("green"), &["Beach", "Family", "beach"]);
+        v.meta.title = "Low tide".into();
+        v.meta.caption = "Morning, before the rain".into();
+        v.meta.creator = "Oli; Sam".into();
+        v.meta.copyright = "© 2026".into();
+        v.meta.city = "Margate".into();
+        v.meta.country = "United Kingdom".into();
+        assert!(write(&img, &v).unwrap().is_some());
+        let text = fs::read_to_string(dir.path().join("DSCF0001.xmp")).unwrap();
+        assert!(text.contains("xmp:Rating=\"4\"") || text.contains("<xmp:Rating>4</xmp:Rating>"), "{text}");
+        assert!(text.contains("Green"), "{text}");
+        let back = read_sidecar(&img, true).unwrap();
+        assert!(back.own);
+        assert_eq!(back.values.rating, 4);
+        assert_eq!(back.values.label.as_deref(), Some("green"));
+        assert_eq!(back.values.meta.keywords, vec!["Beach", "Family"]);
+        assert_eq!(back.values.meta.creator, "Oli; Sam");
+        assert_eq!(back.values.meta, v.meta.tidy());
+    }
+
+    #[test]
+    fn keeps_what_other_tools_wrote() {
+        let dir = tempfile::tempdir().unwrap();
+        let img = dir.path().join("a.nef");
+        fs::write(&img, b"x").unwrap();
+        // A Lightroom sidecar: develop settings, a keyword hierarchy, a purple label, a reject.
+        fs::write(
+            dir.path().join("a.xmp"),
+            r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+<rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
+ xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:lr="http://ns.adobe.com/lightroom/1.0/"
+ xmp:Rating="-1" xmp:Label="Purple" crs:Exposure2012="+0.35">
+<dc:subject><rdf:Bag><rdf:li>Places</rdf:li><rdf:li>Kent</rdf:li><rdf:li>Dog</rdf:li></rdf:Bag></dc:subject>
+<lr:hierarchicalSubject><rdf:Bag><rdf:li>Places|Kent</rdf:li><rdf:li>Animals|Dog</rdf:li></rdf:Bag></lr:hierarchicalSubject>
+</rdf:Description></rdf:RDF></x:xmpmeta>"#,
+        )
+        .unwrap();
+        let found = read_sidecar(&img, true).unwrap();
+        assert_eq!(found.values.rating, 0, "a reject reads as unrated");
+        assert_eq!(found.values.label, None, "Purple is not an Emulsion label");
+        // Drop Dog, add a title: the reject, Purple and the develop settings stay.
+        let mut want = found.values.clone();
+        want.meta.keywords = vec!["Places".into(), "Kent".into()];
+        want.meta.title = "Harbour".into();
+        write(&img, &want).unwrap();
+        let text = fs::read_to_string(dir.path().join("a.xmp")).unwrap();
+        assert!(text.contains("Exposure2012") && text.contains("+0.35"), "{text}");
+        assert!(text.contains("Purple") && text.contains("-1"), "{text}");
+        assert!(text.contains("Places|Kent") && !text.contains("Animals|Dog"), "{text}");
+        assert!(text.contains("MetadataDate"), "{text}");
+        assert_eq!(read_sidecar(&img, true).unwrap().values.meta.title, "Harbour");
+        // A label replaces Purple; clearing the rating removes the reject only when asked.
+        want.label = Some("red".into());
+        write(&img, &want).unwrap();
+        let text = fs::read_to_string(dir.path().join("a.xmp")).unwrap();
+        assert!(text.contains("Red") && !text.contains("Purple") && text.contains("-1"), "{text}");
+    }
+
+    #[test]
+    fn nothing_to_say_writes_nothing_and_a_jpeg_twin_never_writes() {
+        let dir = tempfile::tempdir().unwrap();
+        let jpg = dir.path().join("b.jpg");
+        fs::write(&jpg, b"x").unwrap();
+        assert_eq!(write(&jpg, &Interchange::default()).unwrap(), None);
+        assert!(!dir.path().join("b.xmp").exists());
+        fs::write(dir.path().join("b.ARW"), b"x").unwrap();
+        assert_eq!(write(&jpg, &some(3, None, &[])).unwrap(), None);
+        assert!(!dir.path().join("b.xmp").exists());
+    }
+
+    #[test]
+    fn an_unreadable_sidecar_is_never_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        let img = dir.path().join("c.cr3");
+        fs::write(&img, b"x").unwrap();
+        fs::write(dir.path().join("c.xmp"), b"not xml <").unwrap();
+        assert!(write(&img, &some(2, None, &[])).is_err());
+        assert_eq!(fs::read(dir.path().join("c.xmp")).unwrap(), b"not xml <");
+    }
+
+    #[test]
+    fn reads_darktables_sidecar_when_there_is_no_other() {
+        let dir = tempfile::tempdir().unwrap();
+        let img = dir.path().join("d.ORF");
+        fs::write(&img, b"x").unwrap();
+        write_to(&dir.path().join("d.ORF.xmp"), &some(5, None, &["dt"])).unwrap();
+        let found = read_sidecar(&img, true).unwrap();
+        assert!(!found.own);
+        assert_eq!(found.values.rating, 5);
+    }
+
+    #[test]
+    fn reads_xmp_embedded_in_a_jpeg() {
+        // A minimal JPEG with an APP1 XMP segment.
+        let xmp = r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmp:Rating="3" xmp:Label="Blue"/></rdf:RDF></x:xmpmeta>"#;
+        let mut img = image::RgbImage::new(8, 8);
+        img.fill(128);
+        let mut jpeg = Vec::new();
+        image::codecs::jpeg::JpegEncoder::new(&mut jpeg).encode_image(&img).unwrap();
+        let header = b"http://ns.adobe.com/xap/1.0/\0";
+        let len = (2 + header.len() + xmp.len()) as u16;
+        let mut out = jpeg[..2].to_vec();
+        out.extend_from_slice(&[0xFF, 0xE1]);
+        out.extend_from_slice(&len.to_be_bytes());
+        out.extend_from_slice(header);
+        out.extend_from_slice(xmp.as_bytes());
+        out.extend_from_slice(&jpeg[2..]);
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("e.jpg");
+        fs::write(&path, out).unwrap();
+        let v = read_embedded(&path).unwrap();
+        assert_eq!((v.rating, v.label.as_deref()), (3, Some("blue")));
+        assert!(read_embedded(&dir.path().join("missing.jpg")).is_none());
+    }
+}

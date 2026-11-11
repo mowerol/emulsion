@@ -176,7 +176,7 @@ export function SourceHeader({ onOpen }: { onOpen: OpenDialog }) {
 const RULE_FIELDS: { value: SmartRule['field']; label: string }[] = [
   { value: 'rating', label: 'Minimum rating' }, { value: 'edited', label: 'Edited state' }, { value: 'heart', label: 'Favourite' },
   { value: 'label', label: 'Colour label' }, { value: 'camera', label: 'Camera contains' }, { value: 'look', label: 'Film stock / Look contains' },
-  { value: 'date', label: 'Capture date' }, { value: 'folder', label: 'Folder path' },
+  { value: 'keyword', label: 'Keyword is' }, { value: 'date', label: 'Capture date' }, { value: 'folder', label: 'Folder path' },
 ];
 function defaultRule(field: SmartRule['field']): SmartRule {
   if (field === 'rating') return { field, value: 3 };
@@ -192,7 +192,7 @@ function RuleEditor({ rule, onChange, onRemove }: { rule: SmartRule; onChange: (
       : rule.field === 'edited' || rule.field === 'heart' ? <select aria-label="Rule value" value={String(rule.value)} onChange={e => onChange({ ...rule, value: e.target.value === 'true' })}><option value="true">{rule.field === 'edited' ? 'Edited' : 'Favourite'}</option><option value="false">{rule.field === 'edited' ? 'Unedited' : 'Not a favourite'}</option></select>
       : rule.field === 'label' ? <select aria-label="Colour label" value={rule.value} onChange={e => onChange({ ...rule, value: e.target.value as typeof rule.value })}>{LABELS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>
       : rule.field === 'date' ? <><select aria-label="Date comparison" value={rule.before ? 'before' : 'after'} onChange={e => onChange({ ...rule, before: e.target.value === 'before' })}><option value="after">On or after</option><option value="before">On or before</option></select><input className="text" aria-label="Capture date" type="date" required value={rule.value} onChange={e => onChange({ ...rule, value: e.target.value })} /></>
-      : <input className="text" aria-label="Rule value" required placeholder={rule.field === 'folder' ? '/Photos/2026' : rule.field === 'camera' ? 'e.g. OM-3' : 'e.g. Portra'} value={String(rule.value)} onChange={e => onChange({ field: rule.field === 'camera' ? 'camera' : rule.field === 'look' ? 'look' : 'folder', value: e.target.value })} />}
+      : <input className="text" aria-label="Rule value" required placeholder={rule.field === 'folder' ? '/Photos/2026' : rule.field === 'camera' ? 'e.g. OM-3' : rule.field === 'keyword' ? 'e.g. Family' : 'e.g. Portra'} value={String(rule.value)} onChange={e => onChange({ field: rule.field as 'camera' | 'look' | 'folder' | 'keyword', value: e.target.value })} />}
     <button type="button" className="library-icon-button" aria-label="Remove rule" onClick={onRemove}>×</button>
   </div>;
 }

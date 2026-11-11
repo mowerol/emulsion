@@ -25,12 +25,13 @@ function write(path: string, saved: Saved, checkpoint: boolean) {
 }
 
 /**
- * Save a photo's look, stars, colour tag and heart together. `checkpoint` (a reset, a paste, an
+ * Save a photo's look, stars, colour tag, heart and metadata together (the Rust side also writes
+ * the stars, tag and metadata to its XMP sidecar). `checkpoint` (a reset, a paste, an
  * edit of several photos) keeps the edits being replaced in the sidecar's history; it holds until
  * the debounced write, so a later slider move doesn't lose it.
  */
-export function savePhoto({ path, recipe, rating, label, heart, copies }: { path: string } & Saved, checkpoint = false) {
-  const saved = { recipe, rating, label, heart, ...(copies?.length ? { copies } : {}) };
+export function savePhoto({ path, recipe, rating, label, heart, meta, copies }: { path: string } & Saved, checkpoint = false) {
+  const saved = { recipe, rating, label, heart, ...(meta ? { meta } : {}), ...(copies?.length ? { copies } : {}) };
   const prev = pending.get(path);
   if (prev) clearTimeout(prev.timer);
   const mark = checkpoint || !!prev?.checkpoint;
