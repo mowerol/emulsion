@@ -16,6 +16,7 @@ import { onRecentFolders, recentFolderLabels, recentFolders } from '../library/f
 import { CROP_OVERLAYS, setPrefs, setTheme, THEMES, usePrefs, type InterfacePreferences } from './prefs';
 import { setWorkspace, useWorkspace, type WorkspacePreferences } from './workspace';
 import { firstOf, openSettings, openShortcuts, viewCommand, type ViewCommand } from './menubridge';
+import { logToTerminal, showLog } from '../backend/api';
 
 export const RECENT_PREFIX = 'recent:';
 const COLUMNS = [1, 2, 3] as const;
@@ -123,6 +124,7 @@ const targetLabel = () => { const c = targetCollection(); return `Add to ${c ? c
 /** Runs a Photo or Help menu item; false when the id isn't one. */
 export function photoMenuAction(id: string, s: State = useApp.getState()): boolean {
   const [kind, value] = id.split(':') as [string, string | undefined];
+  if (id === 'show-log') { void showLog().catch((e) => logToTerminal('error', `Show log: ${String(e)}`)); return true; }
   if (id === 'shortcuts' || id === 'settings') { if (!dialogOpen(s)) (id === 'settings' ? openSettings : openShortcuts)(); return true; }
   if (!['rating', 'label', 'flag', 'tool'].includes(kind) && id !== 'auto-advance' && id !== 'add-to-target') return false;
   const { enabled } = menuState(s, usePrefs.getState(), useWorkspace.getState());
@@ -283,6 +285,8 @@ export async function installAppMenu(run: (id: string) => void): Promise<() => v
 
   const help = await Submenu.new({ text: 'Help', items: [
     await item('shortcuts', 'Keyboard Shortcuts', 'CmdOrCtrl+/'),
+    await sep(),
+    await item('show-log', 'Show Log in Finder'),
   ] });
 
   const menu = await Menu.new({ items: [app, file, edit, view, photo, window, help] });

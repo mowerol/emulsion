@@ -3,6 +3,7 @@
 //! Image processing itself runs on the GPU in the webview (see src/engine).
 
 mod ai_masks;
+mod applog;
 mod ai_models;
 mod app_data;
 mod capture;
@@ -55,6 +56,12 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .manage(PendingOpen::default())
         .setup(|app| {
+            // First, so the rest of setup is logged too. Without a log, the app still runs.
+            if let Ok(dir) = app.path().app_log_dir() {
+                if let Err(e) = applog::install(&dir, &app.package_info().version.to_string()) {
+                    eprintln!("[log] couldn't start the log file: {e}");
+                }
+            }
             let cache_dir = app.path().app_cache_dir()?.join("thumbs");
             std::fs::create_dir_all(&cache_dir)?;
             app.manage(AppPaths { cache_dir });
@@ -113,6 +120,7 @@ pub fn run() {
             commands::startup_options,
             commands::take_open_paths,
             commands::log_message,
+            commands::show_log,
             commands::catalog_load,
             commands::catalog_write,
             commands::catalog_default_backup_folder,

@@ -412,10 +412,18 @@ pub fn take_open_paths(pending: tauri::State<'_, crate::PendingOpen>) -> Vec<Str
     std::mem::take(&mut *pending.0.lock().unwrap())
 }
 
-/// Lets the webview report errors to the terminal during development.
+/// The webview's errors and warnings: to the terminal in development and to the log file (applog.rs).
 #[tauri::command]
 pub fn log_message(level: String, message: String) {
     eprintln!("[webview:{level}] {message}");
+}
+
+/// Help › Show Log in Finder: reveals the log file (applog.rs) for attaching to a report.
+#[tauri::command]
+pub fn show_log(app: tauri::AppHandle) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    let path = crate::applog::path().ok_or("The log file isn't available this time.")?;
+    app.opener().reveal_item_in_dir(path).map_err(|e| e.to_string())
 }
 
 /// Custom looks, under the app's data folder.

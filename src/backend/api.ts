@@ -251,6 +251,11 @@ export function logToTerminal(level: 'error' | 'warn' | 'info', message: string)
   if (isTauri()) invoke('log_message', { level, message }).catch(() => {});
 }
 
+/** Reveals the log file (~/Library/Logs/app.emulsion.desktop/Emulsion.log) in Finder. */
+export function showLog() {
+  return invoke<void>('show_log');
+}
+
 /** Fit perspective from a neutral, oriented and lens-corrected RGBA preview. */
 export function autoPerspective(pixels: Uint8Array, width: number, height: number, axis: 'vertical' | 'horizontal' | 'both' | 'rotation', current: import('../engine/perspective').Perspective) {
   return invoke<Pick<import('../engine/perspective').Perspective, 'rotation' | 'vertical' | 'horizontal' | 'focalLength'>>('auto_perspective', pixels, {

@@ -9,8 +9,11 @@ uncommitted; older "Uncommitted" notes below are out of date.
 release; the list (signing/notarisation or an unsigned beta, updater, build pipeline, catalog
 storage, in-app checks of recent features, crash logs, first launch, LUT licences) is in the
 section below. He chose the catalog first (SQLite, backups on quit: committed `3a7a657`), then an
-ad-hoc-signed beta with a build pipeline (built, uncommitted). Exports remain the feature
-priority after release work.
+ad-hoc-signed beta with a build pipeline (committed `582e1b9`), then the crash/error log
+(done, uncommitted, below). Agreed order for the rest: **updater next** (it must be in the first
+build testers install; needs Oli's choice of manifest host, GitHub Releases the easy default,
+and a signing key he keeps), then the first-launch pass, then release notes and the version
+bump last. Exports remain the feature priority after release work.
 
 ## Library catalog in SQLite, with backups on quit (2026-11-11)
 
@@ -72,7 +75,32 @@ LUTs with explicit licences.
 5. ~~LUT licences~~: every bundled pack has an explicit licence (gmic-film CC BY-SA 4.0,
    picturefx legacy CC BY-SA 4.0, t3mujinpack MIT), so nothing was removed; local-looks
    never ship (checked by the script). 6. ~~Catalog~~. 7. In-app checks of the recent
-   "Oli should try" items, XMP sidecars first. 8. Crash/error log file. 9. First-launch pass.
+   "Oli should try" items, XMP sidecars first. 8. ~~Crash/error log file~~ (below).
+   9. First-launch pass.
+
+## Log file for testers (2026-11-11, uncommitted)
+
+- **`src-tauri/src/applog.rs`**, installed first thing in setup: `~/Library/Logs/app.emulsion.desktop/Emulsion.log`
+  (Tauri's `app_log_dir`). fd 2 is redirected into a pipe; a thread stamps each line with local
+  time, appends it to the file and passes it on to the original stderr, so `tauri dev` and
+  `tools/perf` (which parse `PERF` lines) see the same output as before. So every existing
+  `eprintln!`, the webview's errors (`main.tsx` error/unhandledrejection → `log_message`) and
+  native stderr (LibRaw, ONNX Runtime) are logged without changing call sites. Each launch
+  writes a header (version, dev/release, macOS version, arch, pid).
+- **Panics:** the hook writes the message, place, thread and a backtrace straight to the file
+  in one write (release is `panic = "abort"`, so the copying thread wouldn't get the chance).
+  Native crashes (signals) aren't caught; macOS writes those to `~/Library/Logs/DiagnosticReports`.
+- **Size:** moved to `Emulsion.old.log` past 8 MB, at launch or mid-session.
+- **Help › Show Log in Finder** (`show-log` in `photoMenuAction`, command `show_log`) reveals it.
+- **Tested:** `applog` tests, including one that runs `install` in a child test process and
+  checks an `eprintln!`, a raw `write(2)` and a panic all land stamped in the file and still
+  reach the terminal. `npm run check` passes (844 TS, 129 Rust).
+- **Oli should try:** Help › Show Log in Finder in the dev app (Finder opens with Emulsion.log
+  selected; it should hold a `=== Emulsion 0.1.0 (dev) started…` line and the session's
+  `[backups]`/`[webview:…]` lines); terminal output in `tauri dev` should look unchanged apart
+  from arriving through the pipe. The perf tool and the dev app both append to the same file.
+- **Not done:** console.error/console.warn aren't forwarded (React warnings would be noisy);
+  no log level filtering; no in-app "send report".
 
 ## Release pipeline: ad-hoc-signed beta (2026-11-11)
 
