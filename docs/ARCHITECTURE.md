@@ -182,6 +182,13 @@ selection. No inference runs during ordinary edits or export of a saved mask.
 
 ### Preview and export
 
+All JPEG, PNG and TIFF exports embed an sRGB ICC profile in the encoder
+(`src-tauri/src/export.rs`), matching the GPU's finished pixels. ICC's published sRGB v2 profile
+(`src-tauri/data/sRGB2014.icc`, February 2015 revision) is bundled unchanged. JPEG uses ICC APP2
+segments, PNG uses iCCP and TIFF uses the ICCProfile tag, across both bit depths and all TIFF
+compression choices. Tagging is independent of the metadata Include choice; the later XMP
+Toolkit metadata write preserves it. The source photo's ICC profile is not copied to the export.
+
 Settled regional rendering retains full source density for the spatial effects at every zoom.
 The earlier display-density settled-map candidate lost fine stone and foliage texture;
 `docs/research/continuous-zoom.md` records its rejection and the faithful replacement.

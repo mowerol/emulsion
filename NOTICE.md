@@ -5,6 +5,21 @@ Emulsion is licensed under the GNU General Public License, version 3 or later (G
 For a feature-by-feature overview of these contributions, including bundled libraries,
 assets and local experiments, see [Open-source foundations](docs/OPEN_SOURCE.md).
 
+## Bundled sRGB export profile
+
+- Source: International Color Consortium, [sRGB profiles](https://registry.color.org/rgb-registry/srgbprofiles),
+  [sRGB2014.icc](https://registry.color.org/rgb-registry/profiles/sRGB2014.icc), February 2015 revision,
+  retrieved 2026-11-11. This published binary has no upstream commit.
+- Copyright: International Color Consortium, 2015 (the profile's copyright tag is retained).
+- Bundled unchanged at `src-tauri/data/sRGB2014.icc` and embedded in JPEG, PNG and TIFF exports.
+- SHA-256: `384b832de3412066743b52a75ee906b6fb9fb8d9e09e936fc2c43223815c6e0a`.
+- [ICC profile licence](https://registry.color.org/profile-library/):
+
+  This profile is made available by the International Color Consortium, and may be copied,
+  distributed, embedded, made, used, and sold without restriction. Altered versions of this
+  profile shall have the original identification and copyright information removed and shall
+  not be misrepresented as the original profile.
+
 ## Code ported from other projects
 
 Every port is listed here with its source, upstream licence, the upstream commit it came from, and what changed. See [docs/PORTING.md](docs/PORTING.md) for the format.

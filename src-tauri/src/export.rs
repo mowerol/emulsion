@@ -2,17 +2,21 @@
 //! Writing developed frames to disk. The GPU renders the final pixels (8-bit RGBA, or 16-bit RGB
 //! for 16-bit TIFF and PNG); this module encodes them as JPEG, PNG or TIFF and places the file by
 //! the export's rule for an existing name: a new name (`-2`, `-3`...), overwrite, or skip.
+//! Every encoded frame embeds an sRGB ICC profile, matching the GPU's output pixels.
 //! A frame is written in full under a hidden name, then moved to its own, so a crash or a full
 //! disk never leaves a half-written file behind, and an overwrite never truncates the old one.
 
 use image::codecs::jpeg::JpegEncoder;
 use image::codecs::png::{CompressionType, FilterType, PngEncoder};
-use image::{DynamicImage, ImageBuffer, Rgb, RgbImage};
+use image::{DynamicImage, ImageBuffer, ImageEncoder, Rgb, RgbImage};
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{self, Cursor, ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+
+/// ICC's unmodified sRGB v2 profile (February 2015 revision). Source and terms: NOTICE.md.
+const SRGB_ICC: &[u8] = include_bytes!("../data/sRGB2014.icc");
 
 /// How TIFF pixels are compressed. LZW and ZIP use the horizontal predictor, as Lightroom's do.
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -149,11 +153,14 @@ fn rgb16(px: &Pixels, width: u32, height: u32) -> Result<Vec<u16>, String> {
 }
 
 pub fn encode(px: &Pixels, width: u32, height: u32, format: Format) -> Result<Vec<u8>, String> {
+    // Tag the finished sRGB pixels; the source photo's profile describes its input,
+    // not this developed frame. Keep the published profile intact.
     let mut out = Vec::new();
     match format {
         Format::Jpeg { quality } => {
-            JpegEncoder::new_with_quality(&mut out, quality.clamp(1, 100))
-                .encode_image(&rgb8(px, width, height)?)
+            let mut encoder = JpegEncoder::new_with_quality(&mut out, quality.clamp(1, 100));
+            encoder.set_icc_profile(SRGB_ICC.to_vec()).map_err(|e| format!("Could not tag JPEG as sRGB: {e}"))?;
+            encoder.encode_image(&rgb8(px, width, height)?)
                 .map_err(|e| format!("Could not encode JPEG: {e}"))?;
         }
         Format::Png { .. } => {
@@ -164,12 +171,14 @@ pub fn encode(px: &Pixels, width: u32, height: u32, format: Format) -> Result<Ve
             } else {
                 DynamicImage::ImageRgb8(rgb8(px, width, height)?)
             };
-            img.write_with_encoder(PngEncoder::new_with_quality(&mut out, CompressionType::Default, FilterType::Adaptive))
+            let mut encoder = PngEncoder::new_with_quality(&mut out, CompressionType::Default, FilterType::Adaptive);
+            encoder.set_icc_profile(SRGB_ICC.to_vec()).map_err(|e| format!("Could not tag PNG as sRGB: {e}"))?;
+            img.write_with_encoder(encoder)
                 .map_err(|e| format!("Could not encode PNG: {e}"))?;
         }
         Format::Tiff { compression, .. } => {
             use tiff::encoder::{colortype, Compression, DeflateLevel, TiffEncoder};
-            use tiff::tags::Predictor;
+            use tiff::tags::{Predictor, Tag};
             let mut cursor = Cursor::new(&mut out);
             let err = |e: tiff::TiffError| format!("Could not encode TIFF: {e}");
             let encoder = TiffEncoder::new(&mut cursor).map_err(err)?;
@@ -179,9 +188,15 @@ pub fn encode(px: &Pixels, width: u32, height: u32, format: Format) -> Result<Ve
                 TiffCompression::Zip => encoder.with_compression(Compression::Deflate(DeflateLevel::Balanced)).with_predictor(Predictor::Horizontal),
             };
             if format.bits() == 16 {
-                encoder.write_image::<colortype::RGB16>(width, height, &rgb16(px, width, height)?).map_err(err)?;
+                let pixels = rgb16(px, width, height)?;
+                let mut img = encoder.new_image::<colortype::RGB16>(width, height).map_err(err)?;
+                img.encoder().write_tag(Tag::IccProfile, SRGB_ICC).map_err(err)?;
+                img.write_data(&pixels).map_err(err)?;
             } else {
-                encoder.write_image::<colortype::RGB8>(width, height, rgb8(px, width, height)?.as_raw()).map_err(err)?;
+                let pixels = rgb8(px, width, height)?;
+                let mut img = encoder.new_image::<colortype::RGB8>(width, height).map_err(err)?;
+                img.encoder().write_tag(Tag::IccProfile, SRGB_ICC).map_err(err)?;
+                img.write_data(pixels.as_raw()).map_err(err)?;
             }
         }
     }
@@ -396,6 +411,66 @@ mod tests {
 
     fn ramp16(w: u32, h: u32) -> Vec<u8> {
         (0..w * h * 3).flat_map(|i| ((i * 4099) as u16).to_le_bytes()).collect()
+    }
+
+    #[test]
+    fn srgb_profile_survives_every_format_and_metadata_choice() {
+        use crate::export_meta::{Include, Request};
+        use image::{ImageDecoder, ImageReader};
+
+        let dir = tempfile::tempdir().unwrap();
+        // A wider-gamut original must not supply the developed export's profile.
+        let source = dir.path().join("source.png");
+        let mut encoder = PngEncoder::new(fs::File::create(&source).unwrap());
+        encoder.set_icc_profile(moxcms::ColorProfile::new_display_p3().encode().unwrap()).unwrap();
+        encoder.write_image(&[128, 90, 200], 1, 1, image::ExtendedColorType::Rgb8).unwrap();
+
+        let (w, h) = (7, 5);
+        let bytes = ramp16(w, h);
+        let want16: Vec<u16> = bytes.chunks_exact(2).map(|v| u16::from_le_bytes([v[0], v[1]])).collect();
+        let want8: Vec<u8> = want16.iter().map(|v| (v >> 8) as u8).collect();
+        let formats = [
+            Format::Jpeg { quality: 90 },
+            Format::Png { bits: 8 },
+            Format::Png { bits: 16 },
+            Format::Tiff { bits: 8, compression: TiffCompression::None },
+            Format::Tiff { bits: 8, compression: TiffCompression::Lzw },
+            Format::Tiff { bits: 8, compression: TiffCompression::Zip },
+            Format::Tiff { bits: 16, compression: TiffCompression::None },
+            Format::Tiff { bits: 16, compression: TiffCompression::Lzw },
+            Format::Tiff { bits: 16, compression: TiffCompression::Zip },
+        ];
+        for format in formats {
+            for include in [None, Some(Include::Copyright), Some(Include::CopyrightContact), Some(Include::AllExceptCamera), Some(Include::All)] {
+                let req = include.map(|include| Request {
+                    source: source.to_string_lossy().into(), include,
+                    remove_person: true, remove_location: true, hierarchy: false,
+                    rating: 0, label: None, meta: Default::default(), person_keywords: Vec::new(),
+                });
+                let written = write_frame(dir.path(), "frame", &Pixels::Rgb16(&bytes), w, h, format, Existing::Rename, None, req.as_ref()).unwrap();
+                let mut decoder = ImageReader::open(&written.path).unwrap().into_decoder().unwrap();
+                let icc = if matches!(format, Format::Tiff { .. }) {
+                    let mut tiff = tiff::decoder::Decoder::new(std::io::BufReader::new(fs::File::open(&written.path).unwrap())).unwrap();
+                    tiff.get_tag_u8_vec(tiff::tags::Tag::IccProfile).expect("TIFF ICC tag")
+                } else {
+                    decoder.icc_profile().unwrap().expect("export has an ICC profile")
+                };
+                assert_eq!(icc, SRGB_ICC, "{format:?}, {include:?}");
+                let profile = moxcms::ColorProfile::new_from_slice(&icc).expect("valid ICC profile");
+                assert_eq!(profile.color_space, moxcms::DataColorSpace::Rgb);
+                let img = DynamicImage::from_decoder(decoder).unwrap();
+                assert_eq!((img.width(), img.height()), (w, h));
+                // Embedding the profile and then reconciling metadata must keep pixel values
+                // and precision intact. JPEG's lossy encoding is checked separately.
+                if format.bits() == 16 {
+                    assert_eq!(img.color(), image::ColorType::Rgb16);
+                    assert_eq!(img.to_rgb16().into_raw(), want16, "{format:?}, {include:?}");
+                } else if !matches!(format, Format::Jpeg { .. }) {
+                    assert_eq!(img.color(), image::ColorType::Rgb8);
+                    assert_eq!(img.to_rgb8().into_raw(), want8, "{format:?}, {include:?}");
+                }
+            }
+        }
     }
 
     #[test]

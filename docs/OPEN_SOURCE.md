@@ -97,6 +97,7 @@ are documented in [NOTICE.md](../NOTICE.md) and the linked research notes.
 | JPEG XL-compressed DNG tiles | jxl-oxide, connected through Emulsion's modification to LibRaw's DNG loader |
 | JPEG, PNG, TIFF and WebP handling, resizing and export | image crate; tiff used directly for compressed TIFF export |
 | Embedded ICC colour-profile conversion | moxcms |
+| sRGB profile embedded in exports | International Color Consortium's sRGB2014 ICC v2 profile, bundled unchanged |
 | EXIF reading | kamadak-exif |
 | XMP sidecars and embedded XMP | Adobe XMP Toolkit SDK, through Adobe's xmp_toolkit Rust wrapper |
 | Parallel RAW decoding | LibRaw's existing loops, supported by LLVM OpenMP when available |

@@ -10,6 +10,36 @@ pause seems fixed; the earlier instruction to measure it next is superseded. Cat
 and broader performance acceptance remain follow-ups. Filename templates and saved export
 presets below are committed on Oli's request; the existing built-in look tuning remains uncommitted.
 
+## Export: embedded sRGB ICC profile (2026-11-11)
+
+Committed on Oli's request (`src-tauri/src/export.rs`, `src-tauri/data/sRGB2014.icc`, notices and docs).
+Oli requested automatic sRGB ICC tagging; no export-dialog setting is needed.
+
+- Every JPEG, PNG and TIFF embeds ICC's unmodified sRGB2014 v2 profile (February 2015
+  revision), including 8/16-bit PNG/TIFF and uncompressed/LZW/ZIP TIFF. Bundled with
+  `include_bytes!`; no runtime download or new dependency. Source, licence and SHA-256
+  are in `NOTICE.md`. The profile identifies the GPU's existing sRGB output; pixels are
+  not converted again and the original's profile is not copied.
+- ICC embedding happens in the encoder before the existing metadata write and atomic
+  placement. It is independent of Include and person/location removal, so copyright-only
+  exports still carry their colour profile.
+- Validation: `npm run check` passed (836 frontend tests, 118 Rust; 1 skipped/17 ignored).
+  After replacing the initially generated profile with the published ICC binary, the full
+  Rust suite passed again. The new regression writes and reads 45 combinations (nine
+  format/depth/compression choices × no metadata plus all four Include choices), starting
+  with a Display P3-tagged source. It verifies the exact embedded profile, parses it with
+  moxcms and checks lossless pixels/bit depth after metadata writing.
+- Profile choice: macOS `sips --verify` flagged a non-D50 header white point in the initially
+  generated moxcms profile, so the final implementation uses ICC's published asset unchanged.
+  `sips --verify` reports only non-null header padding on that upstream v2 asset (its profile
+  ID occupies bytes 84–99); it has the standard D50 header white point.
+- Readback note: the test reads TIFF's profile directly with the `tiff` crate. The `image`
+  wrapper returned None for the initial tiny TIFF fixture despite the direct decoder and
+  macOS recognising its profile. That input-reader discrepancy was not changed here.
+- Optional app check: export a photo and open it in Preview's inspector; its profile should
+  read **sRGB2014**. There are no new native keyboard/menu interactions in this change.
+- Remaining exports: output sharpening, wider-gamut output, watermark and AVIF/HEIF.
+
 ## Export: filename templates and saved presets (2026-11-11)
 
 - **Naming:** File naming in the existing Export dialog; original names by default, or custom
@@ -42,7 +72,7 @@ presets below are committed on Oli's request; the existing built-in look tuning 
   `Lisbon-{date}-{sequence}`; export a few frames and rerun with Skip. Save as preset, change
   the format/size, apply the preset, then relaunch to confirm it remains. Native WKWebView
   keyboard/menu interaction and real-file exports with these names remain app checks.
-- **Next exports:** embedded ICC/output colour spaces, output sharpening, watermark and
+- **Next exports:** wider output colour spaces, output sharpening, watermark and
   AVIF/HEIF. Wider-gamut preservation through the pipeline needs its own implementation.
 
 ## Import removed from the top-right toolbar (2026-11-11)
