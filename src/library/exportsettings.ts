@@ -3,6 +3,7 @@
 // Sections follow Lightroom Classic's Export dialog: Location, File Settings, Image Sizing.
 import type { ExistingFiles, ExportFormat } from '../backend/api';
 import type { ExportOptions } from './export';
+import { getSetting, setSetting } from './appsettings';
 
 export interface ExportSettings {
   /** A chosen folder, or each photo's own folder ("Same folder as original photo"). */
@@ -20,6 +21,9 @@ export interface ExportSettings {
   /** Long edge in pixels, or null for full size. */
   longEdge: number | null;
   existing: ExistingFiles;
+  rename: boolean;
+  filenameTemplate: string;
+  sequenceStart: number;
   /** Lightroom Classic's Metadata › Include. */
   metadata: MetadataInclude;
   removePerson: boolean;
@@ -41,6 +45,7 @@ export const EXPORT_DEFAULTS: ExportSettings = {
   destination: 'folder', folder: null, useSubfolder: true, subfolder: 'Emulsion exports',
   format: 'jpeg', jpegQuality: 92, pngBits: 16, tiffBits: 16, tiffCompression: 'zip',
   longEdge: null, existing: 'rename',
+  rename: false, filenameTemplate: '{filename}-{sequence}', sequenceStart: 1,
   metadata: 'all', removePerson: false, removeLocation: false, hierarchy: false,
 };
 
@@ -62,6 +67,9 @@ export function normalizeExportSettings(input: unknown): ExportSettings {
     tiffCompression: pick(p.tiffCompression, ['none', 'lzw', 'zip'] as const, d.tiffCompression),
     longEdge: p.longEdge === null ? null : edge ?? d.longEdge,
     existing: pick(p.existing, ['rename', 'overwrite', 'skip'] as const, d.existing),
+    rename: typeof p.rename === 'boolean' ? p.rename : d.rename,
+    filenameTemplate: typeof p.filenameTemplate === 'string' ? p.filenameTemplate.slice(0, 200) : d.filenameTemplate,
+    sequenceStart: typeof p.sequenceStart === 'number' && Number.isFinite(p.sequenceStart) ? Math.round(Math.max(1, Math.min(999999, p.sequenceStart))) : d.sequenceStart,
     metadata: pick(p.metadata, METADATA_INCLUDE.map(m => m.value), d.metadata),
     removePerson: typeof p.removePerson === 'boolean' ? p.removePerson : d.removePerson,
     removeLocation: typeof p.removeLocation === 'boolean' ? p.removeLocation : d.removeLocation,
@@ -84,14 +92,15 @@ export function exportOptions(s: ExportSettings, openFolder: string, personKeywo
     longEdge: s.longEdge,
     format: exportFormat(s),
     existing: s.existing,
+    ...(s.rename ? { naming: { template: s.filenameTemplate, start: s.sequenceStart } } : {}),
     metadata: { include: s.metadata, removePerson: s.removePerson, removeLocation: s.removeLocation, hierarchy: s.hierarchy, personKeywords },
   };
 }
 
-const KEY = 'emulsion.export';
+const KEY = 'emulsion.export' as const;
 export function readExportSettings(): ExportSettings {
-  try { return normalizeExportSettings(JSON.parse(localStorage.getItem(KEY) ?? 'null')); } catch { return { ...EXPORT_DEFAULTS }; }
+  return normalizeExportSettings(getSetting(KEY));
 }
 export function saveExportSettings(s: ExportSettings) {
-  try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* the choices still apply to this export */ }
+  setSetting(KEY, s);
 }

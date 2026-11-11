@@ -4,7 +4,8 @@ import { defaultRecipe } from '../film/recipe';
 // Export: decode, develop on the GPU at the asked size (in the still-render worker,
 // library/stillclient.ts, Remove crops included), encode and write in Rust.
 
-import { exportStem, photoName } from './copies';
+import { photoName } from './copies';
+import { planExportNames, type ExportNaming } from './exportnames';
 import { checkExportDir, exportExists, ExportWriteError, loadImage, writeExport, type ExistingFiles, type ExportFormat, type ExportMetadata } from '../backend/api';
 import type { MetadataInclude } from './exportsettings';
 import { NO_META } from './meta';
@@ -25,6 +26,8 @@ export interface ExportOptions {
   longEdge: number | null;
   format: ExportFormat;
   existing: ExistingFiles;
+  /** Absent keeps the original filename (and a virtual copy's suffix). */
+  naming?: ExportNaming;
   /** What metadata to embed (Lightroom's Metadata section); absent embeds none. */
   metadata?: ExportMetadataOptions;
 }
@@ -123,11 +126,14 @@ export async function exportPhotos(
   signal: { canceled: boolean },
   onUnfilled?: (photo: Photo, error: string) => Promise<boolean>,
 ): Promise<ExportResult> {
+  const names = planExportNames(photos, opts.naming, p => exportDirFor(p, opts));
   // Fail before developing anything when a folder can't be made or written.
   for (const dir of new Set(photos.map(p => exportDirFor(p, opts)))) await checkExportDir(dir);
   let [engine, maxTexture] = await startEngine();
   const result: ExportResult = { written: [], skipped: [], failed: [], canceled: false };
   const ext = FORMAT_EXT[opts.format.kind], deep = bitsOf(opts.format) === 16;
+  const pathKey = (path: string) => path.replace(/\\/g, '/').normalize('NFC').toLowerCase();
+  const originals = new Set(photos.map(p => pathKey(p.path)));
 
   /** One photo developed at its export size, or null when canceled. */
   const develop = async (p: Photo): Promise<[Uint8Array | Uint16Array, number, number] | null> => {
@@ -158,8 +164,13 @@ export async function exportPhotos(
     }
     const p = photos[i];
     onProgress(i, photos.length, photoName(p));
-    const dir = exportDirFor(p, opts), stem = exportStem(p);
+    const dir = exportDirFor(p, opts), stem = names[i];
     try {
+      // A template can name another frame's source, so protect the whole batch,
+      // in addition to Rust's final check against this frame's own source path.
+      if (opts.existing === 'overwrite' && originals.has(pathKey(joinPath(dir, `${stem}.${ext}`)))) {
+        throw new Error('This filename belongs to an original photo. Change the filename or destination.');
+      }
       // Skipped before developing, so a re-run of a half-done export goes straight to the rest.
       if (opts.existing === 'skip' && await exportExists(dir, stem, ext)) { result.skipped.push(photoName(p)); continue; }
       let frame: Awaited<ReturnType<typeof develop>>;

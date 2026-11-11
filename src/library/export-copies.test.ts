@@ -182,5 +182,28 @@ it('skips taken names before developing, and sends 16-bit pixels for a 16-bit TI
   expect(exportExists).toHaveBeenCalledWith('/exports', 'p', 'tif');
   expect(loadImage).toHaveBeenCalledTimes(1);
   expect(gpu.pixels).not.toHaveBeenCalled();
-  expect(writeExport).toHaveBeenCalledWith('/exports', 'p', expect.any(Uint16Array), 2, 1, tiff, 'skip', plain.path, undefined);
+  expect(writeExport).toHaveBeenCalledWith('/exports', 'p-2', expect.any(Uint16Array), 2, 1, tiff, 'skip', plain.path, undefined);
+});
+
+it('uses the same planned template name for Skip and write, without renumbering after a skip or failure', async () => {
+  vi.mocked(exportExists).mockResolvedValueOnce(true);
+  vi.mocked(loadImage).mockRejectedValueOnce(new Error('Bad source'));
+  const result = await exportPhotos([plain, plain, plain], { ...opts, existing: 'skip', naming: { template: 'Client-{sequence}', start: 7 } }, vi.fn(), { canceled: false });
+  expect(vi.mocked(exportExists).mock.calls.map(c => c[1])).toEqual(['Client-007', 'Client-008', 'Client-009']);
+  expect(result.skipped).toEqual(['p.jpg']);
+  expect(result.failed).toEqual([{ name: 'p.jpg', error: 'Bad source' }]);
+  expect(vi.mocked(writeExport).mock.calls.map(c => c[1])).toEqual(['Client-009']);
+});
+
+it('rejects an invalid template before creating a folder or developing a frame', async () => {
+  await expect(exportPhotos([plain], { ...opts, naming: { template: '{bad}', start: 1 } }, vi.fn(), { canceled: false })).rejects.toThrow('Unknown token');
+  expect(checkExportDir).not.toHaveBeenCalled();
+  expect(loadImage).not.toHaveBeenCalled();
+});
+
+it('never lets a custom template replace another original in the batch', async () => {
+  const other = { ...plain, path: '/originals/Other.JPG', name: 'Other.JPG' };
+  const result = await exportPhotos([plain, other], { ...opts, dir: '/originals', existing: 'overwrite', naming: { template: 'other', start: 1 } }, vi.fn(), { canceled: false });
+  expect(result.failed).toEqual([{ name: 'p.jpg', error: 'This filename belongs to an original photo. Change the filename or destination.' }]);
+  expect(vi.mocked(writeExport).mock.calls.map(c => c[1])).toEqual(['other-2']);
 });

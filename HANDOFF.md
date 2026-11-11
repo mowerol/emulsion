@@ -5,6 +5,46 @@ Grid/Loupe with its vertical carousel are committed. Library import/sync, metada
 performance fixes and the Import toolbar removal landed in `8931147`. Built-in look tuning remains
 uncommitted; older "Uncommitted" notes below are out of date.
 
+**Current priority (Oli, 2026-11-11): exports.** Oli reports that the large smart-collection
+pause seems fixed; the earlier instruction to measure it next is superseded. Catalog storage
+and broader performance acceptance remain follow-ups. Filename templates and saved export
+presets below are committed on Oli's request; the existing built-in look tuning remains uncommitted.
+
+## Export: filename templates and saved presets (2026-11-11)
+
+- **Naming:** File naming in the existing Export dialog; original names by default, or custom
+  text with `{filename}`, `{sequence}` (at least three digits) and `{date}` (YYYYMMDD capture
+  date, file modification date if missing). Start number and a live filename example. Unknown
+  tokens/unmatched braces/empty templates block export with an inline error. File extensions
+  come from the chosen format. A filename token retains the virtual-copy-specific suffix.
+- **Batch safety:** `library/exportnames.ts` plans stems before directory creation or rendering.
+  Sequence positions include skipped/failed frames, so a rerun with Skip keeps the same names.
+  Distinct frames sharing a destination receive unique stems, including case/Unicode collisions,
+  before Skip/Replace is applied. Paths/control characters and reserved Windows names are
+  cleaned; names leave byte space for collision suffixes and extensions. Custom templates
+  cannot Replace another original in the batch; that frame fails before rendering or writing.
+- **Presets:** Export's left rail saves named settings snapshots, applies without changing frame
+  scope, marks modified settings, updates explicitly and confirms deletion inline. Duplicate
+  names are rejected. Escape cancels naming a preset before closing Export; focus returns to
+  Save as preset. `library/exportpresets.ts` follows the metadata-preset store pattern.
+- **Persistence:** both `emulsion.export` and `emulsion.exportPresets` use `appsettings.ts`,
+  migrating old export defaults from localStorage into settings.json once, so settings backups
+  and restore include them. Outside Tauri, the probe/browser fixtures still use localStorage.
+- **Validation:** `npm run check` passes (836 frontend, 117 Rust; 1 skipped/17 ignored).
+  Naming tests cover invalid templates before I/O, Unicode byte limits, virtual copies,
+  same-name collisions and sequence stability through Skip/failure. Preset tests cover
+  snapshots, update/delete, malformed data and migration into native settings storage.
+  `node tools/browser-tests/cdp-timing.mjs export-settings` covers the real dialog's naming,
+  save/apply/update/delete, scope retention, persistence, validation and responsive bounds.
+  Desktop/mid, 600px/light and 1200px/dark pass; captures inspected under
+  `.scratch/export-settings-{desktop,compact,dark}.png`.
+- **Oli should try:** Export → File naming → Rename with template, e.g.
+  `Lisbon-{date}-{sequence}`; export a few frames and rerun with Skip. Save as preset, change
+  the format/size, apply the preset, then relaunch to confirm it remains. Native WKWebView
+  keyboard/menu interaction and real-file exports with these names remain app checks.
+- **Next exports:** embedded ICC/output colour spaces, output sharpening, watermark and
+  AVIF/HEIF. Wider-gamut preservation through the pipeline needs its own implementation.
+
 ## Import removed from the top-right toolbar (2026-11-11)
 
 Committed in `8931147` on Oli's request (`TopBar.tsx`). Import duplicated the route into the current

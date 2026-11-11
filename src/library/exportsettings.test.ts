@@ -18,6 +18,14 @@ it('builds each format and destination', () => {
   expect(exportOptions({ ...s, destination: 'folder', folder: '/out' }, '/shoot').dir).toBe('/out');
 });
 
+it('keeps old filenames unless renaming is enabled and repairs stored sequence values', () => {
+  expect(exportOptions(EXPORT_DEFAULTS, '/photos').naming).toBeUndefined();
+  const s = normalizeExportSettings({ rename: true, filenameTemplate: 'Client-{sequence}', sequenceStart: 8.7 });
+  expect(exportOptions(s, '/photos').naming).toEqual({ template: 'Client-{sequence}', start: 9 });
+  expect(normalizeExportSettings({ sequenceStart: Infinity }).sequenceStart).toBe(1);
+  expect(normalizeExportSettings({ sequenceStart: -2 }).sequenceStart).toBe(1);
+});
+
 it('keeps subfolders inside the export folder', () => {
   expect(cleanSubfolder('Web')).toEqual(['Web']);
   expect(cleanSubfolder('  Client/2026: final  ')).toEqual(['Client', '2026_ final']);

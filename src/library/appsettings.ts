@@ -18,6 +18,8 @@ export const APP_SETTING_KEYS = [
   'emulsion.libraryCatalog',
   'emulsion.keywordList',
   'emulsion.metadataPresets',
+  'emulsion.export',
+  'emulsion.exportPresets',
 ] as const;
 export type AppSettingKey = (typeof APP_SETTING_KEYS)[number];
 

@@ -67,4 +67,18 @@ describe('app settings file', () => {
     expect(s.getSetting('emulsion.presetCollections')).toEqual(['Travel']);
     expect(mocks.invoke).not.toHaveBeenCalled();
   });
+
+  it('migrates export defaults and presets into the settings file for backup and restore', async () => {
+    storage.set('emulsion.export', JSON.stringify({ format: 'tiff', tiffBits: 16 }));
+    storage.set('emulsion.exportPresets', JSON.stringify([{ id: 'web', name: 'Web', settings: { longEdge: 2048 } }]));
+    const s = await import('./appsettings');
+    await s.loadAppSettings();
+    expect(file).toEqual({
+      'emulsion.export': { format: 'tiff', tiffBits: 16 },
+      'emulsion.exportPresets': [{ id: 'web', name: 'Web', settings: { longEdge: 2048 } }],
+    });
+    s.setSetting('emulsion.exportPresets', []);
+    await s.flushAppSettings();
+    expect(file!['emulsion.exportPresets']).toEqual([]);
+  });
 });
