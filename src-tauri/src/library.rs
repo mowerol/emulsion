@@ -56,10 +56,10 @@ pub struct Entry {
     pub modified: u64,
     /// The recipe saved in this photo's sidecar, if it has one.
     pub recipe: Option<serde_json::Value>,
-    /// Stars, 0 to 5, colour tag and heart, from the sidecar.
+    /// Stars, 0 to 5, colour tag and cull flag (`pick` or `reject`), from the sidecar.
     pub rating: u8,
     pub label: Option<String>,
-    pub heart: bool,
+    pub flag: Option<String>,
     /// Keywords and IPTC fields.
     pub meta: xmp::Meta,
     /// A camera RAW, as opposed to an ordinary image.
@@ -191,7 +191,7 @@ pub fn scan(target: &Path, recursive: bool) -> std::io::Result<ScanResult> {
             recipe: None,
             rating: 0,
             label: None,
-            heart: false,
+            flag: None,
             meta: xmp::Meta::default(),
             raw: kind == Kind::Raw,
             copies: Vec::new(),
@@ -213,7 +213,16 @@ pub fn scan(target: &Path, recursive: bool) -> std::io::Result<ScanResult> {
             let (mut saved, sync) = saved.map_or((sidecar::Saved::default(), None), |(s, y)| (s, Some(y)));
             if let Some(found) = xmp::read_sidecar(&path, owner) {
                 if xmp_is_newer(&found, sync) {
-                    saved.rating = found.values.rating;
+                    // A reject (Rating -1) carries no stars: the sidecar's stay. A pick has no
+                    // XMP field and stays too, unless the other app rejected the photo.
+                    if found.values.reject {
+                        saved.flag = Some("reject".into());
+                    } else {
+                        saved.rating = found.values.rating;
+                        if saved.flag.as_deref() == Some("reject") {
+                            saved.flag = None;
+                        }
+                    }
                     saved.label = found.values.label;
                     saved.meta = found.values.meta;
                 }
@@ -221,7 +230,7 @@ pub fn scan(target: &Path, recursive: bool) -> std::io::Result<ScanResult> {
             e.recipe = saved.recipe;
             e.rating = saved.rating;
             e.label = saved.label;
-            e.heart = saved.heart;
+            e.flag = saved.flag;
             e.meta = saved.meta;
             e.copies = saved.copies;
             e
@@ -320,8 +329,8 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let img = dir.path().join("a.jpg");
         touch(&img);
-        let look = sidecar::Saved { recipe: Some(serde_json::json!({ "stock": "portra400" })), rating: 3, label: None, heart: false, meta: xmp::Meta::default(),
-            copies: vec![sidecar::VirtualCopy { id: "one".into(), name: "Warm".into(), recipe: None, rating: 5, label: None, heart: false }] };
+        let look = sidecar::Saved { recipe: Some(serde_json::json!({ "stock": "portra400" })), rating: 3, label: None, flag: None, meta: xmp::Meta::default(),
+            copies: vec![sidecar::VirtualCopy { id: "one".into(), name: "Warm".into(), recipe: None, rating: 5, label: None, flag: None, heart: false }] };
         sidecar::write(&img, &look, false).unwrap();
         let res = scan(dir.path(), true).unwrap();
         assert_eq!(res.entries.len(), 1, "sidecar must not appear as a photo");
@@ -339,14 +348,14 @@ mod tests {
         touch(&raw);
         touch(&jpg);
         // Emulsion rates the RAW: its XMP gets the stars, the JPEG twin none.
-        let saved = sidecar::Saved { rating: 2, heart: true, ..Default::default() };
+        let saved = sidecar::Saved { rating: 2, flag: Some("pick".into()), ..Default::default() };
         sidecar::write(&raw, &saved, false).unwrap();
         sidecar::write(&jpg, &sidecar::Saved { rating: 1, ..Default::default() }, false).unwrap();
-        let rated = |res: &ScanResult, name: &str| res.entries.iter().find(|e| e.name == name).map(|e| (e.rating, e.heart, e.meta.keywords.clone())).unwrap();
+        let rated = |res: &ScanResult, name: &str| res.entries.iter().find(|e| e.name == name).map(|e| (e.rating, e.flag.is_some(), e.meta.keywords.clone())).unwrap();
         let res = scan(dir.path(), false).unwrap();
         assert_eq!(rated(&res, "X.RAF"), (2, true, vec![]));
         assert_eq!(rated(&res, "X.JPG"), (1, false, vec![]));
-        // Another app rewrites the XMP: its stars and keywords come in, the heart stays.
+        // Another app rewrites the XMP: its stars and keywords come in, the pick stays.
         std::thread::sleep(std::time::Duration::from_millis(20));
         let text = std::fs::read_to_string(dir.path().join("X.xmp")).unwrap();
         let text = text.replace("<xmp:Rating>2</xmp:Rating>", "<xmp:Rating>5</xmp:Rating>").replace("<rdf:Description rdf:about=\"\"", "<rdf:Description rdf:about=\"\" xmlns:dc=\"http://purl.org/dc/elements/1.1/\"");
@@ -356,6 +365,27 @@ mod tests {
         let res = scan(dir.path(), false).unwrap();
         assert_eq!(rated(&res, "X.RAF"), (5, true, vec!["Sea".to_string()]));
         assert_eq!(rated(&res, "X.JPG"), (1, false, vec![]));
+    }
+
+    #[test]
+    fn another_apps_reject_keeps_the_stars_and_its_unreject_clears_the_flag() {
+        let dir = tempfile::tempdir().unwrap();
+        let raw = dir.path().join("R.NEF");
+        touch(&raw);
+        sidecar::write(&raw, &sidecar::Saved { rating: 4, ..Default::default() }, false).unwrap();
+        let xmp_path = dir.path().join("R.xmp");
+        let flagged = |res: &ScanResult| (res.entries[0].rating, res.entries[0].flag.clone());
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let text = std::fs::read_to_string(&xmp_path).unwrap();
+        std::fs::write(&xmp_path, text.replace("<xmp:Rating>4</xmp:Rating>", "<xmp:Rating>-1</xmp:Rating>")).unwrap();
+        assert_eq!(flagged(&scan(dir.path(), false).unwrap()), (4, Some("reject".into())));
+        // Saved as rejected, then the other app gives it two stars.
+        sidecar::write(&raw, &sidecar::Saved { rating: 4, flag: Some("reject".into()), ..Default::default() }, false).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        let text = std::fs::read_to_string(&xmp_path).unwrap();
+        assert!(text.contains("<xmp:Rating>-1<"), "{text}");
+        std::fs::write(&xmp_path, text.replace("<xmp:Rating>-1</xmp:Rating>", "<xmp:Rating>2</xmp:Rating>")).unwrap();
+        assert_eq!(flagged(&scan(dir.path(), false).unwrap()), (2, None));
     }
 
     #[test]

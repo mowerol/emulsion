@@ -6,6 +6,7 @@ import { addToCollection, catalogPhotos, importTime, matchesRules, saveCollectio
 import { chooseImport, closeFolder, openFolder, selectSource, showToast, sourcePhotos, useApp } from '../library/store';
 import { photoId } from '../library/copies';
 import { LABELS } from '../library/marks';
+import { FLAG_FILTERS } from '../library/filter';
 import { FolderDirectory } from './Folders';
 import { foldPairs } from '../library/pairs';
 import { LibraryMenu, LibrarySection } from './LibrarySection';
@@ -174,13 +175,14 @@ export function SourceHeader({ onOpen }: { onOpen: OpenDialog }) {
 }
 
 const RULE_FIELDS: { value: SmartRule['field']; label: string }[] = [
-  { value: 'rating', label: 'Minimum rating' }, { value: 'edited', label: 'Edited state' }, { value: 'heart', label: 'Favourite' },
+  { value: 'rating', label: 'Minimum rating' }, { value: 'edited', label: 'Edited state' }, { value: 'flag', label: 'Flag is' },
   { value: 'label', label: 'Colour label' }, { value: 'camera', label: 'Camera contains' }, { value: 'look', label: 'Film stock / Look contains' },
   { value: 'keyword', label: 'Keyword is' }, { value: 'date', label: 'Capture date' }, { value: 'folder', label: 'Folder path' },
 ];
 function defaultRule(field: SmartRule['field']): SmartRule {
   if (field === 'rating') return { field, value: 3 };
-  if (field === 'edited' || field === 'heart') return { field, value: true };
+  if (field === 'edited') return { field, value: true };
+  if (field === 'flag') return { field, value: 'pick' };
   if (field === 'label') return { field, value: 'red' };
   if (field === 'date') return { field, value: new Date().toLocaleDateString('en-CA'), before: false };
   return { field, value: '' };
@@ -189,7 +191,8 @@ function RuleEditor({ rule, onChange, onRemove }: { rule: SmartRule; onChange: (
   return <div className="smart-rule">
     <select aria-label="Rule field" value={rule.field} onChange={e => onChange(defaultRule(e.target.value as SmartRule['field']))}>{RULE_FIELDS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}</select>
     {rule.field === 'rating' ? <select aria-label="Minimum rating" value={rule.value} onChange={e => onChange({ ...rule, value: Number(e.target.value) })}>{[0, 1, 2, 3, 4, 5].map(n => <option key={n} value={n}>{n ? `${n} stars and up` : 'Any rating'}</option>)}</select>
-      : rule.field === 'edited' || rule.field === 'heart' ? <select aria-label="Rule value" value={String(rule.value)} onChange={e => onChange({ ...rule, value: e.target.value === 'true' })}><option value="true">{rule.field === 'edited' ? 'Edited' : 'Favourite'}</option><option value="false">{rule.field === 'edited' ? 'Unedited' : 'Not a favourite'}</option></select>
+      : rule.field === 'edited' ? <select aria-label="Rule value" value={String(rule.value)} onChange={e => onChange({ ...rule, value: e.target.value === 'true' })}><option value="true">Edited</option><option value="false">Unedited</option></select>
+      : rule.field === 'flag' ? <select aria-label="Flag" value={rule.value} onChange={e => onChange({ ...rule, value: e.target.value as typeof rule.value })}>{FLAG_FILTERS.map(f => <option key={f.value} value={f.value}>{f.label}</option>)}</select>
       : rule.field === 'label' ? <select aria-label="Colour label" value={rule.value} onChange={e => onChange({ ...rule, value: e.target.value as typeof rule.value })}>{LABELS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>
       : rule.field === 'date' ? <><select aria-label="Date comparison" value={rule.before ? 'before' : 'after'} onChange={e => onChange({ ...rule, before: e.target.value === 'before' })}><option value="after">On or after</option><option value="before">On or before</option></select><input className="text" aria-label="Capture date" type="date" required value={rule.value} onChange={e => onChange({ ...rule, value: e.target.value })} /></>
       : <input className="text" aria-label="Rule value" required placeholder={rule.field === 'folder' ? '/Photos/2026' : rule.field === 'camera' ? 'e.g. OM-3' : rule.field === 'keyword' ? 'e.g. Family' : 'e.g. Portra'} value={String(rule.value)} onChange={e => onChange({ field: rule.field as 'camera' | 'look' | 'folder' | 'keyword', value: e.target.value })} />}

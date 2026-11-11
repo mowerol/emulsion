@@ -85,7 +85,6 @@
   --accent-soft: color-mix(in srgb, var(--accent) 14%, transparent);
   --danger: #d05a4a;
   --edge: #e2a556;       /* edge print */
-  --heart: #ef6a8a;
   --scrim: rgba(17, 17, 17, 0.78);
   --font: 'Geist Variable', 'Geist', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   --panel-w: 300px;
@@ -230,9 +229,12 @@ code { font-size: 12.5px; background: var(--raise); padding: 1px 5px; border-rad
 .fold-toggle[aria-pressed='true'] { background: var(--line); color: var(--fg); }
 .cell-marks { height: 14px; display: flex; align-items: center; font-size: 12px; }
 
-/* Heart, stars and colour tag, on grid cells and filmstrip frames */
+/* Flag, stars and colour tag, on grid cells and filmstrip frames. A pick is white like
+   Lightroom's flag; a reject is dimmed, and so is its picture (it is never deleted). */
 .marks { display: inline-flex; align-items: center; gap: 5px; line-height: 1; letter-spacing: 0; }
-.mark-heart { color: var(--heart); }
+.mark-flag { display: inline-flex; color: var(--text); }
+.mark-flag.reject { color: var(--danger); }
+.cell.rejected .cell-img img, .frame.rejected .frame-img, .image-frame.rejected .image-frame-picture img { opacity: 0.4; }
 .mark-stars { color: var(--edge); letter-spacing: 0.04em; }
 .mark-label { display: inline-block; width: 9px; height: 9px; border-radius: 50%; }
 
@@ -318,8 +320,11 @@ code { font-size: 12.5px; background: var(--raise); padding: 1px 5px; border-rad
 .mark-btn { background: none; border: 0; padding: 2px 3px; font-size: 16px; line-height: 1; color: var(--faint); cursor: pointer; border-radius: 4px; }
 .mark-btn:hover { color: var(--muted); }
 .mark-btn.star.on { color: var(--edge); }
-.mark-btn.heart { font-size: 17px; }
-.mark-btn.heart.on { color: var(--heart); }
+/* Lucide glyphs here: centred on the stars' text line. */
+.mark-flags-input { display: flex; align-items: center; gap: 2px; }
+.mark-btn.flag { display: inline-flex; align-items: center; justify-content: center; }
+.mark-btn.flag.on { color: var(--text); }
+.mark-btn.flag.reject.on { color: var(--danger); }
 .mark-btn.swatch-btn { padding: 4px; }
 .mark-btn.swatch-btn span { display: block; width: 12px; height: 12px; border-radius: 50%; opacity: 0.45; }
 .mark-btn.swatch-btn:hover span { opacity: 0.8; }
@@ -1201,7 +1206,7 @@ body { font-variant-numeric: tabular-nums; min-width: 1200px; }
 .straighten-line { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
 .straighten-line line { stroke: #fff; stroke-width: 1.5; stroke-dasharray: 5 3; filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.8)); }
 
-/* Canvas bottom bar: this photo's frame, file, tool hint; its heart, stars and labels. */
+/* Canvas bottom bar: this photo's frame, file, tool hint; its flag, stars and labels. */
 .photo-info-bar { height: 44px; flex-wrap: nowrap; gap: 16px; padding: 0 14px; background: var(--app); border-top: 1px solid var(--line); }
 .photo-info-bar .order-frame { flex: 1 1 auto; font-size: 12px; }
 .photo-info-hint { margin-left: 14px; color: var(--faint); }
@@ -1210,7 +1215,6 @@ body { font-variant-numeric: tabular-nums; min-width: 1200px; }
 .mark-btn { color: var(--dim); }
 .mark-btn:hover { color: var(--text3); }
 .mark-btn.star.on { color: var(--text); }
-.mark-btn.heart.on, .mark-heart { color: var(--heart); }
 .mark-stars { color: var(--text2); }
 
 /* Left: the photo grid with its filters attached. */
@@ -1422,7 +1426,9 @@ select { accent-color: var(--accent); }
 .library-bar .filter-stars { gap: 1px; }
 .library-bar .mark-btn { display: inline-flex; align-items: center; justify-content: center; color: var(--dim); padding: 3px; border: 0; background: none; }
 .library-bar .mark-btn.star.on { color: var(--text); }
-.library-bar .mark-btn.heart.on { color: var(--heart); }
+.library-bar .filter-flags { display: inline-flex; gap: 1px; }
+.library-bar .mark-btn.flag.on { color: var(--text); }
+.library-bar .mark-btn.flag.reject.on { color: var(--danger); }
 .library-bar .filter-labels { gap: 7px; padding: 0 2px; }
 .library-bar .mark-btn.swatch-btn { padding: 0; width: 13px; height: 13px; border-radius: 50%; }
 .library-bar .mark-btn.swatch-btn > span { width: 13px; height: 13px; border-radius: 50%; opacity: 1; }

@@ -12,14 +12,14 @@ import { useWorkspace } from './workspace';
 import { ChevronDown, Pencil } from 'lucide-react';
 import { setPrefs, usePrefs } from './prefs';
 import { LABEL } from '../library/marks';
-import { EDIT_FILTERS, type Filter } from '../library/filter';
+import { EDIT_FILTERS, FLAG_FILTERS, type Filter } from '../library/filter';
 
 /** The active filters as short chips, shown while the filters are folded away. */
 function FilterChips({ filter }: { filter: Filter }) {
   const chips = [
     filter.edit !== 'all' && EDIT_FILTERS.find(f => f.value === filter.edit)?.label,
     filter.minRating > 0 && `${filter.minRating}★${filter.minRating < 5 ? ' +' : ''}`,
-    filter.heart && 'Favourites',
+    ...filter.flags.map(f => FLAG_FILTERS.find(x => x.value === f)!.label),
     ...filter.labels.map(l => `● ${LABEL[l].name}`),
   ].filter(Boolean) as string[];
   if (!chips.length) return null;
@@ -29,7 +29,7 @@ function FilterChips({ filter }: { filter: Filter }) {
 const ImageFrame = memo(function ImageFrame({ photo, index, active, selected, contextMenu }: { photo: Photo; index: number; active: boolean; selected: boolean; contextMenu: PhotoContextHandler }) {
   const [ref, visible] = useVisible<HTMLButtonElement>('300px');
   return <button ref={ref} type="button" data-index={index} aria-current={active ? 'true' : undefined} aria-pressed={selected}
-    className={`image-frame${active ? ' active' : ''}${selected ? ' selected' : ''}`} title={[photo.copyId ? `${photo.rel} · ${photo.copyName}` : photo.rel, photo.recipe && recipeLabel(photo), photo.pair && 'RAW+JPG'].filter(Boolean).join('\n')}
+    className={`image-frame${active ? ' active' : ''}${selected ? ' selected' : ''}${photo.flag === 'reject' ? ' rejected' : ''}`} title={[photo.copyId ? `${photo.rel} · ${photo.copyName}` : photo.rel, photo.recipe && recipeLabel(photo), photo.pair && 'RAW+JPG'].filter(Boolean).join('\n')}
     onContextMenu={e => contextMenu(e, index)}
     onClick={e => setActive(index, e.shiftKey ? 'range' : e.metaKey || e.ctrlKey ? 'toggle' : 'single')}>
     <span className="image-frame-picture"><Thumb photo={photo} visible={visible} /><span>{index + 1}</span>

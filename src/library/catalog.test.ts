@@ -5,7 +5,7 @@ vi.mock('../backend/api', () => ({
   thumbnail: vi.fn(), isTauri: () => false, logToTerminal: () => {},
 }));
 import { scanFolder, writeSidecar, type ScanResult } from '../backend/api';
-import { addToCollection, cacheFolder, catalogPhotos, matchesRules, saveCollection, sourceMatches, useCatalog } from './catalog';
+import { addToCollection, cacheFolder, catalogPhotos, matchesRules, migrateCollection, saveCollection, sourceMatches, useCatalog } from './catalog';
 import { closeFolder, importFolderPhotos, markPhotos, openFolder, selectAll, selectSource, setFilter, setFoldJpegs, setSelectedOnly, shown, sourcePhotos, step, undo, useApp, type Photo } from './store';
 import { defaultRecipe } from '../film/recipe';
 import { compareFolders } from './folders';
@@ -14,7 +14,7 @@ import { photoId } from './copies';
 import { flushSaves } from './sidecars';
 
 const scan = (root: string, names: string[]): ScanResult => ({ root, name: root.split('/').pop()!, unreadable: 0, focus: null, folders: [],
-  entries: names.map(name => ({ path: `${root}/${name}`, rel: name, name, size: 1, modified: 1790000000000, recipe: null, rating: 0, label: null, heart: false, raw: /\.orf$/i.test(name) })) });
+  entries: names.map(name => ({ path: `${root}/${name}`, rel: name, name, size: 1, modified: 1790000000000, recipe: null, rating: 0, label: null, flag: null, raw: /\.orf$/i.test(name) })) });
 const folders: Record<string, ScanResult> = {};
 const manual = (id: string, ids: string[]) => saveCollection({ id, name: id, type: 'manual', photoIds: ids, createdAt: 1 });
 async function importFolder(root: string, names: string[]) {
@@ -110,10 +110,10 @@ it('deduplicates manual membership and folds RAW+JPEG membership without losing 
   setFoldJpegs(true);
 });
 
-it('evaluates edited, favourite, label, camera, look, capture date, and folder rules together', () => {
+it('evaluates edited, flag, label, camera, look, capture date, and folder rules together', () => {
   const p: Photo = { path: '/Photos/2026/a.jpg', rel: 'a.jpg', name: 'a.jpg', size: 1, modified: 0, recipe: defaultRecipe(), seed: 0, white: null,
-    raw: false, pair: null, rating: 5, heart: true, label: 'red', capture: { camera: 'OM SYSTEM OM-3', date: '2026-10-12' } };
-  expect(matchesRules(p, [{ field: 'edited', value: true }, { field: 'rating', value: 4 }, { field: 'heart', value: true }, { field: 'label', value: 'red' },
+    raw: false, pair: null, rating: 5, flag: 'pick', label: 'red', capture: { camera: 'OM SYSTEM OM-3', date: '2026-10-12' } };
+  expect(matchesRules(p, [{ field: 'edited', value: true }, { field: 'rating', value: 4 }, { field: 'flag', value: 'pick' }, { field: 'label', value: 'red' },
     { field: 'camera', value: 'om-3' }, { field: 'folder', value: '/Photos/2026/' }, { field: 'date', value: '2026-10-01', before: false }, { field: 'date', value: '2026-11-01', before: true }])).toBe(true);
   expect(matchesRules(p, [{ field: 'folder', value: '/Photos/202' }])).toBe(false);
   expect(matchesRules({ ...p, recipe: null }, [{ field: 'look', value: 'Neutral' }])).toBe(true);
@@ -121,8 +121,17 @@ it('evaluates edited, favourite, label, camera, look, capture date, and folder r
   expect(matchesRules({ ...p, capture: undefined, modified: new Date(2026, 9, 12).getTime() }, [{ field: 'date', value: '2026-10-12', before: true }])).toBe(true);
 });
 
+it('matches each flag state, and reads a Favourite rule from before flags as Picked', () => {
+  const p: Photo = { path: '/a.jpg', rel: 'a.jpg', name: 'a.jpg', size: 1, modified: 0, recipe: null, seed: 0, white: null, raw: false, pair: null, rating: 0, flag: null, label: null };
+  expect(matchesRules(p, [{ field: 'flag', value: 'none' }])).toBe(true);
+  expect(matchesRules({ ...p, flag: 'reject' }, [{ field: 'flag', value: 'reject' }])).toBe(true);
+  expect(matchesRules({ ...p, flag: 'reject' }, [{ field: 'flag', value: 'pick' }])).toBe(false);
+  const old = { id: 'c', name: 'Best', createdAt: 0, type: 'smart', rules: [{ field: 'heart', value: true }, { field: 'rating', value: 3 }] } as never;
+  expect(migrateCollection(old)).toMatchObject({ rules: [{ field: 'flag', value: 'pick' }, { field: 'rating', value: 3 }] });
+});
+
 it('preserves complete virtual-copy families even if the collection contains only a copy', () => {
-  const p = { path: '/copies/a.jpg', rel: 'a.jpg', name: 'a.jpg', size: 1, modified: 0, recipe: null, seed: 0, white: null, raw: false, pair: null, rating: 0, label: null, heart: false } satisfies Photo;
+  const p = { path: '/copies/a.jpg', rel: 'a.jpg', name: 'a.jpg', size: 1, modified: 0, recipe: null, seed: 0, white: null, raw: false, pair: null, rating: 0, label: null, flag: null } satisfies Photo;
   const copy = { ...p, copyId: 'copy-1', copyName: 'Print' };
   cacheFolder('/copies', [p, copy]);
   manual('copies', [photoId(copy)]);
@@ -166,7 +175,7 @@ it('persists source definitions independently of metadata and keeps more than fo
 
 it('writes only the selected virtual copy while retaining its original and sibling sidecar data', async () => {
   await importFolder('/copy-save', ['a.jpg']);
-  folders['/copy-save'].entries[0].copies = [{ id: 'print', name: 'Print', recipe: null, rating: 0, label: null, heart: false }];
+  folders['/copy-save'].entries[0].copies = [{ id: 'print', name: 'Print', recipe: null, rating: 0, label: null, flag: null }];
   await openFolder('/copy-save');
   manual('copy-save', ['/copy-save/a.jpg\0print']);
   await selectSource({ type: 'collection', id: 'copy-save' });

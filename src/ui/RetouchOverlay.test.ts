@@ -32,7 +32,7 @@ describe.each(['remove', 'heal', 'clone'] as const)('%s on-photo edits', tool =>
     circle = newCircleSpot([.7, .6], tool, .02, .02, [.7, .2]);
     spots = [brush, circle];
     const photo: Photo = { path: '/pins.jpg', name: 'pins.jpg', rel: 'pins.jpg', size: 1, modified: 0,
-      recipe: { ...defaultRecipe(), retouch: spots }, seed: 1, white: null, rating: 0, label: null, heart: false, raw: false, pair: null };
+      recipe: { ...defaultRecipe(), retouch: spots }, seed: 1, white: null, rating: 0, label: null, flag: null, raw: false, pair: null };
     useApp.setState({ photos: [photo], active: 0, view: 'develop' });
     holdRetouch(tool === 'remove' ? 'remove' : 'heal');
     setRetouchUi({ selected: brush.id, settings: { ...useRetouchUi.getState().settings, tool } });

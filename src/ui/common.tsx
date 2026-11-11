@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { useEffect, useRef, useState } from 'react';
+import { Flag as FlagGlyph, FlagOff } from 'lucide-react';
 import { photoId } from '../library/copies';
 import { useThumb } from '../library/thumbs';
 import { lookName } from '../film/looks';
 import { STOCK } from '../film/stocks';
 import { markPhotos, type Photo } from '../library/store';
-import { LABEL, LABELS, stars } from '../library/marks';
+import { FLAGS, LABEL, LABELS, stars, type Flag } from '../library/marks';
 
 export const recipeLabel = (photo: Photo) => photo.recipe ? (photo.recipe.lookEnabled ? (photo.recipe.lookSnapshot?.name ?? lookName(photo.recipe.pack, photo.recipe.stock)) : 'Neutral') : 'Original';
 
@@ -58,32 +59,49 @@ export const edgeText = (photo: Photo) => (photo.recipe ? (photo.recipe.lookEnab
 export const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 export const MOD = isMac ? '⌘' : 'Ctrl+';
 
-/** A photo's heart, stars and colour tag, read-only; nothing when it has none. */
+/** A flag: filled for a pick, struck through for a reject, an outline for unflagged (Lightroom's three). */
+export function FlagIcon({ flag, size = 12 }: { flag: Flag | null; size?: number }) {
+  return flag === 'reject'
+    ? <FlagOff size={size} strokeWidth={1.9} aria-hidden="true" />
+    : <FlagGlyph size={size} strokeWidth={1.9} fill={flag === 'pick' ? 'currentColor' : 'none'} aria-hidden="true" />;
+}
+
+/** A photo's flag, stars and colour tag, read-only; nothing when it has none. */
 export function MarkBadges({ photo }: { photo: Photo }) {
-  if (!photo.heart && !photo.rating && !photo.label) return null;
-  const said = [photo.heart && 'hearted', photo.rating && `${photo.rating} stars`, photo.label && `${LABEL[photo.label].name} tag`].filter(Boolean).join(', ');
+  if (!photo.flag && !photo.rating && !photo.label) return null;
+  const said = [photo.flag && (photo.flag === 'pick' ? 'picked' : 'rejected'), photo.rating && `${photo.rating} stars`, photo.label && `${LABEL[photo.label].name} tag`].filter(Boolean).join(', ');
   return (
     <span className="marks" aria-label={said} title={said}>
-      {photo.heart && <span className="mark-heart">{'♥'}</span>}
+      {photo.flag && <span className={`mark-flag ${photo.flag}`}><FlagIcon flag={photo.flag} size={10} /></span>}
       {photo.rating > 0 && <span className="mark-stars">{stars(photo.rating)}</span>}
       {photo.label && <span className="mark-label" style={{ background: LABEL[photo.label].hex }} />}
     </span>
   );
 }
 
-/** Heart, stars and colour tag to click, for the selected frames (or the active one). */
+/** Flag, stars and colour tag to click, for the selected frames (or the active one). */
 export function MarkControls({ photo }: { photo: Photo }) {
   return (
     <div className="mark-controls">
-      <button
-        type="button"
-        className={`mark-btn heart${photo.heart ? ' on' : ''}`}
-        aria-pressed={photo.heart}
-        title="Heart (H)"
-        onClick={() => markPhotos({ heart: true })}
-      >
-        {photo.heart ? '♥' : '♡'}
-      </button>
+      <span className="mark-flags-input" role="group" aria-label="Flag">
+        {FLAGS.map((f) => {
+          const on = photo.flag === f.id;
+          return (
+            <button
+              key={f.id}
+              type="button"
+              className={`mark-btn flag ${f.id}${on ? ' on' : ''}`}
+              aria-label={f.name}
+              aria-pressed={on}
+              title={on ? 'Unflag (U)' : `${f.name} (${f.key})`}
+              // Clicking the flag a photo has clears it; the keys always set.
+              onClick={() => markPhotos({ flag: on ? null : f.id })}
+            >
+              <FlagIcon flag={on || f.id === 'reject' ? f.id : null} size={15} />
+            </button>
+          );
+        })}
+      </span>
       <span className="mark-stars-input" role="group" aria-label="Rating">
         {[1, 2, 3, 4, 5].map((n) => (
           <button

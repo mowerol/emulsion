@@ -17,8 +17,9 @@
 //!
 //! Lightroom's colour label names are written (`Red`, `Yellow`, `Green`, `Blue`); a label
 //! Emulsion doesn't have (`Purple`, a custom set's name) reads as none and is left in the file
-//! until another label replaces it. A rejected rating (`-1`) reads as unrated and is kept the
-//! same way. Hearts have no standard field and stay in Emulsion's sidecar.
+//! until another label replaces it. A reject flag is `xmp:Rating` -1, as Bridge and darktable write it
+//! and Lightroom reads it; the photo's stars stay in Emulsion's sidecar while it is rejected and
+//! go back into the XMP when it no longer is. A pick has no standard field and stays in the sidecar.
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -96,14 +97,18 @@ impl Meta {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Interchange {
+    /// Stars, 0 to 5; 0 while rejected, since the XMP's Rating then holds -1.
     pub rating: u8,
     pub label: Option<String>,
+    /// Rejected: `xmp:Rating` -1.
+    #[serde(default)]
+    pub reject: bool,
     pub meta: Meta,
 }
 
 impl Interchange {
     pub fn is_empty(&self) -> bool {
-        self.rating == 0 && self.label.is_none() && self.meta.is_empty()
+        self.rating == 0 && self.label.is_none() && !self.reject && self.meta.is_empty()
     }
 }
 
@@ -236,7 +241,8 @@ fn values_of(m: &XmpMeta) -> Interchange {
         country: text(m, PHOTOSHOP, "Country"),
     }
     .tidy();
-    Interchange { rating: rating.round().clamp(0.0, 5.0) as u8, label, meta }
+    let reject = rating < 0.0;
+    Interchange { rating: if reject { 0 } else { rating.round().clamp(0.0, 5.0) as u8 }, label, reject, meta }
 }
 
 fn label_id(name: &str) -> Option<String> {
@@ -276,8 +282,9 @@ fn apply(m: &mut XmpMeta, want: &Interchange) -> io::Result<bool> {
     let have = values_of(m);
     let want = Interchange { meta: want.meta.tidy(), ..want.clone() };
     let mut changed = false;
-    if want.rating != have.rating {
-        set_text(m, xmp_ns::XMP, "Rating", &if want.rating == 0 { String::new() } else { want.rating.min(5).to_string() })?;
+    let rating = |i: &Interchange| if i.reject { -1 } else { i.rating.min(5) as i32 };
+    if rating(&want) != rating(&have) {
+        set_text(m, xmp_ns::XMP, "Rating", &match rating(&want) { 0 => String::new(), r => r.to_string() })?;
         changed = true;
     }
     if want.label != have.label {
@@ -377,7 +384,7 @@ mod tests {
     }
 
     fn some(rating: u8, label: Option<&str>, keywords: &[&str]) -> Interchange {
-        Interchange { rating, label: label.map(Into::into), meta: Meta { keywords: keywords.iter().map(|s| s.to_string()).collect(), ..Meta::default() } }
+        Interchange { rating, label: label.map(Into::into), reject: false, meta: Meta { keywords: keywords.iter().map(|s| s.to_string()).collect(), ..Meta::default() } }
     }
 
     #[test]
@@ -439,7 +446,7 @@ mod tests {
         )
         .unwrap();
         let found = read_sidecar(&img, true).unwrap();
-        assert_eq!(found.values.rating, 0, "a reject reads as unrated");
+        assert_eq!((found.values.rating, found.values.reject), (0, true), "a reject reads as a reject flag");
         assert_eq!(found.values.label, None, "Purple is not an Emulsion label");
         // Drop Dog, add a title: the reject, Purple and the develop settings stay.
         let mut want = found.values.clone();
@@ -452,7 +459,7 @@ mod tests {
         assert!(text.contains("Places|Kent") && !text.contains("Animals|Dog"), "{text}");
         assert!(text.contains("MetadataDate"), "{text}");
         assert_eq!(read_sidecar(&img, true).unwrap().values.meta.title, "Harbour");
-        // A label replaces Purple; clearing the rating removes the reject only when asked.
+        // A label replaces Purple; the reject stays until it is cleared.
         want.label = Some("red".into());
         write(&img, &want).unwrap();
         let text = fs::read_to_string(dir.path().join("a.xmp")).unwrap();

@@ -952,7 +952,7 @@ try {
     try { localStorage.setItem('emulsion.export', q.get('exportdialog') || '{}'); } catch { /* defaults */ }
     if (q.get('theme')) document.documentElement.dataset.theme = q.get('theme')!;
     const photo = (name: string, edited: boolean) => ({ path: `/Users/me/Pictures/2026/Lisbon trip/${name}`, rel: name, name, size: 1, modified: 0,
-      recipe: edited ? defaultRecipe() : null, seed: 1, white: null, rating: 0, label: null, heart: false, raw: true, pair: null });
+      recipe: edited ? defaultRecipe() : null, seed: 1, white: null, rating: 0, label: null, flag: null, raw: true, pair: null });
     const photos = ['DSCF0101.RAF', 'DSCF0102.RAF', 'DSCF0103.RAF', 'DSCF0104.RAF'].map((n, i) => photo(n, i < 3));
     useApp.setState({ folder: { root: '/Users/me/Pictures/2026/Lisbon trip', name: 'Lisbon trip', unreadable: 0 }, photos, active: 0,
       selected: new Set([photos[0].path, photos[1].path]), exportOpen: true });
@@ -965,7 +965,7 @@ try {
     const q = new URLSearchParams(location.search);
     if (q.get('theme')) document.documentElement.dataset.theme = q.get('theme')!;
     const meta = (keywords: string[], city: string) => ({ ...NO_META, keywords, title: 'Low tide', city, country: 'United Kingdom', creator: 'Oli Mower', copyright: '© 2026 Oli Mower' });
-    const photo = (name: string, m: ReturnType<typeof meta>) => ({ path: `/p/${name}`, rel: name, name, size: 1, modified: 0, recipe: null, seed: 1, white: null, rating: 0, label: null, heart: false, raw: true, pair: null, meta: m });
+    const photo = (name: string, m: ReturnType<typeof meta>) => ({ path: `/p/${name}`, rel: name, name, size: 1, modified: 0, recipe: null, seed: 1, white: null, rating: 0, label: null, flag: null, raw: true, pair: null, meta: m });
     const photos = [photo('A.RAF', meta(['Beach', 'Kent', 'Morning light'], 'Margate')), photo('B.RAF', meta(['Beach', 'Dog'], 'Broadstairs'))];
     useApp.setState({ photos, active: 0, selected: new Set(q.get('metapanel') === 'one' ? [photos[0].path] : photos.map(p => p.path)) });
     const host = document.createElement('aside');
@@ -1351,7 +1351,7 @@ try {
     const again=engine.readPixels(source,recipe,width,height,1);
     out.lensCache={equal:first.every((v,i)=>v===again[i]),glError:gl.getError()};
     if(new URLSearchParams(location.search).has('lenspanel')) {
-      useApp.setState({ photos:[{path:'/probe/lens.raw',rel:'lens.raw',name:'Lens test',size:1,modified:0,recipe:defaultRecipe('neutral','straight'),seed:1,white:null,rating:0,label:null,heart:false,raw:true,pair:null,lens:(lensFixtures as LensMetadata[])[0]}],active:0,view:'develop' });
+      useApp.setState({ photos:[{path:'/probe/lens.raw',rel:'lens.raw',name:'Lens test',size:1,modified:0,recipe:defaultRecipe('neutral','straight'),seed:1,white:null,rating:0,label:null,flag:null,raw:true,pair:null,lens:(lensFixtures as LensMetadata[])[0]}],active:0,view:'develop' });
       localStorage.setItem('emulsion.folded',JSON.stringify(['stock','development','scanner','crop','adjust','curve','color','grading','detail','optics','grain']));
       const host=document.createElement('div');host.style.cssText='position:fixed;inset:0 auto 0 0;width:340px;display:grid;z-index:100';document.body.append(host);createRoot(host).render(createElement(Panel));
       setTimeout(()=>{const panel=host.querySelector('.panel') as HTMLElement;panel.scrollTop=(panel.querySelector('#section-lens')?.parentElement?.offsetTop??0)-170;},300);
@@ -1407,7 +1407,7 @@ try {
     const recipe = { ...defaultRecipe('neutral', 'straight'), masks: [skyMask, faceMask, brushMask, objectMask] };
     const msrc = eng.sourceFromImage(scene, MW, MH);
     eng.render(msrc, recipe, { target: 'screen', width: MW, height: MH, seed: 1, maskShow: show });
-    useApp.setState({ photos: [{ path: '/probe/m.jpg', rel: 'm.jpg', name: 'm.jpg', size: 1, modified: 0, recipe, seed: 1, white: null, rating: 0, label: null, heart: false, raw: false, pair: null }], active: 0, view: 'develop' });
+    useApp.setState({ photos: [{ path: '/probe/m.jpg', rel: 'm.jpg', name: 'm.jpg', size: 1, modified: 0, recipe, seed: 1, white: null, rating: 0, label: null, flag: null, raw: false, pair: null }], active: 0, view: 'develop' });
     setWorkspace({ layout: 'workflow', group: 'masks' });
     const pickParam = new URLSearchParams(location.search).get('pick');
     setMaskUi({ selected: recipe.masks[show].id, shape: null, tool: new URLSearchParams(location.search).get('tool') === 'brush' ? { kind: 'brush', mode: 'add' } : new URLSearchParams(location.search).get('tool') === 'object' ? { kind: 'object', mode: 'add' } : null,
@@ -1437,7 +1437,7 @@ try {
       return [name, { uniforms: developUniforms(recipe, { ...stageCtx, look: { level: 2, data: new Float32Array(24), id: 1, eightBit: true } }), ref: (rgb: Vec3) => colorBalanceRgb(rgb, data) }];
     })));
     out.err = eng.gpu.gl.getError();
-    useApp.setState({ photos: [{ path: '/probe/frame.jpg', rel: 'frame.jpg', name: 'frame.jpg', size: 1, modified: 0, recipe: defaultRecipe('portra400'), seed: 1, white: null, rating: 0, label: null, heart: false, raw: false, pair: null }], active: 0, view: 'develop' });
+    useApp.setState({ photos: [{ path: '/probe/frame.jpg', rel: 'frame.jpg', name: 'frame.jpg', size: 1, modified: 0, recipe: defaultRecipe('portra400'), seed: 1, white: null, rating: 0, label: null, flag: null, raw: false, pair: null }], active: 0, view: 'develop' });
     localStorage.setItem('emulsion.folded', JSON.stringify(['stock', 'development', 'scanner', 'stock-tuning', 'crop', 'adjust', 'curve', 'color', 'detail', 'optics', 'grain']));
     const host = document.createElement('div');
     host.style.cssText = 'position:fixed;inset:0 auto 0 0;width:340px;display:grid;z-index:100';
@@ -2119,7 +2119,7 @@ try {
   // The real panel, scrolled, to check the histogram stays pinned and sections fold.
   {
     useApp.setState({
-      photos: [{ path: '/probe/frame.jpg', rel: 'frame.jpg', name: 'frame.jpg', size: 1, modified: 0, recipe: { ...defaultRecipe('portra400'), grain: 30 }, seed: 1, white: null, rating: 3, label: 'green' as const, heart: true, raw: true, pair: '/probe/frame.jpg' }],
+      photos: [{ path: '/probe/frame.jpg', rel: 'frame.jpg', name: 'frame.jpg', size: 1, modified: 0, recipe: { ...defaultRecipe('portra400'), grain: 30 }, seed: 1, white: null, rating: 3, label: 'green' as const, flag: 'pick', raw: true, pair: '/probe/frame.jpg' }],
       active: 0,
       view: 'develop',
       histogram: { path: '/probe/frame.jpg', data: counted },
@@ -2140,12 +2140,12 @@ try {
     // The filmstrip with its filter, for a screenshot (thumbnails can't load here, so frames are empty).
     const stripPhotos = Array.from({ length: 7 }, (_, i) => ({
       path: `/probe/f${i}.jpg`, rel: `f${i}.jpg`, name: `f${i}.jpg`, size: 1, modified: 0, recipe: i === 4 || i === 5 ? defaultRecipe('trix400') : i < 4 && i > 0 ? defaultRecipe('portra400') : null, seed: i, white: null, raw: false, pair: null,
-      rating: [0, 5, 3, 0, 1, 0, 2][i], label: ([null, 'red', null, 'blue', null, 'yellow', 'green'] as const)[i], heart: i === 1 || i === 3,
+      rating: [0, 5, 3, 0, 1, 0, 2][i], label: ([null, 'red', null, 'blue', null, 'yellow', 'green'] as const)[i], flag: i === 1 ? 'pick' as const : i === 3 ? 'reject' as const : null,
     }));
     const stripHost = document.createElement('div');
     stripHost.style.cssText = 'position:fixed;top:660px;left:0;width:900px;z-index:100';
     document.body.append(stripHost);
-    useApp.setState({ photos: [...useApp.getState().photos, ...stripPhotos], filter: { edit: 'all', minRating: 2, heart: false, labels: [] }, active: 2 });
+    useApp.setState({ photos: [...useApp.getState().photos, ...stripPhotos], filter: { edit: 'all', minRating: new URLSearchParams(location.search).has('library') ? 0 : 2, flags: [], labels: [] }, active: 2 });
     createRoot(stripHost).render(createElement(Filmstrip));
     // The Library grid, with a folded RAW+JPEG pair, when asked (?library).
     if (new URLSearchParams(location.search).has('library')) {
@@ -2161,10 +2161,10 @@ try {
       const many = Array.from({ length: 40 }, (_, i) => ({
         path: `/probe/w${i}.ORF`, rel: `PA0502${i}.ORF`, name: `PA0502${String(i).padStart(2, '0')}.ORF`, size: 1, modified: 0,
         recipe: looks[i % 9] ? defaultRecipe(looks[i % 9]!) : null, seed: i, white: null, raw: true, pair: i % 3 ? null : `/probe/w${i}.JPG`,
-        rating: i % 6, label: ([null, 'red', null, 'blue', 'green', 'yellow'] as const)[i % 6], heart: i % 4 === 1,
+        rating: i % 6, label: ([null, 'red', null, 'blue', 'green', 'yellow'] as const)[i % 6], flag: i % 4 === 1 ? 'pick' as const : i % 4 === 3 ? 'reject' as const : null,
       }));
       useApp.setState({ photos: many, folder: { root: '/probe/Portugal', name: 'Portugal', unreadable: 0 }, view: 'develop', active: 1, selected: new Set([many[1].path]),
-        filter: { edit: 'edited', minRating: 0, heart: false, labels: [] } });
+        filter: { edit: 'edited', minRating: 0, flags: new URLSearchParams(location.search).has('flags') ? ['pick', 'none'] : [], labels: [] } });
       const params = new URLSearchParams(location.search);
       setWorkspace({ layout: 'workflow', imageColumns: 2, group: (params.get('tab') as 'develop' | null) ?? 'develop' });
       // &theme=dark for the dark interface; &folded to fold the Images filters (chips show instead).

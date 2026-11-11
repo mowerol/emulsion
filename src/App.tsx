@@ -134,7 +134,11 @@ export function useShortcuts() {
       else if (e.key === 'Enter' && s.view === 'library') setView('develop');
       else if (onRange) return;
       else if (k === 'b') { e.preventDefault(); if (!e.repeat) addToTargetCollection(); }
-      else if (markForKey(e.key)) markPhotos(markForKey(e.key)!);
+      else if (markForKey(markKey(e))) {
+        // X turns the frame while cropping; elsewhere it rejects.
+        if (s.cropEdit && k === 'x') return;
+        markPhotos(markForKey(markKey(e))!, e.shiftKey || usePrefs.getState().autoAdvance);
+      }
       else if (e.key === 'ArrowRight') { e.preventDefault(); step(1); }
       else if (e.key === 'ArrowLeft') { e.preventDefault(); step(-1); }
       else if (e.key === 'ArrowDown' && s.view === 'library') { e.preventDefault(); step(gridColumns); }
@@ -158,6 +162,9 @@ export function useShortcuts() {
     };
   }, []);
 }
+
+/** The key a mark answers to: Shift+3 arrives as `#` (or `£`) but means 3 and advance, as in Lightroom. */
+const markKey = (e: KeyboardEvent) => (e.shiftKey && /^Digit\d$/.test(e.code) ? e.code.slice(5) : e.key);
 
 /** Desktop integration: open from the command line, drop folders or photos (on the window or the Dock icon), save before closing. */
 function useDesktop() {

@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Sidecars: each edited, rated, tagged or hearted photo gets `<file name>.emulsion.json`
+//! Sidecars: each edited, rated, tagged or flagged photo gets `<file name>.emulsion.json`
 //! next to it. Nothing is ever written into the photo itself.
 //!
 //! A sidecar also keeps earlier states of the photo's edits (`history`), as darktable keeps the
 //! history stack in its XMP sidecars, so a reset or a batch paste can be taken back after the
 //! session's undo is gone. A state is kept when it is replaced at a checkpoint: a reset, an edit
 //! the webview marks (pasting or applying to several photos, restoring), or the first change
-//! after `SESSION_MS` since the last checkpoint. Stars, tags and hearts are not edits and never
+//! after `SESSION_MS` since the last checkpoint. Stars, tags and flags are not edits and never
 //! make history. A photo with history keeps its sidecar after a reset.
 //!
 //! The original frame's stars, colour label, keywords and IPTC fields are also shared through an
@@ -42,7 +42,10 @@ struct Sidecar {
     rating: u8,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     label: Option<String>,
-    #[serde(default, skip_serializing_if = "is_false")]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    flag: Option<String>,
+    /// Hearts, before pick and reject flags replaced them (2026-11-11): read as a pick, never written.
+    #[serde(default, skip_serializing)]
     heart: bool,
     #[serde(default, skip_serializing_if = "Meta::is_empty")]
     meta: Meta,
@@ -72,10 +75,6 @@ pub struct Earlier {
     pub copies: Vec<VirtualCopy>,
 }
 
-fn is_false(b: &bool) -> bool {
-    !*b
-}
-
 fn is_zero(n: &u8) -> bool {
     *n == 0
 }
@@ -91,8 +90,19 @@ pub struct VirtualCopy {
     pub rating: u8,
     #[serde(default)]
     pub label: Option<String>,
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flag: Option<String>,
+    /// A heart from before flags, read as a pick by `read_synced`; never written.
+    #[serde(default, skip_serializing)]
     pub heart: bool,
+}
+
+/// The cull flags: a pick or a reject, independent of stars and labels.
+pub const FLAGS: &[&str] = &["pick", "reject"];
+
+/// A flag as saved, with a heart from before flags read as a pick.
+fn flag_of(flag: Option<String>, heart: bool) -> Option<String> {
+    flag.filter(|f| FLAGS.contains(&f.as_str())).or_else(|| heart.then(|| "pick".to_string()))
 }
 
 /// What a sidecar keeps for one photo.
@@ -106,9 +116,9 @@ pub struct Saved {
     /// A colour tag: red, yellow, green or blue.
     #[serde(default)]
     pub label: Option<String>,
-    /// A favourite.
+    /// The cull flag, `pick` or `reject`; a reject is shared through XMP as Rating -1.
     #[serde(default)]
-    pub heart: bool,
+    pub flag: Option<String>,
     /// Keywords and IPTC fields of the source file (its copies share them).
     #[serde(default)]
     pub meta: Meta,
@@ -118,12 +128,12 @@ pub struct Saved {
 
 impl Saved {
     fn is_empty(&self) -> bool {
-        self.recipe.is_none() && self.rating == 0 && self.label.is_none() && !self.heart && self.meta.is_empty() && self.copies.is_empty()
+        self.recipe.is_none() && self.rating == 0 && self.label.is_none() && self.flag.is_none() && self.meta.is_empty() && self.copies.is_empty()
     }
 
     /// What the XMP sidecar shares of it.
     pub fn interchange(&self) -> Interchange {
-        Interchange { rating: self.rating.min(5), label: self.label.clone(), meta: self.meta.tidy() }
+        Interchange { rating: self.rating.min(5), label: self.label.clone(), reject: self.flag.as_deref() == Some("reject"), meta: self.meta.tidy() }
     }
 }
 
@@ -160,9 +170,9 @@ pub fn read_synced(image: &Path) -> Option<(Saved, Sync)> {
         recipe: Some(car.recipe).filter(|r| !r.is_null()),
         rating: car.rating.min(5),
         label: car.label,
-        heart: car.heart,
+        flag: flag_of(car.flag, car.heart),
         meta: car.meta,
-        copies: car.copies,
+        copies: car.copies.into_iter().map(|c| VirtualCopy { flag: flag_of(c.flag, c.heart), heart: false, ..c }).collect(),
     };
     Some((saved, sync)).filter(|(s, _)| !s.is_empty())
 }
@@ -211,7 +221,7 @@ fn write_at(image: &Path, saved: &Saved, checkpoint: bool, now: u64) -> io::Resu
     let target = path_for(image);
     let recipe = saved.recipe.clone().unwrap_or(serde_json::Value::Null);
     let old = read_car(image);
-    let before = old.as_ref().map(|o| Interchange { rating: o.rating.min(5), label: o.label.clone(), meta: o.meta.tidy() }).unwrap_or_default();
+    let before = old.as_ref().map(|o| Interchange { rating: o.rating.min(5), label: o.label.clone(), reject: flag_of(o.flag.clone(), o.heart).as_deref() == Some("reject"), meta: o.meta.tidy() }).unwrap_or_default();
     let mut xmp_time = old.as_ref().and_then(|o| o.xmp);
     let mut xmp_error = None;
     let interchange = saved.interchange();
@@ -256,9 +266,10 @@ fn write_at(image: &Path, saved: &Saved, checkpoint: bool, now: u64) -> io::Resu
         recipe: saved.recipe.clone().unwrap_or(serde_json::Value::Null),
         rating: saved.rating.min(5),
         label: saved.label.clone(),
-        heart: saved.heart,
+        flag: flag_of(saved.flag.clone(), false),
+        heart: false,
         meta: interchange.meta,
-        copies: saved.copies.clone(),
+        copies: saved.copies.iter().map(|c| VirtualCopy { flag: flag_of(c.flag.clone(), c.heart), heart: false, ..c.clone() }).collect(),
         xmp: xmp_time,
         checkpoint: last_checkpoint,
         history,
@@ -359,7 +370,7 @@ mod tests {
     fn keeps_a_rating_or_label_without_a_look() {
         let dir = tempfile::tempdir().unwrap();
         let img = dir.path().join("a.jpg");
-        let marked = Saved { recipe: None, rating: 4, label: Some("green".into()), heart: true, ..Saved::default() };
+        let marked = Saved { recipe: None, rating: 4, label: Some("green".into()), flag: Some("pick".into()), ..Saved::default() };
         write(&img, &marked, false).unwrap();
         assert_eq!(read(&img).unwrap(), marked);
         let text = fs::read_to_string(path_for(&img)).unwrap();
@@ -367,11 +378,43 @@ mod tests {
     }
 
     #[test]
+    fn a_heart_from_before_flags_reads_as_a_pick_and_is_written_as_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let img = dir.path().join("a.jpg");
+        fs::write(path_for(&img), r#"{"format":"emulsion","version":2,"updated":0,"recipe":null,"rating":2,"heart":true,
+            "copies":[{"id":"c","name":"Copy","recipe":null,"rating":0,"label":null,"heart":true}]}"#).unwrap();
+        let saved = read(&img).unwrap();
+        assert_eq!((saved.rating, saved.flag.as_deref(), saved.copies[0].flag.as_deref()), (2, Some("pick"), Some("pick")));
+        write(&img, &saved, false).unwrap();
+        let text = fs::read_to_string(path_for(&img)).unwrap();
+        assert!(!text.contains("heart") && text.matches("\"flag\": \"pick\"").count() == 2, "{text}");
+        assert_eq!(read(&img).unwrap(), saved);
+    }
+
+    #[test]
+    fn a_reject_is_rating_minus_one_in_the_xmp_and_keeps_its_stars_here() {
+        let dir = tempfile::tempdir().unwrap();
+        let img = dir.path().join("DSCF2.RAF");
+        fs::write(&img, b"x").unwrap();
+        let rejected = Saved { rating: 3, flag: Some("reject".into()), ..Saved::default() };
+        write(&img, &rejected, false).unwrap();
+        assert_eq!(read(&img).unwrap(), rejected);
+        let found = xmp::read_sidecar(&img, true).unwrap().values;
+        assert_eq!((found.rating, found.reject), (0, true));
+        let text = fs::read_to_string(dir.path().join("DSCF2.xmp")).unwrap();
+        assert!(text.contains("-1"), "{text}");
+        // Un-rejecting gives the XMP its stars back; a pick says nothing to other apps.
+        write(&img, &Saved { flag: Some("pick".into()), ..rejected }, false).unwrap();
+        let found = xmp::read_sidecar(&img, true).unwrap().values;
+        assert_eq!((found.rating, found.reject), (3, false));
+    }
+
+    #[test]
     fn reads_sidecars_from_before_ratings() {
         let dir = tempfile::tempdir().unwrap();
         let img = dir.path().join("a.jpg");
         fs::write(path_for(&img), r#"{"format":"emulsion","version":1,"updated":0,"recipe":{"stock":"portra400"}}"#).unwrap();
-        assert_eq!(read(&img).unwrap(), Saved { recipe: Some(json!({ "stock": "portra400" })), rating: 0, label: None, heart: false, ..Saved::default() });
+        assert_eq!(read(&img).unwrap(), Saved { recipe: Some(json!({ "stock": "portra400" })), rating: 0, label: None, flag: None, ..Saved::default() });
     }
 
     #[test]
@@ -380,7 +423,7 @@ mod tests {
         let img = dir.path().join("a.jpg");
         fs::write(&img, b"original bytes").unwrap();
         let copy = VirtualCopy { id: "stable-id".into(), name: "Black and white".into(),
-            recipe: Some(json!({"exposure": 1.5})), rating: 5, label: Some("red".into()), heart: true };
+            recipe: Some(json!({"exposure": 1.5})), rating: 5, label: Some("red".into()), flag: Some("reject".into()), heart: false };
         let mut saved = Saved { copies: vec![copy], ..Saved::default() };
         write(&img, &saved, false).unwrap();
         assert_eq!(read(&img), Some(saved.clone()));
@@ -393,7 +436,7 @@ mod tests {
         saved.copies[0].recipe = None;
         saved.copies[0].rating = 0;
         saved.copies[0].label = None;
-        saved.copies[0].heart = false;
+        saved.copies[0].flag = None;
         write(&img, &saved, false).unwrap();
         assert_eq!(read(&img), Some(saved.clone()));
 
@@ -414,13 +457,13 @@ mod tests {
         write(&img, &Saved { recipe: Some(json!({ "exposure": 1 })), ..Saved::default() }, false).unwrap();
         assert!(!xmp_path.exists());
         let meta = Meta { keywords: vec!["Sea".into()], title: "Harbour".into(), ..Meta::default() };
-        let saved = Saved { recipe: Some(json!({ "exposure": 1 })), rating: 3, label: Some("blue".into()), heart: true, meta: meta.clone(), ..Saved::default() };
+        let saved = Saved { recipe: Some(json!({ "exposure": 1 })), rating: 3, label: Some("blue".into()), flag: Some("pick".into()), meta: meta.clone(), ..Saved::default() };
         write(&img, &saved, false).unwrap();
         let (back, sync) = read_synced(&img).unwrap();
         assert_eq!(back, saved);
         assert_eq!(sync.xmp, xmp::mtime_ms(&xmp_path));
         let found = xmp::read_sidecar(&img, true).unwrap();
-        assert_eq!(found.values, Interchange { rating: 3, label: Some("blue".into()), meta });
+        assert_eq!(found.values, Interchange { rating: 3, label: Some("blue".into()), reject: false, meta });
         // A recipe change leaves the XMP alone.
         let before = fs::read_to_string(&xmp_path).unwrap();
         write(&img, &Saved { recipe: Some(json!({ "exposure": 2 })), ..saved.clone() }, false).unwrap();

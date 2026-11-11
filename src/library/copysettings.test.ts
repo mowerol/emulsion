@@ -12,7 +12,7 @@ import { NO_FILTER } from './filter';
 import { flushSaves } from './sidecars';
 import { closeCopySettings, closeFolder, copySettings, createVirtualCopies, editActive, finishCrop, openCopySettings, pasteSettings, redo, setActive, setCropDraft, startCrop, startLookEdit, undo, useApp, type Photo } from './store';
 
-const photo = (name: string): Photo => ({ name, path: `/photos/${name}`, rel: name, recipe: null, size: 1, modified: 0, seed: 1, white: null, rating: 0, label: null, heart: false, raw: false, pair: null });
+const photo = (name: string): Photo => ({ name, path: `/photos/${name}`, rel: name, recipe: null, size: 1, modified: 0, seed: 1, white: null, rating: 0, label: null, flag: null, raw: false, pair: null });
 
 beforeEach(() => {
   vi.useFakeTimers();

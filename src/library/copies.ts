@@ -19,7 +19,7 @@ export function expandCopies(original: Photo, copies: unknown): Photo[] {
     if (!c || typeof c.id !== 'string' || !/^[a-zA-Z0-9-]{1,80}$/.test(c.id) || ids.has(c.id)) continue;
     ids.add(c.id);
     frames.push({ ...original, copyId: c.id, copyName: cleanCopyName(c.name),
-      recipe: normalizeRecipe(c.recipe), ...normalizeMarks(c.rating, c.label, c.heart), pair: null });
+      recipe: normalizeRecipe(c.recipe), ...normalizeMarks(c.rating, c.label, c.flag), pair: null });
   }
   return frames;
 }
@@ -29,7 +29,7 @@ export const cleanCopyName = (name: unknown): string => typeof name === 'string'
 export function savedFrames(frames: Photo[]): Saved {
   const original = frames.find(p => !p.copyId);
   if (!original) throw new Error('A virtual copy must have an original');
-  const saved = ({ recipe, rating, label, heart }: Photo): Saved => ({ recipe, rating, label, heart });
+  const saved = ({ recipe, rating, label, flag }: Photo): Saved => ({ recipe, rating, label, flag });
   const copies: SavedCopy[] = frames.filter(p => p.copyId).map(p => ({ ...saved(p), id: p.copyId!, name: versionName(p) }));
   return { ...saved(original), ...(original.meta && !isEmptyMeta(original.meta) ? { meta: original.meta } : {}), ...(copies.length ? { copies } : {}) };
 }

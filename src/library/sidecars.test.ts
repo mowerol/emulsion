@@ -10,11 +10,11 @@ it('serializes family writes and flush waits for an already-started save', async
   vi.useFakeTimers();
   let finish!: () => void;
   vi.mocked(writeSidecar).mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve; }));
-  const base = { path: '/a.jpg', recipe: null, rating: 0, label: null, heart: false };
+  const base = { path: '/a.jpg', recipe: null, rating: 0, label: null, flag: null };
   savePhoto(base);
   await vi.advanceTimersByTimeAsync(400);
   expect(writeSidecar).toHaveBeenCalledTimes(1);
-  savePhoto({ ...base, copies: [{ id: 'one', name: 'Copy 1', recipe: null, rating: 3, label: null, heart: false }] });
+  savePhoto({ ...base, copies: [{ id: 'one', name: 'Copy 1', recipe: null, rating: 3, label: null, flag: null }] });
   let flushed = false;
   const flushing = flushSaves().then(() => { flushed = true; });
   await Promise.resolve();

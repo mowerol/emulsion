@@ -2,14 +2,14 @@
 import { describe, expect, it } from 'vitest';
 import { findPairs, foldPairs } from './pairs';
 
-const photo = (rel: string, over: Partial<{ recipe: unknown; rating: number; label: string | null; heart: boolean }> = {}) => ({
+const photo = (rel: string, over: Partial<{ recipe: unknown; rating: number; label: string | null; flag: 'pick' | 'reject' | null }> = {}) => ({
   path: `/roll/${rel}`,
   rel,
   raw: /\.(raf|orf|cr3|nef|arw|dng)$/i.test(rel),
   recipe: null,
   rating: 0,
   label: null,
-  heart: false,
+  flag: null,
   ...over,
 });
 
@@ -28,8 +28,8 @@ describe('RAW+JPEG pairs', () => {
     expect([...findPairs(photos).entries()].map(([r, j]) => [r, j.rel])).toEqual([['/roll/x/DSC1.orf', 'x/dsc1.JPEG']]);
   });
 
-  it('never folds away a JPEG with an edit, stars, a tag or a heart', () => {
-    for (const over of [{ recipe: {} }, { rating: 2 }, { label: 'red' }, { heart: true }]) {
+  it('never folds away a JPEG with an edit, stars, a tag or a flag', () => {
+    for (const over of [{ recipe: {} }, { rating: 2 }, { label: 'red' }, { flag: 'pick' as const }]) {
       const { shown, hidden } = foldPairs([photo('A.RAF'), photo('A.JPG', over)]);
       expect(shown).toHaveLength(2);
       expect(hidden).toHaveLength(0);

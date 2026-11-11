@@ -19,7 +19,7 @@ import { decodeFor } from './export';
 import type { Photo } from './store';
 
 const photo = (crop: typeof FULL | null): Photo => ({ path: '/a.ORF', rel: 'a.ORF', name: 'a.ORF', size: 1, modified: 0,
-  recipe: { ...defaultRecipe(), crop }, seed: 1, white: null, rating: 0, label: null, heart: false, raw: true, pair: null });
+  recipe: { ...defaultRecipe(), crop }, seed: 1, white: null, rating: 0, label: null, flag: null, raw: true, pair: null });
 const size = async (crop: typeof FULL | null, edge: number | null, max = 16384) => (await decodeFor(photo(crop), edge, max)).slice(0, 2);
 
 it('gives the uncropped photo the long edge asked for', async () => {

@@ -20,7 +20,7 @@ const Frame = memo(function Frame({ photo, index, active, selected, contextMenu 
     <button
       ref={ref}
       type="button"
-      className={`frame${photo.recipe ? ' edited' : ''}${active ? ' active' : ''}${selected ? ' selected' : ''}`}
+      className={`frame${photo.recipe ? ' edited' : ''}${active ? ' active' : ''}${selected ? ' selected' : ''}${photo.flag === 'reject' ? ' rejected' : ''}`}
       data-index={index}
       data-key={photoId(photo)}
       onContextMenu={e => contextMenu(e, index)}

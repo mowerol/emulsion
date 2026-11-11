@@ -3,6 +3,42 @@
 All work through 2026-11-10 is committed except the top section (the DCP removal, darktable camera data, app icon, DNG
 and TIFF support, and the retouch overlays went in together); "Uncommitted" notes below are out of date.
 
+## Pick and reject flags replace hearts (2026-11-11)
+
+Committed apart from Select sky (uncommitted in the same tree; they share `api.ts`,
+`styles.css`, README, ARCHITECTURE and this file). Roadmap priority 4, first step.
+Oli's choice: the heart goes; 5 stars and Pick take its place. Auto Advance is an option, off by
+default (Lightroom's); the full-screen cull loupe comes later.
+
+- **Model:** `Marks.flag: 'pick' | 'reject' | null` (`library/marks.ts`, `FLAGS`), independent of
+  stars and tags; stars are kept while rejected. P picks, X rejects, U unflags; flags are set, not
+  toggled (P on a pick stays a pick); clicking an active flag button clears it. `markPhotos(mark,
+  advance)` steps to the next shown photo when one photo was marked (Shift with any mark key, or
+  **Photo › Auto Advance**, `prefs.autoAdvance`); Shift+digit is read from `e.code`. X still turns
+  the crop frame while cropping.
+- **Migration:** a `heart: true` in a sidecar (original or copy), the catalog cache, a saved filter
+  (`heart` → Picked) or a smart rule (Favourite → Flag is Picked, Not a favourite → Unflagged) reads
+  as a pick; sidecars are rewritten with `flag` and never `heart`.
+- **XMP:** a reject is `xmp:Rating` -1 (Bridge/darktable; Lightroom reads it), `Interchange.reject`.
+  The stars stay in `.emulsion.json` and go back into the XMP when un-rejected. On scan a newer XMP
+  with -1 rejects and keeps the stars; a newer one without -1 un-rejects. A pick has no XMP field.
+  (Lightroom Classic itself keeps flags in its catalog only.)
+- **UI:** flag badges (filled white flag = pick, red struck flag = reject) on grid cells, filmstrip
+  and Images frames; rejected pictures dimmed to 40%; Pick/Reject buttons before the stars in the
+  photo bar; three flag toggles in the filter bar (Picked, Unflagged, Rejected; any combination);
+  **Photo › Flag** submenu and Auto Advance; shortcuts sheet updated; `--heart` removed.
+- **Checks:** `cargo test` 109 pass (new: heart migration, reject ↔ Rating -1 with stars kept, scan
+  reject/un-reject from another app). Vitest all pass except `builtin-looks.test.ts` (the uncommitted
+  `emulsion-looks.json`, not this work). Typecheck and build pass. Probe screenshots (`?library`,
+  `?workflow&flags`) checked: badges, filter toggles, photo-bar buttons.
+- **Oli should try (keys and menus can't be checked headlessly):** P / X / U in Library and Develop;
+  Shift+P and Shift+3 move on; Photo › Auto Advance then plain keys move on; X in Crop still turns the
+  frame and does not reject; select several and press X → one undo step "Reject on N photos", no
+  advance; filter Picked + Unflagged hides rejects; a folder with old hearts shows them as picks;
+  reject a RAW → Lightroom/Bridge shows it rejected, un-reject → its stars come back in the XMP.
+- **Next (roadmap 4):** full-screen cull loupe on embedded previews (fast stepping, zoom to check
+  focus), then Compare/Survey, stacks/burst auto-stacking, search and more smart rules, catalog scale.
+
 ## XMP sidecars, keywords and IPTC fields (2026-11-11)
 
 Committed. Built while Codex built Select sky in the same tree (uncommitted; the two share

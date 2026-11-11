@@ -17,6 +17,6 @@ export const PhotoInfo = memo(function PhotoInfo({ toolbar = false, hint }: { to
       : <span className="order-frame" title={frame}>{frame}</span>}
     {toolbar && selected > 1 && <span className="photo-info-hint">Marks apply to {selected} selected</span>}
     <MarkControls photo={photo} />
-    {!toolbar && selected > 1 && <span className="order-note">Stars, tags and hearts apply to the {selected} selected frames.</span>}
+    {!toolbar && selected > 1 && <span className="order-note">Flags, stars and tags apply to the {selected} selected frames.</span>}
   </div>;
 });

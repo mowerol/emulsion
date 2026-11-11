@@ -6,6 +6,7 @@ import { photoId } from './copies';
 import { lookName } from '../film/looks';
 import { normalizeRecipe } from '../film/recipe';
 import { normalizeMarks, type Label } from './marks';
+import type { FlagFilter } from './filter';
 import { hasKeyword, normalizeMeta } from './meta';
 import { getSetting, setSetting } from './appsettings';
 
@@ -20,7 +21,8 @@ export interface ImportSession {
 }
 export type SmartRule =
   | { field: 'rating'; value: number }
-  | { field: 'edited' | 'heart'; value: boolean }
+  | { field: 'edited'; value: boolean }
+  | { field: 'flag'; value: FlagFilter }
   | { field: 'label'; value: Label }
   | { field: 'camera' | 'look' | 'folder' | 'keyword'; value: string }
   | { field: 'date'; value: string; before: boolean };
@@ -39,6 +41,10 @@ interface Catalog {
 const KEY = 'emulsion.libraryCatalog' as const;
 const INDEX_KEY = 'emulsion.libraryIndex';
 const empty = (): Catalog => ({ imports: [], collections: [], folders: {}, targetCollectionId: null });
+/** A rule saved before flags replaced hearts: Favourite is Picked, Not a favourite is Unflagged. */
+const migrateRule = (r: SmartRule | { field: 'heart'; value: boolean }): SmartRule =>
+  r.field === 'heart' ? { field: 'flag', value: r.value ? 'pick' : 'none' } : r;
+export const migrateCollection = (c: Collection): Collection => (c.type === 'smart' && Array.isArray(c.rules) ? { ...c, rules: c.rules.map(migrateRule) } : c);
 function read(): Catalog {
   try {
     const value = getSetting(KEY) as Record<string, any> | null | undefined;
@@ -50,8 +56,9 @@ function read(): Catalog {
     if (!index || typeof index !== 'object' || Array.isArray(index)) index = {};
     for (const root of value.roots ?? []) index[root] ??= [];
     const targetCollectionId = value.collections.some((c: Collection) => c.id === value.targetCollectionId && c.type === 'manual') ? value.targetCollectionId : null;
-    return { imports: value.imports, collections: value.collections, targetCollectionId, folders: Object.fromEntries(Object.entries(index as Record<string, Photo[]>).map(([root, photos]) => [root,
-      (Array.isArray(photos) ? photos : []).filter(p => p && typeof p.path === 'string').map(p => ({ ...p, recipe: normalizeRecipe(p.recipe), ...normalizeMarks(p.rating, p.label, p.heart), meta: normalizeMeta(p.meta), pair: null }))])) };
+    return { imports: value.imports, collections: value.collections.map(migrateCollection), targetCollectionId, folders: Object.fromEntries(Object.entries(index as Record<string, Photo[]>).map(([root, photos]) => [root,
+      (Array.isArray(photos) ? photos : []).filter(p => p && typeof p.path === 'string').map(({ heart, ...p }: Photo & { heart?: unknown }) =>
+        ({ ...p, recipe: normalizeRecipe(p.recipe), ...normalizeMarks(p.rating, p.label, p.flag, heart), meta: normalizeMeta(p.meta), pair: null }))])) };
   } catch { return empty(); }
 }
 export const useCatalog = create<Catalog>(() => read());
@@ -133,7 +140,7 @@ export function matchesRules(photo: Photo, rules: SmartRule[]): boolean {
     switch (rule.field) {
       case 'rating': return photo.rating >= rule.value;
       case 'edited': return !!photo.recipe === rule.value;
-      case 'heart': return photo.heart === rule.value;
+      case 'flag': return (photo.flag ?? 'none') === rule.value;
       case 'label': return photo.label === rule.value;
       case 'keyword': return hasKeyword(photo.meta, rule.value);
       case 'camera': return (photo.capture?.camera ?? `${photo.camera?.make ?? ''} ${photo.camera?.model ?? ''}`).toLowerCase().includes(rule.value.toLowerCase());

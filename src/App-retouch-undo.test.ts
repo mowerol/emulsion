@@ -16,7 +16,7 @@ let root: Root;
 let host: HTMLDivElement;
 let clock = 0;
 const photo: Photo = { path: '/photos/a.jpg', name: 'a.jpg', rel: 'a.jpg', size: 1, modified: 1,
-  recipe: null, seed: 1, white: null, rating: 0, label: null, heart: false, raw: false, pair: null };
+  recipe: null, seed: 1, white: null, rating: 0, label: null, flag: null, raw: false, pair: null };
 function Shortcuts() { useShortcuts(); return null; }
 beforeEach(async () => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);

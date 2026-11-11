@@ -13,15 +13,15 @@ export interface Pairable {
   recipe: unknown | null;
   rating: number;
   label: string | null;
-  heart: boolean;
+  flag: string | null;
   meta?: PhotoMeta;
 }
 
 const JPEG = /\.jpe?g$/i;
 /** Folder and file name without its extension, case-insensitive: what pairs a RAW with its JPEG. */
 const stemOf = (rel: string) => rel.replace(/\.[^./]+$/, '').toLowerCase();
-/** A JPEG with an edit, stars, a tag or a heart is never folded away, so no work is hidden. */
-const marked = (p: Pairable) => p.recipe !== null || p.rating > 0 || p.label !== null || p.heart || !isEmptyMeta(p.meta);
+/** A JPEG with an edit, stars, a tag or a flag is never folded away, so no work is hidden. */
+const marked = (p: Pairable) => p.recipe !== null || p.rating > 0 || p.label !== null || p.flag !== null || !isEmptyMeta(p.meta);
 
 /** Each RAW's JPEG twin, by RAW path, whether or not it can be folded. */
 export function findPairs<T extends Pairable>(photos: T[]): Map<string, T> {

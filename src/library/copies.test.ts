@@ -19,7 +19,7 @@ import {
 } from './store';
 
 const photo = (path = '/photos/a.jpg'): Photo => ({ path, rel: path.split('/').pop()!, name: path.split('/').pop()!,
-  size: 1, modified: 0, recipe: null, seed: 123, white: null, rating: 0, label: null, heart: false, raw: false, pair: null });
+  size: 1, modified: 0, recipe: null, seed: 123, white: null, rating: 0, label: null, flag: null, raw: false, pair: null });
 let disk: Map<string, Saved>;
 beforeEach(() => {
   vi.useFakeTimers();
@@ -103,9 +103,9 @@ it('persists several selected versions of the same source together, including re
   expect(useApp.getState().photos.filter(p => p.copyId).map(p => p.copyName)).toEqual(['Copy 1', 'Copy 2']);
   selectAll();
   editRecipes([...useApp.getState().selected], () => defaultRecipe());
-  markPhotos({ heart: true });
+  markPhotos({ flag: 'pick' });
   await flushSaves();
-  expect(disk.get('/photos/a.jpg')?.copies?.every(p => p.heart && p.recipe)).toBe(true);
+  expect(disk.get('/photos/a.jpg')?.copies?.every(p => p.flag === 'pick' && p.recipe)).toBe(true);
   editRecipes([...useApp.getState().selected], () => null);
   await flushSaves();
   expect(disk.get('/photos/a.jpg')?.copies).toHaveLength(2);

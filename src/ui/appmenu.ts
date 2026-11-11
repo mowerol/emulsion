@@ -8,7 +8,7 @@ import { CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu } from '@tau
 import {
   activePhoto, addToTargetCollection, markPhotos, setCompare, setFoldJpegs, setStageColor, setView, sourcePhotos, STAGE_COLORS, targets, useApp, type Photo, type State,
 } from '../library/store';
-import { LABELS } from '../library/marks';
+import { FLAGS, LABELS, type Flag } from '../library/marks';
 import { targetCollection, useCatalog } from '../library/catalog';
 import { activeTool, chooseTool, TOOLS, useTools, type ToolId } from './tools';
 import { retouchMode, useRetouchUi } from './retouchui';
@@ -51,7 +51,7 @@ export function menuState(s: State, prefs: InterfacePreferences, workspace: Work
     'compare': developing, 'split': developing, 'clipping': developing,
     'zoom-in': developing, 'zoom-out': developing, 'zoom-fit': developing, 'zoom-100': developing,
     'fold-jpegs': s.pairCount > 0,
-    'heart': photo,
+    'auto-advance': free,
     'add-to-target': photo && !!targetCollection(),
   };
   const checked: Record<string, boolean> = {
@@ -60,13 +60,14 @@ export function menuState(s: State, prefs: InterfacePreferences, workspace: Work
     'compare': s.compare,
     'clipping': s.clipping,
     'fold-jpegs': s.foldJpegs,
+    'auto-advance': prefs.autoAdvance,
   };
   // Marks act on the selection (or the photo shown), as their keys do; ticked when all of it has one.
   const marked = photo ? targets(s) : [];
   const all = (has: (p: Photo) => boolean) => marked.length > 0 && marked.every(has);
   for (const r of RATINGS) { enabled[`rating:${r}`] = photo; checked[`rating:${r}`] = all(p => p.rating === r); }
   for (const l of LABELS) { enabled[`label:${l.id}`] = photo; checked[`label:${l.id}`] = all(p => p.label === l.id); }
-  checked.heart = all(p => p.heart);
+  for (const f of [...FLAGS.map(f => f.id), 'none'] as const) { enabled[`flag:${f}`] = photo; checked[`flag:${f}`] = all(p => (p.flag ?? 'none') === f); }
   // Tools need Develop's toolbar; the geometry and retouch ones also need the photo's size.
   const toolbar = developing && free && s.view === 'develop' && workspace.layout === 'workflow';
   const sized = !!s.developSize && s.developSize.path === activePhoto(s)?.path;
@@ -113,12 +114,14 @@ const targetLabel = () => { const c = targetCollection(); return `Add to ${c ? c
 export function photoMenuAction(id: string, s: State = useApp.getState()): boolean {
   const [kind, value] = id.split(':') as [string, string | undefined];
   if (id === 'shortcuts' || id === 'settings') { if (!dialogOpen(s)) (id === 'settings' ? openSettings : openShortcuts)(); return true; }
-  if (!['rating', 'label', 'tool'].includes(kind) && id !== 'heart' && id !== 'add-to-target') return false;
+  if (!['rating', 'label', 'flag', 'tool'].includes(kind) && id !== 'auto-advance' && id !== 'add-to-target') return false;
   const { enabled } = menuState(s, usePrefs.getState(), useWorkspace.getState());
   if (!enabled[id] || dialogOpen(s)) return true;
-  if (kind === 'rating') markPhotos({ rating: Number(value) });
-  else if (kind === 'label') markPhotos({ label: value as (typeof LABELS)[number]['id'] });
-  else if (id === 'heart') markPhotos({ heart: true });
+  const advance = usePrefs.getState().autoAdvance;
+  if (kind === 'rating') markPhotos({ rating: Number(value) }, advance);
+  else if (kind === 'label') markPhotos({ label: value as (typeof LABELS)[number]['id'] }, advance);
+  else if (kind === 'flag') markPhotos({ flag: value === 'none' ? null : value as Flag }, advance);
+  else if (id === 'auto-advance') setPrefs({ autoAdvance: !usePrefs.getState().autoAdvance });
   else if (id === 'add-to-target') addToTargetCollection();
   else if (kind === 'tool') chooseTool(value as ToolId);
   return true;
@@ -238,10 +241,14 @@ export async function installAppMenu(run: (id: string) => void): Promise<() => v
   const toolName = (id: ToolId) => TOOLS.find(t => t.id === id)!;
   const target = await item('add-to-target', targetLabel());
   const photo = await Submenu.new({ text: 'Photo', items: [
+    await Submenu.new({ text: 'Flag', items: [
+      ...await Promise.all(FLAGS.map(f => check(`flag:${f.id}`, `${f.menu} (${f.key})`))),
+      await check('flag:none', 'Unflagged (U)'),
+    ] }),
     await Submenu.new({ text: 'Rating', items: await Promise.all(RATINGS.map(r =>
       check(`rating:${r}`, `${r === 0 ? 'No Rating' : r === 1 ? '1 Star' : `${r} Stars`} (${r})`))) }),
-    await check('heart', 'Heart (H)'),
     await Submenu.new({ text: 'Colour Label', items: await Promise.all(LABELS.map(l => check(`label:${l.id}`, `${l.name} (${l.key})`))) }),
+    await check('auto-advance', 'Auto Advance'),
     await sep(),
     target,
     await sep(),

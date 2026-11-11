@@ -2,12 +2,12 @@
 import { describe, expect, it } from 'vitest';
 import { defaultRecipe } from '../film/recipe';
 import { NO_FILTER, matchCount, normalizeFilter, rangeWithin, shownIndices, stepWithin, type Filter } from './filter';
-import type { Label } from './marks';
+import type { Flag, Label } from './marks';
 
 const look = defaultRecipe();
-const p = (recipe: typeof look | null, rating = 0, label: Label | null = null, heart = false) => ({ recipe, rating, label, heart });
-// 0: edited 3★ red ♥   1: unedited 5★   2: edited 1★ blue   3: unedited ♥ green   4: unedited
-const photos = [p(look, 3, 'red', true), p(null, 5), p(look, 1, 'blue'), p(null, 0, 'green', true), p(null)];
+const p = (recipe: typeof look | null, rating = 0, label: Label | null = null, flag: Flag | null = null) => ({ recipe, rating, label, flag });
+// 0: edited 3★ red pick   1: unedited 5★   2: edited 1★ blue reject   3: unedited green pick   4: unedited
+const photos = [p(look, 3, 'red', 'pick'), p(null, 5), p(look, 1, 'blue', 'reject'), p(null, 0, 'green', 'pick'), p(null)];
 const f = (over: Partial<Filter>): Filter => ({ ...NO_FILTER, ...over });
 
 describe('library filter', () => {
@@ -20,14 +20,17 @@ describe('library filter', () => {
     expect(shownIndices(photos, f({ edit: 'unedited' }), 1)).toEqual([1, 3, 4]);
   });
 
-  it('filters by at least so many stars, by heart and by any chosen tag', () => {
+  it('filters by at least so many stars, by any chosen flag and by any chosen tag', () => {
     expect(shownIndices(photos, f({ minRating: 3 }), 0)).toEqual([0, 1]);
-    expect(shownIndices(photos, f({ heart: true }), 0)).toEqual([0, 3]);
+    expect(shownIndices(photos, f({ flags: ['pick'] }), 0)).toEqual([0, 3]);
+    expect(shownIndices(photos, f({ flags: ['none'] }), 1)).toEqual([1, 4]);
+    expect(shownIndices(photos, f({ flags: ['pick', 'none'] }), 0)).toEqual([0, 1, 3, 4]);
+    expect(shownIndices(photos, f({ flags: ['reject'] }), 2)).toEqual([2]);
     expect(shownIndices(photos, f({ labels: ['red', 'green'] }), 0)).toEqual([0, 3]);
   });
 
   it('combines criteria', () => {
-    expect(shownIndices(photos, f({ heart: true, edit: 'unedited' }), 3)).toEqual([3]);
+    expect(shownIndices(photos, f({ flags: ['pick'], edit: 'unedited' }), 3)).toEqual([3]);
     expect(shownIndices(photos, f({ minRating: 1, labels: ['blue'] }), 2)).toEqual([2]);
     expect(matchCount(photos, f({ minRating: 1, edit: 'edited' }))).toBe(2);
   });
@@ -56,9 +59,11 @@ describe('library filter', () => {
   });
 
   it('reads a saved filter, dropping anything unexpected', () => {
-    expect(normalizeFilter({ edit: 'edited', minRating: 9, heart: true, labels: ['blue', 'purple'] })).toEqual({
-      edit: 'edited', minRating: 5, heart: true, labels: ['blue'],
+    expect(normalizeFilter({ edit: 'edited', minRating: 9, flags: ['reject', 'none', 'maybe'], labels: ['blue', 'purple'] })).toEqual({
+      edit: 'edited', minRating: 5, flags: ['none', 'reject'], labels: ['blue'],
     });
+    // Saved before flags replaced hearts.
+    expect(normalizeFilter({ heart: true })).toEqual({ ...NO_FILTER, flags: ['pick'] });
     expect(normalizeFilter(null)).toEqual(NO_FILTER);
   });
 });

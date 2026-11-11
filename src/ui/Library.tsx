@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { memo, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
-import { Heart, Layers, ListFilter, Pencil, Settings2, Square, Star } from 'lucide-react';
+import { Layers, ListFilter, Pencil, Settings2, Square, Star } from 'lucide-react';
 import { usePhotoContextMenu, type PhotoContextHandler } from './PhotoMenu';
 import { photoId, photoName } from '../library/copies';
 import { setActive, setFilter, setFoldJpegs, setSelectedOnly, setView, sourceIndices, useApp, useShown, type Photo } from '../library/store';
@@ -8,7 +8,7 @@ import { NO_FILTER, isFiltering } from '../library/filter';
 import { LABEL } from '../library/marks';
 import { FolderImportView } from './Folders';
 import { FilterBar } from './FilterBar';
-import { Thumb, useVisible } from './common';
+import { FlagIcon, Thumb, useVisible } from './common';
 import { ExposureInfo } from './ExposureInfo';
 import { LibrarySidebar, LibrarySourceDialog, SourceHeader, type LibraryDialog } from './LibrarySources';
 import { useCollectionDrag } from './collectionDrag';
@@ -32,7 +32,7 @@ const Cell = memo(function Cell({ photo, index, number, position, total, active,
 }) {
   const [ref, visible] = useVisible<HTMLDivElement>();
   return <div ref={ref} role="option" aria-label={photoName(photo)} aria-selected={selected} aria-posinset={position} aria-setsize={total} tabIndex={active ? 0 : -1}
-    className={`cell${active ? ' active' : ''}${selected ? ' selected' : ''}`} data-index={index}
+    className={`cell${active ? ' active' : ''}${selected ? ' selected' : ''}${photo.flag === 'reject' ? ' rejected' : ''}`} data-index={index}
     draggable={false} onPointerDown={e => startDrag(e, index)}
     onContextMenu={e => contextMenu(e, index)} onClick={e => setActive(index, selectMode(e))}
     onDoubleClick={() => { setActive(index, 'keep'); setView('develop'); }} title={photo.copyId ? `${photo.rel} · ${photo.copyName}` : photo.rel}>
@@ -49,9 +49,9 @@ const Cell = memo(function Cell({ photo, index, number, position, total, active,
     <div className="cell-details">
       {showExif && <ExposureInfo photo={photo} visible={visible} />}
       <span className="cell-marks">
+        {photo.flag && <span className={`mark-flag ${photo.flag}`} role="img" aria-label={photo.flag === 'pick' ? 'Picked' : 'Rejected'}><FlagIcon flag={photo.flag} size={11} /></span>}
         {photo.rating > 0 && <span className="cell-stars" aria-label={`${photo.rating} stars`}>{Array.from({ length: photo.rating }, (_, i) => <Star key={i} size={10} fill="currentColor" strokeWidth={1.8} />)}</span>}
         {photo.label && <span className="mark-label" aria-label={`${photo.label} label`} style={{ background: LABEL[photo.label].hex }} />}
-        {photo.heart && <Heart size={11} className="mark-heart" fill="currentColor" aria-label="Favourite" />}
       </span>
     </div>
   </div>;

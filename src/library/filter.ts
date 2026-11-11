@@ -1,10 +1,19 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Which photos the Library grid and the filmstrip show, as pure functions. The
-// criteria combine: edited or not, at least so many stars, hearted, and any of
-// the chosen colour tags.
+// criteria combine: edited or not, at least so many stars, any of the chosen flags
+// (picked, unflagged, rejected; Lightroom's three flag toggles), and any of the
+// chosen colour tags.
 
 import type { Recipe } from '../film/recipe';
-import { LABELS, type Label } from './marks';
+import { LABELS, type Flag, type Label } from './marks';
+
+/** A flag state to show: picked, rejected, or `none` for unflagged. */
+export type FlagFilter = Flag | 'none';
+export const FLAG_FILTERS: { value: FlagFilter; label: string }[] = [
+  { value: 'pick', label: 'Picked' },
+  { value: 'none', label: 'Unflagged' },
+  { value: 'reject', label: 'Rejected' },
+];
 
 export type EditFilter = 'all' | 'edited' | 'unedited';
 
@@ -18,22 +27,22 @@ export interface Filter {
   edit: EditFilter;
   /** Show photos with at least this many stars; 0 shows any. */
   minRating: number;
-  /** Show hearted photos only. */
-  heart: boolean;
+  /** Show photos with any of these flag states; empty shows any. */
+  flags: FlagFilter[];
   /** Show photos with any of these tags; empty shows any. */
   labels: Label[];
 }
 
-export const NO_FILTER: Filter = { edit: 'all', minRating: 0, heart: false, labels: [] };
+export const NO_FILTER: Filter = { edit: 'all', minRating: 0, flags: [], labels: [] };
 
-type Filterable = { recipe: Recipe | null; rating: number; label: Label | null; heart: boolean };
+type Filterable = { recipe: Recipe | null; rating: number; label: Label | null; flag: Flag | null };
 
-export const isFiltering = (f: Filter) => f.edit !== 'all' || f.minRating > 0 || f.heart || f.labels.length > 0;
+export const isFiltering = (f: Filter) => f.edit !== 'all' || f.minRating > 0 || f.flags.length > 0 || f.labels.length > 0;
 
 export function passes(p: Filterable, f: Filter): boolean {
   if (f.edit !== 'all' && (f.edit === 'edited') !== !!p.recipe) return false;
   if (p.rating < f.minRating) return false;
-  if (f.heart && !p.heart) return false;
+  if (f.flags.length && !f.flags.includes(p.flag ?? 'none')) return false;
   if (f.labels.length && !(p.label && f.labels.includes(p.label))) return false;
   return true;
 }
@@ -74,5 +83,8 @@ export function normalizeFilter(v: unknown): Filter {
   const edit = EDIT_FILTERS.find((e) => e.value === o.edit)?.value ?? 'all';
   const r = typeof o.minRating === 'number' ? Math.round(Math.min(5, Math.max(0, o.minRating))) : 0;
   const labels = Array.isArray(o.labels) ? LABELS.filter((l) => (o.labels as unknown[]).includes(l.id)).map((l) => l.id) : [];
-  return { edit, minRating: r, heart: o.heart === true, labels };
+  // A filter saved before flags replaced hearts: hearted only is picked only.
+  const flags = Array.isArray(o.flags) ? FLAG_FILTERS.filter((x) => (o.flags as unknown[]).includes(x.value)).map((x) => x.value)
+    : (o as { heart?: unknown }).heart === true ? ['pick' as const] : [];
+  return { edit, minRating: r, flags, labels };
 }

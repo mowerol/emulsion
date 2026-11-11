@@ -24,7 +24,7 @@ beforeEach(() => { vi.clearAllMocks(); vi.mocked(removeInpaint).mockReset().mock
 it('requests the shared denoised source for RAW exports and surfaces failures', async () => {
   const recipe = { ...defaultRecipe(), noiseReduction: { enabled: true, amount: 42, model: 'rawnind-linear-v1' as const } };
   const photo: Photo = { path: '/test.ORF', rel: 'test.ORF', name: 'test.ORF', size: 1, modified: 0, recipe,
-    seed: 1, white: null, rating: 0, label: null, heart: false, raw: true, pair: null };
+    seed: 1, white: null, rating: 0, label: null, flag: null, raw: true, pair: null };
   const options = { dir: '/exports', subfolder: '', longEdge: null, format: { kind: 'jpeg' as const, quality: 92 }, existing: 'rename' as const };
   const result = await exportPhotos([photo], options, vi.fn(), { canceled: false });
   expect(result.failed).toEqual([]);
@@ -38,7 +38,7 @@ it('requests the shared denoised source for RAW exports and surfaces failures', 
 
 it('exports each version with its own recipe, a distinct name and the real source path', async () => {
   const original: Photo = { path: '/a.jpg', rel: 'a.jpg', name: 'a.jpg', size: 1, modified: 0, recipe: null,
-    seed: 1, white: null, rating: 0, label: null, heart: false, raw: false, pair: null };
+    seed: 1, white: null, rating: 0, label: null, flag: null, raw: false, pair: null };
   const versions = [original, ...['one', 'two'].map((copyId, i) => ({ ...original, copyId, copyName: 'Warm', recipe: { ...defaultRecipe(), exposure: i + 1 } }))];
   const result = await exportPhotos(versions, { dir: '/exports', subfolder: '', longEdge: null, format: { kind: 'jpeg' as const, quality: 92 }, existing: 'rename' as const }, vi.fn(), { canceled: false });
   expect(result.failed).toEqual([]);
@@ -53,7 +53,7 @@ it('exports each version with its own recipe, a distinct name and the real sourc
 
 const removalPhoto: Photo = { path: '/remove.jpg', rel: 'remove.jpg', name: 'remove.jpg', size: 1, modified: 0,
   recipe: { ...defaultRecipe(), retouch: [newCircleSpot([.5, .5], 'remove', .1, .02)] },
-  seed: 1, white: null, rating: 0, label: null, heart: false, raw: false, pair: null };
+  seed: 1, white: null, rating: 0, label: null, flag: null, raw: false, pair: null };
 
 it('waits for Remove before rendering or writing and uses the original resolution even for small exports', async () => {
   let release!: (pixels: Uint8Array) => void;
@@ -125,7 +125,7 @@ it('retains completed earlier patches when export continues past a later failed 
 });
 
 const plain: Photo = { path: '/p.jpg', rel: 'p.jpg', name: 'p.jpg', size: 1, modified: 0, recipe: null,
-  seed: 1, white: null, rating: 0, label: null, heart: false, raw: false, pair: null };
+  seed: 1, white: null, rating: 0, label: null, flag: null, raw: false, pair: null };
 const opts = { dir: '/exports', subfolder: '', longEdge: null, format: { kind: 'jpeg' as const, quality: 92 }, existing: 'rename' as const };
 
 it('checks the destination before developing anything', async () => {

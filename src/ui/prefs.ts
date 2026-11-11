@@ -20,8 +20,10 @@ export interface InterfacePreferences {
   filtersOpen: boolean;
   /** The guide shown in the crop frame while it is handled. */
   cropOverlay: CropOverlayId;
+  /** A star, tag or flag moves on to the next photo (Lightroom's Auto Advance); Shift with the key always does. */
+  autoAdvance: boolean;
 }
-export const INTERFACE_DEFAULTS: InterfacePreferences = { theme: 'mid', libraryExif: true, histogramSmall: false, filtersOpen: true, cropOverlay: 'thirds' };
+export const INTERFACE_DEFAULTS: InterfacePreferences = { theme: 'mid', libraryExif: true, histogramSmall: false, filtersOpen: true, cropOverlay: 'thirds', autoAdvance: false };
 
 export function normalizePrefs(input: unknown): InterfacePreferences {
   const p = input && typeof input === 'object' ? (input as Partial<InterfacePreferences>) : {};
@@ -31,6 +33,7 @@ export function normalizePrefs(input: unknown): InterfacePreferences {
     histogramSmall: p.histogramSmall === true,
     filtersOpen: p.filtersOpen !== false,
     cropOverlay: CROP_OVERLAYS.some(o => o.id === p.cropOverlay) ? p.cropOverlay! : 'thirds',
+    autoAdvance: p.autoAdvance === true,
   };
 }
 

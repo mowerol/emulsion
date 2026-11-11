@@ -9,7 +9,7 @@ import { useWorkspace, WORKSPACE_DEFAULTS } from './workspace';
 import * as bridge from './menubridge';
 
 const photo: Photo = { path: '/p/a.jpg', name: 'a.jpg', rel: 'a.jpg', size: 1, modified: 1,
-  recipe: null, seed: 1, white: null, rating: 0, label: null, heart: false, raw: false, pair: null };
+  recipe: null, seed: 1, white: null, rating: 0, label: null, flag: null, raw: false, pair: null };
 const base = useApp.getState();
 const withPhoto = { ...base, photos: [photo], active: 0, folder: { root: '/p', name: 'p', unreadable: 0 } };
 const state = (s = base) => menuState(s, INTERFACE_DEFAULTS, WORKSPACE_DEFAULTS);
@@ -47,7 +47,7 @@ it('greys out File and Edit while a look is being edited', () => {
 it('ticks the current view and each current choice', () => {
   const { checked } = menuState({ ...withPhoto, view: 'develop', stageColor: 'black', foldJpegs: false }, { ...INTERFACE_DEFAULTS, cropOverlay: 'golden', theme: 'dark' }, { ...WORKSPACE_DEFAULTS, imageColumns: 3 });
   const ticked = Object.keys(checked).filter(id => checked[id]).sort();
-  expect(ticked).toEqual(['columns:3', 'crop-overlay:golden', 'rating:0', 'stage:black', 'theme:dark', 'tool:select', 'view-develop']);
+  expect(ticked).toEqual(['columns:3', 'crop-overlay:golden', 'flag:none', 'rating:0', 'stage:black', 'theme:dark', 'tool:select', 'view-develop']);
 });
 
 it('runs View items', () => {
@@ -65,14 +65,14 @@ it('runs View items', () => {
 });
 
 it('ticks a mark only when every selected photo has it', () => {
-  const b: Photo = { ...photo, path: '/p/b.jpg', name: 'b.jpg', rel: 'b.jpg', rating: 3, heart: true, label: 'red' };
-  const one = { ...withPhoto, photos: [{ ...photo, rating: 3, heart: true, label: 'red' as const }, b] };
-  expect(state(one).checked['rating:3']).toBe(true);
+  const b: Photo = { ...photo, path: '/p/b.jpg', name: 'b.jpg', rel: 'b.jpg', rating: 3, flag: 'pick', label: 'red' };
+  const one = { ...withPhoto, photos: [{ ...photo, rating: 3, flag: 'pick' as const, label: 'red' as const }, b] };
+  expect([state(one).checked['rating:3'], state(one).checked['flag:pick'], state(one).checked['flag:none']]).toEqual([true, true, false]);
   const both = { ...one, photos: [photo, b], selected: new Set(['/p/a.jpg', '/p/b.jpg']) };
   const { checked, enabled } = state(both);
-  expect([checked['rating:3'], checked['rating:0'], checked.heart, checked['label:red']]).toEqual([false, false, false, false]);
+  expect([checked['rating:3'], checked['rating:0'], checked['flag:pick'], checked['label:red']]).toEqual([false, false, false, false]);
   expect(enabled['rating:5']).toBe(true);
-  expect(state({ ...withPhoto, lookEdit: {} as never }).enabled.heart).toBe(false);
+  expect(state({ ...withPhoto, lookEdit: {} as never }).enabled['flag:reject']).toBe(false);
 });
 
 it('offers the tools in Develop only, geometry once the photo size is known', () => {
@@ -90,8 +90,9 @@ it('runs Photo items as their keys do', () => {
   useApp.setState(withPhoto);
   expect(photoMenuAction('rating:4')).toBe(true);
   photoMenuAction('label:blue');
-  photoMenuAction('heart');
-  expect(mark.mock.calls).toEqual([[{ rating: 4 }], [{ label: 'blue' }], [{ heart: true }]]);
+  photoMenuAction('flag:reject');
+  photoMenuAction('flag:none');
+  expect(mark.mock.calls).toEqual([[{ rating: 4 }, false], [{ label: 'blue' }, false], [{ flag: 'reject' }, false], [{ flag: null }, false]]);
   expect(photoMenuAction('add-to-target')).toBe(true); // no target collection: greyed, does nothing
   const opened = vi.spyOn(bridge, 'openShortcuts');
   photoMenuAction('shortcuts');

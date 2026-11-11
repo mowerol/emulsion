@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { memo } from 'react';
 import { setFilter, sourcePhotos, useApp } from '../library/store';
-import { EDIT_FILTERS, NO_FILTER, isFiltering, matchCount } from '../library/filter';
+import { EDIT_FILTERS, FLAG_FILTERS, NO_FILTER, isFiltering, matchCount } from '../library/filter';
 import { LABELS } from '../library/marks';
-import { Heart, Star } from 'lucide-react';
+import { Star } from 'lucide-react';
 import { useSourceDefinitions } from '../library/catalog';
-import { Segmented } from './common';
+import { FlagIcon, Segmented } from './common';
 
-/** What the Library grid and the filmstrip show: edited or not, stars and up, hearted, colour tags.
+/** What the Library grid and the filmstrip show: edited or not, stars and up, flags (any of picked,
+ *  unflagged, rejected, as Lightroom's three flag toggles), colour tags.
  *  Without `summary` the match count and Clear are left to the caller (the Images pane puts them in its heading). */
 export const FilterBar = memo(function FilterBar({ summary = true, showCount = true }: { summary?: boolean; showCount?: boolean }) {
   const filter = useApp((s) => s.filter);
@@ -35,15 +36,24 @@ export const FilterBar = memo(function FilterBar({ summary = true, showCount = t
           </button>
         ))}
       </span>
-      <button
-        type="button"
-        className={`mark-btn heart${filter.heart ? ' on' : ''}`}
-        aria-pressed={filter.heart}
-        title={filter.heart ? 'Any photo, hearted or not' : 'Hearted only'}
-        onClick={() => setFilter({ heart: !filter.heart })}
-      >
-        <Heart size={15} fill={filter.heart ? 'currentColor' : 'none'} strokeWidth={1.8} />
-      </button>
+      <span className="filter-flags" role="group" aria-label="Flags">
+        {FLAG_FILTERS.map((f) => {
+          const chosen = filter.flags.includes(f.value);
+          return (
+            <button
+              key={f.value}
+              type="button"
+              className={`mark-btn flag ${f.value}${chosen ? ' on' : ''}`}
+              aria-pressed={chosen}
+              aria-label={f.label}
+              title={chosen ? `Stop showing ${f.label.toLowerCase()}` : `Show ${f.label.toLowerCase()}`}
+              onClick={() => setFilter({ flags: chosen ? filter.flags.filter((x) => x !== f.value) : [...filter.flags, f.value] })}
+            >
+              <FlagIcon flag={f.value === 'none' ? null : f.value} size={15} />
+            </button>
+          );
+        })}
+      </span>
       <span className="filter-labels" role="group" aria-label="Colour tags">
         {LABELS.map((l) => {
           const chosen = filter.labels.includes(l.id);

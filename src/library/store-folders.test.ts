@@ -14,7 +14,7 @@ function scan(root = '/photos', names = ['a.jpg', 'b.jpg']): ScanResult {
   return { root, name: 'Photos', unreadable: 0, focus: null,
     folders: [{ path: `${root}/Trip`, name: 'Trip' }],
     entries: names.map(name => ({ path: `${root}/${name}`, name, rel: name, size: 1,
-      modified: 0, recipe: null, rating: 0, label: null, heart: false, raw: false })) };
+      modified: 0, recipe: null, rating: 0, label: null, flag: null, raw: false })) };
 }
 
 beforeEach(() => {

@@ -19,7 +19,7 @@ import { seedFor } from '../engine/engine';
 import { flushSaves, savePhoto } from './sidecars';
 import { findPairs, foldPairs } from './pairs';
 import { cleanCopyName, expandCopies, photoId, savedFrames } from './copies';
-import { applyMark, describeMark, hasMark, normalizeMarks, type Label, type MarkKey, type Marks } from './marks';
+import { applyMark, describeMark, hasMark, normalizeMarks, sameMarks, type Flag, type Label, type MarkKey, type Marks } from './marks';
 import { History, MERGE_MS, describe, type Change, type Step } from './history';
 import { addToCollection, cacheEdits, cacheFolder, catalogPhotos, recordImport, sourceMatcher, sourceMatches, targetCollection, useCatalog, useSourceDefinitions, viewImport, type SourceSelection } from './catalog';
 
@@ -43,8 +43,8 @@ export interface Photo {
   /** Stars, 0 to 5; 0 is unrated. */
   rating: number;
   label: Label | null;
-  /** A favourite. */
-  heart: boolean;
+  /** The cull flag: picked, rejected, or null for unflagged. Rejecting never deletes. */
+  flag: Flag | null;
   /** Keywords and IPTC fields of the source file, the same on each of its copies; absent is none. */
   meta?: PhotoMeta;
   /** A camera RAW. */
@@ -261,7 +261,7 @@ export function showToast(message: string, action?: Toast['action'], ms = 3200) 
 const scannedPhoto = (e: Entry): Photo => ({
   path: e.path, rel: e.rel, name: e.name, size: e.size, modified: e.modified,
   recipe: normalizeRecipe(e.recipe), seed: seedFor(e.path), white: null,
-  ...normalizeMarks(e.rating, e.label, e.heart), meta: normalizeMeta(e.meta), raw: e.raw, pair: null,
+  ...normalizeMarks(e.rating, e.label, e.flag), meta: normalizeMeta(e.meta), raw: e.raw, pair: null,
 });
 
 function withCachedMetadata(photo: Photo, cached?: Photo): Photo {
@@ -825,10 +825,11 @@ export const editActive = (change: (r: Recipe | null, p: Photo) => Recipe | null
 };
 
 /**
- * Star, tag or heart the selected frames (or the active one), as one undoable step.
- * A tag or heart every target already has comes off; otherwise they all get it.
+ * Star, tag or flag the selected frames (or the active one), as one undoable step.
+ * A tag every target already has comes off; otherwise they all get it. With `advance`
+ * and a single photo marked, the next shown photo becomes active (Lightroom's Auto Advance).
  */
-export function markPhotos(mark: MarkKey) {
+export function markPhotos(mark: MarkKey, advance = false) {
   const t = targets();
   if (!t.length) return;
   const allHave = t.every((p) => hasMark(p, mark));
@@ -836,18 +837,20 @@ export function markPhotos(mark: MarkKey) {
   const changes: Change[] = [];
   const photos = get().photos.map((p) => {
     if (!wanted.has(photoId(p))) return p;
-    const before: Marks = { rating: p.rating, label: p.label, heart: p.heart };
+    const before: Marks = { rating: p.rating, label: p.label, flag: p.flag };
     const after = applyMark(before, mark, allHave);
-    if (after.rating === before.rating && after.label === before.label && after.heart === before.heart) return p;
+    if (sameMarks(after, before)) return p;
     const next = { ...p, ...after };
     changes.push({ path: photoId(p), marks: true, before, after });
     return next;
   });
-  if (!changes.length) return;
-  const name = !('rating' in mark) && allHave ? ('heart' in mark ? 'Remove heart' : 'Remove tag') : describeMark(mark);
-  history.record(changes.length > 1 ? `${name} on ${changes.length} photos` : name, changes, performance.now());
-  set({ photos, ...historyState() });
-  persistSources(changes.map(c => c.path));
+  if (changes.length) {
+    const name = 'label' in mark && allHave ? 'Remove tag' : describeMark(mark);
+    history.record(changes.length > 1 ? `${name} on ${changes.length} photos` : name, changes, performance.now());
+    set({ photos, ...historyState() });
+    persistSources(changes.map(c => c.path));
+  }
+  if (advance && t.length === 1) step(1);
 }
 
 /**
@@ -1025,7 +1028,7 @@ async function loadEmbedded(root: string, frames: Photo[]) {
       // A frame marked while this was read keeps its own.
       if (!e || (!p.copyId && !bare(p)) || (p.copyId && !isEmptyMeta(p.meta))) return p;
       const meta = normalizeMeta(e.meta);
-      return p.copyId ? { ...p, meta } : { ...p, ...normalizeMarks(e.rating, e.label, p.heart), meta };
+      return p.copyId ? { ...p, meta } : { ...p, ...normalizeMarks(e.rating, e.label, e.reject ? 'reject' : p.flag), meta };
     });
     set({ photos: update(get().photos), hidden: update(get().hidden), candidates: update(get().candidates) });
   }

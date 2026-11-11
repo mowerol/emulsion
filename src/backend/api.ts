@@ -16,7 +16,8 @@ export interface Entry {
   recipe: unknown | null;
   rating: number;
   label: string | null;
-  heart: boolean;
+  /** `pick`, `reject` or null; a heart in an older sidecar arrives as a pick. */
+  flag: 'pick' | 'reject' | null;
   /** Keywords and IPTC fields (src-tauri/src/xmp.rs `Meta`). */
   meta?: unknown;
   /** A camera RAW. */
@@ -132,20 +133,21 @@ export async function captureInfo(path: string, width: number, height: number): 
 }
 
 /** What is embedded in each photo, for photos with no stars, label or metadata of their own yet. */
-export interface EmbeddedMetadata { rating: number; label: string | null; meta: unknown }
+export interface EmbeddedMetadata { rating: number; label: string | null; reject?: boolean; meta: unknown }
 export const embeddedMetadata = (paths: string[]) => invoke<(EmbeddedMetadata | null)[]>('embedded_metadata', { paths });
 
 /** As-shot white points (CIE xy) of `paths`; null for anything that is not a RAW. */
 export const whitePoints = (paths: string[]) => invoke<([number, number] | null)[]>('white_points', { paths });
 
-/** What a sidecar keeps: the look, stars, colour tag and heart. With none of them the sidecar is removed. */
+/** What a sidecar keeps: the look, stars, colour tag and flag. With none of them the sidecar is removed. */
 export interface SavedCopy {
   id: string;
   name: string;
   recipe: unknown | null;
   rating: number;
   label: string | null;
-  heart: boolean;
+  /** `pick`, `reject` or null; a heart in an older sidecar arrives as a pick. */
+  flag: 'pick' | 'reject' | null;
 }
 
 export interface Saved {
@@ -153,7 +155,8 @@ export interface Saved {
   recipe: unknown | null;
   rating: number;
   label: string | null;
-  heart: boolean;
+  /** `pick`, `reject` or null; a heart in an older sidecar arrives as a pick. */
+  flag: 'pick' | 'reject' | null;
   /** The source's keywords and IPTC fields; also written to its XMP sidecar. */
   meta?: import('../library/meta').PhotoMeta;
 }

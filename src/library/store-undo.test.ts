@@ -15,7 +15,7 @@ const { NO_FILTER } = await import('./filter');
 const { writeSidecar } = await import('../backend/api');
 const { withStock, defaultRecipe } = await import('../film/recipe');
 
-const photo = (path: string) => ({ path, rel: path, name: path, size: 1, modified: 0, recipe: null, seed: 1, white: null, rating: 0, label: null, heart: false, raw: false, pair: null });
+const photo = (path: string) => ({ path, rel: path, name: path, size: 1, modified: 0, recipe: null, seed: 1, white: null, rating: 0, label: null, flag: null, raw: false, pair: null });
 
 describe('undo in the store', () => {
   beforeEach(() => {
@@ -47,7 +47,7 @@ describe('undo in the store', () => {
     expect(useApp.getState().photos.map((p) => p.rating)).toEqual([4, 4]);
     expect(useApp.getState().history.undo).toBe('4 stars on 2 photos');
     await vi.runAllTimersAsync();
-    expect(writeSidecar).toHaveBeenLastCalledWith('b', { recipe: null, rating: 4, label: null, heart: false }, false);
+    expect(writeSidecar).toHaveBeenLastCalledWith('b', { recipe: null, rating: 4, label: null, flag: null }, false);
     expect(writeSidecar).toHaveBeenCalledWith('a', expect.objectContaining({ rating: 4, recipe: expect.objectContaining({ stock: 'portra400' }) }), false);
     undo();
     expect(useApp.getState().photos.map((p) => p.rating)).toEqual([0, 0]);
@@ -112,13 +112,35 @@ describe('undo in the store', () => {
     expect(useApp.getState().photos.map((p) => p.label)).toEqual(['red', 'red']);
   });
 
+  it('flags a selection in one undoable step, keeping its stars', () => {
+    useApp.setState((s) => ({ photos: s.photos.map((p) => ({ ...p, rating: 3 })), selected: new Set(['a', 'b']) }));
+    markPhotos({ flag: 'reject' });
+    expect(useApp.getState().photos.map((p) => [p.flag, p.rating])).toEqual([['reject', 3], ['reject', 3]]);
+    expect(useApp.getState().history.undo).toBe('Reject on 2 photos');
+    markPhotos({ flag: null });
+    expect(useApp.getState().photos.map((p) => p.flag)).toEqual([null, null]);
+    undo();
+    expect(useApp.getState().photos.map((p) => p.flag)).toEqual(['reject', 'reject']);
+  });
+
+  it('moves on after marking one photo when asked, even if it was already marked, but never after marking a selection', () => {
+    markPhotos({ flag: 'pick' }, true);
+    expect([useApp.getState().photos[0].flag, useApp.getState().active]).toEqual(['pick', 1]);
+    useApp.setState({ active: 0, selected: new Set(['a']) });
+    markPhotos({ flag: 'pick' }, true);
+    expect(useApp.getState().active).toBe(1);
+    useApp.setState({ active: 0, selected: new Set(['a', 'b']) });
+    markPhotos({ rating: 2 }, true);
+    expect(useApp.getState().active).toBe(0);
+  });
+
   it('moves to the first matching photo when a filter hides the active one', () => {
-    useApp.setState((st) => ({ photos: st.photos.map((p, i) => (i === 1 ? { ...p, heart: true } : p)), active: 0, selected: new Set(['a']), filter: NO_FILTER }));
-    setFilter({ heart: true });
+    useApp.setState((st) => ({ photos: st.photos.map((p, i) => (i === 1 ? { ...p, flag: 'pick' as const } : p)), active: 0, selected: new Set(['a']), filter: NO_FILTER }));
+    setFilter({ flags: ['pick'] });
     expect(useApp.getState().active).toBe(1);
     expect([...useApp.getState().selected]).toEqual(['b']);
     // With nothing matching, the active photo stays.
-    setFilter({ heart: false, minRating: 5 });
+    setFilter({ flags: [], minRating: 5 });
     expect(useApp.getState().active).toBe(1);
     setFilter(NO_FILTER);
   });
