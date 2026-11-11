@@ -106,6 +106,79 @@ code { font-size: 12.5px; background: var(--raise); padding: 1px 5px; border-rad
 
 .app { display: grid; grid-template-rows: auto minmax(0, 1fr); height: 100%; }
 
+/* Culling uses the existing neutral surround and photo marks, without Develop work. */
+.app.app-loupe-fullscreen { grid-template-rows: minmax(0, 1fr); }
+.app-loupe-fullscreen > .topbar { display: none; }
+body:has(.library-fullscreen) { min-width: 0; }
+.library-loupe-body { display: flex; flex: 1; min-width: 0; min-height: 0; }
+.library-loupe { flex: 1; container-type: inline-size; }
+.library-loupe:focus-visible { outline: none; }
+.library-has-loupe .source-header { height: 44px; padding: 4px 16px; align-items: center; gap: 16px; }
+.library-has-loupe .source-heading-text { flex: 1; flex-direction: row; align-items: center; gap: 12px; }
+.library-has-loupe .source-breadcrumb { flex: 0 1 auto; }
+.library-has-loupe .source-title { flex-shrink: 0; }
+/* The breadcrumb already names the source; keep its heading available to assistive tech. */
+.library-has-loupe .source-title h1 { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+.library-has-loupe .source-detail { display: none; }
+.library-has-loupe .source-actions .btn { padding: 4px 8px; font-size: 12px; }
+.library-views { flex-shrink: 0; }
+.library-views button { min-height: 28px; }
+.library-grid-marks { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 24px; background: var(--panel); border-top: 1px solid var(--line); padding: 8px 20px; }
+.library-grid-marks .mark-controls { margin-top: 0; }
+.library-fullscreen { position: fixed; inset: 0; z-index: 40; }
+.library.library-fullscreen > .folder-directory,
+.library-fullscreen .library-content > :not(.library-loupe-body),
+.library-fullscreen .library-image-rail { display: none; }
+.library-image-rail { flex: 0 0 184px; width: 184px; }
+.library-image-rail .images-head { min-height: 36px; height: 36px; padding: 0 12px; gap: 8px; border-bottom: 1px solid var(--line); font-size: 12px; }
+.library-image-rail .images-count { text-align: right; }
+.library-image-scroll { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-color: var(--line) transparent; }
+.library-image-list { padding: 8px; }
+.library-image-row { padding-bottom: 8px; }
+.library-image-rail .image-frame { width: 100%; display: grid; grid-template-rows: auto 18px 14px; justify-items: center; }
+.library-image-rail .image-frame-name { font-size: 11px; }
+.cull-loupe { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; min-width: 0; min-height: 0; outline: none; background: var(--panel); }
+.cull-header { display: flex; align-items: center; gap: 12px; min-height: 36px; padding: 3px 12px; border-bottom: 1px solid var(--line); min-width: 0; }
+.cull-photo-info { display: flex; align-items: baseline; gap: 10px; flex: 1; min-width: 0; }
+.cull-photo-info strong { font-size: 13px; font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cull-photo-info > span { flex-shrink: 0; font-size: 11px; color: var(--text3); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cull-header > .btn { flex-shrink: 0; }
+.cull-header > .btn:not(.cull-close) { min-height: 28px; padding: 3px 8px; font-size: 12px; }
+.cull-close { display: grid; place-items: center; min-width: 30px; min-height: 30px; padding: 5px; }
+.cull-stage { position: relative; min-height: 0; min-width: 0; overflow: hidden; }
+.cull-image-stage { position: absolute; inset: 12px; display: grid; place-items: center; min-width: 0; min-height: 0; }
+.cull-image-window { position: relative; overflow: hidden; cursor: zoom-in; touch-action: none; }
+.cull-image-window img { position: absolute; max-width: none; display: block; user-select: none; pointer-events: none; }
+.cull-image-stage.zoomed .cull-image-window { cursor: grab; }
+.cull-image-stage.zoomed .cull-image-window:active { cursor: grabbing; }
+.cull-zoom-slot { flex-shrink: 0; }
+.cull-zoom { display: flex; align-items: center; gap: 2px; padding: 2px; background: var(--ctl); border-radius: 6px; color: var(--text); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.cull-zoom .btn { min-height: 24px; padding: 2px 8px; border-color: transparent; background: transparent; font-size: 12px; }
+.cull-zoom > span { padding: 0 8px; font-size: 11px; }
+.cull-zoom .btn[aria-pressed='true'] { background: var(--sel); color: var(--text); }
+.cull-message { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); max-width: min(440px, calc(100% - 32px)); max-height: 100%; overflow: auto; padding: 16px; border-radius: 6px; background: var(--panel); color: var(--text); text-align: center; }
+.cull-message p { margin: 0 0 12px; }
+.cull-error-detail { font-size: 12px; color: var(--text3); overflow-wrap: anywhere; }
+.cull-message .btn { margin: 0 4px; }
+.cull-footer { display: flex; align-items: center; flex-wrap: wrap; gap: 8px 16px; min-height: 40px; padding: 4px 12px; border-top: 1px solid var(--line); }
+.cull-footer .mark-controls { margin-top: 0; }
+.cull-navigation { display: flex; gap: 4px; }
+.cull-navigation .btn { display: grid; place-items: center; min-width: 30px; min-height: 30px; padding: 4px; }
+.cull-auto { display: flex; align-items: center; gap: 6px; font-size: 12px; white-space: nowrap; cursor: pointer; }
+.cull-auto input { accent-color: var(--accent); margin: 0; }
+.cull-key-hint { margin-left: auto; font-size: 11px; color: var(--text3); }
+@container (max-width: 1100px) { .cull-key-hint { display: none; } }
+@container (max-width: 850px) { .cull-header .exposure-info { display: none; } }
+@container (max-width: 700px) { .cull-preview-kind { display: none; } }
+@container (max-width: 620px) {
+  .cull-header { gap: 8px; }
+  .cull-header .exposure-info { display: none; }
+  .cull-photo-info { flex-direction: column; gap: 0; }
+  .cull-footer { gap: 8px 12px; }
+  .cull-footer .mark-controls { flex-wrap: wrap; }
+  .cull-image-stage { inset: 8px; }
+}
+
 /* Library is a folder browser; editing controls live in Develop. */
 .workspace.workspace-library { grid-template-columns: minmax(0, 1fr); }
 .workspace-library .library { display: flex; overflow: hidden; }

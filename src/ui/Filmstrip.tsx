@@ -13,7 +13,7 @@ const STRIP_PAD = 16;
 const FRAME_GUESS = 140;
 
 
-const Frame = memo(function Frame({ photo, index, active, selected, contextMenu }: { photo: Photo; index: number; active: boolean; selected: boolean; contextMenu: PhotoContextHandler }) {
+const Frame = memo(function Frame({ photo, index, active, selected, contextMenu, originalsOnly, preserveSelection }: { photo: Photo; index: number; active: boolean; selected: boolean; contextMenu: PhotoContextHandler; originalsOnly: boolean; preserveSelection: boolean }) {
   const [ref, visible] = useVisible<HTMLButtonElement>('600px');
   const n = index + 1;
   return (
@@ -26,13 +26,13 @@ const Frame = memo(function Frame({ photo, index, active, selected, contextMenu 
       onContextMenu={e => contextMenu(e, index)}
       aria-label={`Frame ${n}, ${photoName(photo)}`}
       aria-current={active}
-      onClick={(e: MouseEvent) => setActive(index, e.shiftKey ? 'range' : e.metaKey || e.ctrlKey ? 'toggle' : 'single')}
+      onClick={(e: MouseEvent) => setActive(index, e.shiftKey ? 'range' : e.metaKey || e.ctrlKey ? 'toggle' : preserveSelection ? 'preserve' : 'single')}
     >
       <span className="edge">
-        <span>{edgeText(photo)}</span>
+        <span>{originalsOnly ? photo.name : edgeText(photo)}</span>
         <span>{'▸'} {n}</span>
       </span>
-      <Thumb photo={photo} visible={visible} className="frame-img" />
+      <Thumb photo={photo} visible={visible} className="frame-img" original={originalsOnly} />
       <span className="edge">
         <span>{photo.copyId ? versionName(photo) : `${n}A`}</span>
         <MarkBadges photo={photo} />
@@ -41,7 +41,7 @@ const Frame = memo(function Frame({ photo, index, active, selected, contextMenu 
   );
 });
 
-export function Filmstrip() {
+export function Filmstrip({ originalsOnly = false, showFilters = true, preserveSelection = false }: { originalsOnly?: boolean; showFilters?: boolean; preserveSelection?: boolean } = {}) {
   const context = usePhotoContextMenu();
   const photos = useApp((s) => s.photos);
   const active = useApp((s) => s.active);
@@ -121,15 +121,15 @@ export function Filmstrip() {
   }, [active, filter]);
 
   return (
-    <div className="strip-wrap">
-      <div className="strip-bar">
+    <div className={`strip-wrap${originalsOnly ? ' library-filmstrip' : ''}`}>
+      {showFilters && <div className="strip-bar">
         <FilterBar />
-      </div>
+      </div>}
       <div className="strip" ref={ref} aria-label="Filmstrip">
         <div className="strip-inner" ref={inner}>
           <div className="strip-space" style={{ width: offs[win.start] }} />
           {shown.slice(win.start, win.end).map((i) => (
-            <Frame contextMenu={context.open} key={photoId(photos[i])} photo={photos[i]} index={i} active={i === active} selected={selected.has(photoId(photos[i]))} />
+            <Frame contextMenu={context.open} key={photoId(photos[i])} photo={photos[i]} index={i} active={i === active} selected={selected.has(photoId(photos[i]))} originalsOnly={originalsOnly} preserveSelection={preserveSelection} />
           ))}
           <div className="strip-space" style={{ width: offs[offs.length - 1] - offs[win.end] }} />
         </div>

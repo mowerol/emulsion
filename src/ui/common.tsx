@@ -48,8 +48,8 @@ export function Segmented<T extends string | number>(props: {
   );
 }
 
-export function Thumb({ photo, visible, className }: { photo: Photo; visible: boolean; className?: string }) {
-  const { url, failed } = useThumb(photo.path, photo.recipe, photo.seed, visible, photo.white, photo.raw, photoId(photo), JSON.stringify([photo.size, photo.modified]));
+export function Thumb({ photo, visible, className, original = false }: { photo: Photo; visible: boolean; className?: string; original?: boolean }) {
+  const { url, failed } = useThumb(photo.path, original ? null : photo.recipe, photo.seed, visible, photo.white, photo.raw, photoId(photo), JSON.stringify([photo.size, photo.modified]));
   if (url) return <img className={className} src={url} alt="" draggable={false} decoding="async" />;
   return <div className={`${className ?? ''} thumb-empty`}>{failed ? 'Unreadable' : ''}</div>;
 }
@@ -80,7 +80,7 @@ export function MarkBadges({ photo }: { photo: Photo }) {
 }
 
 /** Flag, stars and colour tag to click, for the selected frames (or the active one). */
-export function MarkControls({ photo }: { photo: Photo }) {
+export function MarkControls({ photo, advance = false }: { photo: Photo; advance?: boolean }) {
   return (
     <div className="mark-controls">
       <span className="mark-flags-input" role="group" aria-label="Flag">
@@ -95,7 +95,7 @@ export function MarkControls({ photo }: { photo: Photo }) {
               aria-pressed={on}
               title={on ? 'Unflag (U)' : `${f.name} (${f.key})`}
               // Clicking the flag a photo has clears it; the keys always set.
-              onClick={() => markPhotos({ flag: on ? null : f.id })}
+              onClick={() => markPhotos({ flag: on ? null : f.id }, advance)}
             >
               <FlagIcon flag={on || f.id === 'reject' ? f.id : null} size={15} />
             </button>
@@ -112,7 +112,7 @@ export function MarkControls({ photo }: { photo: Photo }) {
             aria-pressed={n === photo.rating}
             title={n === photo.rating ? `Clear rating (0)` : `${n} ${n === 1 ? 'star' : 'stars'} (${n})`}
             // Clicking the current rating clears it, as in Lightroom.
-            onClick={() => markPhotos({ rating: n === photo.rating ? 0 : n })}
+            onClick={() => markPhotos({ rating: n === photo.rating ? 0 : n }, advance)}
           >
             {'★'}
           </button>
@@ -127,7 +127,7 @@ export function MarkControls({ photo }: { photo: Photo }) {
             aria-label={`${l.name} tag`}
             aria-pressed={photo.label === l.id}
             title={`${l.name} (${l.key})`}
-            onClick={() => markPhotos({ label: l.id })}
+            onClick={() => markPhotos({ label: l.id }, advance)}
           >
             <span style={{ background: l.hex }} />
           </button>

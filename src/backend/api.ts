@@ -62,6 +62,12 @@ export async function thumbnail(path: string, maxEdge = 512): Promise<Blob> {
   return new Blob([buf], { type: 'image/jpeg' });
 }
 
+/** Oriented camera JPEG for RAWs, original raster otherwise. Never develops a RAW. */
+export async function cullPreview(path: string): Promise<Blob> {
+  const buf = await invoke<ArrayBuffer>('cull_preview', { path });
+  return new Blob([buf], { type: 'image/jpeg' });
+}
+
 export const HEADER_BYTES = 32;
 
 /**

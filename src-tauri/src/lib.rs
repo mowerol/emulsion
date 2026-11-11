@@ -75,6 +75,7 @@ pub fn run() {
             commands::browse_directory,
             commands::computer_folders,
             commands::thumbnail,
+            commands::cull_preview,
             commands::load_image,
             commands::custom_looks,
             commands::list_presets,

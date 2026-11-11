@@ -6,7 +6,7 @@
 // key from text fields, so those keys are named in the item's label and the page handles them.
 import { CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu } from '@tauri-apps/api/menu';
 import {
-  activePhoto, addToTargetCollection, markPhotos, setCompare, setFoldJpegs, setStageColor, setView, sourcePhotos, STAGE_COLORS, targets, useApp, type Photo, type State,
+  isLibraryLoupe, setLibraryView, setLoupeFullscreen, shown as shownPhotos, activePhoto, addToTargetCollection, markPhotos, setCompare, setFoldJpegs, setStageColor, setView, sourcePhotos, STAGE_COLORS, targets, useApp, type Photo, type State,
 } from '../library/store';
 import { FLAGS, LABELS, type Flag } from '../library/marks';
 import { targetCollection, useCatalog } from '../library/catalog';
@@ -48,15 +48,21 @@ export function menuState(s: State, prefs: InterfacePreferences, workspace: Work
     'paste-settings': photo && !!s.clipboard,
     'view-library': free,
     'view-develop': free && sourcePhotos(s).length > 0,
+    'library-grid': free && !s.choosingImport,
+    'library-loupe': photo && !s.choosingImport && shownPhotos(s).length > 0,
+    'loupe-fullscreen': photo && !s.choosingImport && shownPhotos(s).length > 0,
     'compare': developing, 'split': developing, 'clipping': developing,
-    'zoom-in': developing, 'zoom-out': developing, 'zoom-fit': developing, 'zoom-100': developing,
+    'zoom-in': developing || isLibraryLoupe(s), 'zoom-out': developing || isLibraryLoupe(s), 'zoom-fit': developing || isLibraryLoupe(s), 'zoom-100': developing || isLibraryLoupe(s),
     'fold-jpegs': s.pairCount > 0,
     'auto-advance': free,
     'add-to-target': photo && !!targetCollection(),
   };
   const checked: Record<string, boolean> = {
-    'view-library': s.view !== 'develop',
+    'view-library': s.view === 'library',
     'view-develop': s.view === 'develop',
+    'library-grid': s.view === 'library' && s.libraryView === 'grid',
+    'library-loupe': isLibraryLoupe(s),
+    'loupe-fullscreen': isLibraryLoupe(s) && s.loupeFullscreen,
     'compare': s.compare,
     'clipping': s.clipping,
     'fold-jpegs': s.foldJpegs,
@@ -96,11 +102,14 @@ export function viewMenuAction(id: string, s: State = useApp.getState()): boolea
   }
   if (id === 'fold-jpegs') { setFoldJpegs(!s.foldJpegs); return true; }
   const { enabled } = menuState(s, usePrefs.getState(), useWorkspace.getState());
-  const photoAction = ['view-library', 'view-develop', 'compare', 'split', 'clipping', 'zoom-in', 'zoom-out', 'zoom-fit', 'zoom-100'];
+  const photoAction = ['view-library', 'view-develop', 'library-grid', 'library-loupe', 'loupe-fullscreen', 'compare', 'split', 'clipping', 'zoom-in', 'zoom-out', 'zoom-fit', 'zoom-100'];
   if (!photoAction.includes(id)) return false;
   if (!enabled[id] || dialogOpen(s)) return true;
   if (id === 'view-library') setView('library');
   else if (id === 'view-develop') setView('develop');
+  else if (id === 'library-grid') setLibraryView('grid');
+  else if (id === 'library-loupe') setLibraryView('loupe');
+  else if (id === 'loupe-fullscreen') setLoupeFullscreen(!s.loupeFullscreen);
   else if (id === 'compare') setCompare(!s.compare);
   else if (id === 'clipping') useApp.setState({ clipping: !s.clipping });
   else if (!id.startsWith('zoom-') || firstOf(id, 'menu')) viewCommand(id as ViewCommand);
@@ -218,6 +227,10 @@ export async function installAppMenu(run: (id: string) => void): Promise<() => v
   const view = await Submenu.new({ text: 'View', items: [
     await check('view-library', 'Library (G)'),
     await check('view-develop', 'Develop (D)'),
+    await sep(),
+    await check('library-grid', 'Grid (G)'),
+    await check('library-loupe', 'Loupe (E)'),
+    await check('loupe-fullscreen', 'Fullscreen Preview (F)'),
     await sep(),
     await check('compare', 'Show Original (hold \\)'),
     await item('split', 'Before and After Split (Y)'),

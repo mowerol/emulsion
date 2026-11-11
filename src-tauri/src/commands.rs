@@ -92,6 +92,12 @@ pub async fn thumbnail(paths: State<'_, AppPaths>, path: String, max_edge: u32) 
 }
 
 #[tauri::command]
+pub async fn cull_preview(path: String) -> Result<Response, String> {
+    let bytes = blocking(move || thumbs::cull_preview(Path::new(&path))).await?;
+    Ok(Response::new(bytes))
+}
+
+#[tauri::command]
 pub async fn load_image(app: tauri::AppHandle, paths: State<'_, AppPaths>, path: String, max_edge: Option<u32>, noise_reduction: Option<bool>) -> Result<Response, String> {
     let cache = paths.cache_dir.parent().unwrap_or(&paths.cache_dir).join("noise-reduction");
     let bytes = blocking(move || if noise_reduction.unwrap_or(false) { crate::noise_cache::load(&app, &cache, Path::new(&path), max_edge) }

@@ -371,6 +371,48 @@ The app data folder holds `looks/`, `presets/` and `settings.json`. The last hol
 
 ## Workspace presentation
 
+`View` is Library/Develop. Library owns an independent `libraryView` (Grid/Loupe)
+and optional `loupeFullscreen` presentation state. `ui/Library.tsx` keeps source
+navigation, collection/folder controls and filters available around `ui/LibraryLoupe.tsx`.
+A virtualized `ui/LibraryImageRail.tsx` beside Loupe reuses Develop's `ImageFrame` tiles
+with original thumbnails (including edited RAWs), so it never starts RAW development.
+Equal-height rows reserve room for marks; fractional row measurements and inner-list
+spacers keep long carousels accurate. Active navigation reveals the current tile,
+including after returning from fullscreen; manual scrolling preserves the active photo.
+Source context and photo details use compact rows; Fit/100% lives in the photo toolbar
+so the image stage has no control overlay or reserved zoom row. The Grid stays mounted but hidden to retain scroll
+and layout state. Its original batch marking controls and Auto Advance are also available.
+Double-click/E/Enter opens the Grid photo in Loupe; G returns to Grid; D opens Develop.
+Enter in Loupe opens Develop unless a focused native control owns activation.
+
+F or the Loupe's fullscreen button explicitly expands the existing preview. CSS hides
+Library chrome without remounting the preview or losing zoom/pan. Escape/F restores
+embedded Loupe; Escape again returns to Grid. Native fullscreen changes are serialized
+and preserve a previously fullscreen window. Browser fixtures use the full window.
+Opening Loupe itself never changes native fullscreen. Choosing another workspace/source
+clears the explicit fullscreen presentation.
+
+`cull_preview` returns an oriented JPEG: LibRaw's embedded camera image for a RAW,
+otherwise the tagged raster converted to sRGB by the existing decoder. It never
+falls back to developing a RAW. Previews are encoded at JPEG quality 95, without
+upscaling, with an 8192 px long-edge ceiling. 100% means one returned preview pixel
+per device pixel, not one sensor pixel. Camera/original previews deliberately exclude
+Develop edits and a virtual copy's crop. Missing previews offer retry/skip.
+`ui/cullpreviews.ts` serializes reads and prioritizes the active source, then its next
+and previous neighbours; navigation replaces queued work. File size/mtime invalidate
+entries and virtual copies share source bytes. At most three entries and approximately
+96 MiB of retained decoded pixels are cached (one oversized active image is allowed);
+URLs are revoked on eviction, exit and late completion. Native decode/transient browser
+allocations are additional to that cache estimate.
+
+Loupe navigation and ordinary carousel clicks move active focus without altering the
+Library's batch selection. `targets` returns only the shown active frame in Loupe, so
+buttons, keys and menu marks cannot affect a previous grid selection. Grid keeps batch
+marking. Filters/source/selected-only navigation, undo and saved marks use the existing
+store. A filter with no matches hides the prior active preview and marking controls;
+Clear filters restores browsing. Shift/Cmd carousel clicks still explicitly change
+selection. Returning to Grid retains its selection.
+
 `ui/workspace.ts` owns application preferences for one/two image columns and the selected control stage. Workflow is the only workspace; older Classic preferences normalize to Workflow while retaining columns and stage. These preferences are outside photo recipes and sidecars. The control tabs use stable section IDs; a keyed registry follows their membership/order while keeping module view state mounted. They change presentation rather than image-processing order. White balance, Exposure and HDR have independent reset field sets.
 
 Develop owns zoom, before/split and crop state; its toolbar sits over the photo column. Masks are edited on the photo (`MaskOverlay`) while the Masks tab is open; which mask is selected and the armed tool live in `ui/maskui.ts`, outside the recipe. A fixed bar below the photo holds frame/file details and flag/stars/colour tags; the right pane is reserved for editing controls. The Images browser shares the existing thumbnail, filtering, marking, RAW+JPEG folding and selection operations. Changing columns affects the sidebar grid and up/down navigation stride, not recipes or selection.

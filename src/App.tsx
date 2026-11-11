@@ -13,7 +13,7 @@ import { clearRecentFolders, lastFolder } from './library/folders';
 import { dialogOpen, installAppMenu, RECENT_PREFIX } from './ui/appmenu';
 import { firstOf } from './ui/menubridge';
 import {
-  activePhoto, addToTargetCollection, openCopySettings, createVirtualCopies, markPhotos, openFolder, openPaths, pasteSettings, redo, selectAll, setCompare, setExportOpen, setView, showToast, step, stepToEnd, undo, useApp,
+  isLibraryLoupe, setLibraryView, setLoupeFullscreen, activePhoto, addToTargetCollection, openCopySettings, createVirtualCopies, markPhotos, openFolder, openPaths, pasteSettings, redo, selectAll, setCompare, setExportOpen, setView, showToast, step, stepToEnd, undo, useApp,
 } from './library/store';
 import { Images } from './ui/Images';
 import { useWorkspace } from './ui/workspace';
@@ -94,12 +94,15 @@ export function useShortcuts() {
     const down = (e: KeyboardEvent) => {
       const s = useApp.getState();
       const mod = e.metaKey || e.ctrlKey;
+      if (e.defaultPrevented) return;
       if (s.copySettingsSource || document.querySelector('[role="dialog"][aria-modal="true"], dialog[open]')) return;
       if (e.key === '\\') {
-        setCompare(true);
+        if (s.view === 'develop') setCompare(true);
         return;
       }
       if (typingIn(e.target) || s.exportOpen) return;
+      // Enter belongs to a focused native control; only the photo stage opens Develop.
+      if (s.view === 'library' && e.key === 'Enter' && (e.target as HTMLElement | null)?.closest('button, a[href], input')) return;
       if ((!MENU_OWNS_EDIT_KEYS || s.lookEdit) && (e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'z') {
         e.preventDefault();
         keyUndoAt = performance.now();
@@ -116,9 +119,12 @@ export function useShortcuts() {
       const onRange = (e.target as HTMLElement)?.tagName === 'INPUT';
       const k = e.key.toLowerCase();
       if (mod && k === 'o') { e.preventDefault(); if (firstOf('import', 'key')) chooseFolder(); return; }
-      if (k === 'g' && !mod) { setView('library'); return; }
+      if (k === 'g' && !mod && !e.altKey) { setLibraryView('grid'); return; }
       if (s.view === 'library' && s.choosingImport) return;
+      if (!mod && !e.altKey && e.key === 'Escape' && isLibraryLoupe(s)) { e.preventDefault(); if (s.loupeFullscreen) setLoupeFullscreen(false); else setLibraryView('grid'); return; }
       if (!s.photos.length) return;
+      if (!mod && !e.altKey && k === 'f' && !onRange) { e.preventDefault(); if (!e.repeat) setLoupeFullscreen(!s.loupeFullscreen); return; }
+      if (!mod && !e.altKey && k === 'e' && s.view === 'library' && !onRange) { setLibraryView('loupe'); return; }
       if (mod && e.key === "'") { e.preventDefault(); if (firstOf('virtual-copy', 'key')) createVirtualCopies(); return; }
       if (mod && !e.altKey && (k === 'c' || k === 'v')) {
         e.preventDefault();
@@ -129,9 +135,9 @@ export function useShortcuts() {
       if (mod && e.shiftKey && k === 'e') { e.preventDefault(); if (firstOf('export', 'key')) setExportOpen(true); return; }
       if (!MENU_OWNS_EDIT_KEYS && mod && k === 'a' && (s.view === 'library' || (s.view === 'develop' && useWorkspace.getState().layout === 'workflow'))) { e.preventDefault(); selectAll(); return; }
       if (mod || e.altKey) return;
-      if (k === 'g') setView('library');
+      if (k === 'g') setLibraryView('grid');
       else if (k === 'd') setView('develop');
-      else if (e.key === 'Enter' && s.view === 'library') setView('develop');
+      else if (e.key === 'Enter' && s.view === 'library') { if (isLibraryLoupe(s)) setView('develop'); else setLibraryView('loupe'); }
       else if (onRange) return;
       else if (k === 'b') { e.preventDefault(); if (!e.repeat) addToTargetCollection(); }
       else if (markForKey(markKey(e))) {
@@ -141,6 +147,7 @@ export function useShortcuts() {
       }
       else if (e.key === 'ArrowRight') { e.preventDefault(); step(1); }
       else if (e.key === 'ArrowLeft') { e.preventDefault(); step(-1); }
+      else if (isLibraryLoupe(s) && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); step(e.key === 'ArrowDown' ? 1 : -1); }
       else if (e.key === 'ArrowDown' && s.view === 'library') { e.preventDefault(); step(gridColumns); }
       else if (e.key === 'ArrowUp' && s.view === 'library') { e.preventDefault(); step(-gridColumns); }
       else if (e.key === 'ArrowDown' && s.view === 'develop' && useWorkspace.getState().layout === 'workflow') { e.preventDefault(); step(useWorkspace.getState().imageColumns); }
@@ -222,13 +229,14 @@ export default function App() {
   useShortcuts();
   const dropping = useDesktop();
   const editingLook = useApp(s => !!s.lookEdit);
+  const fullscreen = useApp(s => isLibraryLoupe(s) && s.loupeFullscreen);
   const layout = useWorkspace(s => s.layout);
   const workflow = !editingLook && layout === 'workflow' && view === 'develop' && hasFolder;
   const theme = usePrefs(p => p.theme);
   useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
 
   return (
-    <div className={`app${editingLook ? ' app-look-editor' : ''}`}>
+    <div className={`app${editingLook ? ' app-look-editor' : ''}${fullscreen ? ' app-loupe-fullscreen' : ''}`}>
       {editingLook ? <LookCreatorHeader /> : <TopBar />}
       {editingLook ? <div className="workspace workspace-look">
         <LookLutColumn />

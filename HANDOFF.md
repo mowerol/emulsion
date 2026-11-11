@@ -1,7 +1,90 @@
 # Handoff
 
-All work through 2026-11-11 is committed and pushed (flags, Select sky, the open-source map, the export
-dialog grid and the renamed Emulsion looks); "Uncommitted" notes below are out of date.
+The flags, Select sky, open-source map, export dialog grid and renamed Emulsion looks
+are committed. Library Grid/Loupe and its vertical carousel are now committed. Separate metadata
+changes remain uncommitted in the working tree; older "Uncommitted" notes may be out of date.
+
+## Loupe artboard space: vertical image carousel (2026-11-11)
+
+Committed with the Library Grid/Loupe work below. Oli found the photo too
+small and chose a vertical carousel consistent with Develop.
+
+- **Layout:** `LibraryImageRail.tsx` replaces Loupe's bottom filmstrip with a 184px
+  single-column Images rail beside the artboard. Reuses Develop's `ImageFrame` tiles;
+  optional original thumbnails and preserved selection leave Develop's defaults intact.
+  Source context is one compact breadcrumb/count row; photo details and Fit/100% share
+  the photo toolbar. The photo gets equal 12px insets (8px in narrow containers), with
+  no reserved zoom row. Folder navigation, filters, marks and optional fullscreen remain.
+- **Scale/scroll:** rail mounts only nearby rows, reserves a consistent marks row and
+  measures fractional row heights. Virtual padding belongs to an inner list so it cannot
+  expand the flex scroll viewport. Active navigation reveals the tile; manual scrolling
+  leaves active selection alone; restoring fullscreen reveals any photo selected there.
+- **Checks:** all 806 frontend tests pass (1 skipped), typecheck and production build pass.
+  Browser fixture covers 2,000 photos, bounded mounted tiles/scroll viewport, End/Home/Down,
+  manual scrolling, F → End → Escape restoration, partial selection, marks/undo/copies,
+  camera-only previews, retry/no-match, Grid/Loupe/Develop routing and physical pixel zoom.
+  Develop's three-column Images fixture also passes. Visual captures inspected under
+  `.scratch/loupe-vertical-{desktop,compact,fullscreen-narrow,error,zoom,scale}.png`;
+  normal desktop DPR2, 1200px light and narrow fullscreen. Grid capture retained separately.
+- **App check remaining:** real WKWebView trackpad scrolling/pinch, camera-preview latency
+  and native fullscreen transitions; browser IPC is mocked. No backend/pipeline changes.
+
+## Library Grid/Loupe with optional fullscreen (2026-11-11)
+
+Committed. Oli challenged the separate fullscreen Cull mode and approved integrating
+Loupe into Library. This supersedes the initial fullscreen-only implementation.
+
+- **Structure:** Library toolbar Grid/Loupe switch; folders, collections, source header
+  and filters stay available. Loupe has a compact source header and a virtualized
+  original-preview filmstrip. The top-bar Cull action and separate `cull` View are gone.
+  `View` is Library/Develop; `libraryView` is Grid/Loupe with independent
+  `loupeFullscreen`. Hidden mounted Grid retains scroll/layout state.
+- **Keys/actions:** double-click a Grid tile, E, or Enter opens Loupe; G returns to Grid,
+  D opens Develop. Enter on Loupe's photo stage opens Develop, while focused controls
+  keep native activation. F/fullscreen button optionally expands the photo; F/Escape
+  restores the SAME embedded Loupe (same preview DOM, zoom/pan and source), Escape again
+  returns to Grid. Workspace/source changes clear explicit fullscreen. Native transition
+  serialization preserves a window that was already fullscreen.
+- **Marks/selection:** Grid has shared flag/stars/labels and Auto Advance controls for
+  its selection. Loupe's `targets` is the shown active frame only; navigation/Home/End
+  and ordinary filmstrip clicks preserve partial grid selections. Shift/Cmd filmstrip
+  clicks explicitly change them. Filters, undo, virtual-copy identity, marks and saves
+  stay in the existing store. A no-match filter hides the prior image AND its marks,
+  with Clear filters to recover.
+- **Photo:** `LibraryLoupe.tsx` reuses the original-preview loader and zoom/pan from the
+  first implementation. Fit, click/Z → physical-pixel-correct 100% preview, drag/scroll
+  pan and pinch/Ctrl-scroll zoom. Original camera rendering, no Develop edits/crop.
+  Virtual copies share source bytes, keep independent marks. `Filmstrip` gains opt-in
+  original thumbnails, no duplicate filters, preserved selection; Develop defaults stay
+  unchanged. `Thumb`'s original option prevents edited-neighbour RAW development.
+- **Native/queue unchanged:** `cull_preview` uses only the oriented embedded JPEG for
+  RAWs and the tagged-image/sRGB decoder for rasters. JPEG quality95, no upscale, 8192px
+  ceiling, no RAW-development fallback. One native read at a time, active/next/previous
+  queue replaced on navigation; three entries and ~96MiB estimated retained decoded
+  pixels, allowing one oversized active image; file size/mtime keys, URL eviction,
+  stale-completion and exit cleanup. No persistent full-size preview cache.
+- **Checks:** `npm run check` passes (806 frontend/1skipped;116 Rust/17ignored;
+  typecheck/build). Final CSS refinements checked in the browser; subsequent typecheck
+  and production build also pass.
+  Focused culling/cache/menu suites:22 pass. Browser fixture `culling` now mounts real
+  Library, TopBar, filmstrip and global shortcuts in StrictMode with native IPC mocked.
+  Covers normal open without fullscreen; folder/filter/strip retention; explicit
+  fullscreen hides chrome without remount; Escape restoration; pixel100%; keyboard
+  marks/undo/retry/copies; partial-selection strip click; G/E/Enter/D/menu routes;
+  no-match filter and Clear; edited-neighbour filmstrip makes no RAW decode.
+  Captures `.scratch/library-grid.png`, `library-loupe-{retina,compact,error,zoom,
+  fullscreen,fullscreen-narrow}.png`:1440×1000 DPR2,1200×800 light,1440×900 fullscreen
+  and520×740 fullscreen. Independent finish review: **ship** at the scope of the
+  inspected UI and supplied automated behavior evidence; no material findings.
+- **Oli should try:** double-click/E from real Library; folders/collections/filters while
+  in Loupe, click the filmstrip, G back to Grid (selection/scroll intact), D to Develop;
+  P/X/U,Shift+3,Auto Advance,Cmd+Z; click/Z and trackpad pan/pinch; F then Escape back
+  to the same Library Loupe, including when the app window was already fullscreen.
+  Native WKWebView fullscreen/trackpad behavior, real RAF/ORF preview latency and process
+  memory are still unmeasured. Browser fixture proves routing, not native OS behavior.
+- **Next:** Compare/Survey belong beside Grid/Loupe in Library; then stacks/bursts,
+  search/richer smart rules, batch rename/capture-time offsets and catalog scale.
+  Overall performance acceptance remains open; Oli explicitly chose this Library step.
 
 ## Open-source feature map (2026-11-11)
 

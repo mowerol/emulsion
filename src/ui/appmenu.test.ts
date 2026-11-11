@@ -39,6 +39,26 @@ it('offers zoom, compare and clipping only in Develop', () => {
   expect(state({ ...withPhoto, view: 'develop' }).enabled['zoom-fit']).toBe(true);
 });
 
+it('offers Library Grid/Loupe and optional fullscreen, with zoom but no Develop tools in Loupe', () => {
+  expect(state(base).enabled['library-loupe']).toBe(false);
+  expect(state(withPhoto).enabled['library-loupe']).toBe(true);
+  const loupe = { ...withPhoto, libraryView: 'loupe' as const };
+  expect(state(loupe).checked['library-loupe']).toBe(true);
+  expect(state(loupe).checked['view-library']).toBe(true);
+  expect(state(loupe).enabled['zoom-100']).toBe(true);
+  expect(state(loupe).enabled['compare']).toBe(false);
+  expect(state(loupe).enabled['tool:crop']).toBe(false);
+  useApp.setState(withPhoto); viewMenuAction('library-loupe');
+  expect(useApp.getState().libraryView).toBe('loupe');
+  expect(useApp.getState().loupeFullscreen).toBe(false);
+  viewMenuAction('loupe-fullscreen');
+  expect(useApp.getState().loupeFullscreen).toBe(true);
+  viewMenuAction('loupe-fullscreen');
+  expect(useApp.getState().libraryView).toBe('loupe');
+  viewMenuAction('library-grid');
+  expect(useApp.getState().libraryView).toBe('grid');
+});
+
 it('greys out File and Edit while a look is being edited', () => {
   const { enabled } = state({ ...withPhoto, lookEdit: {} as never });
   for (const id of ['import', 'export', 'virtual-copy', 'copy-settings', 'view-library', 'view-develop']) expect(enabled[id], id).toBe(false);

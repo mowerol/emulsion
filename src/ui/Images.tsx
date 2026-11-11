@@ -26,13 +26,13 @@ function FilterChips({ filter }: { filter: Filter }) {
   return <div className="filter-chips" aria-label="Active filters">{chips.map(c => <span key={c} className="filter-chip">{c}</span>)}</div>;
 }
 
-const ImageFrame = memo(function ImageFrame({ photo, index, active, selected, contextMenu }: { photo: Photo; index: number; active: boolean; selected: boolean; contextMenu: PhotoContextHandler }) {
+export const ImageFrame = memo(function ImageFrame({ photo, index, active, selected, contextMenu, original = false, preserveSelection = false }: { photo: Photo; index: number; active: boolean; selected: boolean; contextMenu: PhotoContextHandler; original?: boolean; preserveSelection?: boolean }) {
   const [ref, visible] = useVisible<HTMLButtonElement>('300px');
-  return <button ref={ref} type="button" data-index={index} aria-current={active ? 'true' : undefined} aria-pressed={selected}
+  return <button ref={ref} type="button" data-index={index} aria-label={`Frame ${index + 1}, ${photoName(photo)}`} aria-current={active ? 'true' : undefined} aria-pressed={selected}
     className={`image-frame${active ? ' active' : ''}${selected ? ' selected' : ''}${photo.flag === 'reject' ? ' rejected' : ''}`} title={[photo.copyId ? `${photo.rel} · ${photo.copyName}` : photo.rel, photo.recipe && recipeLabel(photo), photo.pair && 'RAW+JPG'].filter(Boolean).join('\n')}
     onContextMenu={e => contextMenu(e, index)}
-    onClick={e => setActive(index, e.shiftKey ? 'range' : e.metaKey || e.ctrlKey ? 'toggle' : 'single')}>
-    <span className="image-frame-picture"><Thumb photo={photo} visible={visible} /><span>{index + 1}</span>
+    onClick={e => setActive(index, e.shiftKey ? 'range' : e.metaKey || e.ctrlKey ? 'toggle' : preserveSelection ? 'preserve' : 'single')}>
+    <span className="image-frame-picture"><Thumb photo={photo} visible={visible} original={original} /><span>{index + 1}</span>
       {photo.recipe && <span className="image-frame-edited" role="img" aria-label="Edited"><Pencil size={10} strokeWidth={2.25} aria-hidden="true" /></span>}</span>
     <span className="image-frame-name">{photoName(photo)}</span>
     <MarkBadges photo={photo} />

@@ -60,6 +60,7 @@ export interface Folder {
 }
 
 export type View = 'library' | 'develop';
+export type LibraryView = 'grid' | 'loupe';
 
 export interface Toast {
   id: number;
@@ -81,6 +82,9 @@ export interface State {
   includeSubfolders: boolean;
   photos: Photo[];
   view: View;
+  libraryView: LibraryView;
+  /** Optional photo-only presentation of the Library loupe. */
+  loupeFullscreen: boolean;
   active: number;
   selected: Set<string>;
   anchor: number;
@@ -221,6 +225,8 @@ export const useApp = create<State>(() => ({
   includeSubfolders: false,
   photos: [],
   view: 'library',
+  libraryView: 'grid',
+  loupeFullscreen: false,
   active: -1,
   selected: new Set(),
   anchor: -1,
@@ -328,7 +334,7 @@ export async function openFolder(path: string) {
       importChoice: choice,
       choosingImport: !choice,
       includeSubfolders: choice?.includeSubfolders === true,
-      view: 'library',
+      view: 'library', loupeFullscreen: false,
       compare: false,
       ...historyState(),
     });
@@ -438,7 +444,7 @@ export function closeFolder() {
   endLookEdit();
   history.clear();
   set({ source: null, folder: null, photos: [], hidden: [], candidates: [], subfolders: [], importChoice: null,
-    choosingImport: false, includeSubfolders: false, loading: false, active: -1, selected: new Set(), view: 'library', copySettingsSource: null, ...historyState() });
+    choosingImport: false, includeSubfolders: false, loading: false, active: -1, selected: new Set(), view: 'library', libraryView: 'grid', loupeFullscreen: false, copySettingsSource: null, ...historyState() });
 }
 
 /** Load virtual sources from saved folder memberships, re-reading sidecars before showing them. */
@@ -482,7 +488,7 @@ export async function selectSource(source: SourceSelection) {
       photos, hidden, candidates: [], subfolders: [], importChoice: null, choosingImport: false,
       pairCount: findPairs(all.filter(p => !p.copyId)).size, active: first, anchor: first,
       selected: first >= 0 ? new Set([photoId(photos[first])]) : new Set(),
-      view: 'library', compare: false, histogram: null, ...historyState() });
+      view: 'library', loupeFullscreen: false, compare: false, histogram: null, ...historyState() });
     if (session) viewImport(session.id);
     if (root) {
       void loadWhitePoints(root, [...new Set(all.map(p => p.path))]);
@@ -542,20 +548,41 @@ export function useActivePhotoFacts(): Photo | null {
 
 export const setView = (view: View) => {
   if (get().lookEdit) return showToast('Save or cancel the look draft first');
-  if (view === 'develop' && !shown().length) return;
-  if (view === 'develop' && !shown().includes(get().active)) setActive(shown()[0]);
+  if (view !== 'library' && !shown().length) return;
+  if (view !== 'library' && !shown().includes(get().active)) setActive(shown()[0]);
   if (view !== 'develop') finishCrop(true);
-  set({ view });
+  set({ view, loupeFullscreen: false });
 };
 
-export function setActive(index: number, mode: 'single' | 'toggle' | 'range' | 'keep' = 'single') {
+export const isLibraryLoupe = (s: State = get()) => s.view === 'library' && s.libraryView === 'loupe' && !s.choosingImport;
+
+export function setLibraryView(libraryView: LibraryView) {
+  if (get().lookEdit || get().choosingImport) return;
+  const list = shown();
+  if (libraryView === 'loupe' && !list.length) return;
+  if (libraryView === 'loupe' && !list.includes(get().active)) setActive(list[0], 'preserve');
+  finishCrop(true);
+  set({ view: 'library', libraryView, loupeFullscreen: false });
+}
+
+export function setLoupeFullscreen(fullscreen: boolean) {
+  if (!fullscreen) { set({ loupeFullscreen: false }); return; }
+  if (get().lookEdit || get().choosingImport || !shown().length) return;
+  if (!isLibraryLoupe()) setLibraryView('loupe');
+  set({ loupeFullscreen: true });
+}
+
+export function setActive(index: number, mode: 'single' | 'toggle' | 'range' | 'keep' | 'preserve' = 'single') {
   if (get().lookEdit && index !== get().active) return showToast('Save or cancel the look draft first');
   if (index !== get().active) finishCrop(true);
   const { photos, anchor, selected } = get();
   if (index < 0 || index >= photos.length) return;
   set({ filterExcludedActive: null });
   const path = photoId(photos[index]);
-  if (mode === 'keep') {
+  if (mode === 'preserve') {
+    // Culling moves focus independently of the Library's batch selection.
+    set({ active: index, anchor: index });
+  } else if (mode === 'keep') {
     set({ active: index, anchor: index, selected: selected.has(path) ? selected : new Set([path]) });
   } else if (mode === 'toggle') {
     const next = new Set(selected);
@@ -580,13 +607,13 @@ export const shown = (s: State = get()) => {
 /** Move through the shown photos; a grid row down is `delta` = columns. */
 export function step(delta: number) {
   if (!get().photos.length) return;
-  setActive(stepWithin(shown(), get().active, delta));
+  setActive(stepWithin(shown(), get().active, delta), isLibraryLoupe() ? 'preserve' : 'single');
 }
 
 /** The first or last shown photo. */
 export function stepToEnd(end: 'first' | 'last') {
   const list = shown();
-  if (list.length) setActive(end === 'first' ? list[0] : list[list.length - 1]);
+  if (list.length) setActive(end === 'first' ? list[0] : list[list.length - 1], isLibraryLoupe() ? 'preserve' : 'single');
 }
 
 /**
@@ -636,7 +663,7 @@ export function addToTargetCollection() {
   const collection = targetCollection();
   if (!collection) return showToast('Open a collection and choose Set as target collection first');
   const photo = activePhoto(s);
-  const photos = s.view === 'library' ? sourcePhotos(s).filter(p => s.selected.has(photoId(p))) : photo ? [photo] : [];
+  const photos = s.view === 'library' && !isLibraryLoupe(s) ? sourcePhotos(s).filter(p => s.selected.has(photoId(p))) : photo ? [photo] : [];
   if (!photos.length) return;
   addToCollection(collection.id, photos.map(photoId));
   showToast(`Added ${photos.length} ${photos.length === 1 ? 'photo' : 'photos'} to ${collection.name}`);
@@ -644,6 +671,7 @@ export function addToTargetCollection() {
 
 /** Photos an edit should apply to: the selection when several are selected, otherwise the active photo. */
 export function targets(s: State = get()): Photo[] {
+  if (isLibraryLoupe(s)) { const a = shown(s).includes(s.active) ? activePhoto(s) : null; return a ? [a] : []; }
   if (s.selected.size > 1) return s.photos.filter((p) => s.selected.has(photoId(p)));
   const a = activePhoto(s);
   return a ? [a] : [];

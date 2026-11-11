@@ -24,6 +24,25 @@ fn cache_file(cache_dir: &Path, key: &str) -> PathBuf {
     cache_dir.join(&key[..2]).join(format!("{key}.jpg"))
 }
 
+/// Focus-checking preview, independent of edits and of the 512px thumbnail cache.
+/// RAWs use only their camera JPEG. A ceiling bounds pathological raster inputs;
+/// the loupe measures 100% in these preview pixels, never in sensor pixels.
+pub fn cull_preview(path: &Path) -> Result<Vec<u8>, String> {
+    let image = match classify(path) {
+        Kind::Raw => raw::embedded_preview(path)?,
+        _ => {
+            let (img, icc) = decode::open_tagged(path)?;
+            decode::to_srgb(img, icc.as_deref())
+        }
+    };
+    let image = if image.width().max(image.height()) > 8192 { image.thumbnail(8192, 8192) } else { image };
+    let mut bytes = Vec::new();
+    JpegEncoder::new_with_quality(&mut bytes, 95)
+        .encode_image(&image.to_rgb8())
+        .map_err(|e| format!("Could not encode preview: {e}"))?;
+    Ok(bytes)
+}
+
 /// JPEG bytes for a thumbnail of `path`, from the cache when possible.
 pub fn get_or_create(cache_dir: &Path, path: &Path, max_edge: u32) -> Result<Vec<u8>, String> {
     let meta = fs::metadata(path).map_err(|e| format!("Could not read {}: {e}", path.display()))?;
@@ -93,5 +112,15 @@ mod tests {
         assert_eq!(cached.len(), 1);
         let b = get_or_create(&cache, &img, 256).unwrap();
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn cull_keeps_original_preview_dimensions_and_reports_unreadable_files() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("photo.png");
+        ImageBuffer::from_fn(1200, 800, |x, _| Rgb([(x % 255) as u8, 90, 160])).save(&path).unwrap();
+        let decoded = image::load_from_memory(&cull_preview(&path).unwrap()).unwrap();
+        assert_eq!((decoded.width(), decoded.height()), (1200, 800));
+        assert!(cull_preview(&dir.path().join("missing.raf")).is_err());
     }
 }
