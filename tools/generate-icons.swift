@@ -9,6 +9,7 @@ let files = FileManager.default
 let root = URL(fileURLWithPath: files.currentDirectoryPath)
 let icons = root.appendingPathComponent("src-tauri/icons")
 let source = icons.appendingPathComponent("source.png")
+let artwork = root.appendingPathComponent("public/brand/app-icon.png")
 let temporary = files.temporaryDirectory.appendingPathComponent(UUID().uuidString)
 try files.createDirectory(at: temporary, withIntermediateDirectories: true)
 defer { try? files.removeItem(at: temporary) }
@@ -16,7 +17,7 @@ defer { try? files.removeItem(at: temporary) }
 func generate(_ input: URL, into output: URL) throws {
     let process = Process()
     process.executableURL = root.appendingPathComponent("node_modules/.bin/tauri")
-    process.arguments = ["icon", input.path, "--output", output.path]
+    process.arguments = ["icon", input.path, "--output", output.path, "--fit", "contain"]
     try process.run()
     process.waitUntilExit()
     guard process.terminationStatus == 0 else {
@@ -24,10 +25,14 @@ func generate(_ input: URL, into output: URL) throws {
     }
 }
 
+// Keep the supplied app icon intact, including its shading and transparent edges.
+// Tauri contains its slightly rectangular canvas within square desktop outputs.
+try Data(contentsOf: artwork).write(to: source, options: .atomic)
+
 // Fit the visible tile, not the source canvas: supplied artwork can already
 // include transparent margins and an asymmetric shadow. The 824 px tile matches
 // the legacy ICNS layout used by macOS Notes and Calculator (1024 px canvas).
-// Oli requested a slightly larger optical size for this dark tile: 848 px,
+// Oli requested a slightly larger optical size for the app tile: 848 px,
 // about 3% above that 824 px reference, with the visible tile still centered.
 let imageSource = CGImageSourceCreateWithURL(source as CFURL, nil)!
 let image = CGImageSourceCreateImageAtIndex(imageSource, 0, nil)!

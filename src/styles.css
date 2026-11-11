@@ -259,7 +259,14 @@ body:has(.library-fullscreen) { min-width: 0; }
   display: flex; align-items: center; gap: 14px; padding: 5px 12px;
   border-bottom: 1px solid var(--line); background: var(--bg); min-height: 40px;
 }
-.brand { font-stretch: 125%; font-weight: 800; font-size: 15px; letter-spacing: -0.01em; }
+.brand { display: flex; align-items: center; flex-shrink: 0; gap: 8px; }
+.brand-mark { display: block; width: 23px; height: 24px; }
+.brand-wordmark {
+  display: block; width: 88px; height: 17px; background: #fafafa;
+  -webkit-mask: url('/brand/wordmark.svg') center / contain no-repeat;
+  mask: url('/brand/wordmark.svg') center / contain no-repeat;
+}
+:root[data-theme='light'] .brand-wordmark { background: #36393f; }
 .views { display: flex; gap: 2px; background: var(--raise); border-radius: 7px; padding: 2px; }
 .views button { background: none; border: 0; border-radius: 5px; padding: 4px 12px; font-weight: 600; font-size: 13px; color: var(--muted); cursor: pointer; }
 .views button[aria-pressed='true'] { background: var(--line); color: var(--fg); }
@@ -1094,7 +1101,6 @@ body { font-variant-numeric: tabular-nums; min-width: 1200px; }
 
 /* Header: app-level things only. */
 .topbar { min-height: 56px; height: 56px; padding: 0 16px; gap: 16px; background: var(--app); border-bottom: 1px solid var(--line); }
-.brand { font-stretch: normal; font-weight: 700; font-size: 16px; letter-spacing: -0.01em; }
 .views { background: var(--ctl); border-radius: 8px; padding: 2px; }
 .views button { padding: 5px 14px; font-weight: 500; color: var(--muted); }
 .views button[aria-pressed='true'] { background: var(--sel); color: var(--text); }
@@ -1814,7 +1820,6 @@ button.keyword-name:hover { color: var(--text); }
 .app.app-loupe-fullscreen { grid-template-rows: minmax(0, 1fr); }
 .topbar.topbar-library { height: 44px; min-height: 44px; padding: 0 12px 0 20px; gap: 12px; background: var(--panel); }
 .topbar.topbar-import { height: 46px; min-height: 46px; border-top: 2px solid var(--accent); }
-.topbar-library .brand { font-size: 18px; line-height: 24px; font-weight: 700; }
 .topbar-library .views { padding: 2px; border-radius: 7px; gap: 0; background: var(--ctl); }
 .topbar-library .views button { height: 24px; padding: 0 12px; border-radius: 5px; font-size: 12px; }
 .topbar-library .views button[aria-pressed=true] { background: var(--sel); }
