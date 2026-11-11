@@ -40,7 +40,7 @@ import { usmKernel, usmParams, type UsmParams } from './usm';
 import { DEFAULTS as CE, SAT_SHIFT, WHITE, colorEqLuts, pixelUvl, type ColorEqLuts, type ColorEqParams } from './colorequal';
 import { BRIGHT_RANGE, HUE_DEGREES, HUE_MAX, SAT_RANGE, type ColorAdjust } from '../film/recipe';
 import { autoContrast, borderFor, gaussian1d, iterationsFor, kernelFor, TILE } from './capture';
-import { columnMajor } from './color';
+import { columnMajor, invert3 } from './color';
 import type { Mat3, Vec3 } from '../film/stocks';
 import { CURVE_RES } from '../film/curve';
 import { composedCurveTable, lookColorFor } from '../film/creative';
@@ -3005,6 +3005,9 @@ export class Engine {
     u.uGeoU = geo[0];
     u.uGeoV = geo[1];
     u.uGeoW = geo[2];
+    // The vignette fits the crop: each source pixel's place in it. Only when it is on, so a crop
+    // without one leaves the maps keyed on it (Clarity's) alone.
+    if ((u.uVigScale as number) < 1) [u.uVigGeoU, u.uVigGeoV, u.uVigGeoW] = invert3(geo);
     u.uOutside = opts.outside ?? [0, 0, 0];
     u.uGrainFull = [src.fullW, src.fullH];
     u.uView = [view.x, view.y, view.w, view.h];
@@ -3285,8 +3288,6 @@ export class Engine {
     const ceSceneKey = `${sceneKey}|${colorScale}|${colorW}x${colorH}`;
     const lookKey = lookColor ? JSON.stringify(lookColor) : '';
     const ceKey = `${ceSceneKey}|${pick(u, COLOR_STAGE)}|${JSON.stringify(recipe?.color ?? null)}|${lookKey}`;
-    // The vignette reads the frame's aspect.
-    const aspect = ((u.uOut as number[])[0] / (u.uOut as number[])[1]).toFixed(6);
     // With detail before Exposure, Clarity's input is the log lightness after Texture: Texture's
     // map and what it read. A masked instance's mask reads the exposed pixel, so then everything
     // up to Texture's output.
@@ -3297,9 +3298,9 @@ export class Engine {
     const clarityStage = scalable ? `sign:${Math.sign(photoClarity)}` : pick(u, CLARITY_STAGE);
     const llKey = detailLog
       ? `${maskClarity.length ? sceneKey : textureKey}|log|${clarityStage}|${JSON.stringify(maskClarity)}`
-      : `${ceKey}|${pick(u, BEFORE_CLARITY)}|${aspect}|${clarityStage}|${JSON.stringify(maskClarity)}`;
+      : `${ceKey}|${pick(u, BEFORE_CLARITY)}|${clarityStage}|${JSON.stringify(maskClarity)}`;
     // Sharpening reads the print, after everything up to it, Clarity included (its amount too).
-    const usmKey = `${detailLog ? `${ceKey}|${pick(u, BEFORE_CLARITY)}|${aspect}|${llKey}` : llKey}|${photoClarity}|${recipe?.sharpen},${recipe?.sharpenRadius},${recipe?.sharpenMasking}|${usmScale}`;
+    const usmKey = `${detailLog ? `${ceKey}|${pick(u, BEFORE_CLARITY)}|${llKey}` : llKey}|${photoClarity}|${recipe?.sharpen},${recipe?.sharpenRadius},${recipe?.sharpenMasking}|${usmScale}`;
     // A live drag holds each of these maps as made before it while its own settings stay the
     // same, even though an edit before it moved (Capture One's trick: the stages after the
     // dragged one keep their change in lightness); the dragged stage's own map stays live, and

@@ -20,6 +20,9 @@ import { cbCommit, cbUniform, colorBalanceParams, colorBalance, colorBalanceRgb,
 import { FULL, bounds, framePixels, setAngle, setAspect, sourcePoint, flip, turn, type Crop } from '../../src/film/crop';
 import { CropOverlay } from '../../src/ui/CropOverlay';
 import { developUniforms, InputMode, llParams } from '../../src/engine/params';
+import { vignetteAt } from '../../src/engine/vignette';
+import { geometryFramePoint, geometryMatrix, type Perspective } from '../../src/engine/perspective';
+import { invert3 } from '../../src/engine/color';
 import type { Vec3 } from '../../src/film/stocks';
 import { toneForward, toneProfileRgb } from '../../src/engine/tone';
 import { histogram } from '../../src/engine/histogram';
@@ -898,7 +901,50 @@ view.width = W; view.height = H;
 document.body.append(view);
 const out: Record<string, unknown> = {};
 try {
-  if (new URLSearchParams(location.search).has('exportdialog')) {
+  if (new URLSearchParams(location.search).has('vignette')) {
+    // ?vignette: RawTherapee's post-crop vignette. The lens stage alone against the reference at
+    // points across a crop (plain, and straightened with perspective), then the whole engine on a
+    // flat grey: the cropped frame's four corners darken alike, the centre stays.
+    const eng = new Engine(view);
+    const [sw, sh] = [600, 400];
+    const crops: [string, Crop, Perspective | null][] = [
+      ['plain', { ...FULL, x: 0.1, y: 0.2, w: 0.6, h: 0.7 }, null],
+      ['tilted', { ...FULL, x: 0.15, y: 0.1, w: 0.7, h: 0.75, angle: 7 }, { rotation: 0, vertical: 12, horizontal: -8, focalLength: 28, autoCrop: false }],
+    ];
+    const inputs: Vec3[] = [];
+    for (let i = 0; i < 8; i++) for (let j = 0; j < 8; j++) inputs.push([0.02 + i * 0.137, 0.03 + j * 0.135, 0]);
+    const stage: Record<string, unknown> = {};
+    for (const amount of [20, 100]) {
+      const recipe = { ...defaultRecipe(), vignette: amount };
+      const u = developUniforms(recipe, stageCtx);
+      for (const [name, crop, persp] of crops) {
+        const geo = geometryMatrix(crop, sw, sh, persp);
+        const [gu, gv, gw] = invert3(geo);
+        stage[`${name}${amount}`] = probeStage(eng, ['stages/lens.glsl'], 'stageLens(vec3(1.0), c.xy)', inputs, {
+          [name]: { uniforms: { ...u, uVigGeoU: gu, uVigGeoV: gv, uVigGeoW: gw }, ref: (c: Vec3) => {
+            const f = vignetteAt(geometryFramePoint(crop, sw, sh, c[0], c[1], persp), u.uVigScale as number);
+            return [f, f, f];
+          } },
+        });
+      }
+    }
+    out.stage = stage;
+    const grey = document.createElement('canvas');
+    grey.width = sw; grey.height = sh;
+    const g2 = grey.getContext('2d')!;
+    g2.fillStyle = 'rgb(150,150,150)';
+    g2.fillRect(0, 0, sw, sh);
+    const src = eng.sourceFromImage(grey, sw, sh);
+    const crop = crops[0][1];
+    const [ow, oh] = [Math.round(crop.w * sw), Math.round(crop.h * sh)];
+    const run = (r: Recipe) => eng.readPixels(src, r, ow, oh, 1);
+    const base: Recipe = { ...defaultRecipe(), grain: 0, crop };
+    const px = run({ ...base, vignette: 100 }), offPx = run({ ...base, vignette: 0 });
+    const at = (a: Uint8Array, x: number, y: number) => a[(y * ow + x) * 4 + 1];
+    const pts: Record<string, [number, number]> = { tl: [1, 1], tr: [ow - 2, 1], bl: [1, oh - 2], br: [ow - 2, oh - 2], centre: [ow >> 1, oh >> 1], midTop: [ow >> 1, 1] };
+    out.engine = Object.fromEntries(Object.entries(pts).map(([k, [x, y]]) => [k, { on: at(px, x, y), off: at(offPx, x, y) }]));
+    out.glError = eng.gpu.gl.getError();
+  } else if (new URLSearchParams(location.search).has('exportdialog')) {
     // The Export dialog, for screenshots: ?exportdialog=<stored settings JSON>&theme=<mid|light|dark>.
     const q = new URLSearchParams(location.search);
     try { localStorage.setItem('emulsion.export', q.get('exportdialog') || '{}'); } catch { /* defaults */ }

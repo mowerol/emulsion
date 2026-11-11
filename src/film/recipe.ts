@@ -67,7 +67,6 @@ export interface Recipe {
   sharpenMasking: number;
   vibrance: number;
   saturation: number;
-  fade: number;
   halation: number;
   glow: number;
   halationSize: number;
@@ -179,7 +178,6 @@ export const SLIDERS: SliderDef[] = [
   { key: 'blacks', label: 'Blacks', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'vibrance', label: 'Vibrance', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'saturation', label: 'Saturation', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
-  { key: 'fade', label: 'Fade', group: 'adjust', min: 0, max: 100, step: 1 },
   { key: 'texture', label: 'Texture', group: 'detail', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'clarity', label: 'Clarity', group: 'detail', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'dehaze', label: 'Dehaze', group: 'detail', min: -100, max: 100, step: 1, format: formatSigned, hint: 'Darktable haze removal: positive values remove haze; negative values add it.' },
@@ -244,7 +242,6 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
     sharpenMasking: 10,
     vibrance: 0,
     saturation: 0,
-    fade: 0,
     halation: s.halation,
     glow: 0,
     halationSize: 100,
@@ -304,7 +301,7 @@ const SECTION_FIELDS: Record<SectionId, (keyof Recipe)[]> = {
   whitebalance: ['wb'],
   exposure: ['exposure', 'contrast', 'toneCharacter', 'saturation', 'vibrance'],
   hdr: ['highlights', 'shadows', 'whites', 'blacks'],
-  'refine-optics': ['halationVersion', 'glowVersion', 'fade', ...SLIDERS.filter(d => d.group === 'optics').map(d => d.key)],
+  'refine-optics': ['halationVersion', 'glowVersion', ...SLIDERS.filter(d => d.group === 'optics').map(d => d.key)],
   'colour-basics': ['vibrance', 'saturation'],
   tone: SLIDERS.filter(d => d.group === 'adjust' && d.key !== 'vibrance' && d.key !== 'saturation').map(d => d.key),
   detail: SLIDERS.filter((d) => d.group === 'detail').map((d) => d.key),

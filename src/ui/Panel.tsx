@@ -458,7 +458,7 @@ export function Panel() {
       {rows(sliderGroup('detail'))}
       <DetailOrderToggle />
     </Section>,
-    optics: <Section id="optics" title="Optics" onReset={resetFor(grouped ? 'refine-optics' : 'optics', 'Optics', 'optics')}>{rows(grouped ? [...sliderGroup('optics'), 'fade'] : sliderGroup('optics'))}</Section>,
+    optics: <Section id="optics" title="Optics" onReset={resetFor(grouped ? 'refine-optics' : 'optics', 'Optics', 'optics')}>{rows(sliderGroup('optics'))}</Section>,
     grain: <Section id="grain" title="Grain" onReset={resetFor('grain', 'Grain')}><GrainSpeed recipe={base} />{rows(sliderGroup('grain'))}</Section>,
     noise: !editing && <Section id="noise" title="Noise reduction" onReset={resetFor('noise', 'Noise reduction')}>
       <ProfiledDenoiseControls recipe={base} raw={photo.raw} camera={photo.camera} />

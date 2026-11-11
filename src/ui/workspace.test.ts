@@ -30,8 +30,8 @@ describe('workspace preferences', () => {
 });
 
 it('resets Exposure and HDR independently, without changing lens, colour wheels or the curve', () => {
-  const recipe={...defaultRecipe(),exposure:1,contrast:20,saturation:25,vibrance:10,highlights:-30,shadows:40,whites:10,blacks:-15,fade:12,grading:{highlights_H:40,highlights_C:0.05},wb:{temperature:4300,tint:10}};
+  const recipe={...defaultRecipe(),exposure:1,contrast:20,saturation:25,vibrance:10,highlights:-30,shadows:40,whites:10,blacks:-15,vignette:12,grading:{highlights_H:40,highlights_C:0.05},wb:{temperature:4300,tint:10}};
   expect(resetSection(recipe,'exposure')).toEqual({...recipe,exposure:0,contrast:0,saturation:0,vibrance:0});
   expect(resetSection(recipe,'hdr')).toEqual({...recipe,highlights:0,shadows:0,whites:0,blacks:0});
-  expect(resetSection(recipe,'refine-optics')).toEqual({...recipe,fade:0});
+  expect(resetSection(recipe,'refine-optics')).toEqual({...recipe,vignette:0});
 });

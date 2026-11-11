@@ -32,6 +32,7 @@ import { effectiveIso, zoomForIso } from './grain';
 import { EXPOSURE_BOOST, FEATHERING, SMOOTHING, bandFactors, bandGains } from './toneequalizer';
 import { clarityParams } from './locallaplacian';
 import type { LoadedLut } from './lutstore';
+import { VIGNETTE_FEATHER, vignetteStrength } from './vignette';
 
 export type UniformValue = number | number[];
 export type Uniforms = Record<string, UniformValue>;
@@ -118,6 +119,12 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uLutTex: LUT_UNIT,
     uLutOn: 0,
     uLutColor: 0,
+    // The engine sets the crop's own (Engine.render); without one the whole source is the crop.
+    uVigScale: 1,
+    uVigInner: (1 - VIGNETTE_FEATHER / 100) / Math.SQRT2,
+    uVigGeoU: [1, 0, 0],
+    uVigGeoV: [0, 1, 0],
+    uVigGeoW: [0, 0, 1],
   };
   if (!recipe || ctx.compare) {
     return { ...base, ...NO_MASKS, uCompare: 1, uExposure: 0, uExpBlack: 0, uWbMat: IDENTITY, uTeqOn: 0, uCurveOn: 0, uClarityOn: 0, uClarityScale: 1, uTextureOn: 0, uUsmOn: 0, uCeOn: 0 };
@@ -167,7 +174,8 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uSigS: packCurve(toneCurveFor(recipe.whites, recipe.blacks, recipe.toneCharacter)),
     uSigMag: whiteTargetFor(recipe.whites) / 100,
     uWbMat: wbMat,
-    uVig: recipe.vignette / 100,
+    uVigScale: Math.pow(2, -vignetteStrength(recipe.vignette)),
+    uVigInner: (1 - VIGNETTE_FEATHER / 100) / Math.SQRT2,
     uSharp: sc.sharpness,
     uHal: recipe.halation / 100,
     uHalModel: recipe.halationVersion ?? 1,
@@ -186,7 +194,6 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uScGain: sc.gain,
     uScShadow: sc.shadowTint,
     uScHigh: sc.highlightTint,
-    uFade: (recipe.fade / 100) * 0.16,
     // A custom look's LUT at its share within the look, times the look's Amount.
     ...(lut ? {
       uLutOn: 1, uLutId: lut.id, uLutAmount: (recipe.lookAmount / 100) * (profile?.lut?.amount ?? 1),

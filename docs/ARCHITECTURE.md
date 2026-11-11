@@ -71,7 +71,7 @@ Each stage is one GLSL file in `src/engine/shaders/stages/`, included into `deve
 | Colour | `colorequal.glsl` | scene | Colour: hue, saturation and brightness for eight colours, red to magenta, from a map the `ce` passes make over the whole photo (darktable's two guided filters keep the changes even across an area and off greys). A custom look's HSL is a second instance before the photo's own (darktable's multiple instances: the photo's reads the look's output, `ce.frag` mode 7), scaled by the look's Amount like its colour balance instance (`film/creative.ts` `lookColorFor`); its output stays in the lane's sixth colour target while the photo's own HSL changes. Skipped when every value is 0. **Ported from darktable color equalizer** | |
 | Colour balance | `colorbalance.glsl` | scene | A saved creative profile's hidden instance first (`stageProfileColorBalance`, scaled by the profile's Amount; `film/creative.ts`), then the photo's own: contrast, vibrance, saturation and shadows plus the recipe's Colour Grading: four hue/chroma/luminance wheels, chroma/saturation/brilliance by tone, hue shift and mask/contrast fulcrums. Shared controls feed one instance; `film/grading.ts` normalises additional recipe fields. **Ported from darktable colour balance rgb** | |
 | Masks (colour) | `masks.glsl` | scene | Each mask's colour balance instance (contrast, shadows, vibrance, saturation), after the photo's own, blended in by the value its exposure instance found | |
-| Creative vignette | `lens.glsl` | scene | Manual light falloff, separate from embedded lens correction | |
+| Creative vignette | `lens.glsl` | scene | RawTherapee's post-crop vignette: scene-linear falloff to 2^-strength along cos⁴, fitted to the crop (Amount 0-100 → 0-3 EV, feather and roundness at RawTherapee's 50); separate from embedded lens correction. **Ported from RawTherapee** (`engine/vignette.ts`) | |
 | Optics | `optics.glsl` | scene | Halation and glow, added back from blurred highlights | |
 | Profile tone | `tone.glsl` | scene to print | The neutral darktable sigmoid per channel (**ported from darktable sigmoid**). Whites/positive Blacks set display targets. | |
 | Look | `lut.glsl` | print | Optional creative LUT (a bundled pack's, or a custom look's: its own LUT file or the system look it refers to; `library/userlooks.ts`, `src-tauri/src/user_looks.rs`) on the base print, with Blend Normal or Colour (darktable's color blend mode, `engine/blend.ts`: the LUT's hue and saturation, the print's lightness): convert to sRGB, tetrahedral lookup, blend by Amount, return to print encoding. Never supplies the base rendering. **Ported from darktable lut3d** | |
@@ -81,7 +81,7 @@ Each stage is one GLSL file in `src/engine/shaders/stages/`, included into `deve
 | Output | `output.glsl` | print to display | Rec.2020 to sRGB | Colour-managed output |
 | Scanner | `scanner.glsl` | display | Levels, colour cast, contrast and saturation of the scan | |
 | Curve | `curve.glsl` | display | Point curve: master, then red, green and blue, from a 256-step lookup table sampled in `film/curve.ts` (darktable's monotone spline); a saved profile's curve is composed in front of the photo's own into the same table (`composedCurveTable`) | |
-| Finish | `finish.glsl` | display | Matte fade and dither | |
+| Finish | `finish.glsl` | display | Dither | |
 
 The neutral sigmoid’s maths is mirrored in `engine/tone.ts` so it can be unit-tested; the shader receives its constants from there. Emulsion's neutral curve uses sigmoid contrast 1.15 and skew 0.11 rather than darktable's 1.5 and 0, fitted to the curve the stocks were first tuned on, and a display black of 0 so the inverse is exact. Without a DCP tone curve, the base renders the neutral curve per channel, the exact inverse of the display-referred input stage.
 
@@ -161,7 +161,7 @@ Halation and Glow are darktable's spektrafilm optics (film-base reflections; the
 
 ### Crop and straighten
 
-A recipe's `crop` (`film/crop.ts`) turns the photo about its centre by `angle`, then cuts a rectangle from it, measured in units of the source's width and height (so with no rotation it is the ordinary crop in image coordinates). The develop pass composes crop with perspective and maps each frame pixel to the source with one projective map (`uGeoU`, `uGeoV`, `uGeoW`); every other pass (tone equalizer map, highlight pyramid, sharpening) still works on the whole source, which the develop pass samples at the mapped point. Grain, vignette, halation and glow belong to the film, so they stay tied to the uncropped frame and cropping enlarges them, as it would a negative. While cropping, the canvas shows the whole straightened photo (`bounds`) with the stage colour around it, and `CropOverlay` edits a draft in the store that is saved as one undo step when cropping ends. Everything that sizes a render (export, thumbnails, stock tiles, histogram) uses `framePixels`. Pasted settings keep each frame's own crop.
+A recipe's `crop` (`film/crop.ts`) turns the photo about its centre by `angle`, then cuts a rectangle from it, measured in units of the source's width and height (so with no rotation it is the ordinary crop in image coordinates). The develop pass composes crop with perspective and maps each frame pixel to the source with one projective map (`uGeoU`, `uGeoV`, `uGeoW`); every other pass (tone equalizer map, highlight pyramid, sharpening) still works on the whole source, which the develop pass samples at the mapped point. Grain, halation and glow belong to the film, so they stay tied to the uncropped frame and cropping enlarges them, as it would a negative. The vignette is RawTherapee's post-crop one: it is fitted to the crop (`uVigGeoU/V/W`, the inverse of the frame map, so source-space taps place it too). While cropping, the canvas shows the whole straightened photo (`bounds`) with the stage colour around it, and `CropOverlay` edits a draft in the store that is saved as one undo step when cropping ends. Everything that sizes a render (export, thumbnails, stock tiles, histogram) uses `framePixels`. Pasted settings keep each frame's own crop.
 
 ### Preview and export
 
@@ -305,7 +305,6 @@ A recipe (`film/recipe.ts`) is everything about how one frame is developed: stoc
     "saturation": 0,
     "warmth": 0,
     "tint": 0,
-    "fade": 0,
     "halation": 80,
     "glow": 15,
     "vignette": 20,

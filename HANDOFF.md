@@ -3,6 +3,40 @@
 All work through 2026-11-10 is committed except the top section (the DCP removal, darktable camera data, app icon, DNG
 and TIFF support, and the retouch overlays went in together); "Uncommitted" notes below are out of date.
 
+## Fade removed; Vignette is RawTherapee's post-crop vignette (2026-11-10)
+
+Uncommitted. Oli asked to remove Fade and to see whether Vignette could be better or based on an
+upstream tool. His choices: RawTherapee over darktable, one Amount slider, saved edits just
+change (no legacy versions), fitted to the crop as upstream.
+
+- **Fade:** gone from `Recipe`, `SLIDERS`, the Optics section, copy settings, presets and
+  `finish.glsl` (Finish is now dither only). `normalizeRecipe` drops a saved `fade`, so old edits
+  lose their lift.
+- **Vignette:** the old one was our own (`1 − 0.72·amount·smoothstep(0.2, 1.05, r)` on the
+  uncropped frame). It is now RawTherapee's `calcPCVignetteParams`/`calcPCVignetteFactor`
+  (`rtengine/iptransform.cc` at 64c2d90a): scene-linear, falloff along cos⁴ to 2^-strength at the
+  ellipse through the crop's corners. Why RawTherapee: darktable's vignetting module is
+  display-referred (by its own label), while RawTherapee's works in linear light in stops, which is
+  where ours sits (before the film). Amount 0–100 → 0–3 EV (20 = RawTherapee's default 0.6 EV);
+  feather and roundness stay at RawTherapee's 50. Not ported: roundness ≠ 50 and the fade-out
+  outside the crop box. `engine/vignette.ts` (a line-by-line port, plus `vignetteAt`, the simpler
+  form the shader uses: at roundness 50 it is √2·|c − ½| in crop coordinates), `stages/lens.glsl`
+  (`uVigScale`, `uVigInner`, `uVigGeoU/V/W` = the inverse frame map, set by `Engine.render` only
+  while the vignette is on, so a crop doesn't remake Clarity's map without one). The `aspect` key
+  term is gone (the lens uniforms are in `BEFORE_CLARITY`). NOTICE and ARCHITECTURE updated.
+- **Checked:** vitest against factors from RawTherapee's own C (`tools/vignette-reference/
+  generate.sh` builds the two functions unmodified → `fixtures/pcvignette.json`), plus the shader
+  form against the port at four aspects. Probe `?vignette`: lens stage vs reference ≤ 1.6e-6 on a
+  plain crop and a straightened crop with perspective; whole engine on flat grey with a crop at
+  Amount 100: all four crop corners 154 → 53, centre 155 → 155. Typecheck, `vite build`, `cargo
+  test` pass; vitest fails only `builtin-looks.test.ts` (the look rename, already failing).
+- **Behaviour change:** while the crop tool is open the canvas shows the whole frame, so the
+  vignette fits that, then moves to the crop when cropping ends (RawTherapee fits its crop
+  parameters the same way).
+- **Oli should try** (Cmd+R): Optics has no Fade; drag Vignette (corners darken smoothly, centre
+  untouched); crop tight and see the vignette follow the crop; straighten/perspective; portrait
+  frames; export matches the screen.
+
 ## Fit developed at the size shown, with darktable's Lanczos3 (2026-11-10)
 
 Uncommitted. Oli noticed Fit looked soft (on the laptop screen). Measured, then fixed.

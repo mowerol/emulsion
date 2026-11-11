@@ -274,6 +274,13 @@ Film stock and scanner names (Kodak Portra, Gold, Ektar, Tri-X; Fujifilm Superia
 - Ported to: `src/engine/usm.ts` (reference), `src/engine/shaders/usm.frag.glsl` and `src/engine/shaders/stages/usm.glsl`
 - Changes: translated from C++ to TypeScript and GLSL. The unsharp mask only, with RawTherapee's defaults for what is not exposed: threshold (20, 80, 2000, 1200), no edges-only, no halo control, no blur of flat areas. Gaussians from sigma 0.6 up are exact rather than recursive, and borders clamp. Runs on CIE lightness (relative to D65) of the finished print, before grain. Sliders: Sharpening 0-100 is RawTherapee's amount / 10, Radius is its radius, Masking 0-100 is its contrast threshold / 2
 
+### Vignette (post-crop vignetting), from RawTherapee
+- Upstream: https://github.com/RawTherapee/RawTherapee, `rtengine/iptransform.cc` (calcPCVignetteParams, calcPCVignetteFactor), commit 64c2d90a3248c7ad41842d9162368858b61aac6a
+- Licence: GPL-3.0-or-later
+- Copyright: Copyright (c) 2004-2010 Gabor Horvath <hgabor@rawtherapee.com>
+- Ported to: `src/engine/vignette.ts` (reference), `src/engine/shaders/stages/lens.glsl`; `tools/vignette-reference/generate.sh` builds the upstream functions unmodified for the test fixture
+- Changes: translated from C++ to TypeScript and GLSL. Roundness at RawTherapee's default 50 and the darkening branch only (the super-ellipse and circle branches and the fade-out outside the crop box are not ported). Feather at RawTherapee's default 50. Applied to scene-linear working RGB before the film, fitted to the crop through the inverse of the frame map. Slider: Amount 0-100 is strength 0-3 EV
+
 ### Color equalizer, from darktable
 - Upstream: https://github.com/darktable-org/darktable, `src/iop/colorequal.c`, `src/common/darktable_ucs_22_helpers.h` (gamut_map_HSB), `src/common/math.h` (scharr_gradient) and `src/iop/choleski.h` (pseudo_solve), commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release 5.6.2)
 - Licence: GPL-3.0-or-later
