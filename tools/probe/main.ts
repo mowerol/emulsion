@@ -1,3 +1,4 @@
+import { resample } from '../../src/engine/resample';
 import { planRemovals, removeContext, removeSetup, removalIdentity } from '../../src/engine/removequeue';
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Engine probe: renders a synthetic frame through the real engine in any
@@ -628,6 +629,26 @@ function probeUsm(eng: Engine) {
       big = Math.max(big, Math.abs(ref.delta.data[k]));
     }
     cases[name] = { delta: dw, mask: mw, largestDelta: big };
+  }
+  return cases;
+}
+
+/** Fit: darktable's Lanczos3 shrink on the GPU (resample.frag) against the reference (resample.ts). */
+function probeResample(eng: Engine) {
+  const w = 157, h = 101, data = new Float32Array(w * h * 4);
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) {
+    const k = (j * w + i) * 4;
+    // Fine stripes, a hard edge and a ramp, in scene light (above 1 too).
+    data[k] = 0.2 + 0.6 * (i % 3 === 0 ? 1 : 0); data[k + 1] = i > 80 ? 1.7 : 0.05; data[k + 2] = j / h; data[k + 3] = 1;
+  }
+  const cases: Record<string, { size: [number, number]; sizeMatches: boolean; worst: number }> = {};
+  for (const scale of [0.93, 0.75, 0.65, 0.4, 0.12]) {
+    const got = eng.probeResample(data, w, h, scale), ref = resample(data, w, h, scale);
+    // Typically ~5e-4 (the half-float output). Where upstream's tap count (w - t) / scale lands
+    // on a whole number, the GPU's division may take one more tap than the CPU's (up to ~1.5%).
+    let worst = 0;
+    for (let k = 0; k < ref.data.length; k++) worst = Math.max(worst, Math.abs(got.data[k] - ref.data[k]) / Math.max(1, Math.abs(ref.data[k])));
+    cases[String(scale)] = { size: [got.w, got.h], sizeMatches: got.w === ref.w && got.h === ref.h, worst };
   }
   return cases;
 }
@@ -1870,6 +1891,7 @@ try {
   out.colorEq = probeColorEq(eng);
   out.mapCache = probeMapCache();
   out.texture = probeTexture(eng);
+  out.resample = probeResample(eng);
   out.capture = probeCapture(eng);
   out.grain = probeGrain(eng);
   out.retouch = probeRetouch(eng);

@@ -3,6 +3,61 @@
 All work through 2026-11-10 is committed except the top section (the DCP removal, darktable camera data, app icon, DNG
 and TIFF support, and the retouch overlays went in together); "Uncommitted" notes below are out of date.
 
+## Fit developed at the size shown, with darktable's Lanczos3 (2026-11-10)
+
+Uncommitted. Oli noticed Fit looked soft (on the laptop screen). Measured, then fixed.
+
+- **Cause:** at Fit the develop pass sampled the larger preview (rounded up to 128 px, kept
+  until 33% too big, at least 1536) through trilinear mipmaps. Even at 1.01× that kept only
+  40–47% of the finest detail (bilinear at a ratio near 1 averages neighbouring pixels).
+- **Fix:** `Engine.fitSource` shrinks the whole source, after capture sharpening, denoise, lens
+  correction and retouch, to the size the whole photo is shown at with darktable's Lanczos3
+  (`interpolation.c` at 20891f6c, its default scaling interpolator): `engine/resample.ts`
+  (reference, tests against numbers from darktable's own C compiled locally) and
+  `shaders/resample.frag.glsl` (two passes, 32-bit float between). The render develops that, so
+  every map is made at the shown size and the develop pass reads it pixel for pixel. Only with
+  the whole frame in view; zoomed in, the preview is developed as before. The histogram, read
+  backs and a zoomed region's whole-photo products reuse it; `measureAhead`/`prepareSteps` plan
+  at its size. `Engine.fitResample` = 'screen' (default) / 'all' / 'off'. NOTICE and
+  ARCHITECTURE updated.
+- **Kept from upstream:** its pixel mapping (output x = input x / scale), which sits the image
+  0.5·(1 − scale) px right and down of centre alignment (≤ 0.17 px at 1.54×). Where upstream's
+  tap count lands on a whole number the GPU may take one more tap than the CPU (probe: ≤ 1.2%
+  on a one-pixel stripe, ~5e-4 elsewhere).
+- **Checked:** `tools/browser-tests/fit-sharpness.ts` (new): finest-detail energy against the
+  scene decoded at the shown size, before → after: 1.01× 46 → 89%, 1.07× 45 → 90%, 1.31× 43 →
+  94%, 1.54× 41 → 97% (texture 64–74 → 108–117%: Lanczos keeps some aliasing the soft
+  supersampled reference lacks). Probe `resample`; vitest; `vite build`; `cargo test`;
+  `prepare-ahead` (updated: it was already failing on its count of 18, as `prepareSteps` now also
+  plans 20 colour/live targets; it now checks at the shown size), `capture-cache`, `histogram`,
+  `dehaze`, `export-worker`, and `region-detail` default + capture, profiled, colorpreview,
+  density, fidelity, gesture, hsl, maskdehaze, motion, readback all pass.
+- **Not done:** the 2560 cap still upscales on displays wider than that (not Oli's case); a crop
+  with a fractional offset, rotation or perspective still resample in the develop pass;
+  thumbnails and exports at reduced size still use trilinear (`fitResample` is screen-only).
+  Untimed in the app: shrinking costs a pass per new input (edits to capture, denoise, lens or
+  retouch, resizes) and maps are now smaller (cheaper); entering and leaving a zoom between
+  Fit and the preview's size now remakes the whole photo's maps once each way.
+- **Oli should try** (Cmd+R): a RAW and a JPEG at Fit (sharper fine detail, no shimmer or
+  ringing on high-contrast edges); narrow and widen the side panel; zoom in and out (no hitch);
+  drag Texture, Clarity and Dehaze at Fit (still smooth); the histogram still updates.
+  Worth a timing run with the Mac idle: `node tools/perf/inapp.mjs <photo> sliders,zoom`.
+
+## Scanner dropdown removed from Develop (2026-11-10)
+
+Uncommitted. Oli asked to take the scanner out of the main Develop section. The compact
+"Scanner" select under the look chooser is gone (`LookChooser`, `TreatmentControls`,
+`ScannerFinish`'s `compact` branch, `.look-scanner` CSS). A photo's scanner finish now always
+comes from its look; the look editor keeps its Scanner finish section. Copy/paste settings and
+presets can still carry `scanner`, so a photo overridden before this change keeps its override
+with no control to undo it in Develop.
+
+- **Checked:** typecheck; vitest (only `builtin-looks.test.ts` fails, the look rename below);
+  `realtime.mjs scanner-finish` passes up to authoring a finish in the editor, then fails on a
+  stale step: it looks for a "Base LUT collection" select that no longer exists in `src`.
+- **Oli should try:** Cmd+R, apply a look with a scanner finish (no Scanner row under the look);
+  Edit… still shows Scanner finish.
+
 ## Export: TIFF and PNG at 8/16-bit, Location like Lightroom Classic (2026-11-10)
 
 Committed. Oli asked for more file types and a subfolder to export into, modelled on LRC.

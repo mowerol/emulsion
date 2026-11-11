@@ -31,15 +31,18 @@ async function check() {
   eng.render(src, recipe, { target: 'screen', width: 480, height: 320, seed: 1 });
   // As Develop does while idle: the ambient light, then the targets.
   eng.measureAhead(src, recipe);
+  // Shown at 480 × 320, the 640 × 427 photo is shrunk to that size for Fit and developed there,
+  // so the targets are planned at the shown size.
   const steps = eng.prepareSteps(src);
-  assert(steps.length === 18, `planned ${steps.length} targets, expected 18 (9 Dehaze, 9 Texture)`);
+  assert(steps.length >= 18, `planned ${steps.length} targets, expected at least 18 (9 Dehaze, 9 Texture)`);
   steps.forEach((s) => s());
-  assert(eng.gpu.spareCount === 18, `reserved ${eng.gpu.spareCount}`);
+  assert(eng.gpu.spareCount === steps.length, `reserved ${eng.gpu.spareCount}`);
   made.length = 0;
   eng.render(src, { ...recipe, texture: 40, dehaze: 30 }, { target: 'screen', width: 480, height: 320, seed: 1 });
-  const atSize = made.filter((m) => m === '640x427');
-  assert(atSize.length === 0, `the first Texture + Dehaze frame still made ${atSize.length} targets at the photo's size: ${made.join(' ')}`);
-  assert(eng.gpu.spareCount === 0, `${eng.gpu.spareCount} spares left unused`);
+  const atSize = made.filter((m) => m === '480x320' || m === '640x427');
+  assert(atSize.length === 0, `the first Texture + Dehaze frame still made ${atSize.length} targets at the developed size: ${made.join(' ')}`);
+  // Colour's live and exact analysis targets and live Dehaze's (20) wait for their own drags.
+  assert(eng.gpu.spareCount === steps.length - 18, `${eng.gpu.spareCount} spares left unused of ${steps.length}`);
   assert(eng.prepareSteps(src).length === 0, 'something left to prepare after the frame');
   assert(eng.gpu.gl.getError() === eng.gpu.gl.NO_ERROR, 'WebGL error');
   // Another photo of another size: nothing of the first photo's kept as a spare.

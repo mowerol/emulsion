@@ -1,6 +1,7 @@
 import { removeSetup, type RemoveContext } from './removequeue';
 import type { PatchRequest } from './remove';
 import noiseShader from './shaders/noise.frag.glsl?raw';
+import { RESAMPLE_MIN_SCALE, resampledSize } from './resample';
 import { effectiveProfiled, noiseEnabled, profiledEnabled } from '../film/noisereduction';
 import { ProfiledDenoiser } from './denoisegpu';
 import { denoiseSetup, domainMatrices, GENERIC_NOISE, wbFromNeutral, type DenoiseSetup } from './denoiseprofile';
@@ -49,6 +50,8 @@ import { SHADERS, SHADER_FILES } from './shaders';
 import { warmRecipe, type WarmStage } from './warm';
 import { chooseRegionWithin, REGION_SHARE, regionReach, regionWorthIt, stageReach, visibleSource, type PixelRect, type StageReach } from './region';
 import { displayDensity, workingScale } from './viewscale';
+/** The whole source shrunk for Fit: its size, and darktable's one scale for the taps. */
+type Fit = { scale: number; w: number; h: number };
 
 const DEHAZE_UNIT = 12;
 const LIVE_ANALYSIS_EDGE = 768;
@@ -425,6 +428,14 @@ export class Engine {
   private regionProductsSource: WebGLTexture | null = null;
   private regionP: Program;
   private viewSourceP: Program;
+  private resampleP: Program;
+  private nearestSampler: WebGLSampler | null = null;
+  /**
+   * The whole photo's source shrunk to the size it is shown at (darktable's Lanczos3 display
+   * scaling, resample.ts): `origin` is the source the render was given, `input` the texture
+   * shrunk (after capture sharpening, denoise, lens correction and retouch).
+   */
+  private fitMade: { origin: WebGLTexture; input: WebGLTexture; fit: Fit; source: Source; target: Target } | null = null;
   private sharpSampler: WebGLSampler | null = null;
   /** A retained copy for effect analysis; the displayed image keeps its sharp source. */
   private viewMade: { input: WebGLTexture; scale: number; source: Source; target: Target } | null = null;
@@ -529,6 +540,7 @@ export class Engine {
     };
     this.regionP = this.gpu.program(SHADERS.vertex, SHADERS.regionFrag);
     this.viewSourceP = this.gpu.program(SHADERS.vertex, SHADERS.viewsource);
+    this.resampleP = this.gpu.program(SHADERS.vertex, SHADERS.resample);
     this.whole = new Lane(this.gpu, programs);
     this.region = new Lane(this.gpu, programs);
     this.display = new Lane(this.gpu, programs);
@@ -632,7 +644,9 @@ export class Engine {
     if (!this.gpu.hdr || !this.gpu.float32) return;
     const t = this.gpu.target(16, 16, false);
     const r: Recipe = { ...recipe, dehaze: recipe.dehaze || 10, texture: 0, clarity: 0, masks: [] };
-    try { this.render(src, r, { target: t, width: src.w, height: src.h, seed: 1, products: {} }); } finally { this.gpu.free(t); }
+    // Measured on what the screen develops: the source shrunk for Fit, when it is.
+    const fit = this.fitMade?.origin === src.tex ? this.fitMade.fit : undefined;
+    try { this.render(src, r, { target: t, width: src.w, height: src.h, seed: 1, products: {}, fit }); } finally { this.gpu.free(t); }
   }
 
   /**
@@ -645,7 +659,8 @@ export class Engine {
   prepareSteps(src: Source): (() => void)[] {
     const g = this.gpu;
     if (!g.hdr || !g.float32) { g.freeSpares(); return []; }
-    const { w, h } = src;
+    // At the size the screen develops: the source shrunk for Fit, when it is.
+    const { w, h } = this.fitMade?.origin === src.tex ? this.fitMade.source : src;
     const L = this.whole;
     const wanted: SpareSpec[] = [];
     const add = (n: number, precise: boolean, single: boolean | 'rg') => {
@@ -684,6 +699,7 @@ export class Engine {
     if (!src) return;
     if (this.captureOwner?.tex === src.tex) this.clearCaptureCache();
     if (this.viewMade?.input === src.tex) this.freeViewSource();
+    if (this.fitMade?.origin === src.tex || this.fitMade?.input === src.tex) this.freeFitSource();
     this.gpu.gl.deleteTexture(src.tex);
     if (src.denoised) this.gpu.gl.deleteTexture(src.denoised);
     this.eachLane(() => {
@@ -1325,6 +1341,85 @@ export class Engine {
   }
 
   /**
+   * `src` shrunk to `fit.w × fit.h` with darktable's Lanczos3 at `fit.scale` (two passes, a 32-bit
+   * float between them), kept while the input texture and fit stay the same so every map made
+   * from it holds.
+   */
+  private fitSource(src: Source, origin: WebGLTexture, fit: Fit): Source {
+    const made = this.fitMade;
+    if (made?.input === src.tex && made.fit.scale === fit.scale && made.fit.w === fit.w && made.fit.h === fit.h) { made.origin = origin; return made.source; }
+    this.freeFitSource();
+    const g = this.gpu, gl = g.gl;
+    const { w, h, scale } = fit;
+    const clip = g.clip;
+    g.clip = null;
+    // texelFetch needs a complete texture whatever the input's own filtering.
+    if (!this.nearestSampler) {
+      this.nearestSampler = gl.createSampler()!;
+      gl.samplerParameteri(this.nearestSampler, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.samplerParameteri(this.nearestSampler, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    }
+    const mid = g.target(w, src.h, true, g.float32);
+    const target = g.target(w, h, true);
+    try {
+      gl.bindSampler(0, this.nearestSampler);
+      g.bind(0, src.tex);
+      this.resampleP.set({ uTex: 0, uScale: scale, uAxis: 0 });
+      g.draw(this.resampleP, mid, w, src.h);
+      g.bind(0, mid.tex);
+      this.resampleP.set({ uTex: 0, uScale: scale, uAxis: 1 });
+      g.draw(this.resampleP, target, w, h);
+    } finally {
+      gl.bindSampler(0, null);
+      g.free(mid);
+      g.clip = clip;
+    }
+    g.scratch(); gl.bindTexture(gl.TEXTURE_2D, target.tex);
+    gl.generateMipmap(gl.TEXTURE_2D); g.params(true);
+    const source: Source = { ...src, w, h, tex: target.tex, denoised: undefined, capture: undefined };
+    this.fitMade = { origin, input: src.tex, fit, source, target };
+    return source;
+  }
+
+  private freeFitSource() {
+    const made = this.fitMade;
+    if (!made) return;
+    this.fitMade = null;
+    this.gpu.free(made.target);
+  }
+
+  /**
+   * The scale to shrink a whole source to before developing it: the size the whole photo is shown
+   * at over the source's, when that is smaller, as darktable's darkroom processes at the scale it
+   * displays; null to develop the source as it is.
+   */
+  private fitScale(src: Source, origin: WebGLTexture, recipe: Recipe | null, opts: Parameters<Engine['renderSteps']>[2]): Fit | null {
+    if (opts.fit !== undefined) return opts.fit;
+    const mode = Engine.fitResample;
+    if (mode === 'off' || src.roi || this.L !== this.whole || !this.gpu.hdr) return null;
+    // Another render of the photo the screen shows at Fit develops what the screen does, so it
+    // reuses the screen's maps: the histogram and read backs (and counts what is shown), and a
+    // zoomed region's whole-photo products (so zooming in from Fit keeps them).
+    const reuse = this.fitMade?.origin === origin && this.fitMade.input === src.tex ? this.fitMade.fit : null;
+    if (opts.products || (mode === 'screen' && opts.target !== 'screen')) return reuse;
+    const view = opts.view ?? FULL_VIEW, frame = opts.frame ?? recipe?.crop ?? FULL;
+    // Only with the whole frame in view (Fit, or smaller). Zoomed in, the preview is developed as
+    // it is: shrinking it for every zoom would remake every map at each zoom's settle.
+    if (view.w < 0.999 || view.h < 0.999) return null;
+    const [sw, sh] = opts.shown ?? [opts.width, opts.height];
+    const wholeW = sw / view.w / frame.w, wholeH = sh / view.h / frame.h;
+    const scale = Math.max(wholeW, wholeH) / Math.max(src.w, src.h);
+    if (!(scale < 0.995 && scale >= RESAMPLE_MIN_SCALE)) return null;
+    // As darktable's roi_out: the size shown (so Fit samples it pixel for pixel; one scale for
+    // both axes would round a side a pixel off and bring back a bilinear stretch), a quarter turn
+    // matched to the source's sides, and one scale for the taps.
+    const [rw, rh] = resampledSize(src.w, src.h, scale);
+    const a = [Math.round(wholeW), Math.round(wholeH)], b = [a[1], a[0]];
+    const [w, h] = Math.abs(a[0] - rw) + Math.abs(a[1] - rh) <= Math.abs(b[0] - rw) + Math.abs(b[1] - rh) ? a : b;
+    return { scale, w: Math.max(1, w), h: Math.max(1, h) };
+  }
+
+  /**
    * Develop the region `rect` of the full-size `src` onto the screen: the whole photo's products
    * from `opts.whole` on the whole lane, then the region on the region lane.
    */
@@ -1496,6 +1591,7 @@ export class Engine {
   /** Free the intermediate buffers for one source size (after a large export). */
   dropBuffers(w: number, h: number) {
     if (this.captureOwner?.w === w && this.captureOwner.h === h) this.clearCaptureCache();
+    if (this.fitMade && this.fitMade.target.w === w && this.fitMade.target.h === h) this.freeFitSource();
     this.eachLane(() => this.dropLaneBuffers(w, h));
     this.chains.delete(`${w}x${h}`);
     this.outs.delete(`${w}x${h}`);
@@ -1764,6 +1860,12 @@ export class Engine {
    * sets it); an engine's own value, when set, overrides it (the probe compares the two).
    */
   static detailOrder: 'darktable' | 'log' = 'darktable';
+  /**
+   * Which renders shrink the whole source to the size it is shown at before developing it
+   * (fitSource): 'screen' (Develop's canvas), 'all' (any target, for tests), 'off' (the old
+   * trilinear sampling of the larger preview, for comparison).
+   */
+  static fitResample: 'screen' | 'all' | 'off' = 'screen';
   detailOrder?: 'darktable' | 'log';
 
   /** A target drawing into `t` (Clarity's tap) and usm.b at once, kept while both are. */
@@ -1974,6 +2076,25 @@ export class Engine {
     gl.readPixels(0, 0, w, h, gl.RGBA, gl.FLOAT, px);
     this.L.ceScene = null;
     return Float32Array.from({ length: w * h * 3 }, (_, k) => px[4 * Math.floor(k / 3) + (k % 3)]);
+  }
+
+  /** Probe: an RGBA float image shrunk by fitSource (darktable's Lanczos3), read back as floats. */
+  probeResample(data: Float32Array, w: number, h: number, scale: number): { data: Float32Array; w: number; h: number } {
+    const g = this.gpu, gl = g.gl;
+    const tex = gl.createTexture()!;
+    g.scratch(); gl.bindTexture(gl.TEXTURE_2D, tex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, w, h, 0, gl.RGBA, gl.FLOAT, data);
+    g.params(false);
+    const src: Source = { tex, w, h, mode: InputMode.SceneLinear, white: null, fullW: w, fullH: h };
+    try {
+      const [ow, oh] = resampledSize(w, h, scale);
+      const out = this.fitSource(src, tex, { scale, w: ow, h: oh });
+      const px = new Float32Array(out.w * out.h * 4);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, this.fitMade!.target.fbo);
+      gl.readPixels(0, 0, out.w, out.h, gl.RGBA, gl.FLOAT, px);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      return { data: px, w: out.w, h: out.h };
+    } finally { this.freeFitSource(); gl.deleteTexture(tex); }
   }
 
   /** Sharpening alone on a lightness plane (0 to 1), for the probe: change in lightness and mask per pixel. */
@@ -2645,6 +2766,8 @@ export class Engine {
       live?: boolean;
       /** Internal: the canvas size a draft stands in for, which the choices above are made for. */
       shown?: [number, number];
+      /** Internal: shrink the whole source to this first (fitSource), whatever the target. */
+      fit?: Fit;
       /**
        * Build this stage's map and the maps before it, then stop: draw nothing and leave every
        * map after it as it was (see `warm`).
@@ -2741,6 +2864,7 @@ export class Engine {
       const wholeOnly = (recipe?.retouchScales?.scales ?? 0) > 0 && (this.retouchShow || !!recipe?.retouch.some(s => s.opacity > 0));
       if (shown <= Math.max(opts.whole.w, opts.whole.h) * (wholeOnly ? 1.05 : 1.5)) return yield* this.renderSteps(opts.whole, recipe, { ...opts, whole: undefined });
     }
+    const origin = src.tex;
     const picking = opts.pick !== undefined && !!recipe;
     // The picked mask's input: the masks before it have had their say, it and those after none.
     if (picking) recipe = { ...recipe!, masks: recipe!.masks.slice(0, opts.pick) };
@@ -2818,6 +2942,11 @@ export class Engine {
       const shown = Math.max(sw / view.w / frame.w, sh / view.h / frame.h) / Math.max(src.w, src.h);
       src = this.retouched(src, recipe, shown < 0.5 ? Math.min(8, Math.floor(1 / shown)) : 1);
     }
+    // Shown smaller than the source holds (Fit): shrink it to that size with darktable's Lanczos3
+    // and develop that, instead of sampling the larger source through trilinear mipmaps, which
+    // averaged away about half of the finest detail (tools/browser-tests/fit-sharpness.ts).
+    const fit = this.fitScale(src, origin, recipe, opts);
+    if (fit !== null) src = this.fitSource(src, origin, fit);
     const previousLane = this.L;
     const drawEffects = function* (this: Engine): Generator<void> {
     const directPreview = !!(opts.live && src.roi && this.inject && opts.target === 'screen' &&
@@ -3641,7 +3770,10 @@ export class Engine {
     this.denoiser?.dispose();
     if (this.sharpSampler) this.gpu.gl.deleteSampler(this.sharpSampler);
     this.sharpSampler = null;
+    if (this.nearestSampler) this.gpu.gl.deleteSampler(this.nearestSampler);
+    this.nearestSampler = null;
     this.freeViewSource();
+    this.freeFitSource();
     this.freeRegion();
     this.eachLane(() => {
       this.freeLaneTargets();
