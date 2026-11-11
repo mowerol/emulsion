@@ -15,7 +15,7 @@ describe('Emulsion built-in looks', () => {
       expect(isStockId(l.id), l.id).toBe(true);
       expect(normalizeSettings(l.settings), l.name).toEqual(l.settings);
     }
-    expect(BUILTIN_LOOKS.map((l) => l.name)).toEqual(['Film Neg', 'Film Chrome', 'Film Gold', 'B&W Dynamic', 'B&W Classic']);
+    expect(BUILTIN_LOOKS.map((l) => l.name)).toEqual(['Emulsion Neg', 'Emulsion Chrome', 'Emulsion Gold', 'B&W Dynamic', 'B&W Classic']);
     expect(lookFile('emulsion-looks', 'emulsion-film-neg' as StockId, 0)).toBeNull();
   });
 
