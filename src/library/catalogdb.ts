@@ -1,0 +1,172 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Where the library catalog is kept. In the app: `library.db` in the data folder, through Rust
+// (src-tauri/src/catalog.rs). Outside it (tests, the probe): localStorage, as before.
+//
+// `loadCatalogDb` runs before the app is imported (main.tsx), so the catalog and folder stores read
+// it synchronously. The first time, it moves what the webview kept (the folder index and import
+// choices in localStorage, imports and collections in settings.json) into the database.
+//
+// Saving sends only what changed: rows are compared with what was last written, by reference first
+// and then by their JSON, so an edit to one photo writes one row. Writes go out in order, one
+// transaction each.
+import { invoke } from '@tauri-apps/api/core';
+import { isTauri } from '../backend/api';
+import { getSetting, setSetting } from './appsettings';
+
+export interface StoredCatalog {
+  folders: Record<string, unknown[]>;
+  folderImports: Record<string, unknown>;
+  kv: Record<string, unknown>;
+}
+interface Row { root: string; path: string; copy: string; pos: number; /** JSON text */ data: string }
+interface Key { root: string; path: string; copy: string }
+export interface CatalogChange {
+  rootsAdded?: string[];
+  rootsRemoved?: string[];
+  upserts?: Row[];
+  deletes?: Key[];
+  folderImports?: Record<string, unknown | null>;
+  kv?: Record<string, unknown | null>;
+}
+type PhotoLike = { path: string; copyId?: string | null; pair?: unknown };
+
+/** The webview's old keys, moved into the database once. */
+export const LEGACY = { catalog: 'emulsion.libraryCatalog', index: 'emulsion.libraryIndex', imports: 'emulsion.folderImports' } as const;
+const MIGRATED = 'migratedFromWebview';
+
+let stored: StoredCatalog | null = null;
+let writing: Promise<void> = Promise.resolve();
+let frozen = false;
+
+/** True when the catalog lives in library.db (in the app). */
+export const usesDatabase = () => isTauri();
+/** What `loadCatalogDb` read, or null outside the app. */
+export const storedCatalog = () => stored;
+
+const parse = (text: string | null): unknown => { try { return text ? JSON.parse(text) : undefined; } catch { return undefined; } };
+const local = (key: string) => { try { return parse(localStorage.getItem(key)); } catch { return undefined; } };
+const record = (v: unknown): Record<string, unknown> => v && typeof v === 'object' && !Array.isArray(v) ? v as Record<string, unknown> : {};
+
+const keyOf = (root: string, p: PhotoLike): Key => ({ root, path: p.path, copy: p.copyId ?? '' });
+const stripPair = (p: PhotoLike) => p.pair ? { ...p, pair: null } : p;
+
+/** The database's contents built from what the webview kept before. */
+export function legacyChange(catalog: unknown, index: unknown, imports: unknown): CatalogChange {
+  const c = record(catalog);
+  const folders = record(index);
+  const roots = new Set([...Object.keys(folders), ...(Array.isArray(c.roots) ? c.roots.filter((r): r is string => typeof r === 'string') : [])]);
+  const upserts: Row[] = [];
+  for (const [root, photos] of Object.entries(folders)) {
+    if (!Array.isArray(photos)) continue;
+    photos.filter((p): p is PhotoLike => !!p && typeof (p as PhotoLike).path === 'string')
+      .forEach((p, pos) => upserts.push({ ...keyOf(root, p), pos, data: JSON.stringify(stripPair(p)) }));
+  }
+  return {
+    rootsAdded: [...roots],
+    upserts,
+    folderImports: Object.fromEntries(Object.entries(record(imports)).filter(([, v]) => v && typeof v === 'object')),
+    kv: {
+      imports: Array.isArray(c.imports) ? c.imports : [],
+      collections: Array.isArray(c.collections) ? c.collections : [],
+      targetCollectionId: typeof c.targetCollectionId === 'string' ? c.targetCollectionId : null,
+      [MIGRATED]: true,
+    },
+  };
+}
+
+/** Read library.db, first moving the webview's catalog into it if that hasn't happened yet. */
+export async function loadCatalogDb() {
+  if (!usesDatabase()) return;
+  try {
+    stored = await readDatabase();
+  } catch (e) {
+    // Show an empty library rather than nothing, but never write it over the real catalog.
+    frozen = true;
+    throw e;
+  }
+}
+
+async function readDatabase(): Promise<StoredCatalog> {
+  let db = await invoke<StoredCatalog>('catalog_load');
+  if (!db.kv[MIGRATED]) {
+    const change = legacyChange(getSetting(LEGACY.catalog) ?? local(LEGACY.catalog), local(LEGACY.index), local(LEGACY.imports));
+    await invoke('catalog_write', { change });
+    db = await invoke<StoredCatalog>('catalog_load');
+    // Only once the database holds them: the index was what filled localStorage's quota.
+    try { for (const key of Object.values(LEGACY)) localStorage.removeItem(key); } catch { /* left behind, unused */ }
+    setSetting(LEGACY.catalog, undefined);
+  }
+  return db;
+}
+
+function send(change: CatalogChange) {
+  if (frozen) return writing;
+  writing = writing
+    .then(() => invoke<void>('catalog_write', { change }))
+    .catch(e => console.error('Could not save the library catalog', e));
+  return writing;
+}
+
+/** Save one folder's import choice (null forgets it). */
+export const writeFolderImport = (root: string, value: unknown | null) => send({ folderImports: { [root]: value } });
+
+/** Wait for every write sent so far. */
+export const catalogWrites = () => writing;
+
+/** Stop writing: the catalog is about to be replaced by a restore and the window reloaded. */
+export async function freezeCatalogDb() {
+  await writing;
+  frozen = true;
+}
+
+/**
+ * Tracks what the database holds so a save can send only the difference. `seed` with the catalog
+ * as loaded; `diff` returns the change from the last seed or diff to `folders` and `kv`, and
+ * remembers the new state.
+ */
+export class CatalogDiff {
+  private rows = new Map<string, { root: string; key: Key; ref: object; json: string; pos: number }>();
+  private roots = new Set<string>();
+  private kv = new Map<string, unknown>();
+
+  seed(folders: Record<string, PhotoLike[]>, kv: Record<string, unknown>) {
+    this.rows.clear();
+    this.roots = new Set(Object.keys(folders));
+    for (const [root, photos] of Object.entries(folders)) photos.forEach((p, pos) => {
+      const key = keyOf(root, p);
+      this.rows.set(rowId(key), { root, key, ref: p, json: JSON.stringify(stripPair(p)), pos });
+    });
+    this.kv = new Map(Object.entries(kv));
+  }
+
+  diff(folders: Record<string, PhotoLike[]>, kv: Record<string, unknown>): CatalogChange | null {
+    const change: Required<Pick<CatalogChange, 'rootsAdded' | 'rootsRemoved' | 'upserts' | 'deletes'>> & { kv: Record<string, unknown> } =
+      { rootsAdded: [], rootsRemoved: [], upserts: [], deletes: [], kv: {} };
+    const roots = new Set(Object.keys(folders));
+    for (const root of roots) if (!this.roots.has(root)) change.rootsAdded.push(root);
+    for (const root of this.roots) if (!roots.has(root)) change.rootsRemoved.push(root);
+    const next = new Map<string, { root: string; key: Key; ref: object; json: string; pos: number }>();
+    for (const [root, photos] of Object.entries(folders)) photos.forEach((p, pos) => {
+      const key = keyOf(root, p);
+      const id = rowId(key);
+      const was = this.rows.get(id);
+      if (next.has(id)) return; // listed twice in one folder: the first wins, as on load
+      if (was && was.ref === p && was.pos === pos) { next.set(id, was); return; }
+      const json = was?.ref === p ? was.json : JSON.stringify(stripPair(p));
+      const row = { root, key, ref: p, json, pos };
+      next.set(id, row);
+      if (!was || was.json !== json || was.pos !== pos) change.upserts.push({ ...key, pos, data: json });
+    });
+    for (const [id, was] of this.rows) if (!next.has(id) && roots.has(was.root)) change.deletes.push(was.key);
+    for (const [k, v] of Object.entries(kv)) if (this.kv.get(k) !== v) change.kv[k] = v;
+    this.rows = next;
+    this.roots = roots;
+    this.kv = new Map(Object.entries(kv));
+    const empty = !change.rootsAdded.length && !change.rootsRemoved.length && !change.upserts.length && !change.deletes.length && !Object.keys(change.kv).length;
+    return empty ? null : change;
+  }
+}
+const rowId = (k: Key) => `${k.root}\0${k.path}\0${k.copy}`;
+
+/** Send a change made by `CatalogDiff`. */
+export const writeCatalogChange = (change: CatalogChange) => send(change);

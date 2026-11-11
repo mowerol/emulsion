@@ -9,6 +9,7 @@ import { normalizeMarks, type Label } from './marks';
 import type { FlagFilter } from './filter';
 import { hasKeyword, normalizeMeta } from './meta';
 import { getSetting, setSetting } from './appsettings';
+import { CatalogDiff, catalogWrites, storedCatalog, usesDatabase, writeCatalogChange } from './catalogdb';
 
 export interface ImportSession {
   id: string;
@@ -36,8 +37,8 @@ interface Catalog {
   folders: Record<string, Photo[]>;
   targetCollectionId: string | null;
 }
-// Imports and collections are the user's work: kept in the app's settings file. The folder index
-// is a cache and stays in localStorage.
+// In the app the catalog is library.db (catalogdb.ts). Outside it, imports and collections are in
+// the settings store and the folder index in localStorage, as before.
 const KEY = 'emulsion.libraryCatalog' as const;
 const INDEX_KEY = 'emulsion.libraryIndex';
 const empty = (): Catalog => ({ imports: [], collections: [], folders: {}, targetCollectionId: null });
@@ -45,20 +46,28 @@ const empty = (): Catalog => ({ imports: [], collections: [], folders: {}, targe
 const migrateRule = (r: SmartRule | { field: 'heart'; value: boolean }): SmartRule =>
   r.field === 'heart' ? { field: 'flag', value: r.value ? 'pick' : 'none' } : r;
 export const migrateCollection = (c: Collection): Collection => (c.type === 'smart' && Array.isArray(c.rules) ? { ...c, rules: c.rules.map(migrateRule) } : c);
+/** The catalog from what was saved: imports, collections and target, plus the folder index. */
+function fromSaved(value: Record<string, any> | null | undefined, index: unknown): Catalog {
+  if (!value || !Array.isArray(value.imports) || !Array.isArray(value.collections)) value = { imports: [], collections: [] };
+  if (!index || typeof index !== 'object' || Array.isArray(index)) index = {};
+  const folders = index as Record<string, Photo[]>;
+  for (const root of value.roots ?? []) folders[root] ??= [];
+  const targetCollectionId = value.collections.some((c: Collection) => c.id === value.targetCollectionId && c.type === 'manual') ? value.targetCollectionId : null;
+  return { imports: value.imports, collections: value.collections.map(migrateCollection), targetCollectionId, folders: Object.fromEntries(Object.entries(folders).map(([root, photos]) => [root,
+    (Array.isArray(photos) ? photos : []).filter(p => p && typeof p.path === 'string').map(({ heart, ...p }: Photo & { heart?: unknown }) =>
+      ({ ...p, recipe: normalizeRecipe(p.recipe), ...normalizeMarks(p.rating, p.label, p.flag, heart), meta: normalizeMeta(p.meta), pair: null }))])) };
+}
 function read(): Catalog {
   try {
+    const db = storedCatalog();
+    if (db) return fromSaved(db.kv, db.folders);
     const value = getSetting(KEY) as Record<string, any> | null | undefined;
     if (!value || !Array.isArray(value.imports) || !Array.isArray(value.collections)) return empty();
     let index = value.folders;
     if (!index) {
       try { index = JSON.parse(localStorage.getItem(INDEX_KEY) ?? '{}'); } catch { index = {}; }
     }
-    if (!index || typeof index !== 'object' || Array.isArray(index)) index = {};
-    for (const root of value.roots ?? []) index[root] ??= [];
-    const targetCollectionId = value.collections.some((c: Collection) => c.id === value.targetCollectionId && c.type === 'manual') ? value.targetCollectionId : null;
-    return { imports: value.imports, collections: value.collections.map(migrateCollection), targetCollectionId, folders: Object.fromEntries(Object.entries(index as Record<string, Photo[]>).map(([root, photos]) => [root,
-      (Array.isArray(photos) ? photos : []).filter(p => p && typeof p.path === 'string').map(({ heart, ...p }: Photo & { heart?: unknown }) =>
-        ({ ...p, recipe: normalizeRecipe(p.recipe), ...normalizeMarks(p.rating, p.label, p.flag, heart), meta: normalizeMeta(p.meta), pair: null }))])) };
+    return fromSaved(value, index);
   } catch { return empty(); }
 }
 export const useCatalog = create<Catalog>(() => read());
@@ -70,24 +79,36 @@ export function useSourceDefinitions() {
   useCatalog(s => s.imports);
   return useCatalog(s => s.collections);
 }
-let saveTimer: ReturnType<typeof setTimeout>;
+const definitions = (s: Catalog) => ({ imports: s.imports, collections: s.collections, targetCollectionId: s.targetCollectionId });
+const database = usesDatabase() ? new CatalogDiff() : null;
+if (database) { const s = useCatalog.getState(); database.seed(s.folders, definitions(s)); }
+let saveTimer: ReturnType<typeof setTimeout> | undefined;
 function persist(state: Catalog) {
+  clearTimeout(saveTimer);
+  saveTimer = undefined;
+  if (database) {
+    const change = database.diff(state.folders, definitions(state));
+    return change ? writeCatalogChange(change) : catalogWrites();
+  }
   // Keep source definitions independent of the larger, replaceable metadata cache.
-  setSetting(KEY, { imports: state.imports, collections: state.collections, roots: Object.keys(state.folders), targetCollectionId: state.targetCollectionId });
+  setSetting(KEY, { ...definitions(state), roots: Object.keys(state.folders) });
   try { localStorage.setItem(INDEX_KEY, JSON.stringify(state.folders)); } catch { /* index rebuilds from folders */ }
+  return Promise.resolve();
 }
 useCatalog.subscribe((state, previous) => {
-  if (state.imports !== previous.imports || state.collections !== previous.collections || state.targetCollectionId !== previous.targetCollectionId || Object.keys(state.folders).length !== Object.keys(previous.folders).length) {
-    setSetting(KEY, { imports: state.imports, collections: state.collections, roots: Object.keys(state.folders), targetCollectionId: state.targetCollectionId });
+  if (!database && (state.imports !== previous.imports || state.collections !== previous.collections || state.targetCollectionId !== previous.targetCollectionId || Object.keys(state.folders).length !== Object.keys(previous.folders).length)) {
+    setSetting(KEY, { ...definitions(state), roots: Object.keys(state.folders) });
   }
   clearTimeout(saveTimer);
-  saveTimer = setTimeout(() => {
-    persist(state);
-  }, 150);
+  saveTimer = setTimeout(() => void persist(useCatalog.getState()), 150);
 });
+/** Save anything waiting now and wait for it (before quitting or backing up). */
+export function flushCatalog(): Promise<void> {
+  return persist(useCatalog.getState());
+}
 // Flush before the WebView closes, including immediately after an import.
 if (typeof window !== 'undefined') window.addEventListener('pagehide', () => {
-  persist(useCatalog.getState());
+  void persist(useCatalog.getState());
 });
 
 export function catalogPhotos(catalog = useCatalog.getState()): Photo[] {

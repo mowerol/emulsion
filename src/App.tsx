@@ -6,7 +6,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { isTauri, startupOptions, takeOpenPaths } from './backend/api';
 import { listen } from '@tauri-apps/api/event';
-import { flushSaves, onSaveError } from './library/sidecars';
+import { onSaveError } from './library/sidecars';
 import { settingsMenuAction } from './library/backups';
 import { markForKey } from './library/marks';
 import { clearRecentFolders, lastFolder } from './library/folders';
@@ -23,6 +23,7 @@ import { ExportDialog } from './ui/ExportDialog';
 import { CopySettingsDialog } from './ui/CopySettingsDialog';
 import { ShortcutsDialog } from './ui/ShortcutsDialog';
 import { SettingsDialog } from './ui/SettingsDialog';
+import { CatalogBackupDialog, catalogMenuAction, requestQuit } from './ui/CatalogBackupDialog';
 import { Library, gridColumns } from './ui/Library';
 import { Panel } from './ui/Panel';
 import { requestFolderSync, selectAllImports } from './ui/Folders';
@@ -66,6 +67,7 @@ const MENU_ACTIONS: Record<string, () => void> = {
 export function menuAction(id: string) {
   const blocked = dialogOpen();
   if (id.startsWith('settings-')) { if (!blocked) settingsMenuAction(id); return; }
+  if (id.startsWith('catalog-')) { if (!blocked) catalogMenuAction(id); return; }
   if (id.startsWith(RECENT_PREFIX) || id in MENU_ACTIONS) {
     if (blocked || useApp.getState().lookEdit) return;
     if (!firstOf(id, 'menu')) return;
@@ -210,14 +212,13 @@ function useDesktop() {
         }
       }),
       installAppMenu(menuAction).catch((e) => { console.error('[menu]', e); return () => {}; }),
-      getCurrentWindow().onCloseRequested(async (event) => {
-        if (useApp.getState().lookEdit) {
-          event.preventDefault();
-          showToast('Save or cancel the look draft before closing');
-          return;
-        }
-        await flushSaves();
+      // Closing the window quits, through the same sequence as ⌘Q, the Dock and logging out
+      // (which arrive as quit-requested): save, offer a catalog backup when due, then quit.
+      getCurrentWindow().onCloseRequested((event) => {
+        event.preventDefault();
+        void requestQuit();
       }),
+      listen('quit-requested', () => void requestQuit()),
     ];
     return () => {
       unlisten.forEach((p) => p.then((fn) => fn()).catch(() => {}));
@@ -257,6 +258,7 @@ export default function App() {
       <CopySettingsDialog />
       <ShortcutsDialog />
       <SettingsDialog />
+      <CatalogBackupDialog />
       {dropping && (
         <div className="drop">
           <p>Drop a folder or photos to open them</p>

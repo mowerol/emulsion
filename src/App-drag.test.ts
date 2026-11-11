@@ -12,6 +12,9 @@ vi.mock('@tauri-apps/api/webview', () => ({ getCurrentWebview: () => ({
 }) }));
 vi.mock('@tauri-apps/api/window', () => ({ getCurrentWindow: () => ({ onCloseRequested: async () => () => {} }) }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: async () => () => {} }));
+// In the app the catalog saves to library.db through catalog_write (catalogdb.ts).
+const invoked = vi.hoisted(() => [] as { cmd: string; args: any }[]);
+vi.mock('@tauri-apps/api/core', async importOriginal => ({ ...await importOriginal<typeof import('@tauri-apps/api/core')>(), invoke: async (cmd: string, args: unknown) => { invoked.push({ cmd, args }); } }));
 vi.mock('./backend/api', async importOriginal => ({
   ...await importOriginal<typeof import('./backend/api')>(),
   isTauri: () => true, startupOptions: async () => ({}), thumbnail: vi.fn(), computerFolders: async () => [],
@@ -34,7 +37,13 @@ import { useApp, type Photo } from './library/store';
 import { setTargetCollection, useCatalog } from './library/catalog';
 import { NO_FILTER } from './library/filter';
 import { StageMenu } from './ui/StageMenu';
-import { getSetting } from './library/appsettings';
+import { flushCatalog } from './library/catalog';
+/** The target collection as last saved to the catalog database. */
+async function savedTarget() {
+  await flushCatalog();
+  const writes = invoked.filter(c => c.cmd === 'catalog_write' && c.args.change.kv && 'targetCollectionId' in c.args.change.kv);
+  return writes[writes.length - 1]?.args.change.kv.targetCollectionId;
+}
 
 let root: Root;
 let host: HTMLDivElement;
@@ -181,7 +190,7 @@ it('sets a target in the collection header and marks it in the sidebar', async (
   await act(async () => button.click());
   expect(useCatalog.getState().targetCollectionId).toBe('picks');
   expect(host.querySelector('[title="Picks"] [aria-label="Target collection"]')).not.toBeNull();
-  expect((getSetting('emulsion.libraryCatalog') as { targetCollectionId: string | null }).targetCollectionId).toBe('picks');
+  expect(await savedTarget()).toBe('picks');
 });
 
 it('sets the target from a collection right-click without navigating or changing the photo selection', async () => {
@@ -228,7 +237,7 @@ it.each(['header', 'context menu'])('clears the target from its %s without remov
   expect(action.textContent).toContain('Clear target collection');
   await act(async () => action.click());
   expect(useCatalog.getState().targetCollectionId).toBeNull();
-  expect((getSetting('emulsion.libraryCatalog') as { targetCollectionId: string | null }).targetCollectionId).toBeNull();
+  expect(await savedTarget()).toBeNull();
   expect(host.querySelector('[title="Picks"] [aria-label="Target collection"]')).toBeNull();
   expect(useCatalog.getState().collections[0]).toMatchObject({ id: 'picks', photoIds: [photo.path] });
   expect(useApp.getState().source).toEqual({ type: 'collection', id: 'picks' });

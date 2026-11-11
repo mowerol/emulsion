@@ -132,6 +132,7 @@ names remain their owners' trademarks; the app is not endorsed by their makers.
 | Cache/content hashes and download verification | BLAKE3 and sha2 |
 | Half-float storage | half |
 | Backup archives | zip |
+| Library catalog database | SQLite, through rusqlite |
 | Native integration and utilities | objc2, objc2-app-kit, libc, percent-encoding and thiserror |
 | Build and test tooling | TypeScript, Vite, its React plugin, Vitest, happy-dom, cc, tauri-build and their supporting packages |
 

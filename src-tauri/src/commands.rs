@@ -268,6 +268,61 @@ pub async fn show_app_backups(app: tauri::AppHandle) -> Result<(), String> {
     app.opener().open_path(dir.to_string_lossy(), None::<&str>).map_err(|e| e.to_string())
 }
 
+// ---------------------------------------------------------------- library catalog (catalog.rs)
+
+fn catalog_run<T: Send + 'static>(app: &tauri::AppHandle, f: impl FnOnce(&mut rusqlite::Connection) -> Result<T, String> + Send + 'static) -> impl std::future::Future<Output = Result<T, String>> {
+    use tauri::Manager;
+    let app = app.clone();
+    blocking(move || app.state::<crate::catalog::CatalogDb>().with(f))
+}
+
+#[tauri::command]
+pub async fn catalog_load(app: tauri::AppHandle) -> Result<crate::catalog::Loaded, String> {
+    catalog_run(&app, |c| crate::catalog::load(c)).await
+}
+
+#[tauri::command]
+pub async fn catalog_write(app: tauri::AppHandle, change: crate::catalog::Change) -> Result<(), String> {
+    catalog_run(&app, move |c| crate::catalog::write(c, &change)).await
+}
+
+/// Lightroom's default place for catalog backups, under Pictures.
+#[tauri::command]
+pub fn catalog_default_backup_folder(app: tauri::AppHandle) -> Result<String, String> {
+    use tauri::Manager;
+    let pictures = app.path().picture_dir().or_else(|_| app.path().home_dir()).map_err(|e| e.to_string())?;
+    Ok(pictures.join("Emulsion").join("Backups").to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub async fn catalog_backup(app: tauri::AppHandle, folder: String, test_integrity: bool, optimize: bool) -> Result<crate::catalog::Backup, String> {
+    let stamp = crate::app_data::minute_stamp();
+    catalog_run(&app, move |c| crate::catalog::backup(c, Path::new(&folder), &stamp, test_integrity, optimize)).await
+}
+
+/// The newest catalog backup in `folder`, if any (for Restore's starting point).
+#[tauri::command]
+pub fn catalog_latest_backup(folder: String) -> Option<String> {
+    crate::catalog::backups(Path::new(&folder)).into_iter().next().map(|p| p.to_string_lossy().into_owned())
+}
+
+/// Replace the catalog with a backup; the current one is kept in the app's backups folder first.
+#[tauri::command]
+pub async fn catalog_restore(app: tauri::AppHandle, path: String) -> Result<crate::catalog::Restored, String> {
+    use tauri::Manager;
+    let before = crate::app_data::backups_dir(&data_root(&app)?).join("catalog");
+    let stamp = crate::app_data::minute_stamp();
+    let app = app.clone();
+    blocking(move || crate::catalog::restore(&app.state::<crate::catalog::CatalogDb>(), Path::new(&path), &before, &stamp)).await
+}
+
+#[tauri::command]
+pub fn catalog_show_folder(app: tauri::AppHandle, folder: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
+    app.opener().open_path(folder, None::<&str>).map_err(|e| e.to_string())
+}
+
 fn header(request: &Request<'_>, name: &str) -> Result<String, String> {
     let raw = request
         .headers()

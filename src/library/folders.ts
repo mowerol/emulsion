@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 /** Membership is separate from edits: browsing a folder never imports its photos. */
+import { storedCatalog, usesDatabase, writeFolderImport } from './catalogdb';
 export type FolderImport = ({ mode: 'sync' } | { mode: 'selected'; paths: string[] }) & { includeSubfolders?: boolean };
 const KEY = 'emulsion.folderImports';
 let memory: Record<string, FolderImport> = {};
@@ -52,19 +53,43 @@ export function recentFolderLabels(paths: string[]): string[] {
   return paths.map(p => paths.filter(q => name(q) === name(p)).length > 1 ? p : name(p));
 }
 
-export function folderImport(root: string): FolderImport | null {
-  try {
-    const value = JSON.parse(localStorage.getItem(KEY) || '{}')[root];
-    if (value?.mode === 'sync') return { mode: 'sync', includeSubfolders: value.includeSubfolders === true };
-    if (value?.mode === 'selected' && Array.isArray(value.paths)) {
-      return { mode: 'selected', paths: value.paths.filter((p: unknown): p is string => typeof p === 'string'), includeSubfolders: value.includeSubfolders === true };
+/** Import choices as saved, normalised; null for none. */
+function normalImport(value: any): FolderImport | null {
+  if (value?.mode === 'sync') return { mode: 'sync', includeSubfolders: value.includeSubfolders === true };
+  if (value?.mode === 'selected' && Array.isArray(value.paths)) {
+    return { mode: 'selected', paths: value.paths.filter((p: unknown): p is string => typeof p === 'string'), includeSubfolders: value.includeSubfolders === true };
+  }
+  return null;
+}
+// In the app, import choices are in library.db: held here and written through.
+let databaseImports: Record<string, FolderImport> | null = null;
+function database() {
+  if (!databaseImports && usesDatabase()) {
+    databaseImports = {};
+    for (const [root, value] of Object.entries(storedCatalog()?.folderImports ?? {})) {
+      const choice = normalImport(value);
+      if (choice) databaseImports[root] = choice;
     }
-    return null;
+  }
+  return databaseImports;
+}
+
+export function folderImport(root: string): FolderImport | null {
+  const db = database();
+  if (db) return db[root] ?? null;
+  try {
+    return normalImport(JSON.parse(localStorage.getItem(KEY) || '{}')[root]);
   } catch { /* Fall back to this session when storage is unavailable. */ }
   return memory[root] ?? null;
 }
 
 export function saveFolderImport(root: string, value: FolderImport) {
+  const db = database();
+  if (db) {
+    db[root] = value;
+    void writeFolderImport(root, value);
+    return;
+  }
   memory[root] = value;
   try {
     const saved = JSON.parse(localStorage.getItem(KEY) || '{}');
@@ -106,6 +131,8 @@ export function compareFolders(a: { name: string }, b: { name: string }): number
 }
 
 export function importedRoots(): string[] {
+  const db = database();
+  if (db) return Object.keys(db);
   try { return Object.keys(JSON.parse(localStorage.getItem(KEY) || '{}')).filter(root => !!folderImport(root)); }
   catch { return Object.keys(memory); }
 }

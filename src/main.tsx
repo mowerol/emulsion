@@ -3,15 +3,23 @@ import '@fontsource-variable/geist/wght.css';
 import './styles.css';
 import { logToTerminal } from './backend/api';
 import { loadAppSettings } from './library/appsettings';
+import { loadCatalogDb } from './library/catalogdb';
 
 window.addEventListener('error', (e) => logToTerminal('error', `${e.message} at ${e.filename}:${e.lineno}`));
 window.addEventListener('unhandledrejection', (e) => logToTerminal('error', `Unhandled: ${String(e.reason)}`));
 
-// The settings file is read before any store that keeps its state there (collections, favourites,
-// camera profile defaults) is imported, so they start from it. Then custom looks are listed before
+// The settings file is read before any store that keeps its state there (favourites, camera
+// profile defaults) is imported, so they start from it. Then custom looks are listed before
 // photos are drawn with them.
 async function start() {
   await loadAppSettings().catch((e) => logToTerminal('error', `Settings: ${String(e)}`));
+  // The library catalog (library.db) after the settings: its first load moves the catalog that
+  // settings.json and localStorage used to hold into it.
+  await loadCatalogDb().catch(async (e) => {
+    logToTerminal('error', `Library catalog: ${String(e)}`);
+    const { message } = await import('@tauri-apps/plugin-dialog');
+    await message(`Emulsion couldn't open its library catalog, so the library starts empty and nothing is saved to it this time.\n\n${String(e)}\n\nYour photos and their edits are safe in their folders. To bring the catalog back, choose Emulsion › Restore Catalog from Backup…`, { title: 'Library catalog unavailable', kind: 'error' }).catch(() => {});
+  });
   const [React, ReactDOM, { default: App }, { refreshPresets }, { refreshUserLooks }] = await Promise.all([
     import('react'), import('react-dom/client'), import('./App'), import('./library/presets'), import('./library/userlooks'),
   ]);

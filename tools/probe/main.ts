@@ -49,6 +49,8 @@ import { Panel } from '../../src/ui/Panel';
 import { CameraColourWarning } from '../../src/ui/CameraProfile';
 import { Section } from '../../src/ui/Section';
 import { ExportDialog } from '../../src/ui/ExportDialog';
+import { CatalogBackupDialog, promptBackup } from '../../src/ui/CatalogBackupDialog';
+import { setBackupSettings } from '../../src/library/catalogbackup';
 import { startLookEdit, useApp } from '../../src/library/store';
 import { bandFactors, bandGains, correction, luminance, toneEqualize } from '../../src/engine/toneequalizer';
 import denoiseFixture from '../../src/engine/fixtures/denoiseprofile-reference.json';
@@ -962,6 +964,16 @@ try {
     document.body.append(host);
     createRoot(host).render(createElement(ExportDialog));
     out.exportdialog = 'mounted';
+  } else if (new URLSearchParams(location.search).has('backupdialog')) {
+    // The catalog backup dialog shown on quitting: ?backupdialog&theme=<mid|light|dark>.
+    const q = new URLSearchParams(location.search);
+    if (q.get('theme')) document.documentElement.dataset.theme = q.get('theme')!;
+    setBackupSettings({ folder: '/Users/me/Pictures/Emulsion/Backups', last: Date.UTC(2026, 10, 3, 18, 40) });
+    const host = document.createElement('div');
+    document.body.append(host);
+    createRoot(host).render(createElement(CatalogBackupDialog));
+    void promptBackup('quit');
+    out.backupdialog = 'mounted';
   } else if (new URLSearchParams(location.search).has('metapanel')) {
     // Keywords and Metadata for two selected photos that share some keywords: ?metapanel&theme=<mid|light|dark>.
     const q = new URLSearchParams(location.search);

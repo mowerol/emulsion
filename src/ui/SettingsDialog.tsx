@@ -9,6 +9,8 @@ import { CROP_OVERLAYS, setPrefs, setTheme, THEMES, usePrefs, type InterfacePref
 import { setWorkspace, useWorkspace } from './workspace';
 import { setEachStroke, useRetouchUi } from './retouchui';
 import { onOpenSettings } from './menubridge';
+import { BACKUP_FREQUENCIES, backupFolder, chooseBackupFolder, restoreCatalog, setBackupSettings, showCatalogBackups, useCatalogBackup, type BackupFrequency } from '../library/catalogbackup';
+import { promptBackup } from './CatalogBackupDialog';
 
 function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return <div className="settings-row">
@@ -32,6 +34,9 @@ function Sheet({ onClose }: { onClose: () => void }) {
   const stageColor = useApp(s => s.stageColor);
   const foldJpegs = useApp(s => s.foldJpegs);
   const eachStroke = useRetouchUi(u => u.eachStroke);
+  const backup = useCatalogBackup();
+  const [backupPath, setBackupPath] = useState('');
+  useEffect(() => { void backupFolder(backup).then(setBackupPath).catch(() => {}); }, [backup]);
   useLayoutEffect(() => {
     const dialog = ref.current!;
     dialog.showModal();
@@ -83,6 +88,24 @@ function Sheet({ onClose }: { onClose: () => void }) {
         <Row label="Remove after each stroke" hint="Off: strokes wait for Apply (↵)">
           <input type="checkbox" aria-label="Remove after each stroke" checked={eachStroke} onChange={e => setEachStroke(e.target.checked)} />
         </Row>
+      </section>
+
+      <section aria-labelledby="settings-catalog">
+        <h3 id="settings-catalog">Catalog</h3>
+        <p className="settings-note">The library's folders, imports, collections and photo details. Offered as a backup when you quit.</p>
+        <Row label="Back up the catalog">
+          <select aria-label="How often to back up the catalog" value={backup.frequency} onChange={e => setBackupSettings({ frequency: e.target.value as BackupFrequency })}>
+            {BACKUP_FREQUENCIES.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}
+          </select>
+        </Row>
+        <Row label="Backup folder" hint={backupPath}>
+          <button type="button" className="btn" onClick={() => void chooseBackupFolder()}>Choose…</button>
+        </Row>
+        <div className="settings-actions">
+          <button type="button" className="btn" onClick={then(() => promptBackup('now'))}>Back Up Now…</button>
+          <button type="button" className="btn" onClick={then(restoreCatalog)}>Restore from Backup…</button>
+          <button type="button" className="btn" onClick={then(showCatalogBackups)}>Show Backups</button>
+        </div>
       </section>
 
       <section aria-labelledby="settings-data">

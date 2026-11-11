@@ -6,6 +6,7 @@ mod ai_masks;
 mod ai_models;
 mod app_data;
 mod capture;
+mod catalog;
 mod commands;
 mod decode;
 pub mod denoise;
@@ -24,6 +25,7 @@ mod lens;
 mod raw;
 mod rawspeed_cameras;
 mod presets;
+mod quit;
 mod perspective;
 mod segment;
 mod sky;
@@ -56,6 +58,8 @@ pub fn run() {
             let cache_dir = app.path().app_cache_dir()?.join("thumbs");
             std::fs::create_dir_all(&cache_dir)?;
             app.manage(AppPaths { cache_dir });
+            app.manage(catalog::CatalogDb::new(&app.path().app_data_dir()?));
+            quit::install(app.handle());
             // darktable-style snapshots of looks, presets, profiles and settings: one a day, and
             // one before a version upgrade. Off the main thread; a failure only loses a snapshot.
             if let Ok(data) = app.path().app_data_dir() {
@@ -109,6 +113,15 @@ pub fn run() {
             commands::startup_options,
             commands::take_open_paths,
             commands::log_message,
+            commands::catalog_load,
+            commands::catalog_write,
+            commands::catalog_default_backup_folder,
+            commands::catalog_backup,
+            commands::catalog_latest_backup,
+            commands::catalog_restore,
+            commands::catalog_show_folder,
+            quit::quit_ack,
+            quit::quit_now,
             ai_masks::ai_mask_status,
             ai_masks::ai_mask_install,
             ai_masks::segment_encode,

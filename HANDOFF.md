@@ -5,10 +5,82 @@ Grid/Loupe with its vertical carousel are committed. Library import/sync, metada
 performance fixes and the Import toolbar removal landed in `8931147`. Built-in look tuning remains
 uncommitted; older "Uncommitted" notes below are out of date.
 
-**Current priority (Oli, 2026-11-11): exports.** Oli reports that the large smart-collection
-pause seems fixed; the earlier instruction to measure it next is superseded. Catalog storage
-and broader performance acceptance remain follow-ups. Filename templates and saved export
-presets below are committed on Oli's request; the existing built-in look tuning remains uncommitted.
+**Current priority (Oli, 2026-11-11): release essentials.** Oli asked what is left before a
+release; the list (signing/notarisation or an unsigned beta, updater, build pipeline, catalog
+storage, in-app checks of recent features, crash logs, first launch, LUT licences) is in the
+section below. He chose the catalog first, as SQLite now rather than an interim file, plus
+Lightroom-style backups on quit. Both are built; exports remain the feature
+priority after release work.
+
+## Library catalog in SQLite, with backups on quit (2026-11-11)
+
+Why: the folder index (3,774 photos, 4.73 M characters) sat in localStorage at WebKit's ~5 MB
+quota, behind `catch {}` that would silently stop saving; which files were imported
+(`emulsion.folderImports`) lived only there, outside settings.json and the daily backups; every
+edit rewrote the whole index (the dev origin's WAL was 63 MB).
+
+- **`library.db`** in the app data folder (rusqlite 0.42, SQLite bundled; `src-tauri/src/catalog.rs`).
+  Tables `roots`, `photos` (one row per photo per folder: folder, path, copy id, position,
+  the `Photo` JSON), `folder_imports`, `kv` (imports, collections, target). Schema in
+  `user_version` (1); a newer catalog is refused. `library/catalogdb.ts` loads it in `main.tsx`
+  and, the first time, moves localStorage's index and import choices and settings.json's
+  `emulsion.libraryCatalog` into it, then deletes those. `CatalogDiff` sends only changed rows.
+  If the catalog can't be opened, a native message says so and nothing is written. Outside the
+  app, everything is unchanged (localStorage), so existing tests run as before.
+- **Measured** (`EMULSION_CATALOG_INDEX=<json> EMULSION_CATALOG_SCALE=n cargo test --release
+  catalog_scale -- --ignored --nocapture`, Oli's real index): 3,774 photos: first write 32 ms,
+  load 14 ms, one edit 0.05 ms, backup with integrity test 68 ms, 7 MB db. ×14 (52,836): first
+  write 0.42 s, load 0.2 s (66 MB of JSON to the page), one edit 0.08 ms, backup 0.9 s, 97 MB db.
+  The page still holds the whole catalog in memory and parses it at launch: the next scale step.
+- **Backups (Lightroom Classic's model):** every quit (⌘Q, Dock, logout, the close button)
+  runs `requestQuit` in `ui/CatalogBackupDialog.tsx`: save sidecars and catalog, offer a
+  backup when due (Every time / daily / **weekly default** / monthly / Never), then `quit_now`.
+  `src-tauri/src/quit.rs` adds `applicationShouldTerminate:` to tao's delegate class (tao has
+  none, so ⌘Q used to end the app at once): it cancels and emits `quit-requested` until the page
+  approves; no acknowledgement in 4 s quits anyway. A logout gets cancelled once (repeat it).
+  Backups are `Emulsion Catalog YYYY-MM-DD HHMM.zip` (`VACUUM INTO`, zipped) in
+  `~/Pictures/Emulsion/Backups` by default; newest 10 kept; optional integrity test before and
+  optimise after (both on, like Lightroom). Restore checks the zip, keeps the current catalog in
+  `<data>/backups/catalog/`, swaps and reloads. Menu: Emulsion › Back Up Catalog…, Restore
+  Catalog from Backup…, Show Catalog Backups in Finder; Settings › Catalog. Daily/upgrade
+  snapshots now include `library.db`.
+- **Checks:** `npm run check` passes (844 frontend, 125 Rust). New tests: `catalog.rs` (7:
+  order, upsert/delete/copies, bad JSON rolls back, newer refused, backup/restore/prune,
+  restore refuses junk, snapshot) and `catalogdb.test.ts` (8: migration, freeze on failure,
+  diff). Probe `?backupdialog&theme=` screenshots the quit dialog (dark and light checked).
+- **In-app check (Oli, 2026-11-11):** Back Up on quit completes and the app closes. Verified
+  `Emulsion Catalog 2026-11-11 1515.zip` in Pictures/Emulsion/Backups: ZIP and SQLite integrity
+  checks pass. The quick exit is expected: this backs up the catalog, not the photo files.
+- **Remaining checks (needs the app; Oli should try):** first launch migrates his library: the
+  Library should show the same folders, imports, collections and counts as before (the dev
+  origin's localStorage is the one with the index). Also try the red close button, Dock › Quit,
+  Skip this time, Return to back up, a look draft open
+  (quitting is refused with a toast), Restore Catalog from Backup… (reloads, same library), and
+  the Settings › Catalog section.
+- **Notes:** `tools/perf/inapp.mjs` ends its app with SIGTERM, so the prompt never blocks it,
+  but its second app now writes into the same `library.db` (it shared settings.json before,
+  not localStorage). The production build and the dev app share the database too.
+
+## What remains before a release (Oli asked, 2026-11-11)
+
+1. Signing: Apple Developer ID ($99/yr), hardened-runtime entitlements (check LibRaw, libomp,
+   ONNX Runtime under it), notarisation. Oli asked about avoiding the cost: an ad-hoc-signed
+   beta works; testers use System Settings › Privacy & Security › Open Anyway once.
+2. `tauri-plugin-updater` (its own signing key, no Apple account needed) and a manifest host.
+3. A build pipeline (no CI yet) producing the dmg; version and release notes (still 0.1.0).
+4. Apple Silicon only? ONNX Runtime downloads arm64 only (`ai_models.rs`).
+5. LUT licences: bundled packs include CC BY-NC/BY-SA terms beside a GPL app; confirm the Fuji
+   test LUTs stay out of the dmg.
+6. ~~Catalog storage~~ (above). 7. In-app checks of the recent "Oli should try" items, XMP
+   sidecars first (on a copy of a real folder). 8. Crash/error log file. 9. First-launch pass.
+
+## Smart collections at 0 were not a bug (2026-11-11)
+
+Oli saw smart collections at 0. Checked against his real catalog with the app's own counting
+code: OM-3 3,064, while Xt (5★ X-T30) and Hi (3★ + Picked) really match nothing among the 3,768 imported
+photos. The 5★ X-T30 frames are in `2025/JAPAN`, which was never imported. Smart collections and
+the Folders sidebar (`importedTree`, since `8931147`) both cover imported photos only, Lightroom-style;
+Oli confirmed he likes that model. No code changed.
 
 ## Export: embedded sRGB ICC profile (2026-11-11)
 
@@ -921,6 +993,9 @@ maybe later). No DCPs had ever been installed. Uncommitted.
 
 Oli supplied `~/Documents/emulsion-logo.png` and asked to use it as the app icon.
 
+- On 2026-11-11, replaced the artwork again from `~/Documents/new-icon.png` (latest supplied
+  version), regenerating all desktop assets at the existing optical size. Every ICNS size and
+  the dev PNG pass size/centering checks; the dev build passes and embeds the exact new ICNS.
 - Replaced all 17 desktop assets in `src-tauri/icons` using Tauri's icon generator,
   including macOS ICNS, Windows ICO/AppX and the PNG sizes used by the app.
 - Oli then supplied a new 852 × 852 version with a beveled dark background and orange

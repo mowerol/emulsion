@@ -293,6 +293,7 @@ These are used as libraries, not copied, and keep their own licences.
 | `xmp_toolkit` (Adobe XMP Toolkit SDK, above) | MIT OR Apache-2.0; SDK BSD-3-Clause |
 | `cc` (build only) | MIT OR Apache-2.0 |
 | `blake3` | CC0-1.0 OR Apache-2.0 |
+| `rusqlite` (library catalog), with SQLite compiled in | MIT; SQLite is in the public domain |
 | React, React DOM | MIT |
 | zustand | MIT |
 

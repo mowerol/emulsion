@@ -20,6 +20,7 @@ export const APP_SETTING_KEYS = [
   'emulsion.metadataPresets',
   'emulsion.export',
   'emulsion.exportPresets',
+  'emulsion.catalogBackup',
 ] as const;
 export type AppSettingKey = (typeof APP_SETTING_KEYS)[number];
 

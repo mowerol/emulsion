@@ -7,7 +7,7 @@
 //! plus one before each version upgrade (darktable's `data.db-pre-<version>`), an archive to move
 //! everything to another computer, and a restore that merges a snapshot or archive back in.
 //!
-//! Snapshot layout = data layout: `backups/<name>/{looks,presets,settings.json}`.
+//! Snapshot layout = data layout: `backups/<name>/{looks,presets,settings.json,library.db}`.
 //! Content-addressed files (LUTs) are hard-linked rather than copied; every writer replaces
 //! files by renaming a temporary file over them, so a link never sees a later change.
 
@@ -68,7 +68,7 @@ fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
 // ---------------------------------------------------------------- snapshots
 
 fn has_data(root: &Path) -> bool {
-    root.join(SETTINGS).is_file() || DIRS.iter().any(|d| fs::read_dir(root.join(d)).map(|mut r| r.next().is_some()).unwrap_or(false))
+    root.join(SETTINGS).is_file() || root.join(crate::catalog::DB).is_file() || DIRS.iter().any(|d| fs::read_dir(root.join(d)).map(|mut r| r.next().is_some()).unwrap_or(false))
 }
 
 /// Content-addressed files never change once written, so snapshots share them.
@@ -122,6 +122,9 @@ pub fn snapshot(root: &Path, dest: &Path) -> io::Result<()> {
     if root.join(SETTINGS).is_file() {
         fs::copy(root.join(SETTINGS), partial.join(SETTINGS))?;
     }
+    // The library catalog, copied consistently even while the app writes to it. Restoring
+    // settings leaves it alone (only json and LUT files come back); Restore Catalog brings it back.
+    crate::catalog::snapshot_file(&root.join(crate::catalog::DB), &partial.join(crate::catalog::DB))?;
     fs::rename(&partial, dest)
 }
 
@@ -157,6 +160,12 @@ fn local_secs() -> i64 {
 pub fn today() -> String {
     let (y, m, d) = civil(local_secs().div_euclid(86_400));
     format!("{y:04}-{m:02}-{d:02}")
+}
+
+/// Local date and time to the minute, `YYYY-MM-DD HHMM` (Lightroom's backup folder names).
+pub fn minute_stamp() -> String {
+    let s = local_secs();
+    format!("{} {:02}{:02}", today(), s.rem_euclid(86_400) / 3600, s.rem_euclid(3600) / 60)
 }
 
 fn stamp() -> String {
