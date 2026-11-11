@@ -8,8 +8,8 @@ uncommitted; older "Uncommitted" notes below are out of date.
 **Current priority (Oli, 2026-11-11): release essentials.** Oli asked what is left before a
 release; the list (signing/notarisation or an unsigned beta, updater, build pipeline, catalog
 storage, in-app checks of recent features, crash logs, first launch, LUT licences) is in the
-section below. He chose the catalog first, as SQLite now rather than an interim file, plus
-Lightroom-style backups on quit. Both are built; exports remain the feature
+section below. He chose the catalog first (SQLite, backups on quit: committed `3a7a657`), then an
+ad-hoc-signed beta with a build pipeline (built, uncommitted). Exports remain the feature
 priority after release work.
 
 ## Library catalog in SQLite, with backups on quit (2026-11-11)
@@ -63,16 +63,38 @@ edit rewrote the whole index (the dev origin's WAL was 63 MB).
 
 ## What remains before a release (Oli asked, 2026-11-11)
 
-1. Signing: Apple Developer ID ($99/yr), hardened-runtime entitlements (check LibRaw, libomp,
-   ONNX Runtime under it), notarisation. Oli asked about avoiding the cost: an ad-hoc-signed
-   beta works; testers use System Settings › Privacy & Security › Open Anyway once.
-2. `tauri-plugin-updater` (its own signing key, no Apple account needed) and a manifest host.
-3. A build pipeline (no CI yet) producing the dmg; version and release notes (still 0.1.0).
-4. Apple Silicon only? ONNX Runtime downloads arm64 only (`ai_models.rs`).
-5. LUT licences: bundled packs include CC BY-NC/BY-SA terms beside a GPL app; confirm the Fuji
-   test LUTs stay out of the dmg.
-6. ~~Catalog storage~~ (above). 7. In-app checks of the recent "Oli should try" items, XMP
-   sidecars first (on a copy of a real folder). 8. Crash/error log file. 9. First-launch pass.
+Oli chose an **ad-hoc-signed beta** (no Developer ID, no notarisation) and asked to ship only
+LUTs with explicit licences.
+
+1. ~~Signing~~: ad-hoc, done (below). 2. `tauri-plugin-updater` (own key, no Apple account)
+   and a manifest host. 3. ~~Build pipeline~~ (below); release notes still to write, version
+   still 0.1.0. 4. Apple Silicon only (ONNX Runtime is arm64-only); the testers' note says so.
+5. ~~LUT licences~~: every bundled pack has an explicit licence (gmic-film CC BY-SA 4.0,
+   picturefx legacy CC BY-SA 4.0, t3mujinpack MIT), so nothing was removed; local-looks
+   never ship (checked by the script). 6. ~~Catalog~~. 7. In-app checks of the recent
+   "Oli should try" items, XMP sidecars first. 8. Crash/error log file. 9. First-launch pass.
+
+## Release pipeline: ad-hoc-signed beta (2026-11-11)
+
+- `tauri.conf.json`: targets `app`, `dmg`; `macOS.signingIdentity "-"`, `hardenedRuntime
+  false` (library validation needs a Team ID and would refuse the downloaded ONNX Runtime).
+- `npm run release` (`tools/release/build.sh`): refuses a dirty tree (`--dirty` for trials),
+  mismatched versions (package.json/tauri.conf.json/Cargo.toml) or missing libomp; runs
+  `npm run check` (`--skip-checks`); builds aarch64; then verifies ad-hoc signature,
+  arm64-only, system-only linked libraries, static OpenMP, no local-looks file in dist, a licence
+  file in each LUT pack. Writes `release/Emulsion-<v>-arm64.dmg`, `.sha256`, `INSTALL.txt`
+  (from `tools/release/INSTALL.txt`: Open Anyway steps, `xattr` fallback). `/release/` is ignored.
+- `.github/workflows/release.yml`: on a `v*` tag (or by hand), macos-15 runner, checks + the same
+  script, draft GitHub release with the dmg. **Not yet run** (needs a push); private repo, so
+  macOS minutes count 10×.
+- `docs/RELEASING.md`: how to cut a build, the checks, signing choices, LUT licence table.
+- **Verified locally** (`--dirty`, uncommitted icons/looks): checks pass (844 frontend, 125
+  Rust), 31 MB dmg, mounts with Emulsion.app + Applications link, signature verifies from
+  the dmg, `spctl` rejects as expected for ad-hoc (testers use Open Anyway). The built app was
+  not launched (it shares `library.db` with the dev app).
+- **Oli should try:** open `release/Emulsion-0.1.0-arm64.dmg` on another Mac or user account
+  (or after downloading it, so it is quarantined) and go through Open Anyway; open a RAW;
+  try an AI feature (ONNX Runtime loads without the hardened runtime).
 
 ## Smart collections at 0 were not a bug (2026-11-11)
 

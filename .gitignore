@@ -35,3 +35,6 @@ tools/probe/dist
 # Local scratch output and other agents' settings
 .scratch/
 .codex/
+
+# Release builds (tools/release/build.sh)
+/release/

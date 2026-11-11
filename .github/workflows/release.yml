@@ -1,0 +1,56 @@
+# Builds the ad-hoc-signed beta on a version tag (or by hand) and attaches it to a draft
+# GitHub release. Same script as a local `npm run release`: tools/release/build.sh.
+# On a private repo, macOS runner minutes count 10x against the plan's allowance.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install libomp
+        run: brew install libomp
+
+      - run: npm ci
+
+      - name: Check
+        run: npm run check
+
+      - name: Build and verify
+        run: tools/release/build.sh --skip-checks
+
+      - name: Draft release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --draft --title "Emulsion $GITHUB_REF_NAME (beta)" \
+            --notes-file release/INSTALL.txt release/*.dmg release/*.sha256
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emulsion-dmg
+          path: release/

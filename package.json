@@ -10,7 +10,8 @@
     "tauri": "tauri",
     "test": "vitest run",
     "check": "tsc --noEmit && vitest run && vite build && cd src-tauri && cargo test",
-    "probe": "vite build tools/probe --outDir dist --emptyOutDir --base ./"
+    "probe": "vite build tools/probe --outDir dist --emptyOutDir --base ./",
+    "release": "tools/release/build.sh"
   },
   "dependencies": {
     "@fontsource-variable/geist": "^5.3.0",

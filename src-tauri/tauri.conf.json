@@ -28,7 +28,10 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": [
+      "app",
+      "dmg"
+    ],
     "category": "Photography",
     "shortDescription": "Film looks for digital photos",
     "longDescription": "Emulsion develops your photos through a film stock, push or pull processing and a scanner profile, with halation, glow and grain.",
@@ -39,6 +42,10 @@
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "macOS": {
+      "signingIdentity": "-",
+      "hardenedRuntime": false
+    }
   }
 }

@@ -1,0 +1,20 @@
+Emulsion {{VERSION}} beta ({{COMMIT}})
+
+Needs a Mac with Apple Silicon (M1 or later).
+
+Installing
+1. Open the .dmg and drag Emulsion to Applications.
+2. Open Emulsion from Applications. macOS says it can't check the app for malicious
+   software, because this beta isn't signed by an Apple developer account. Click Done.
+3. Open System Settings > Privacy & Security, scroll down to "Emulsion was blocked",
+   click Open Anyway and confirm with your password or Touch ID.
+   You only need to do this once per version.
+
+If macOS says the app "is damaged and can't be opened", the download was quarantined
+without the Open Anyway option. Run this in Terminal, then open it again:
+
+    xattr -dr com.apple.quarantine /Applications/Emulsion.app
+
+Emulsion keeps its catalog in ~/Library/Application Support/app.emulsion.desktop and,
+by default, catalog backups in ~/Pictures/Emulsion/Backups. Edits are also saved as
+XMP sidecars beside your photos.
