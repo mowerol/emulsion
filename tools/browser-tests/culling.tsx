@@ -81,7 +81,7 @@ async function main() {
   createRoot(document.getElementById('root')!).render(<StrictMode><Harness /></StrictMode>);
   await until(() => document.querySelector('.grid .cell'), 'Grid missing');
   if (query.has('grid')) { await until(() => document.querySelector('.cell img'), 'No grid thumbnails'); document.body.dataset.result = 'PASS: Library grid capture'; return; }
-  document.querySelector('.grid .cell')!.dispatchEvent(new MouseEvent('dblclick', { bubbles: true }));
+  setLibraryView('loupe');
   await until(() => document.querySelector('.cull-image-window img'), 'No loupe preview in StrictMode');
   assert(isLibraryLoupe() && !fullscreen && !useApp.getState().loupeFullscreen, 'Opening a photo forced fullscreen');
   assert(document.querySelector('.folder-directory')!.getBoundingClientRect().width > 0, 'Lost folders');

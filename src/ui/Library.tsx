@@ -3,7 +3,7 @@ import { memo, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, ty
 import { Layers, ListFilter, Pencil, Settings2, Square, Star } from 'lucide-react';
 import { usePhotoContextMenu, type PhotoContextHandler } from './PhotoMenu';
 import { photoId, photoName } from '../library/copies';
-import { setActive, setFilter, setFoldJpegs, setSelectedOnly, setLibraryView, sourceIndices, useApp, useShown, type Photo } from '../library/store';
+import { setActive, setFilter, setFoldJpegs, setSelectedOnly, setLibraryView, setView, sourceIndices, useApp, useShown, type Photo } from '../library/store';
 import { NO_FILTER, isFiltering } from '../library/filter';
 import { LABEL } from '../library/marks';
 import { FolderImportView } from './Folders';
@@ -37,7 +37,7 @@ const Cell = memo(function Cell({ photo, index, number, position, total, active,
     className={`cell${active ? ' active' : ''}${selected ? ' selected' : ''}${photo.flag === 'reject' ? ' rejected' : ''}`} data-index={index}
     draggable={false} onPointerDown={e => startDrag(e, index)}
     onContextMenu={e => contextMenu(e, index)} onClick={e => setActive(index, selectMode(e))}
-    onDoubleClick={() => { setActive(index, 'keep'); setLibraryView('loupe'); }} title={photo.copyId ? `${photo.rel} · ${photo.copyName}` : photo.rel}>
+    onDoubleClick={() => { setActive(index, 'keep'); setView('develop'); }} title={photo.copyId ? `${photo.rel} · ${photo.copyName}` : photo.rel}>
     <div className="cell-img">
       <Thumb photo={photo} visible={visible} />
       <span className="cell-num">{number}</span>
