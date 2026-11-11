@@ -2,8 +2,6 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { createPortal } from 'react-dom';
 import { Eye } from 'lucide-react';
-import { ScannerFinishControls } from './ScannerFinish';
-import type { ScannerId } from '../film/scanners';
 import { PACKS, lookName, withLook, type PackId } from '../film/looks';
 import type { StockId } from '../film/stocks';
 import { defaultRecipe, type Recipe } from '../film/recipe';
@@ -59,9 +57,8 @@ function LookGroups({ photo, groups, view, selected, favourites, onPick, onDelet
   return <div ref={root} className="look-browser-groups">{shown.map(({ id, title, entries }) => <details open key={id} className="look-browser-group"><summary>{title} <span>({entries.length})</span></summary><div className={`look-entries ${view}`}>{entries.map(item=><LookRow key={item.key} item={item} selected={selected===item.key} favourite={favourites.includes(item.key)} thumb={grid ? tileRef(`${id}|${item.key}`) : null} placeholder={placeholder} onPick={()=>onPick(item)} onDelete={()=>onDelete(item)} onDuplicate={()=>onDuplicate(item)}/>)}</div></details>)}</div>;
 }
 
-export function LookChooser({ photo, recipe, onPick, onAmount, onEdit, onNew, onRemove, onDelete, onDuplicate, onScannerChange }: {
+export function LookChooser({ photo, recipe, onPick, onAmount, onEdit, onNew, onRemove, onDelete, onDuplicate }: {
   photo: Photo | null; recipe: Recipe; onPick: (pack: PackId, id: StockId) => void; onAmount: (amount: number) => void; onEdit: () => void;
-  onScannerChange: (choice: ScannerId | 'look') => void;
   onDuplicate: (pack: PackId, stock: StockId) => void; onNew: () => void; onRemove: () => void; onDelete: (id: StockId) => Promise<void>;
 }) {
   const looksVersion = useUserLooksVersion();
@@ -165,7 +162,6 @@ export function LookChooser({ photo, recipe, onPick, onAmount, onEdit, onNew, on
   return <div ref={host} className="look-chooser" onKeyDown={e=>{if(quick){e.stopPropagation();if(e.key==='Escape'){e.preventDefault();close();}}}}>
     <div className="look-selector-line"><button type="button" className="look-selector" aria-label="Choose look" aria-expanded={quick} onClick={e=>{trigger.current=e.currentTarget;setQuick(!quick);setQuery('');}}><Swatch name={name} bw={active?.bw}/><strong>{name}</strong><span aria-hidden="true">{quick?'⌃':'⌄'}</span></button><button type="button" className="look-browse-button" aria-label="Browse all looks" title="Browse all looks" onClick={e=>openBrowser(e.currentTarget)}><GridIcon/></button></div>
     {amount}
-    <ScannerFinishControls compact recipe={recipe} editor={false} onChange={onScannerChange}/>
     {recipe.lookEnabled && <div className="look-inline-actions"><button onClick={onEdit}>Edit…</button><button onClick={onRemove}>Remove</button></div>}
     {quick && <div className="look-quick-menu"><input className="look-search" type="search" aria-label="Search looks" placeholder="Search looks…" value={query} onChange={e=>setQuery(e.target.value)}/><div className="look-quick-results"><h3>{query.trim()?'LOOKS':'FAVOURITES'}</h3>{quickItems.slice(0,20).map(item=><button key={item.key} className="look-quick-item" onClick={()=>pick(item,true)}><Swatch name={item.name} bw={item.bw}/><strong>{item.name}</strong>{item.key===key && <span aria-label="Applied">✓</span>}</button>)}{!quickItems.length && <p className="look-empty">{query?'No matching looks.':'Star looks in the browser to keep them here.'}</p>}</div><footer><button onClick={()=>openBrowser()}><GridIcon/>Browse all looks</button><button onClick={()=>{close();onNew();}}>＋ New look…</button></footer></div>}
     {fullBrowser && (portalHost ? createPortal(fullBrowser, portalHost) : fullBrowser)}

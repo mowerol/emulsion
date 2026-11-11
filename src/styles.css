@@ -974,10 +974,6 @@ input.range:disabled { opacity: 0.35; cursor: default; }
 .look-browser-group > summary::before { content: '›'; display: inline-block; width: 15px; }
 .look-browser-group[open] > summary::before { content: '⌄'; }
 
-.look-scanner { display: grid; grid-template-columns: 58px minmax(0,1fr); gap: 9px; align-items: center; color: var(--muted); font-size: 13px; }
-.look-scanner select { width: 100%; min-width: 0; background: rgb(var(--tint) / 0.020); border: 1px solid transparent; border-radius: 8px; color: var(--fg); padding: 8px 10px; font: inherit; cursor: pointer; }
-.look-scanner select:hover { background: var(--raise); }
-.look-scanner select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* ===================================================================================
    Develop redesign (2026-11-01): docked bars with 1px dividers, nothing over the photo,
@@ -1309,11 +1305,6 @@ select { accent-color: var(--accent); }
 .look-amount output { font-weight: 400; color: var(--text2); font-size: 12px; }
 .look-inline-actions button:hover { color: var(--text); text-decoration: underline; }
 /* Scanner: inherited reads like any value; an override is marked in accent, one click from undone. */
-.look-scanner { grid-template-columns: 80px minmax(0, 1fr) auto; gap: 8px; font-size: 12px; color: var(--text3); }
-.look-scanner select { padding: 4px 2px; border: 0; border-bottom: 1px solid var(--border); border-radius: 0; background: none; color: var(--text); }
-.look-scanner select:hover { background: none; border-bottom-color: var(--muted); }
-.look-scanner.overridden select { color: var(--accent); border-bottom-color: color-mix(in srgb, var(--accent) 55%, transparent); }
-.look-scanner .icon-btn { width: 24px; height: 24px; color: var(--accent); }
 
 /* Presets tab. */
 .presets-tab { display: flex; flex-direction: column; gap: 10px; padding: 12px 0 16px; }
@@ -1358,9 +1349,8 @@ select { accent-color: var(--accent); }
 .panel-workflow .grouped-controls-body { padding: 0; }
 .panel-workflow .grouped-controls-body > .control-section-slot > * { padding-left: 14px; padding-right: 14px; }
 /* Reset icons are neutral; only the override itself is marked in accent. */
-.section-reset.icon-btn, .look-scanner .icon-btn { color: var(--muted); }
-.section-reset.icon-btn:hover, .look-scanner .icon-btn:hover { color: var(--text); }
-.panel-workflow .section-body .look-scanner.overridden select { color: var(--accent); border-bottom-color: color-mix(in srgb, var(--accent) 55%, transparent); }
+.section-reset.icon-btn { color: var(--muted); }
+.section-reset.icon-btn:hover { color: var(--text); }
 /* Clip indicators sit in the histogram's top corners. */
 .panel-workflow .histogram.compact { position: relative; }
 .histogram.compact .histogram-clip { position: absolute; top: 14px; left: 16px; right: 16px; margin: 0; pointer-events: none; }

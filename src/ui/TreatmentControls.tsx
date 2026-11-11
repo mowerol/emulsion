@@ -24,7 +24,6 @@ export function TreatmentControls({ photo }: { photo: Photo }) {
   const apply = (fn: (r: Recipe) => Recipe, label = 'Change look') => editRecipes(targets().map(photoId), r => fn(r ?? defaultRecipe()), label);
   const pick = (pack: PackId, id: StockId) => apply(r => withLook(r, pack, id));
   return <LookChooser photo={photo} recipe={r} onPick={pick}
-    onScannerChange={choice => apply(r => choice === 'look' ? { ...r, scannerFromLook: true } : { ...r, scanner: choice, scannerFromLook: false }, 'Scanner finish')}
     onAmount={lookAmount => apply(r => ({ ...r, lookAmount }))}
     onNew={() => begin(photo, uuid(), 'My look', empty)}
     onRemove={() => apply(r => ({ ...r, lookEnabled: false, lookSnapshot: undefined }))}
