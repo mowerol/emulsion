@@ -3,33 +3,32 @@
     "id": "emulsion-film-neg",
     "name": "Emulsion Neg",
     "bw": false,
-    "revision": 13,
+    "revision": 19,
     "settings": {
       "colorBalance": {
-        "shadows_Y": -0.25,
+        "shadows_Y": -0.07,
         "shadows_C": 0.034249114756038083,
         "shadows_H": 243.77103344794187,
         "midtones_Y": -0.074,
-        "highlights_Y": -0.011,
-        "shadows_weight": 1.61,
-        "highlights_weight": 1.65,
-        "chroma_shadows": -0.304,
-        "chroma_highlights": -0.085,
+        "highlights_Y": -0.063,
+        "shadows_weight": 0.42,
+        "highlights_weight": 1.45,
+        "chroma_shadows": 0.092,
+        "chroma_highlights": 0.211,
         "chroma_global": 0.073,
-        "chroma_midtones": 0.146,
-        "saturation_global": 0.01,
+        "chroma_midtones": 0.165,
+        "saturation_global": 0.12,
         "saturation_highlights": 0.087,
         "saturation_midtones": 0.397,
         "saturation_shadows": 0.229,
         "hue_angle": -0.6,
         "brilliance_global": -0.076,
-        "brilliance_highlights": 0.389,
-        "brilliance_midtones": 0.155,
-        "brilliance_shadows": 0.001,
-        "mask_grey_fulcrum": 0.0285,
-        "vibrance": 0.23,
-        "contrast": 0.13,
-        "grey_fulcrum": 0.1755
+        "brilliance_highlights": 0.285,
+        "brilliance_shadows": 0.144,
+        "mask_grey_fulcrum": 0.0687,
+        "vibrance": 0.18,
+        "contrast": 0.12,
+        "grey_fulcrum": 0.19041528383489034
       },
       "curve": {
         "b": [
@@ -104,16 +103,16 @@
             0.010267606621773284
           ],
           [
-            0.19065814393939395,
-            0.15088383838383834
+            0.2785744598765432,
+            0.22770324775533102
           ],
           [
-            0.5163197951739619,
-            0.5443045033670033
+            0.503795945566779,
+            0.4916877104377104
           ],
           [
-            0.7542452300785634,
-            0.8041328212682379
+            0.740474537037037,
+            0.7431621773288439
           ],
           [
             1,
@@ -125,33 +124,33 @@
       "color": {
         "bright": [
           -15,
-          25,
-          -54,
+          -11,
+          -64,
           -34,
           -15,
           59,
-          -23,
+          19,
           0
         ],
         "hue": [
-          -3,
+          66,
           -40,
           51,
           3,
           59,
           -3,
-          0,
-          0
+          79,
+          71
         ],
         "sat": [
-          0,
-          0,
-          -31,
-          -35,
+          -6,
+          20,
+          -37,
+          -28,
           16,
           -37,
-          -51,
-          0
+          -73,
+          -22
         ]
       }
     }
@@ -160,31 +159,33 @@
     "id": "emulsion-film-chrome",
     "name": "Emulsion Chrome",
     "bw": false,
-    "revision": 12,
+    "revision": 17,
     "settings": {
       "colorBalance": {
-        "shadows_Y": -0.14,
+        "shadows_Y": -0.33,
         "shadows_C": 0.034249114756038083,
         "shadows_H": 243.77103344794187,
-        "midtones_Y": 0.048,
-        "highlights_Y": 0.068,
-        "shadows_weight": 1.02,
-        "chroma_shadows": -0.304,
-        "chroma_highlights": -0.085,
-        "chroma_midtones": -0.071,
-        "saturation_global": 0.12,
+        "midtones_Y": -0.01,
+        "highlights_Y": -0.022,
+        "shadows_weight": 0.36,
+        "white_fulcrum": -0.78,
+        "highlights_weight": 0.34,
+        "chroma_shadows": -0.134,
+        "chroma_highlights": 0.136,
+        "chroma_midtones": 0.079,
+        "saturation_global": -0.04,
         "saturation_highlights": 0.087,
         "saturation_midtones": 0.397,
         "saturation_shadows": 0.229,
         "hue_angle": 8.3,
         "brilliance_global": 0.142,
-        "brilliance_highlights": 0.265,
-        "brilliance_midtones": -0.148,
-        "brilliance_shadows": -0.14,
-        "mask_grey_fulcrum": 0.0513,
-        "vibrance": 0.36,
-        "contrast": -0.07,
-        "grey_fulcrum": 0.2025
+        "brilliance_highlights": 0.054,
+        "brilliance_midtones": -0.178,
+        "brilliance_shadows": -0.242,
+        "mask_grey_fulcrum": 0.1125,
+        "vibrance": 0.17,
+        "contrast": 0.03,
+        "grey_fulcrum": 0.1734
       },
       "curve": {
         "b": [
@@ -259,16 +260,16 @@
             0.010267606621773284
           ],
           [
-            0.18687605218855222,
-            0.1244091961279461
+            0.1827199074074074,
+            0.12614092312008973
           ],
           [
-            0.5519379559483726,
-            0.5195477342873176
+            0.4980881734006734,
+            0.4821147236251403
           ],
           [
-            0.7605764239618407,
-            0.7401836069023568
+            0.7200540123456791,
+            0.7330765993265993
           ],
           [
             1,
@@ -315,7 +316,7 @@
     "id": "emulsion-film-gold",
     "name": "Emulsion Gold",
     "bw": false,
-    "revision": 9,
+    "revision": 11,
     "settings": {
       "colorBalance": {
         "shadows_Y": -0.7,
@@ -323,27 +324,27 @@
         "shadows_H": 225.5,
         "midtones_C": 0.007403040452042007,
         "midtones_H": 270.78606691360335,
-        "highlights_Y": 0.079,
-        "highlights_C": 0.022247411684511893,
-        "highlights_H": 64.20880423553803,
+        "highlights_Y": -0.033,
+        "highlights_C": 0.016089835689030513,
+        "highlights_H": 70.72045713165846,
         "shadows_weight": 2,
-        "white_fulcrum": -0.35,
-        "highlights_weight": 1.54,
+        "white_fulcrum": -1.78,
+        "highlights_weight": 0.88,
         "chroma_shadows": -0.541,
         "chroma_highlights": 0.114,
         "chroma_midtones": 0.267,
-        "saturation_global": 0.13,
+        "saturation_global": 0.07,
         "saturation_highlights": 0.087,
         "saturation_midtones": 0.397,
         "saturation_shadows": 0.18,
         "hue_angle": 2.8,
-        "brilliance_highlights": 0.14,
+        "brilliance_highlights": 0.096,
         "brilliance_midtones": -0.037,
         "brilliance_shadows": -0.223,
-        "mask_grey_fulcrum": 0.0034,
-        "vibrance": 0.26,
+        "mask_grey_fulcrum": 0.0281,
+        "vibrance": 0.14,
         "contrast": 0.12,
-        "grey_fulcrum": 0.1015
+        "grey_fulcrum": 0.1
       },
       "curve": {
         "b": [
@@ -352,16 +353,20 @@
             0
           ],
           [
-            0.14509294332210998,
-            0.14444181397306388
+            0.11701125841750842,
+            0.11083245650953988
           ],
           [
-            0.5004156144781146,
-            0.49684132996633
+            0.2791840277777778,
+            0.28674821127946126
           ],
           [
-            0.7736821338383838,
-            0.791802925084175
+            0.5063589015151515,
+            0.5057908950617284
+          ],
+          [
+            0.7748735620089787,
+            0.800988005050505
           ],
           [
             1,
@@ -422,8 +427,8 @@
             0.13881716470258143
           ],
           [
-            0.4996536546015713,
-            0.5137014239618407
+            0.5118311588103256,
+            0.5149205597643098
           ],
           [
             0.7634441638608306,
@@ -448,14 +453,14 @@
           0
         ],
         "hue": [
-          -10,
+          41,
           -40,
-          7,
-          -1,
+          -31,
+          -2,
           0,
           -21,
           0,
-          0
+          51
         ],
         "sat": [
           0,
@@ -465,7 +470,7 @@
           0,
           -24,
           -38,
-          0
+          9
         ]
       }
     }
