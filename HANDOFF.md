@@ -2,18 +2,85 @@
 
 The flags, Select sky, open-source map, export dialog grid, renamed Emulsion looks and Library
 Grid/Loupe with its vertical carousel are committed. Library import/sync, metadata, collection
-performance fixes and the Import toolbar removal landed in `8931147`. Built-in look tuning remains
-uncommitted; older "Uncommitted" notes below are out of date.
+performance fixes and the Import toolbar removal landed in `19bddf2`. Older "Uncommitted" notes below are out of date.
 
-**Current priority (Oli, 2026-11-11): release essentials.** Oli asked what is left before a
-release; the list (signing/notarisation or an unsigned beta, updater, build pipeline, catalog
-storage, in-app checks of recent features, crash logs, first launch, LUT licences) is in the
-section below. He chose the catalog first (SQLite, backups on quit: committed `3a7a657`), then an
-ad-hoc-signed beta with a build pipeline (committed `582e1b9`), then the crash/error log
-(done, uncommitted, below). Agreed order for the rest: **updater next** (it must be in the first
-build testers install; needs Oli's choice of manifest host, GitHub Releases the easy default,
-and a signing key he keeps), then the first-launch pass, then release notes and the version
-bump last. Exports remain the feature priority after release work.
+**Current priority (Oli, 2026-11-11): release essentials.** Done: catalog in SQLite (`eec5545`),
+ad-hoc-signed beta pipeline (`cb03cc5`), log file (`6874aed`), the **updater** (committed,
+below), and the repo is now **public**. Branding (`02ca26d`, docs/BRANDING.md) and the
+built-in look tuning (`637d9c8`) are committed too. Agreed order for the rest:
+Oli's in-app checks, then the first-launch pass, then release notes
+(`docs/release-notes/<version>.md`, now required by the build) and the version bump last.
+Exports remain the feature priority after release work. Committed work is not pushed until
+Oli says "push"; CI only runs from a pushed `v*` tag.
+
+## New branding (2026-11-11, committed `02ca26d`)
+
+Oli's replacement kit is `/Users/oli/Documents/emulsion-brand (1)` for the header, app icon
+and related surfaces. The app includes its own assets in `public/brand`; the external
+folder is not needed at runtime or when regenerating icons. See `docs/BRANDING.md`.
+
+- Header: supplied orange photo/E mark and custom vector wordmark, replacing the plain
+  text title in Library, Import and Develop. Wordmark uses a CSS mask (including the
+  WebKit prefix) for paper lettering on mid/dark and ink lettering on light. Accessible
+  name remains Emulsion. Editor neutral surrounds and control accents are unchanged.
+- Replacement kit: revised mark/lettering and paper/ink palette (`#FAFAFA`/`#36393F`)
+  are in the header. App icon is the actual supplied `logo/icon-app.png`, copied intact
+  to `public/brand/app-icon.png` and `src-tauri/icons/source.png` (SHA-256 matches), also
+  used as the browser favicon. The earlier constructed `app-icon.svg` was removed.
+  All desktop PNG/ICO/ICNS/Appx assets regenerated. `swift tools/generate-icons.swift`
+  starts with the supplied PNG, contains its 809×820 canvas within square desktop outputs,
+  and retains the 848px macOS tile size on a 1024px transparent canvas.
+- Checked before the replacement: `npm run check` passes (852 TS tests, 129 Rust);
+  full Library import/sync fixture passes. After replacement: icon generation and
+  `npm run build` pass; headless rendered checks of
+  Library, Import and Develop headers across all three themes at 1200/1440px show no
+  overflow. Screenshots in `.scratch/branding/new-header-*.png`.
+- Native Dock/Finder appearance needs a rebuild/relaunch; not checked in the native app.
+  This supersedes the previous dark tile icon artwork, including its uncommitted version.
+
+## Updater, and the repo made public (2026-11-11)
+
+Oli decided the whole project goes **public** (GPL: testers must get the source anyway), so
+builds live on `mowerol/emulsion`'s own Releases page. The short-lived `emulsion-releases` repo
+was deleted; Oli should also delete the fine-grained token he made for it on GitHub. Full write-up in `docs/RELEASING.md` › Updates.
+
+**History rewritten for going public (2026-11-11):** Oli's Gmail replaced by
+`19540488+mowerol@users.noreply.github.com` as author and committer on all 122 commits
+(filter-branch in a mirror copy; trees identical); repo `user.email` set to the noreply address.
+Commit hashes changed (e.g. `bb0f25e` → `6874aed`); own-hash references in docs were updated.
+Old history backed up at `~/Documents/Emulsion/emulsion-history-before-email-rewrite.bundle`.
+GitHub repo **deleted and recreated public** (https://github.com/mowerol/emulsion) with the
+cleaned history, so the old Gmail-stamped commits aren't reachable there; checked all commits
+on GitHub show the noreply address and old IDs return "No commit found".
+
+- `tauri-plugin-updater` 2.14 (Rust + JS), `updater:default` permission, endpoint
+  `https://github.com/mowerol/emulsion/releases/latest/download/latest.json`,
+  `bundle.createUpdaterArtifacts: true`. `plugins.updater.pubkey` is Oli's key (minisign id
+  A684A15F696D0836, private half at `~/.tauri/emulsion-updater.key`, regenerated 2026-11-11 after the first one was pasted in chat).
+- `src/library/updates.ts` (+ 8 tests): manual check, automatic check in released builds ~8 s
+  after launch at most once a day (setting `emulsion.updates`: automatic, skipped, lastCheck),
+  Skip This Version silences automatic checks only, friendlier errors (translocated app →
+  "move to Applications"). `src/ui/UpdateDialog.tsx`: checking / up to date / available with
+  notes / downloading with progress / installed → Relaunch / error.
+- Relaunch: `saveAndRelaunch` (CatalogBackupDialog.tsx) flushes sidecars, catalog, settings, no
+  backup prompt (the new version's upgrade snapshot covers library.db), then `relaunch_now`
+  (quit.rs: approves the quit, `request_restart`).
+- Menu: Emulsion › Check for Updates…; Settings › Updates (toggle + Check Now…).
+- `build.sh`: needs the pubkey, signing key (`TAURI_SIGNING_PRIVATE_KEY` or
+  `~/.tauri/emulsion-updater.key`, password from env or a prompt) and release notes (clean
+  builds); writes `.app.tar.gz`, `.sig`, `latest.json` (`tools/release/latest-json.mjs`).
+  `TAURI_CONFIG` can supply a trial pubkey. CI drafts the release on this repo; publishing the
+  draft makes it live.
+- **Checked:** `npm run check` passes (852 TS, 129 Rust). Trial `npm run release -- --dirty` with a
+  throwaway key (via `TAURI_CONFIG`): builds, verifies, writes dmg, 31 MB `.app.tar.gz`, `.sig`,
+  `latest.json` (URL and signature right); the app embeds the endpoint and key; the `.sig`
+  verifies with `minisign-verify` (the updater's crate) and a one-bit change is rejected.
+  Trial files and key deleted.
+- **Set up (2026-11-11):** secret `TAURI_SIGNING_PRIVATE_KEY` re-added on the recreated repo;
+  **`TAURI_SIGNING_PRIVATE_KEY_PASSWORD` must be re-entered by Oli** (CI uses `github.token` for the release). CI not yet run.
+  **Not testable headlessly:** a real update needs two published versions; first try
+  Emulsion › Check for Updates… in the dev app (expect "Couldn't reach the update server" until
+  a release is published), and the Settings › Updates section.
 
 ## Library catalog in SQLite, with backups on quit (2026-11-11)
 
@@ -69,8 +136,8 @@ edit rewrote the whole index (the dev origin's WAL was 63 MB).
 Oli chose an **ad-hoc-signed beta** (no Developer ID, no notarisation) and asked to ship only
 LUTs with explicit licences.
 
-1. ~~Signing~~: ad-hoc, done (below). 2. `tauri-plugin-updater` (own key, no Apple account)
-   and a manifest host. 3. ~~Build pipeline~~ (below); release notes still to write, version
+1. ~~Signing~~: ad-hoc, done (below). 2. Updater: built (above), needs Oli's key and
+   the releases repo. 3. ~~Build pipeline~~ (below); release notes still to write, version
    still 0.1.0. 4. Apple Silicon only (ONNX Runtime is arm64-only); the testers' note says so.
 5. ~~LUT licences~~: every bundled pack has an explicit licence (gmic-film CC BY-SA 4.0,
    picturefx legacy CC BY-SA 4.0, t3mujinpack MIT), so nothing was removed; local-looks
@@ -78,7 +145,7 @@ LUTs with explicit licences.
    "Oli should try" items, XMP sidecars first. 8. ~~Crash/error log file~~ (below).
    9. First-launch pass.
 
-## Log file for testers (2026-11-11, uncommitted)
+## Log file for testers (2026-11-11, committed `6874aed`)
 
 - **`src-tauri/src/applog.rs`**, installed first thing in setup: `~/Library/Logs/app.emulsion.desktop/Emulsion.log`
   (Tauri's `app_log_dir`). fd 2 is redirected into a pipe; a thread stamps each line with local
@@ -129,7 +196,7 @@ LUTs with explicit licences.
 Oli saw smart collections at 0. Checked against his real catalog with the app's own counting
 code: OM-3 3,064, while Xt (5★ X-T30) and Hi (3★ + Picked) really match nothing among the 3,768 imported
 photos. The 5★ X-T30 frames are in `2025/JAPAN`, which was never imported. Smart collections and
-the Folders sidebar (`importedTree`, since `8931147`) both cover imported photos only, Lightroom-style;
+the Folders sidebar (`importedTree`, since `19bddf2`) both cover imported photos only, Lightroom-style;
 Oli confirmed he likes that model. No code changed.
 
 ## Export: embedded sRGB ICC profile (2026-11-11)
@@ -199,7 +266,7 @@ Oli requested automatic sRGB ICC tagging; no export-dialog setting is needed.
 
 ## Import removed from the top-right toolbar (2026-11-11)
 
-Committed in `8931147` on Oli's request (`TopBar.tsx`). Import duplicated the route into the current
+Committed in `19bddf2` on Oli's request (`TopBar.tsx`). Import duplicated the route into the current
 folder's importer in the Import/Sync redesign. The normal toolbar button is removed; File → Import…
 and Cmd+I remain. Sync and Export stay in the Library header, and the import screen keeps its
 Import all / Import selected actions. The existing browser fixture now enters the
@@ -411,7 +478,7 @@ Documentation only; local links, LUT counts and diff whitespace checked.
 
 ## Pick and reject flags replace hearts (2026-11-11)
 
-Committed (9565daf). Roadmap priority 4, first step.
+Committed (0cf3a82). Roadmap priority 4, first step.
 Oli's choice: the heart goes; 5 stars and Pick take its place. Auto Advance is an option, off by
 default (Lightroom's); the full-screen cull loupe comes later.
 
@@ -706,7 +773,7 @@ Committed. `npm run check` passes (743 frontend, 86 Rust); `export-worker` and
 
 ## Speed session 6: export moved to the still-render worker (2026-11-10)
 
-Committed (4ff0d3a). Finishes session 5 (below): nothing renders on the page's thread any more.
+Committed (26b385a). Finishes session 5 (below): nothing renders on the page's thread any more.
 
 - **What:** `exportPhotos` uses `stillEngine()` instead of `offscreenEngine()` (removed from
   `thumbs.ts`). The decode is transferred to the worker, not copied (`upload(img, origin, true)`);
@@ -732,7 +799,7 @@ Committed (4ff0d3a). Finishes session 5 (below): nothing renders on the page's t
 
 ## Halation and Glow: spektrafilm optics (2026-11-10)
 
-Committed (2e7bac5). Started by another agent (Codex), finished here. `npm run check` passes (739
+Committed (d0d7508). Started by another agent (Codex), finished here. `npm run check` passes (739
 frontend, 84 Rust); `node tools/browser-tests/realtime.mjs optics 60` passes on the GPU.
 
 - **What:** darktable's spektrafilm optics, per [docs/research/optics.md](docs/research/optics.md).
@@ -872,7 +939,7 @@ Uncommitted. `npm run check` passes (730 frontend, 84 Rust).
 
 ## Speed session 2: drag re-render fan-out cut (2026-11-10)
 
-Committed in 2df53d9 with session 1. Oli decided: the **controls bar is judged on a production build** (not dev React), and the
+Committed in 0dec42f with session 1. Oli decided: the **controls bar is judged on a production build** (not dev React), and the
 **histogram may update at ~10 Hz during a drag** (exact once the photo settles);
 `npm run check` passes (729 frontend, 84 Rust).
 
@@ -923,13 +990,13 @@ Committed in 2df53d9 with session 1. Oli decided: the **controls bar is judged o
 
 Oli asked what keeps Emulsion from competing with Lightroom Classic; the answer became the
 README's Roadmap, now **ordered**: speed, export, XMP/keywords, culling/library scale, editing
-parity. Speed is current. Committed in 2df53d9.
+parity. Speed is current. Committed in 0dec42f.
 
 - **Bug 1 fixed: a zoomed-in RAW never settled.** With profiled denoise on (default for RAWs) and
   the region path (zoomed in), Develop re-rendered every `VIEW_SETTLE_MS` for ever (~5 fps of
   full frames, worker busy, GPU and battery). Cause: `regionRenderSteps` ran the whole-photo
   products with `prepare: undefined` (from 2026-11-02, so a stage prepare would not stop it
-  early); the profiled denoise (7b510b7) reads `prepare !== 'frame'` as "interactive screen
+  early); the profiled denoise (76fa95a) reads `prepare !== 'frame'` as "interactive screen
   render, defer", so even `prepareFrame` deferred the preview's denoise and `profiledOwed`
   never cleared. Fix: pass `'frame'` through (products return before the frame's own stop).
   Regression: `GPU=1 node tools/browser-tests/realtime.mjs region-detail 120 profiled` (red
@@ -1002,7 +1069,7 @@ maybe later). No DCPs had ever been installed. Uncommitted.
 - **Camera Profile section removed:** nothing in it could change, so the panel says nothing about
   camera colour unless a RAW's camera has no matrix; then `CameraColourWarning` (`src/ui/CameraProfile.tsx`)
   shows "No colour data for the … yet, so colours are approximate." at the top. Probe view: `?profilerow`.
-- **OM-3 fix (after 12d22cb, uncommitted):** LibRaw reports OM System cameras' make as "Olympus" but
+- **OM-3 fix (after 476f2c1, uncommitted):** LibRaw reports OM System cameras' make as "Olympus" but
   `cameras.xml` files them as "OM Digital Solutions", so a real OM-3 ORF found no darktable matrix and
   rendered uncalibrated (the unit test had assumed the wrong make). `darktable_camera` now lets an
   Olympus make match those entries (no model overlaps); checked on `PA040028.ORF` (source Darktable).
@@ -1393,7 +1460,7 @@ later, and for a couple of B&W looks. Uncommitted.
   look in memory without a reload (`library/builtinlooks.ts`). Release builds copy it as before.
   Photos already using a look keep their snapshot of its old settings.
 - **Saving gave "Couldn't save the built-in look:" (blank).** A stale `vite.config.js` and
-  `vite.config.d.ts` (tsc output, committed by accident in fc8b8d1, the old config) shadowed
+  `vite.config.d.ts` (tsc output, committed by accident in 4e00142, the old config) shadowed
   `vite.config.ts`, so the plugin never loaded and the route 404'd. Both deleted; a fresh server
   now saves (tested: 200, only `revision` changed, file restored). The dev server must be restarted
   to pick it up. A 404 now says to restart `npm run tauri dev`.

@@ -53,6 +53,13 @@ pub fn quit_now(app: AppHandle) {
     quit(&app);
 }
 
+/// After an update is installed and the page has saved: quit and start the new version.
+#[tauri::command]
+pub fn relaunch_now(app: AppHandle) {
+    APPROVED.store(true, Ordering::SeqCst);
+    app.request_restart();
+}
+
 #[cfg(target_os = "macos")]
 pub fn install(app: &AppHandle) {
     use objc2::runtime::{AnyClass, AnyObject, Imp, Sel};

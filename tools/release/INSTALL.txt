@@ -18,3 +18,7 @@ without the Open Anyway option. Run this in Terminal, then open it again:
 Emulsion keeps its catalog in ~/Library/Application Support/app.emulsion.desktop and,
 by default, catalog backups in ~/Pictures/Emulsion/Backups. Edits are also saved as
 XMP sidecars beside your photos.
+
+Updates: Emulsion checks for a new version once a day and offers to install it
+(Emulsion › Check for Updates… asks at any time). Updates only work when Emulsion is in
+Applications. After an update, macOS may ask again for access to folders like Pictures.

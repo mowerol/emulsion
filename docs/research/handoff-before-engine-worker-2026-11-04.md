@@ -322,14 +322,14 @@ Oli at step 3: undo it; the HSL preview stand-in (step 2) is next. Kept here for
 - **Why it barely helps:** with every map held, a frame at 100% or 200% is one develop pass at **screen** size; a smaller source doesn't make it cheaper. What the draft shrinks is per-frame map building, and on an Exposure drag the only map rebuilt is colour (HSL is left on by the earlier `zooms` scenario): `ceP` at 3507 × 2842 instead of 4384 × 3552 at 50%. The first draft frame allocates the draft lane's colour targets (five 32-bit at draft size) and pays ANGLE's slow first writes: the 415–679 ms freezes. Step 2 (HSL preview stand-in) removes the colour rebuild itself, which would leave the draft with nothing to do on Exposure.
 - **Lesson:** reducing the source only pays where a drag rebuilds maps every frame; with maps held, the frame is screen-sized. Step 4 (scale levels below 100%) would hit the same wall for held drags, but not at 50% when maps must be built (the region at 50% is 4× the pixels of 100%); measure what a 50% frame rebuilds before building it.
 
-## Live drags at 100% take Dehaze's map from the preview too (2026-11-03, committed acd2126)
+## Live drags at 100% take Dehaze's map from the preview too (2026-11-03, committed ea5c780)
 
 Oli: copy Texture's and Clarity's preview stand-in for Dehaze; no speed tests, he'll judge by eye.
 - **What (`engine.ts`):** during a live drag at 100%, if the region's haze removal would need more than its fold (no map yet, the strength crossing zero, an edit to its input, a masked instance's input or mask changing: `dehazeFoldsOnly`, which mirrors `dehazeMap`'s keys), the region shows the preview's folded (β, α) map at its place instead (`dehazeStandIn`, maskfold.frag `uKind 3`, into its own lane target `dhStandIn`, so the region's own dehaze targets and caches aren't touched). `uDehazeKey` becomes `preview|<preview's key>`, so the maps after it are held or stood in, never saved as exact. It sets `regionFromPreview` (`inexact`), and the settle remakes everything exactly. A Dehaze drag on one side of zero still only folds the region's own map (exact). The products render now makes the preview's dehaze map whenever it's live (`dehazeWanted`), and it goes out as `products.dehazeMap`. Engine approximation during a drag, not a port deviation.
 - **Checks:** `region-detail` `previewDehaze`: a one-side drag draws no stand-in; crossing zero and a cold region draw one; the stand-in equals the preview's map bilinearly sampled there (1e-7 of its peak); live vs exact 2/255; the settle equals a fresh build 0/255. Full `region-detail` passes, and so does `npm run check` (536 TS, 70 Rust). No perf run (Oli's call).
 - **For Oli to try (Cmd+R):** a RAW at 100% with Dehaze on (and Texture/Clarity): click straight onto the Dehaze slider without resting first, and drag across zero both ways. The first frame should come fast, and the haze a little softer at fine edges until you let go, then snap exact. Also add a mask with Dehaze and move it.
 
-## HSL drags at 100% no longer remake the preview's colour map (2026-11-03, committed ae2af74)
+## HSL drags at 100% no longer remake the preview's colour map (2026-11-03, committed daa3de4)
 
 Oli wanted to start on the 0.8 draft (above); the baseline first. `inapp.mjs 1OKK6432.RAF z100combo` at 100% with Texture 40, Dehaze 30, Clarity 30: Exposure 55 fps, Texture 59, Dehaze 49, Clarity 60, all PASS; **HSL 19.8 fps, GPU 30 ms/frame, worst freeze 520 ms, FAIL**. Oli chose to diagnose HSL before building the draft.
 - **Cause:** every region frame first renders the whole preview to collect its products (`renderRegion`). With Clarity on that render runs on to Clarity's map, and it built the colour map (3 `ceP` passes at preview size) before Clarity's step, even when Clarity's map is held during the drag, so nothing read it.
@@ -339,7 +339,7 @@ Oli wanted to start on the 0.8 draft (above); the baseline first. `inapp.mjs 1OK
 - **Checks:** `node tools/browser-tests/realtime.mjs region-detail 90 hsl` (new: no `ceP` at preview size on a live HSL frame with Clarity on, both detail orders; settle vs fresh 0/255), red before the fix, green after; full `region-detail` passes; `npm run check` passes (536 TS, 70 Rust). Perf: new `z100hsl` scenario in `src/dev/perfrun.ts` (fit, 100% alone, 100% with the three on, then hovered from off; `worstGapAt` added to drag results); `sliderDrag` takes a full element id (`color-sat-2`).
 - **For Oli to try (Cmd+R):** at 100% with Texture, Dehaze and Clarity on and an HSL colour already moved, drag an HSL saturation slider: it should feel as live as Exposure. Then reset HSL, rest on a slider a moment and drag; then reset and click straight on (expect the one cold hitch).
 
-## First click from 0: warm on hover, no histogram while held (2026-11-03, committed eff0435)
+## First click from 0: warm on hover, no histogram while held (2026-11-03, committed 7363ce0)
 
 Oli: "let's make the changes for dragging from 0", the plan he chose last session (3, then 1).
 - **3. Histogram off the drag (`Develop.tsx`):** the histogram's count (`readPixels`, which waits on the GPU) doesn't run while a pointer is held; it waits for the release (`onReleaseRef`) and counts 120 ms after. The first frame's blocking calls no longer show a `readPixels`.
@@ -349,7 +349,7 @@ Oli: "let's make the changes for dragging from 0", the plan he chose last sessio
 - **Checks:** `warm.test.ts` (5). `region-detail` `warm_*` (fit and region × the four stages): the other maps unchanged (at 100% unless the clip grew), the stage's map made, the click's first frame draws fewer passes (fit Clarity 26 → 1, Dehaze 15 → 2, Texture 8 → 2, HSL 7 → 4; region 52 → 5, 34 → 9, 28 → 8, 32 → 12), settle equals the cold click's 0/255. `npm run check` passes (536 TS, 70 Rust).
 - **For Oli to try (Cmd+R):** at fit and at 100%, with the pointer resting a moment on Dehaze, Texture, Clarity or an HSL colour, then click on its track: the first frame should come as quickly as when the stage is already on. Also click straight on without resting (unchanged, cold). Check the histogram still updates after a drag (after letting go) and after a plain click. Hover a slider and move away without clicking, then drag Exposure: nothing should look different.
 
-## Live drags hold the detail maps below the dragged slider (2026-11-03, committed e08f128)
+## Live drags hold the detail maps below the dragged slider (2026-11-03, committed 0929fb3)
 
 Oli asked for Capture One's visual cheats while dragging. Interview settled: (A) hold maps below the drag, (B) tune the existing draft; A first, then measure; by eye for now; no switch.
 - **What (A):** during a live render (pointer held, at fit and at 100%), Texture's, Clarity's and Sharpening's maps made before the drag are reused while their own settings are unchanged, even though an edit before them moved (`holds` in `Engine.render`, each lane entry's `own` key). Their maps are changes in lightness, so the later stages keep their change. The dragged stage's own map stays live (a Texture drag folds, a Clarity drag scales, a Sharpening drag remakes). Masked instances are held while their mask stays put (shapes, ranges, opacity, rasters, refinement; not the mask's exposure gain, which `uMaskMeta` packs alongside). Colour and the tone equalizer are never held. `mapsHeld` makes `inexact` true; any exact render clears it, and the settle (release, or 180 ms pause while held) remakes the maps. The preview's stand-ins (`mapFromPreview`) now apply only where the region has no map yet. Engine approximation during a drag, not a port deviation.
@@ -524,7 +524,7 @@ Oli picked backups next. His choices on the open questions in [docs/research/bac
 
 ## Look browser: photo previews instead of colour swatches (2026-11-02)
 
-Oli asked why the look cards were plain colour blocks. Since `50215f0` the Look browser drew a two-tone `Swatch` picked by hashing the look's name. Now each grid card shows the active photo through that look (Oli: the list view doesn't need previews, so it keeps the swatches), the way the Look Creator's LUT grid does.
+Oli asked why the look cards were plain colour blocks. Since `8bda4ea` the Look browser drew a two-tone `Swatch` picked by hashing the look's name. Now each grid card shows the active photo through that look (Oli: the list view doesn't need previews, so it keeps the swatches), the way the Look Creator's LUT grid does.
 - `src/ui/tilerenders.ts` (`useTileRenders`): the LUT grid's lazy rendering, moved into a hook. It draws a canvas when the canvas scrolls into view and redraws only when the shared base (the recipe without the choice), the profiles or the photo change, with the plain photo underneath until the render lands. `LutBrowser` and the new `LookGroups` (`LookChooser.tsx`) both use it. A look's preview is `withLook(withoutLook(photo recipe), pack, stock)`, so changing the look or its Amount doesn't redraw the grid. Tiles are keyed by group because a look can appear in Favourites and in its collection.
 - The selector line and the quick menu still use the small `Swatch`.
 - **Grid cards restyled to Oli's mockup:** the 4:3 preview runs edge to edge with rounded top corners, the star sits in a dark circle over the top-right corner (a filled star always shows; an empty one only on hover), and the name stays on one line with the ⋯ beside it. A selected card gets a 2px accent outline. Probe screenshot: `?workflow&looks` (opens the browser in grid view with two favourites).
@@ -790,7 +790,7 @@ Oli: "masked texture and clarity is more important" (than masked Dehaze).
 
 ## Dehaze ported faithfully from darktable (2026-11-02)
 
-Oli: "please update dehaze to work properly. they did it wrong". The earlier version (`fb0da6a`, `95114ab`) got four things wrong:
+Oli: "please update dehaze to work properly. they did it wrong". The earlier version (`f2cdff1`, `ed0d978`) got four things wrong:
 - it ran after the tone equalizer, where darktable runs haze removal after lens correction and before exposure;
 - A0 was fixed at white;
 - the depth limit came from each pixel's own dark channel, not from the image's 95% quantile;
@@ -994,7 +994,7 @@ Oli asked for, in order: a range picker, mask refinement, then local Highlights/
 
 ## Masks, phase 2: ranges and brush (2026-11-01)
 
-Oli: "commit and keep going" (phase 1 + LUT blend + layout committed as `53720ce`; another agent's dehaze landed as `fb0da6a`). Detail in [docs/plans/masks.md](docs/plans/masks.md).
+Oli: "commit and keep going" (phase 1 + LUT blend + layout committed as `4a9155e`; another agent's dehaze landed as `f2cdff1`). Detail in [docs/plans/masks.md](docs/plans/masks.md).
 
 - **Ranges:** darktable's RGB (scene) blendif on JzCzhz. Each mask gets Luminance, Chroma and Hue ranges (four markers and invert), multiplied into its shapes and evaluated at each masked instance's input.
   - Jz/Cz boosts are fixed at +1/+2 EV so the 0–100 sliders span a photo (white about 88).
@@ -1059,9 +1059,9 @@ Oli asked for darktable's "color" blend mode on the LUT, so a film's colour come
 
 Imported LUTs and saved profiles are now one thing, **custom looks** (Oli's call), in a **Custom looks** collection with permanent ids; system packs stay read-only. Film stock section: **Import LUT…**, **New look from this photo…**, **Duplicate** (system or custom), and for a custom look **Edit look**, **Detach** and **Delete look**. Edit mode puts the look on the photo's sliders as an in-memory draft (`lookEdit` in the store; edits don't save or enter undo), with a banner (name, how many photos in the folder use it, Done/Cancel); the Collection/Look controls and "Use a LUT file…" set its LUT. Detach (Figma-style) moves a look's settings onto the photo's own sliders. Rust `user_looks.rs` rewritten: `<id>.json` per look, shared `luts/<hash>.<ext>`, migration of the first layout (tested). Full detail and the two parked ideas (recipes attached to looks; colour-only LUT blending) in docs/plans/profiles-and-presets.md. Checks: 254 TS tests, 40 Rust tests, build, probe `savedProfile` 1/255. **Not tried in the real app:** any of the buttons, edit mode, detach, migration of the looks Oli made on 2026-10-31.
 
-## Images toolbar and View options (2026-10-31, another agent; landed in `1d39349`)
+## Images toolbar and View options (2026-10-31, another agent; landed in `8f80662`)
 
-Written by another agent working in the same tree; its code was in the working tree when `1d39349` was committed, so it shipped in that commit (whose message doesn't mention it). Oli still to judge it in the app.
+Written by another agent working in the same tree; its code was in the working tree when `8f80662` was committed, so it shipped in that commit (whose message doesn't mention it). Oli still to judge it in the app.
 
 Oli wanted the photo filters in the top toolbar, connected visually to the left
 Images pane, with workspace options separate from actual filtering. The toolbar
@@ -1090,7 +1090,7 @@ errors); browser import, camera defaults, and adding/removing the creative LUT
 all passed. The earlier profile-only `npm run check` passed 241 TS/37 Rust tests.
 No manufacturer DCP pack is bundled; see the camera-profile reference note.
 
-## Legacy rendering removed (2026-10-31, `1d39349`)
+## Legacy rendering removed (2026-10-31, `8f80662`)
 
 Oli: "the legacy stuff needs to go. it's done at this point." He chose to remove both the Legacy camera profile and Emulsion's own parametric stocks. The model now is: **the camera profile renders the base print; a film look is an optional LUT on top of it.**
 
@@ -1101,15 +1101,15 @@ Oli: "the legacy stuff needs to go. it's done at this point." He chose to remove
 - `lutstore.loadLut` bug fixed: a second caller during a load got `null`; loads in flight are now shared. It made the probe's t3mujinpack check fail.
 - NOTICE (sigmoid without primaries; colour balance one instance) and ARCHITECTURE updated.
 
-## Save as profile: creative profiles with hidden settings (2026-10-31, `1d39349`)
+## Save as profile: creative profiles with hidden settings (2026-10-31, `8f80662`)
 
 Step 4 of the profiles plan, Oli: "let's do it" with the proposed defaults. Film stock → **Save as profile…** stores the photo's look (LUT at its Amount), Colour Grading, Contrast, Vibrance, Saturation, Shadows and Curve in My looks ("Saved profiles"), switches the photo to it and zeroes those sliders. The hidden settings run as a second colour balance instance (`stageProfileColorBalance`) and a curve composed into the curve table; Amount scales all of it. Colour (equalizer) is not included in v1. `src/film/creative.ts` + tests; Rust `save_user_profile` (settings-only entries, no file). Probe `savedProfile`: worst 1/255 against the original grade, Amount 0 exact. **Not tried in the real app:** the name form, saving with/without a LUT, Amount on a saved profile, removing one that photos use.
 
-## Import LUT → My looks (2026-10-31, `1d39349`)
+## Import LUT → My looks (2026-10-31, `8f80662`)
 
 Steps 1-2 of [docs/plans/profiles-and-presets.md](docs/plans/profiles-and-presets.md), with Oli's go-ahead. Film stock section: **Import LUT…** (.cube, .3dl, Hald .png) adds the file to a **My looks** pack (shown once it has a look) and applies it to the selected photos; **Remove look** takes it out of My looks. Files live in `app_data_dir()/looks/`, named by content hash. The section is now "Film stock" in both layouts, its dropdown "Look". Tests cover the registry, sidecars naming a look not yet loaded or removed, and format detection; Rust tests cover storage. **Not tried in the real app:** the import dialog, a large Hald, removing a look other photos use, export and thumbnails with an imported look.
 
-## Camera profiles (DCP) — built by another agent alongside this session (`1d39349`)
+## Camera profiles (DCP) — built by another agent alongside this session (`8f80662`)
 
 Codex/opencode built RawTherapee DCP support in parallel: `src/engine/dcp.ts`, `profilegpu.ts`, `profilestore.ts`, `stages/dcp.glsl`, `dcp.frag.glsl`, `ui/CameraProfile.tsx`, `src-tauri/src/camera_profiles.rs`, commands in `commands.rs`, camera metadata in the decoder payload (flag 4), fixtures and `tools/probe/dcp-reference/`. Details in `docs/plans/camera-profiles-reference.md` and ARCHITECTURE. Its code arrived minified; it was reformatted (prettier/rustfmt/by hand) without changing behaviour. Not yet checked by Claude against the real app: importing a DCP, "Use as camera default", thumbnails/export with a DCP.
 
@@ -1220,7 +1220,7 @@ Oli asked to add YahiaAngelo/G’MIC, Pat David, PictureFX/FreshLUTs and Spectra
 - Validation: 237 TS tests, typecheck, production/probe builds, 36 Rust tests (4 optional ignored); all 288 Cube parsers/hashes and recipe persistence/reset/paste checked. Browser checks pack counts/switching/search/paging/lazy previews and previews on a real decoded sample. GPU reference errors <0.000378 for new Cube packs (half float).
 - Oli then asked whether official Fujifilm film simulation LUTs could be repurposed. Answer: technically possible via a dedicated scene-linear→F-Log2→official LUT→BT.709 output path, requiring correct encoding/exposure/output handling and reference validation. Existing sRGB LUT path is unsuitable. Checked official GFX ETERNA 55 v1.10: ten simulations including Reala Ace/Classic Neg/Acros, but no Nostalgic Neg or Pro Neg Hi. No app-redistribution permission found; investigate user-supplied import or obtain permission before bundling. No Fuji assets or runtime transforms bundled; local conversion completed in the newer note above. Details and official links in source-verification note.
 
-**Do not commit/push this LUT work until Oli asks.** Previous panel regrouping is committed as `4b06d08` and not pushed. Next: Oli tries the expanded picker/looks; Fuji import feasibility is a potential follow-up, with generic LUT import, advanced style tools, lensfun/LCP and custom stage arrangements still future work.
+**Do not commit/push this LUT work until Oli asks.** Previous panel regrouping is committed as `0a71ec8` and not pushed. Next: Oli tries the expanded picker/looks; Fuji import feasibility is a potential follow-up, with generic LUT import, advanced style tools, lensfun/LCP and custom stage arrangements still future work.
 
 ## Right-panel tabs revised (2026-10-31)
 
@@ -1232,11 +1232,11 @@ Oli disliked the five workflow stages and supplied a Capture One-style grouping 
 
 Stable section configuration now controls order as well as membership through a keyed panel registry; module view state survives tab switches. Numbered step/hint headings removed. Classic remains flat. Old saved Prepare/Look/Tone preferences migrate to Develop, Finish to Refine. New section resets isolate Exposure, HDR and Refine optics. Sidecar/rendering values unchanged.
 
-234 tests and the production build pass; browser checks confirm section order and tab contents. The previous workspace change is committed/pushed as `8411ddc`; Oli authorised committing these tab refinements, including removal of the “Controls” heading. They have not been pushed. See `docs/plans/workspace-layouts.md`. Future user-defined arrangements remain planned, not implemented.
+234 tests and the production build pass; browser checks confirm section order and tab contents. The previous workspace change is committed/pushed as `660336a`; Oli authorised committing these tab refinements, including removal of the “Controls” heading. They have not been pushed. See `docs/plans/workspace-layouts.md`. Future user-defined arrangements remain planned, not implemented.
 
 ## Workspace layouts (2026-10-31)
 
-Oli chose prototype A and added: **switch between one and two photo columns**. Implemented with real controls; Oli authorised committing and pushing the workspace changes, including the fixed photo-info bar. The push also includes lens correction commit `2421a94`.
+Oli chose prototype A and added: **switch between one and two photo columns**. Implemented with real controls; Oli authorised committing and pushing the workspace changes, including the fixed photo-info bar. The push also includes lens correction commit `2c421f1`.
 
 - Workflow is the new default Develop layout: Images browser left, shared photo canvas centre, control stages right, Crop/Zoom/Before/Split toolbar above. Classic retains the existing bottom filmstrip, flat panel and floating zoom/crop placement.
 - Frame/file info and heart/stars/tags moved below the photo into a fixed bottom bar at Oli's request; the stock/development/scanner sentence was removed.
@@ -1249,7 +1249,7 @@ Oli chose prototype A and added: **switch between one and two photo columns**. I
 
 ## Lens correction: embedded layer committed (2026-10-31)
 
-Oli asked to commit/push Whites/Blacks, then start lens correction. **`f11759a` is committed and pushed to origin/main.** Embedded lens correction is committed as `2421a94` and included in the workspace push.
+Oli asked to commit/push Whites/Blacks, then start lens correction. **`31dfc1c` is committed and pushed to origin/main.** Embedded lens correction is committed as `2c421f1` and included in the workspace push.
 
 - Implemented all four embedded formats together: Fuji RAF (old/new tables), Olympus/OM ORF, Sony ARW and centred radial DNG WarpRectilinear/FixVignetteRadial. Pinned darktable v2 maths; default on for RAWs. No camera-specific allowlist.
 - New Lens section shows camera/lens and embedded profile, enables/disables distortion, CA and vignette, and fine-tunes strengths 0–200%. DNG uses upstream's combined geometry/colour-alignment warp; off-centre/tangential and unsupported mandatory opcodes are explicitly unavailable. Identity ORF profiles are recognised as requiring no correction.
@@ -1286,17 +1286,17 @@ Oli approved the plan and wheel mock-up in `docs/plans/colour-grading.md`, autho
 
 ## Earlier work
 
-Everything below is committed on `main` (last before this session: `fbe908d`).
+Everything below is committed on `main` (last before this session: `9e2e7fb`).
 
-- **Filmstrip** (`970ceae`): every frame sits on the `#281f18` film base; edited frames show the stock in amber edge print, unedited ones a dimmed "ORIGINAL", as the Library grid does.
-- **Workspace colour** (`970ceae`): right-click the Develop stage for Black, Dark grey (default), Mid grey (18%) or White, as Lightroom offers (`StageMenu.tsx`, remembered as `stageColor`).
-- **Ratings, colour tags and hearts** (`970ceae`, Batch 4 part 1): 0-5 stars, 6-9 red/yellow/green/blue (Lightroom's keys), H a heart (Oli's addition). Saved in the Emulsion sidecar (Oli chose no XMP): `rating`, `label`, `heart`, with `recipe` possibly `null`. Undoable, apply to the selection; shown on grid cells, the strip's bottom edge and the panel. `library/marks.ts`.
-- **Filtering** (`1f5965e`, Batch 4 part 2): one `FilterBar` for the Library and the strip: Edited/Unedited, at least N stars, hearted, any chosen tags. Arrows, Home/End, shift-click ranges and Select All stay within the shown photos. `library/filter.ts`. Fixed in `961aab1`: opening a folder or setting a filter now starts on the first matching photo.
-- **Sharpening** (`6316cbf`, Oli: "works great"): RawTherapee's unsharp mask (Sharpening = its amount / 10, Radius, Masking = its contrast threshold / 2; hold ⌥ on Masking to see the mask), on the print's lightness before grain. The old slider is now **Capture** (`captureSharpening`; `sharpening` in old sidecars still reads). A **Detail** section holds Texture, Clarity, Sharpening, Radius, Masking, Capture. `usm.ts`, `usm.frag.glsl`, `stages/usm.glsl`.
-- **Colour** (`961aab1`): darktable's **color equalizer** (nobody does HSL better: darktable's docs call it the scene-referred replacement for color zones). A Colour section after the Tone curve with Hue / Saturation / Brightness tabs and 8 colours (Oli's choice of layout). After Texture, before colour balance, as in darktable's order; skipped when all values are 0. `colorequal.ts`, `ce.frag.glsl`, `stages/colorequal.glsl`; GPU within about 2e-6 of the reference.
+- **Filmstrip** (`5042fc6`): every frame sits on the `#281f18` film base; edited frames show the stock in amber edge print, unedited ones a dimmed "ORIGINAL", as the Library grid does.
+- **Workspace colour** (`5042fc6`): right-click the Develop stage for Black, Dark grey (default), Mid grey (18%) or White, as Lightroom offers (`StageMenu.tsx`, remembered as `stageColor`).
+- **Ratings, colour tags and hearts** (`5042fc6`, Batch 4 part 1): 0-5 stars, 6-9 red/yellow/green/blue (Lightroom's keys), H a heart (Oli's addition). Saved in the Emulsion sidecar (Oli chose no XMP): `rating`, `label`, `heart`, with `recipe` possibly `null`. Undoable, apply to the selection; shown on grid cells, the strip's bottom edge and the panel. `library/marks.ts`.
+- **Filtering** (`d00cde4`, Batch 4 part 2): one `FilterBar` for the Library and the strip: Edited/Unedited, at least N stars, hearted, any chosen tags. Arrows, Home/End, shift-click ranges and Select All stay within the shown photos. `library/filter.ts`. Fixed in `996a889`: opening a folder or setting a filter now starts on the first matching photo.
+- **Sharpening** (`0a13e23`, Oli: "works great"): RawTherapee's unsharp mask (Sharpening = its amount / 10, Radius, Masking = its contrast threshold / 2; hold ⌥ on Masking to see the mask), on the print's lightness before grain. The old slider is now **Capture** (`captureSharpening`; `sharpening` in old sidecars still reads). A **Detail** section holds Texture, Clarity, Sharpening, Radius, Masking, Capture. `usm.ts`, `usm.frag.glsl`, `stages/usm.glsl`.
+- **Colour** (`996a889`): darktable's **color equalizer** (nobody does HSL better: darktable's docs call it the scene-referred replacement for color zones). A Colour section after the Tone curve with Hue / Saturation / Brightness tabs and 8 colours (Oli's choice of layout). After Texture, before colour balance, as in darktable's order; skipped when all values are 0. `colorequal.ts`, `ce.frag.glsl`, `stages/colorequal.glsl`; GPU within about 2e-6 of the reference.
   - Slider mapping, Oli's calls after trying darktable's full ranges: Hue ±120 = darktable's ±36° (its ±180° swung too far); Saturation ±100 = its gain 0.5-1.5, grey to double (its ×3 hit the gamut early and stopped); Brightness ±100 = its gain 0.7-1.3 (its full range turned vivid colours black).
   - The tracks show the real swing: one colour of each hue run through process()'s per-pixel formulas at each position (`sliderGradient`). darktable's own GUI gradients were tried first and did not show it.
-- **Speed** (`961aab1`, Oli: Colour felt the most sluggish; no algorithm removed): screen renders wait on a GPU fence (`Engine.idle`) so drags draw the latest state instead of queueing; each whole-photo map is keyed only on the uniforms of the stages upstream of it, read from the stage shaders (`BEFORE_TEXTURE`... in engine.ts); the edited photo's thumbnail redevelops 400 ms after edits pause; stock tiles keep the decoded photo and yield between tiles; Colour's paired steps share a draw (`Gpu.pair`). Probe at preview scale, read-back included: a Colour drag with Texture, Clarity and Sharpening on went from 324 to 180 ms.
+- **Speed** (`996a889`, Oli: Colour felt the most sluggish; no algorithm removed): screen renders wait on a GPU fence (`Engine.idle`) so drags draw the latest state instead of queueing; each whole-photo map is keyed only on the uniforms of the stages upstream of it, read from the stage shaders (`BEFORE_TEXTURE`... in engine.ts); the edited photo's thumbnail redevelops 400 ms after edits pause; stock tiles keep the decoded photo and yield between tiles; Colour's paired steps share a draw (`Gpu.pair`). Probe at preview scale, read-back included: a Colour drag with Texture, Clarity and Sharpening on went from 324 to 180 ms.
 
 ## Pushed with this handoff
 

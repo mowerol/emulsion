@@ -44,6 +44,27 @@ export async function requestQuit() {
   await invoke('quit_now');
 }
 
+/**
+ * After an update is installed: save as quitting does, then start the new version. No backup is
+ * offered here; the new version snapshots the catalog when it first launches (app_data.rs).
+ */
+export async function saveAndRelaunch() {
+  if (quitting) return;
+  if (useApp.getState().lookEdit) {
+    showToast('Save or cancel the look draft before relaunching');
+    return;
+  }
+  quitting = true;
+  try {
+    await flushSaves();
+    await flushCatalog();
+    await flushAppSettings();
+  } catch (e) {
+    console.error('[relaunch]', e);
+  }
+  await invoke('relaunch_now');
+}
+
 /** Emulsion › Back Up Catalog…, Restore Catalog from Backup…, Show Catalog Backups. */
 export function catalogMenuAction(id: string): boolean {
   const run = { 'catalog-backup': () => promptBackup('now'), 'catalog-restore': restoreCatalog, 'catalog-show-backups': showCatalogBackups }[id];

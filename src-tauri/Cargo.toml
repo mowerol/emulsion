@@ -63,6 +63,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 jxl-oxide = { version = "0.12", default-features = false, features = ["rayon"] }
 moxcms = "0.8.1"
 rusqlite = { version = "0.42.0", features = ["bundled"] }
+tauri-plugin-updater = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"

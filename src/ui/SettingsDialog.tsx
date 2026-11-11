@@ -11,6 +11,7 @@ import { setEachStroke, useRetouchUi } from './retouchui';
 import { onOpenSettings } from './menubridge';
 import { BACKUP_FREQUENCIES, backupFolder, chooseBackupFolder, restoreCatalog, setBackupSettings, showCatalogBackups, useCatalogBackup, type BackupFrequency } from '../library/catalogbackup';
 import { promptBackup } from './CatalogBackupDialog';
+import { checkForUpdates, setUpdateSettings, useUpdateSettings } from '../library/updates';
 
 function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return <div className="settings-row">
@@ -35,6 +36,7 @@ function Sheet({ onClose }: { onClose: () => void }) {
   const foldJpegs = useApp(s => s.foldJpegs);
   const eachStroke = useRetouchUi(u => u.eachStroke);
   const backup = useCatalogBackup();
+  const updates = useUpdateSettings();
   const [backupPath, setBackupPath] = useState('');
   useEffect(() => { void backupFolder(backup).then(setBackupPath).catch(() => {}); }, [backup]);
   useLayoutEffect(() => {
@@ -105,6 +107,16 @@ function Sheet({ onClose }: { onClose: () => void }) {
           <button type="button" className="btn" onClick={then(() => promptBackup('now'))}>Back Up Now…</button>
           <button type="button" className="btn" onClick={then(restoreCatalog)}>Restore from Backup…</button>
           <button type="button" className="btn" onClick={then(showCatalogBackups)}>Show Backups</button>
+        </div>
+      </section>
+
+      <section aria-labelledby="settings-updates">
+        <h3 id="settings-updates">Updates</h3>
+        <Row label="Check for updates automatically" hint="Once a day, a little after Emulsion opens">
+          <input type="checkbox" aria-label="Check for updates automatically" checked={updates.automatic} onChange={e => setUpdateSettings({ automatic: e.target.checked })} />
+        </Row>
+        <div className="settings-actions">
+          <button type="button" className="btn" onClick={then(() => checkForUpdates(true))}>Check Now…</button>
         </div>
       </section>
 

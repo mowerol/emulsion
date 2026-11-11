@@ -12,7 +12,7 @@
 
 ## Evidence boundaries and reproducibility
 
-The source was copied before browser measurements because another agent is changing AI masks and ROI in the shared workspace. [snapshot.json](app-performance/snapshot.json) records the base commit and SHA-256 hashes of the copied frontend/native source. This is a **dirty snapshot based on `0093c33`**, not a benchmark of that commit or of subsequent ROI changes. The temporary checkout path is a session artifact; the hashes and raw results are retained. Node modules, native vendor sources and native build scaffolding were reused locally; the snapshot is not a hermetic build archive.
+The source was copied before browser measurements because another agent is changing AI masks and ROI in the shared workspace. [snapshot.json](app-performance/snapshot.json) records the base commit and SHA-256 hashes of the copied frontend/native source. This is a **dirty snapshot based on `f5cb551`**, not a benchmark of that commit or of subsequent ROI changes. The temporary checkout path is a session artifact; the hashes and raw results are retained. Node modules, native vendor sources and native build scaffolding were reused locally; the snapshot is not a hermetic build archive.
 
 Raw measurements are in [results.json](app-performance/results.json), with individual `*.chrome.txt` and `*.webkit.txt` files alongside it. Browser audit code: [audit.tsx](../../tools/performance/audit.tsx). Reproduce a new snapshot with:
 

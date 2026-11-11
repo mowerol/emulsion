@@ -54,6 +54,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
+        .plugin(tauri_plugin_updater::Builder::new().build())
         .manage(PendingOpen::default())
         .setup(|app| {
             // First, so the rest of setup is logged too. Without a log, the app still runs.
@@ -130,6 +131,7 @@ pub fn run() {
             commands::catalog_show_folder,
             quit::quit_ack,
             quit::quit_now,
+            quit::relaunch_now,
             ai_masks::ai_mask_status,
             ai_masks::ai_mask_install,
             ai_masks::segment_encode,

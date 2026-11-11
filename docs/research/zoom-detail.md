@@ -176,7 +176,7 @@ findings after fixing and regression-testing derived-source cache invalidation.
 ## Worker preparation scheduling (2026-11-04)
 
 Oli reported that the soft-to-sharp wait had slowed after recent rendering work.
-On `b4341e3`, the existing real-app prepared-zoom command reproduced **1593 ms**
+On `0e5af75`, the existing real-app prepared-zoom command reproduced **1593 ms**
 (1000 ms budget). An instrumented repeat took 1523 ms: 107 generator advances,
 400 ms inside preparation and 709 ms between advances. The latter includes GPU
 waits and scheduling, rather than pure JavaScript overhead. The longest advance

@@ -176,6 +176,7 @@ export async function installAppMenu(run: (id: string) => void): Promise<() => v
 
   const app = await Submenu.new({ text: 'Emulsion', items: [
     await PredefinedMenuItem.new({ item: { About: null } }),
+    await item('check-updates', 'Check for Updates…'),
     await sep(),
     await item('settings', 'Settings…', 'CmdOrCtrl+,'),
     await sep(),

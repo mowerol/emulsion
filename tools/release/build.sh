@@ -5,7 +5,11 @@
 #   npm run release -- --dirty       # allow uncommitted changes (local trial builds only)
 #   npm run release -- --skip-checks # skip `npm run check` (CI runs it as its own step)
 #
-# Output: release/Emulsion-<version>-arm64.dmg, its .sha256, and INSTALL.txt for testers.
+# Output: release/Emulsion-<version>-arm64.dmg, its .sha256, INSTALL.txt for testers, and the
+# updater's files: Emulsion-<version>-arm64.app.tar.gz, its .sig and latest.json (see
+# docs/RELEASING.md). The update signing key comes from TAURI_SIGNING_PRIVATE_KEY (its text or a
+# path), else ~/.tauri/emulsion-updater.key; its password from TAURI_SIGNING_PRIVATE_KEY_PASSWORD,
+# else a prompt. Release notes for the updater come from docs/release-notes/<version>.md.
 # Ad-hoc signing (tauri.conf.json: signingIdentity "-") needs no Apple account. The hardened
 # runtime is off: without a Team ID, its library validation would refuse the ONNX Runtime
 # dylib that the app downloads for AI features. Revisit both when moving to a Developer ID.
@@ -48,6 +52,27 @@ LIBOMP=${LIBOMP_PREFIX:-/opt/homebrew/opt/libomp}
 [[ -f "$LIBOMP/lib/libomp.a" && -f "$LIBOMP/include/omp.h" ]] ||
   fail "libomp missing at $LIBOMP (brew install libomp) — RAW decoding would be single-threaded"
 
+# Updates are signed; a build the updater can't verify must not go out.
+# (TAURI_CONFIG, which the Tauri CLI merges over tauri.conf.json, may supply it for a trial build.)
+PUBKEY=$(node -p "JSON.parse(process.env.TAURI_CONFIG || '{}').plugins?.updater?.pubkey || require('./src-tauri/tauri.conf.json').plugins.updater.pubkey")
+[[ -n "$PUBKEY" ]] || fail "no updater public key in tauri.conf.json (docs/RELEASING.md, \"Update signing key\")"
+if [[ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ]]; then
+  KEYFILE="$HOME/.tauri/emulsion-updater.key"
+  [[ -f "$KEYFILE" ]] || fail "no update signing key: set TAURI_SIGNING_PRIVATE_KEY or create $KEYFILE"
+  export TAURI_SIGNING_PRIVATE_KEY="$KEYFILE"
+fi
+if [[ -z "${TAURI_SIGNING_PRIVATE_KEY_PASSWORD+set}" ]]; then
+  [[ -t 0 ]] || fail "TAURI_SIGNING_PRIVATE_KEY_PASSWORD is not set"
+  read -rsp "Update signing key password: " TAURI_SIGNING_PRIVATE_KEY_PASSWORD; echo
+  export TAURI_SIGNING_PRIVATE_KEY_PASSWORD
+fi
+
+NOTES="docs/release-notes/$VERSION.md"
+if [[ ! -f "$NOTES" ]]; then
+  [[ $DIRTY == 1 ]] || fail "no release notes at $NOTES"
+  NOTES=""
+fi
+
 # --- Checks and build ------------------------------------------------------------------------
 if [[ $CHECKS == 1 ]]; then
   step "npm run check"
@@ -55,13 +80,15 @@ if [[ $CHECKS == 1 ]]; then
 fi
 
 step "Building Emulsion $VERSION (aarch64, ad-hoc signed)"
-npx tauri build --target aarch64-apple-darwin --bundles app,dmg
+npx tauri build --target aarch64-apple-darwin --bundles app,dmg ${TAURI_CONFIG:+--config "$TAURI_CONFIG"}
 
 BUNDLE="src-tauri/target/aarch64-apple-darwin/release/bundle"
 APP="$BUNDLE/macos/Emulsion.app"
 DMG_BUILT="$BUNDLE/dmg/Emulsion_${VERSION}_aarch64.dmg"
 [[ -d "$APP" ]] || fail "no app at $APP"
 [[ -f "$DMG_BUILT" ]] || fail "no dmg at $DMG_BUILT"
+UPDATE_BUILT="$BUNDLE/macos/Emulsion.app.tar.gz"
+[[ -f "$UPDATE_BUILT" && -s "$UPDATE_BUILT.sig" ]] || fail "no signed updater bundle at $UPDATE_BUILT"
 
 # --- Verify ----------------------------------------------------------------------------------
 step "Verifying"
@@ -104,6 +131,15 @@ cp "$DMG_BUILT" "release/$NAME.dmg"
 COMMIT=$(git rev-parse --short HEAD)
 [[ $DIRTY == 1 && -n "$(git status --porcelain)" ]] && COMMIT="$COMMIT+dirty"
 sed -e "s/{{VERSION}}/$VERSION/g" -e "s/{{COMMIT}}/$COMMIT/g" tools/release/INSTALL.txt > release/INSTALL.txt
+
+# The updater's files. latest.json points at the tarball on the GitHub release v<version>,
+# where the release workflow uploads it.
+cp "$UPDATE_BUILT" "release/$NAME.app.tar.gz"
+cp "$UPDATE_BUILT.sig" "release/$NAME.app.tar.gz.sig"
+RELEASES_REPO=${RELEASES_REPO:-mowerol/emulsion}
+node tools/release/latest-json.mjs "$VERSION" \
+  "https://github.com/$RELEASES_REPO/releases/download/v$VERSION/$NAME.app.tar.gz" \
+  "release/$NAME.app.tar.gz.sig" "$NOTES" > release/latest.json
 
 echo
 echo "Built $NAME from $COMMIT"

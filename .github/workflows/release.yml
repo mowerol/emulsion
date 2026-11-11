@@ -1,6 +1,8 @@
 # Builds the ad-hoc-signed beta on a version tag (or by hand) and attaches it to a draft
-# GitHub release. Same script as a local `npm run release`: tools/release/build.sh.
-# On a private repo, macOS runner minutes count 10x against the plan's allowance.
+# release here. Publishing that draft makes it the release the in-app updater finds. Same script
+# as a local `npm run release`: tools/release/build.sh.
+#
+# Secrets: TAURI_SIGNING_PRIVATE_KEY (the key file's text), TAURI_SIGNING_PRIVATE_KEY_PASSWORD.
 name: Release
 
 on:
@@ -40,6 +42,9 @@ jobs:
         run: npm run check
 
       - name: Build and verify
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: tools/release/build.sh --skip-checks
 
       - name: Draft release
@@ -47,8 +52,14 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" --draft --title "Emulsion $GITHUB_REF_NAME (beta)" \
-            --notes-file release/INSTALL.txt release/*.dmg release/*.sha256
+          [[ "$GITHUB_REF_NAME" == "v$(node -p "require('./package.json').version")" ]] ||
+            { echo "tag $GITHUB_REF_NAME doesn't match package.json" >&2; exit 1; }
+          cat release/INSTALL.txt > notes.md
+          [[ -f "docs/release-notes/${GITHUB_REF_NAME#v}.md" ]] &&
+            { printf '\n\n'; cat "docs/release-notes/${GITHUB_REF_NAME#v}.md"; } >> notes.md
+          gh release create "$GITHUB_REF_NAME" --draft \
+            --title "Emulsion ${GITHUB_REF_NAME#v} (beta)" --notes-file notes.md \
+            release/*.dmg release/*.sha256 release/*.app.tar.gz release/*.app.tar.gz.sig release/latest.json
 
       - uses: actions/upload-artifact@v4
         with:

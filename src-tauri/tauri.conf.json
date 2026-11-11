@@ -46,6 +46,15 @@
     "macOS": {
       "signingIdentity": "-",
       "hardenedRuntime": false
+    },
+    "createUpdaterArtifacts": true
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEE2ODRBMTVGNjk2RDA4MzYKUldRMkNHMXBYNkdFcGxSRkFVQ1VlYVpBVk1UTU05S3NOMkszcmtuUDhwdm9JdE5pbzBiNW0yZjkK",
+      "endpoints": [
+        "https://github.com/mowerol/emulsion/releases/latest/download/latest.json"
+      ]
     }
   }
 }

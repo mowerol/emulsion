@@ -8,13 +8,50 @@ no notarisation. Testers allow it once in System Settings › Privacy & Security
 
 1. Set the version in all three places: `package.json`, `src-tauri/tauri.conf.json`,
    `src-tauri/Cargo.toml` (the script refuses if they differ).
-2. Commit. The script refuses uncommitted changes (`--dirty` for trial builds only).
-3. Either
-   - **locally:** `npm run release` → `release/Emulsion-<version>-arm64.dmg`, `.sha256`,
-     `INSTALL.txt`; or
+2. Write `docs/release-notes/<version>.md`: what testers see in the update dialog and on the
+   release page (the script refuses a clean build without it).
+3. Commit. The script refuses uncommitted changes (`--dirty` for trial builds only).
+4. Either
+   - **locally:** `npm run release` → in `release/`: `Emulsion-<version>-arm64.dmg`, `.sha256`,
+     `INSTALL.txt`, and the updater's `Emulsion-<version>-arm64.app.tar.gz`, `.sig` and
+     `latest.json`; or
    - **on GitHub:** push a tag `v<version>`. `.github/workflows/release.yml` runs the
-     checks and the same script on a macOS runner and attaches the dmg to a **draft**
-     release; publish it by hand. It can also be run from the Actions tab (artifact only).
+     checks and the same script on a macOS runner and attaches all of those to a **draft**
+     GitHub release. It can also be run from the
+     Actions tab (artifact only).
+5. Publish the draft (not as a pre-release). From then on, installed copies find it: the
+   updater reads `releases/latest/download/latest.json` from this repo.
+
+## Updates
+
+`tauri-plugin-updater`. Emulsion › Check for Updates… (and Settings › Updates › Check Now…)
+always asks; released builds also ask about 8 s after launch, at most once a day, unless
+Settings › Updates turns that off. The sheet offers Install and Relaunch, Remind Me Later and
+Skip This Version (automatic checks then stay quiet about that version). Installing downloads
+the tarball, checks its signature against `plugins.updater.pubkey` in `tauri.conf.json`,
+replaces the app in place, then saves sidecars, catalog and settings and relaunches
+(`saveAndRelaunch`, `relaunch_now`). Logic: `src/library/updates.ts`; sheet: `src/ui/UpdateDialog.tsx`.
+
+### Update signing key
+
+Every update is signed with a minisign key; the app trusts only its public half.
+**If the private key or its password is lost, installed copies can never be updated again**:
+testers would have to download a new build by hand. Keep both in a password manager.
+
+- Private key: `~/.tauri/emulsion-updater.key` (the script uses it when
+  `TAURI_SIGNING_PRIVATE_KEY` isn't set and asks for the password unless
+  `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` is set).
+- Public key: `plugins.updater.pubkey` in `tauri.conf.json` (the script refuses to build without one).
+- GitHub secrets on this repo: `TAURI_SIGNING_PRIVATE_KEY` (the key file's text) and
+  `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`.
+
+### Ad-hoc signing and updates
+
+The updater's download isn't quarantined, so an update doesn't go through Open Anyway again.
+An app run from the dmg or from Downloads without being moved (App Translocation) can't replace
+itself; the error tells the tester to move Emulsion to Applications. Because each ad-hoc build
+has a different code signature, macOS may ask again for access to folders such as Pictures or
+Desktop after an update.
 
 ## What the script checks
 

@@ -34,7 +34,7 @@ User-defined groups remain later work: named configurations, rename/reorder stag
 - A selected: thumbnail browser plus stage tabs; keep current layout as Classic.
 - Added on Oli's feedback: an explicit, persisted 1/2 column switch.
 - B (continuous stage headings) was not selected.
-- Full throwaway comparison and sample captured locally at `/private/tmp/emulsion-workspace-prototypes-A-B-C.tar.gz`, based on commit `2421a94`. The archive includes source snapshots for reproducing the comparison; it remains a local prototype archive, separate from the shipping implementation. Do not commit Oli's sample photo into main or publish it.
+- Full throwaway comparison and sample captured locally at `/private/tmp/emulsion-workspace-prototypes-A-B-C.tar.gz`, based on commit `2c421f1`. The archive includes source snapshots for reproducing the comparison; it remains a local prototype archive, separate from the shipping implementation. Do not commit Oli's sample photo into main or publish it.
 - Prototype components/switcher are removed from the implementation; the selected design uses real app controls.
 
 ## Validation
@@ -44,4 +44,4 @@ Full project check passes: TypeScript, 232 TypeScript tests, 36 Rust tests (4 op
 Local screenshots: `/private/tmp/emulsion-workspace-live.png` and `/private/tmp/emulsion-workspace-one-column.png`. These contain Oli's photo and are not repository assets. Native Tauri use and drag feel still need Oli's assessment.
 
 
-The initial Workflow implementation was committed/pushed as `8411ddc`. Oli authorised committing this three-tab revision, including removal of the “Controls” heading; it has not been pushed. 234 tests and the production build pass. Validation adds legacy preference migration and isolated Exposure/HDR/Optics resets, plus browser checks of exact section order, three-tab navigation and Refine's lens/detail/optics visibility.
+The initial Workflow implementation was committed/pushed as `660336a`. Oli authorised committing this three-tab revision, including removal of the “Controls” heading; it has not been pushed. 234 tests and the production build pass. Validation adds legacy preference migration and isolated Exposure/HDR/Optics resets, plus browser checks of exact section order, three-tab navigation and Refine's lens/detail/optics visibility.

@@ -24,6 +24,8 @@ import { CopySettingsDialog } from './ui/CopySettingsDialog';
 import { ShortcutsDialog } from './ui/ShortcutsDialog';
 import { SettingsDialog } from './ui/SettingsDialog';
 import { CatalogBackupDialog, catalogMenuAction, requestQuit } from './ui/CatalogBackupDialog';
+import { UpdateDialog } from './ui/UpdateDialog';
+import { checkForUpdates, scheduleAutomaticCheck } from './library/updates';
 import { Library, gridColumns } from './ui/Library';
 import { Panel } from './ui/Panel';
 import { requestFolderSync, selectAllImports } from './ui/Folders';
@@ -68,6 +70,7 @@ export function menuAction(id: string) {
   const blocked = dialogOpen();
   if (id.startsWith('settings-')) { if (!blocked) settingsMenuAction(id); return; }
   if (id.startsWith('catalog-')) { if (!blocked) catalogMenuAction(id); return; }
+  if (id === 'check-updates') { if (!blocked) void checkForUpdates(true); return; }
   if (id.startsWith(RECENT_PREFIX) || id in MENU_ACTIONS) {
     if (blocked || useApp.getState().lookEdit) return;
     if (!firstOf(id, 'menu')) return;
@@ -185,6 +188,7 @@ function useDesktop() {
   useEffect(() => {
     if (!isTauri()) return;
     onSaveError((m) => showToast(`Could not save edits. ${m}`));
+    scheduleAutomaticCheck();
     // Photos or folders dropped on the Dock icon queue in Rust; this event says the queue has some.
     const opened = () => takeOpenPaths().then(paths => { if (paths.length) void openPaths(paths); }).catch(() => {});
     const openedListener = listen('open-paths', opened);
@@ -259,6 +263,7 @@ export default function App() {
       <ShortcutsDialog />
       <SettingsDialog />
       <CatalogBackupDialog />
+      <UpdateDialog />
       {dropping && (
         <div className="drop">
           <p>Drop a folder or photos to open them</p>
