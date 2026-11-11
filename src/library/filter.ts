@@ -6,6 +6,7 @@
 
 import type { Recipe } from '../film/recipe';
 import { LABELS, type Flag, type Label } from './marks';
+import { hasKeywordPath, tidyPath, type PhotoMeta } from './meta';
 
 /** A flag state to show: picked, rejected, or `none` for unflagged. */
 export type FlagFilter = Flag | 'none';
@@ -31,19 +32,22 @@ export interface Filter {
   flags: FlagFilter[];
   /** Show photos with any of these tags; empty shows any. */
   labels: Label[];
+  /** Show photos with this keyword or one under it (a path); empty shows any. */
+  keyword: string;
 }
 
-export const NO_FILTER: Filter = { edit: 'all', minRating: 0, flags: [], labels: [] };
+export const NO_FILTER: Filter = { edit: 'all', minRating: 0, flags: [], labels: [], keyword: '' };
 
-type Filterable = { recipe: Recipe | null; rating: number; label: Label | null; flag: Flag | null };
+type Filterable = { recipe: Recipe | null; rating: number; label: Label | null; flag: Flag | null; meta?: PhotoMeta };
 
-export const isFiltering = (f: Filter) => f.edit !== 'all' || f.minRating > 0 || f.flags.length > 0 || f.labels.length > 0;
+export const isFiltering = (f: Filter) => f.edit !== 'all' || f.minRating > 0 || f.flags.length > 0 || f.labels.length > 0 || !!f.keyword;
 
 export function passes(p: Filterable, f: Filter): boolean {
   if (f.edit !== 'all' && (f.edit === 'edited') !== !!p.recipe) return false;
   if (p.rating < f.minRating) return false;
   if (f.flags.length && !f.flags.includes(p.flag ?? 'none')) return false;
   if (f.labels.length && !(p.label && f.labels.includes(p.label))) return false;
+  if (f.keyword && !hasKeywordPath(p.meta, f.keyword)) return false;
   return true;
 }
 
@@ -86,5 +90,6 @@ export function normalizeFilter(v: unknown): Filter {
   // A filter saved before flags replaced hearts: hearted only is picked only.
   const flags = Array.isArray(o.flags) ? FLAG_FILTERS.filter((x) => (o.flags as unknown[]).includes(x.value)).map((x) => x.value)
     : (o as { heart?: unknown }).heart === true ? ['pick' as const] : [];
-  return { edit, minRating: r, flags, labels };
+  const keyword = typeof o.keyword === 'string' ? tidyPath(o.keyword) : '';
+  return { edit, minRating: r, flags, labels, keyword };
 }

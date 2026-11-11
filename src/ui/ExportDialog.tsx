@@ -4,7 +4,8 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { cleanSubfolder, errorText, exportPhotos, FORMAT_EXT, joinPath } from '../library/export';
-import { exportOptions, readExportSettings, saveExportSettings, type ExportSettings } from '../library/exportsettings';
+import { METADATA_INCLUDE, exportOptions, readExportSettings, saveExportSettings, type ExportSettings } from '../library/exportsettings';
+import { personKeywords } from '../library/keywords';
 import { setExportOpen, showToast, sourcePhotos, useApp, type Photo } from '../library/store';
 import { useSourceDefinitions } from '../library/catalog';
 
@@ -75,7 +76,7 @@ export function ExportDialog() {
 
   if (!isOpen || !folder) return null;
 
-  const opts = exportOptions(settings, folder.root);
+  const opts = exportOptions(settings, folder.root, personKeywords());
   const sub = cleanSubfolder(opts.subfolder);
   const chosen = lists[scope];
   const dest = opts.dir === null ? null : joinPath(opts.dir, ...sub);
@@ -234,7 +235,35 @@ export function ExportDialog() {
               </div>}
               <div className="settings-row">
                 <span className="settings-label">Colour space</span>
-                <div className="settings-control export-static">sRGB, no metadata</div>
+                <div className="settings-control export-static">sRGB</div>
+              </div>
+            </section>
+            <section aria-labelledby="export-metadata">
+              <h3 id="export-metadata">Metadata</h3>
+              <div className="settings-row">
+                <label className="settings-label" htmlFor="export-include">Include</label>
+                <div className="settings-control">
+                  <select id="export-include" value={s.metadata} onChange={e => set({ metadata: e.target.value as ExportSettings['metadata'] })}>
+                    {METADATA_INCLUDE.map(m => <option key={m.value} value={m.value}>{m.name}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="settings-row">
+                <span className="settings-label">Remove</span>
+                <div className="settings-control export-checks">
+                  <label title={s.metadata === 'copyright' || s.metadata === 'copyrightContact' ? 'Keywords are not included anyway' : 'Leaves out keywords marked Person in the Keyword List'}>
+                    <input type="checkbox" checked={s.removePerson} onChange={e => set({ removePerson: e.target.checked })} />Person info</label>
+                  <label title="Leaves out GPS and the place fields (sublocation, city, state, country)">
+                    <input type="checkbox" checked={s.removeLocation} onChange={e => set({ removeLocation: e.target.checked })} />Location info</label>
+                </div>
+              </div>
+              <div className="settings-row">
+                <span className="settings-label">Keywords</span>
+                <div className="settings-control export-checks">
+                  <label title="Also writes each keyword's full path (lr:hierarchicalSubject), which Lightroom reads back as its keyword hierarchy">
+                    <input type="checkbox" checked={s.hierarchy} disabled={s.metadata === 'copyright' || s.metadata === 'copyrightContact'}
+                      onChange={e => set({ hierarchy: e.target.checked })} />Write as Lightroom hierarchy</label>
+                </div>
               </div>
             </section>
             <section aria-labelledby="export-size">

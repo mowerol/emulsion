@@ -59,6 +59,7 @@ export function folderImport(root: string): FolderImport | null {
     if (value?.mode === 'selected' && Array.isArray(value.paths)) {
       return { mode: 'selected', paths: value.paths.filter((p: unknown): p is string => typeof p === 'string'), includeSubfolders: value.includeSubfolders === true };
     }
+    return null;
   } catch { /* Fall back to this session when storage is unavailable. */ }
   return memory[root] ?? null;
 }

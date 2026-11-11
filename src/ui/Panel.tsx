@@ -32,6 +32,7 @@ import { CropControls, cropSummary } from './CropControls';
 import { commitTyped } from './typed';
 import { Section } from './Section';
 import { KeywordControls, MetadataControls } from './MetadataControls';
+import { KeywordList } from './KeywordList';
 import { setDetailOrder, useDetailOrder } from './detailorder';
 import { ISOS } from '../engine/grain';
 import { WhiteBalanceControls } from './WhiteBalanceControls';
@@ -468,6 +469,7 @@ export function Panel() {
     lens: photo.raw && <Section id="lens" title="Lens corrections" summary={photo.lens?.correction ? (base.lens?.enabled === false ? 'Off' : 'Embedded profile') : 'No profile'} onReset={resetFor('lens', 'Lens')}><LensControls recipe={base} metadata={photo.lens} /></Section>,
     transform: <Section id="transform" title="Transform" summary={transformSummary(base.transform)} onReset={resetFor('transform', 'Transform')}><TransformControls recipe={base} /></Section>,
     keywords: grouped && !editing && <Section id="keywords" title="Keywords"><KeywordControls /></Section>,
+    keywordlist: grouped && !editing && <Section id="keywordlist" title="Keyword List"><KeywordList /></Section>,
     metadata: grouped && !editing && <Section id="metadata" title="Metadata"><MetadataControls /></Section>,
     masks: <Section id="masks" title="Masks" summary={recipe?.masks.length ? `${recipe.masks.length} ${recipe.masks.length === 1 ? 'mask' : 'masks'}` : 'None'} onReset={resetFor('masks', 'Masks')}><MaskControls /></Section>,
     crop: !grouped && <Section id="crop" title="Crop" summary={cropSummary(recipe?.crop ?? null)} onReset={resetFor('crop', 'Crop')}><CropControls recipe={recipe} /></Section>,

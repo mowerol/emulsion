@@ -339,7 +339,7 @@ Writes are debounced in the webview and atomic in Rust (write to a temporary fil
 
 **Edit history.** A sidecar also keeps earlier states of the edits (`history`: recipe and copies, oldest first, at most 20 and 4 MB), as darktable keeps the history stack in its XMP. A state is kept when it is replaced at a checkpoint: a reset, a paste, an edit of several photos, removing a copy, restoring an earlier edit (the webview passes `checkpoint` with the write), or the first change 30 minutes after the last checkpoint (`checkpoint` time in the file). Stars, tags and flags never make history. A photo with history keeps its sidecar after a reset. The panel's ⋯ menu → Earlier edits lists them (`sidecar_history`).
 
-**XMP sidecars.** Stars, the colour label, keywords and IPTC fields (title, caption, creator, copyright, sublocation, city, state, country) are also shared with other apps through `<stem>.xmp` beside the photo, Lightroom Classic's convention (`DSCF0001.RAF` → `DSCF0001.xmp`), read and written with Adobe's XMP Toolkit SDK (`src-tauri/src/xmp.rs`). Keywords and IPTC fields belong to the source file: they are saved as `meta` at the top of `.emulsion.json` and its virtual copies share them; copies' own stars and labels stay in Emulsion's sidecar, as do picks (no standard field). A reject is written as `xmp:Rating` -1, as Bridge and darktable write it and Lightroom reads it; the stars stay in `.emulsion.json` meanwhile and go back into the XMP when the reject is cleared. On a scan, a newer XMP with -1 rejects the photo and keeps its stars; a newer XMP without it un-rejects it.
+**XMP sidecars.** Stars, the colour label, keywords and IPTC fields (Lightroom Classic's IPTC set: content, image, copyright, creator contact and status fields; the table is `FIELDS` in `xmp.rs`, mirrored by `META_FIELDS` in `library/meta.ts`) are also shared with other apps through `<stem>.xmp` beside the photo, Lightroom Classic's convention (`DSCF0001.RAF` → `DSCF0001.xmp`), read and written with Adobe's XMP Toolkit SDK (`src-tauri/src/xmp.rs`). Keywords and IPTC fields belong to the source file: they are saved as `meta` at the top of `.emulsion.json` and its virtual copies share them; copies' own stars and labels stay in Emulsion's sidecar, as do picks (no standard field). A reject is written as `xmp:Rating` -1, as Bridge and darktable write it and Lightroom reads it; the stars stay in `.emulsion.json` meanwhile and go back into the XMP when the reject is cleared. On a scan, a newer XMP with -1 rejects the photo and keeps its stars; a newer XMP without it un-rejects it.
 
 - *Ownership:* one `<stem>.xmp` serves a whole stem, so a RAW owns it over a DNG over anything else (RAW+JPEG pairs), and a tie (two RAWs of one name) means nobody. A file that doesn't own it neither reads nor writes it.
 - *Writing:* when a save changes the stars, label, keywords or fields (`sidecar::write` compares with the last save), the XMP is updated before `.emulsion.json`: only fields that differ are touched, everything else in the file is kept (Lightroom's `crs:` develop settings, darktable's history, a `-1` reject, a Purple label, `lr:hierarchicalSubject` paths whose leaf is still a keyword), and `xmp:MetadataDate` is stamped. `.emulsion.json` records the XMP's modified time after that write (`xmp`). A file that isn't XMP is never replaced; the edits are saved and the error shown. A photo with nothing to share gets no XMP. Nothing is written into photos.
@@ -347,6 +347,12 @@ Writes are debounced in the webview and atomic in Rust (write to a temporary fil
 - *Embedded XMP:* after a folder opens, `embedded_metadata` reads the XMP inside photos that have no stars, label, keywords or fields of their own and no XMP sidecar (in-camera ratings), in the background (~1 ms a JPEG, ~20 ms a RAF, in parallel). It is shown, not saved, until the photo is next edited or marked.
 
 The Keywords and Metadata tab of the control panel edits them for the selected photos (`ui/MetadataControls.tsx`, `library/meta.ts`): one undo step per change (`editMeta`, a `meta` history change per source), mixed values shown as "Mixed", keywords on only some photos dashed (click to add to all). Smart collections have a Keyword rule.
+
+**Keyword hierarchy.** A keyword is its path from the top, levels separated by `|` as in `lr:hierarchicalSubject` (`Places|UK|Kent`); a top-level keyword is just its name. Typing `Places > UK > Kent` (or `Kent < UK < Places`) makes one, and a name alone that names exactly one keyword in the library is that keyword. In the XMP, `dc:subject` gets each keyword's name and its parents' names (Lightroom's default, Include on Export, on every level) and `lr:hierarchicalSubject` the paths whenever any keyword has a parent; reading takes Lightroom's paths, then any `dc:subject` no path names. The **Keyword List** (`ui/KeywordList.tsx`, `library/keywords.ts`) shows the hierarchy of every photo in the library (the open photos and the catalog's cached folders) with counts and keywords made there that no photo has yet (`emulsion.keywordList` in settings.json, with the keywords marked Person). Its box assigns a keyword to the selected photos; its arrow sets the filter bar's keyword filter, which shows photos with that keyword or one inside it. Renaming, moving (drag onto another keyword) and deleting change every photo that has it: the open photos as one undoable step, the rest through `retag_keywords` (`src-tauri/src/keywords.rs`), which reads each photo as a scan would (a newer XMP wins), changes it and saves its sidecar and XMP. A smart-collection Keyword rule matches a name at any level.
+
+**Metadata presets** (`library/metapresets.ts`, `emulsion.metadataPresets` in settings.json): a named set of fields and keywords, applied to the selection as one undo step (fields replaced, keywords added). One preset may be chosen for new photos: when a folder opens, photos the catalog had not seen get it in their empty fields only, after their embedded metadata has been read, without an undo step.
+
+**Export metadata** (`src-tauri/src/export_meta.rs`): the Export dialog's Metadata section follows Lightroom Classic's (Include: copyright only, copyright and contact, all except camera info, all; remove person info, i.e. keywords marked Person; remove location info, i.e. GPS and the place fields; write keywords as Lightroom hierarchy). One XMP packet is built per frame and embedded in the finished temporary file before it takes its name, through the XMP Toolkit, whose JPEG and TIFF handlers also write native EXIF/TIFF tags and IPTC-IIM; PNG gets the XMP. Camera EXIF comes from the original through the toolkit (JPEG, TIFF, DNG, TIFF-based RAWs), else from a RAW's embedded JPEG preview (RAF, CR3), else LibRaw's make, model and exposure; what describes the original file (pixel size, orientation, compression, colour space) is dropped or set for the export (upright, sRGB).
 
 ## App data and backups
 
@@ -416,3 +422,30 @@ selection. Returning to Grid retains its selection.
 `ui/workspace.ts` owns application preferences for one/two image columns and the selected control stage. Workflow is the only workspace; older Classic preferences normalize to Workflow while retaining columns and stage. These preferences are outside photo recipes and sidecars. The control tabs use stable section IDs; a keyed registry follows their membership/order while keeping module view state mounted. They change presentation rather than image-processing order. White balance, Exposure and HDR have independent reset field sets.
 
 Develop owns zoom, before/split and crop state; its toolbar sits over the photo column. Masks are edited on the photo (`MaskOverlay`) while the Masks tab is open; which mask is selected and the armed tool live in `ui/maskui.ts`, outside the recipe. A fixed bar below the photo holds frame/file details and flag/stars/colour tags; the right pane is reserved for editing controls. The Images browser shares the existing thumbnail, filtering, marking, RAW+JPEG folding and selection operations. Changing columns affects the sidebar grid and up/down navigation stride, not recipes or selection.
+
+
+### Library membership, disk discovery and Import mode
+
+The Library's folder tree and photo grid contain imported entries. `library/membership.ts`
+keeps membership independent of disk contents: explicit imports add paths to a saved snapshot,
+and old automatic-sync memberships migrate to snapshots. Missing entries retain their cached
+edits until Sync explicitly removes them; removal only clears library references, never source
+files or sidecars. Collections and import-session references are cleaned at the same time.
+
+`list_folder_photos` in `src-tauri/src/library.rs` lists supported files and modified times
+without sidecar, EXIF or preview reads. `library/disks.ts` deduplicates pending scans and compares
+listings with the imported index. Scans run on folder selection, visible folder mounting and
+window focus; Sync rechecks before applying changes. An unavailable root is an error, and a
+partial scan cannot mark entries as missing. There is no filesystem watcher.
+
+`ui/TopBar.tsx` owns the compact source breadcrumb and Sync dialog. The Library has 44 px of
+header, 40 px of filters and a single 32 px bottom bar. Import is a full-window mode with a disk
+sidebar and a virtualized checkbox grid. `library/importer.ts` holds its temporary selection and
+presentation options. Cancel/Escape restores the prior Library source, selection and undo
+history; completion records only new additions and returns to the imported folder. Originals
+are referenced in place. File > Import uses Cmd/Ctrl-I (Cmd/Ctrl-O remains a keyboard alias), and
+File > Sync Folder opens the same reconciliation dialog as the header and folder context menu.
+
+Browser verification: `node tools/browser-tests/cdp-timing.mjs library-handoff`; set
+`VIEWPORT=1440x900` and `SHOT=.scratch/library-handoff.png` to capture a fixed viewport, or pass
+`screen=library`, `screen=sync`, or `screen=import` as the second argument to stop on that screen.

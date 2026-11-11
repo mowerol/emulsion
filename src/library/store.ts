@@ -8,9 +8,11 @@ import { useShallow } from 'zustand/react/shallow';
 import { useRef } from 'react';
 import type { Histogram } from '../engine/histogram';
 import type { Xy } from '../engine/whitebalance';
-import { catalogMetadata, embeddedMetadata, isTauri, scanFolder, whitePoints, type Entry } from '../backend/api';
+import { catalogMetadata, embeddedMetadata, isTauri, scanFolder, whitePoints, type EmbeddedMetadata, type Entry } from '../backend/api';
 import { isEmptyMeta, normalizeMeta, sameMeta, type PhotoMeta } from './meta';
+import { autoPreset, fillPreset } from './metapresets';
 import { folderImport, importedPaths, importedRoots, rememberFolder, saveFolderImport, type FolderImport } from './folders';
+import { libraryEntries, membership as folderMembership, parentFolder, withinFolder } from './membership';
 import { defaultRecipe, normalizeRecipe, type Recipe } from '../film/recipe';
 import { applyCopiedSettings, DEFAULT_COPY_GROUPS, normalizeCopyGroups, type CopiedSettings, type CopyGroup } from '../film/copysettings';
 import { FULL, isFull, type Crop } from '../film/crop';
@@ -21,6 +23,7 @@ import { findPairs, foldPairs } from './pairs';
 import { cleanCopyName, expandCopies, photoId, savedFrames } from './copies';
 import { applyMark, describeMark, hasMark, normalizeMarks, sameMarks, type Flag, type Label, type MarkKey, type Marks } from './marks';
 import { History, MERGE_MS, describe, type Change, type Step } from './history';
+import * as trace from '../dev/trace';
 import { addToCollection, cacheEdits, cacheFolder, catalogPhotos, recordImport, sourceMatcher, sourceMatches, targetCollection, useCatalog, useSourceDefinitions, viewImport, type SourceSelection } from './catalog';
 
 export interface Photo {
@@ -51,6 +54,12 @@ export interface Photo {
   raw: boolean;
   /** The JPEG folded into this RAW (same name, same folder), when JPEGs are folded. */
   pair: string | null;
+  /**
+   * The background reads already made of this file at this size and modified time: its white
+   * point (in `white`) and what is embedded in it (null for nothing). Kept in the catalog so
+   * reopening a folder or collection doesn't read every file again.
+   */
+  read?: { white?: true; embedded?: EmbeddedMetadata | null };
 }
 
 export interface Folder {
@@ -71,6 +80,7 @@ export interface Toast {
 export interface State {
   source: SourceSelection | null;
   selectedOnly: boolean;
+  missingPaths: Set<string> | null;
   collectionAddIds: string[];
   /** Explicitly applying a filter with no matches leaves the active edit intact, but hides its tile. */
   filterExcludedActive: string | null;
@@ -92,6 +102,11 @@ export interface State {
   clipboard: CopiedSettings | null;
   copySettingsSource: { name: string; recipe: Recipe } | null;
   loading: boolean;
+  /**
+   * The folder or source being opened, shown at once (its name, "Reading photos…") in place of the
+   * previous one, which stays in `photos` until the new one is read (and comes back if that fails).
+   */
+  opening: { source: SourceSelection; name: string } | null;
   toast: Toast | null;
   exportOpen: boolean;
   /** Histogram of the developed frame in the develop view. */
@@ -215,6 +230,7 @@ function savedFilter(): Filter {
 export const useApp = create<State>(() => ({
   source: null,
   selectedOnly: false,
+  missingPaths: null,
   collectionAddIds: [],
   filterExcludedActive: null,
   folder: null,
@@ -234,6 +250,7 @@ export const useApp = create<State>(() => ({
   clipboard: null,
   copySettingsSource: null,
   loading: false,
+  opening: null,
   toast: null,
   exportOpen: false,
   histogram: null,
@@ -270,76 +287,115 @@ const scannedPhoto = (e: Entry): Photo => ({
   ...normalizeMarks(e.rating, e.label, e.flag), meta: normalizeMeta(e.meta), raw: e.raw, pair: null,
 });
 
+/**
+ * Background reads answer 32-64 photos at a time, but each state update costs the whole library
+ * (the catalog rewrite in cacheEdits, the grid and sidebar renders), so a smart collection of
+ * 20,000 photos stalled the app. Results are applied together, every FLUSH_EVERY photos.
+ */
+const FLUSH_EVERY = 1024;
+
+/** Apply `update` to the open photos, leaving each list (and the state) alone when nothing changed. */
+function updateOpenPhotos(update: (p: Photo) => Photo) {
+  const map = (list: Photo[]) => {
+    let changed = false;
+    const next = list.map(p => { const q = update(p); if (q !== p) changed = true; return q; });
+    return changed ? next : list;
+  };
+  const { photos, hidden, candidates } = get();
+  const next = { photos: map(photos), hidden: map(hidden), candidates: map(candidates) };
+  if (next.photos !== photos || next.hidden !== hidden || next.candidates !== candidates) set(next);
+}
+
 function withCachedMetadata(photo: Photo, cached?: Photo): Photo {
   if (!cached || cached.size !== photo.size || cached.modified !== photo.modified) return photo;
-  return { ...photo, camera: cached.camera, lens: cached.lens, white: cached.white, capture: cached.capture };
+  return { ...photo, camera: cached.camera, lens: cached.lens, white: cached.white, capture: cached.capture, ...(cached.read ? { read: cached.read } : {}) };
 }
 
 /** Index metadata in bounded batches so camera/date smart collections cover offscreen frames too. */
 async function loadCatalogMetadata(photos: Photo[]) {
   if (!isTauri()) return;
   const pending = [...new Map(photos.filter(p => !p.capture).map(p => [p.path, p])).values()];
+  let updates = new Map<string, { identity: Photo; capture: NonNullable<Photo['capture']> }>();
+  const flush = () => {
+    if (!updates.size) return;
+    const found = updates;
+    updates = new Map();
+    const update = (p: Photo) => {
+      const data = found.get(p.path);
+      return data && p.size === data.identity.size && p.modified === data.identity.modified ? { ...p, capture: data.capture } : p;
+    };
+    cacheEdits(catalogPhotos().filter(p => found.has(p.path)).map(update));
+    updateOpenPhotos(update);
+  };
   for (let i = 0; i < pending.length; i += 32) {
     const batch = pending.slice(i, i + 32);
     try {
       const values = await catalogMetadata(batch.map(p => p.path));
-      const updates = new Map(batch.map((p, n) => [p.path, { identity: p, capture: values[n] ?? { camera: null, date: null } }]));
-      const update = (p: Photo) => {
-        const data = updates.get(p.path);
-        return data && p.size === data.identity.size && p.modified === data.identity.modified ? { ...p, capture: data.capture } : p;
-      };
-      cacheEdits(catalogPhotos().map(update));
-      set(s => ({ photos: s.photos.map(update), hidden: s.hidden.map(update), candidates: s.candidates.map(update) }));
-    } catch { return; }
+      batch.forEach((p, n) => updates.set(p.path, { identity: p, capture: values[n] ?? { camera: null, date: null } }));
+    } catch { break; }
+    if (updates.size >= FLUSH_EVERY) flush();
   }
-}
-
-function cacheScannedFolder(root: string, name: string, photos: Photo[], sync: boolean) {
-  const catalog = useCatalog.getState();
-  const previous = catalog.folders[root];
-  if (sync && previous) {
-    const known = new Set([...previous.map(p => p.path), ...catalog.imports.filter(i => i.destinationPath === root).flatMap(i => i.photoIds.map(id => id.split('\0')[0]))]);
-    const added = photos.filter(p => !known.has(p.path)).map(photoId);
-    if (added.length) recordImport(name, root, added);
-  }
-  cacheFolder(root, photos);
+  flush();
 }
 
 let folderRequest = 0;
-export async function openFolder(path: string) {
+
+const trimRoot = (path: string) => path.length > 1 ? path.replace(/[\\/]+$/, '') : path;
+/** The source the Library shows: the one being opened, else the open one. */
+export const shownSource = (s: State = get()) => s.opening?.source ?? s.source;
+
+/**
+ * Show `source` straight away while it is read: a large folder or collection takes seconds, and
+ * leaving the previous one on screen meanwhile looked like a hang. Reopening the open one (a
+ * refresh) keeps it on screen. The previous photos are deselected so keys can't mark them unseen.
+ */
+function beginOpening(source: SourceSelection, name: string) {
+  const current = get().source;
+  const same = current?.type === source.type && (source.type === 'folder' ? trimRoot(current.id) === trimRoot(source.id) : current.id === source.id);
+  if (same) return;
+  set({ opening: { source, name }, view: 'library', loupeFullscreen: false, compare: false, active: -1, anchor: -1, selected: new Set() });
+}
+
+let importReturn: State | null = null;
+
+export async function openFolder(path: string, importing = false) {
   if (get().lookEdit) return showToast('Save or cancel the look draft first');
+  const previousState = get();
   const request = ++folderRequest;
   finishCrop(true);
   endLookEdit();
   set({ loading: true });
+  beginOpening({ type: 'folder', id: path }, trimRoot(path).split(/[\\/]/).pop() || path);
   try {
     await flushSaves();
     if (request !== folderRequest) return;
     const recursive = folderImport(path)?.includeSubfolders === true;
     let res = await scanFolder(path, recursive);
     if (request !== folderRequest) return;
-    const choice = folderImport(res.root);
+    const choice = folderMembership(res.root, res.entries.map(scannedPhoto));
     if (choice?.includeSubfolders && !recursive) {
       res = await scanFolder(res.root, true);
       if (request !== folderRequest) return;
     }
     const cached = new Map(catalogPhotos().map(p => [photoId(p), p]));
     const all = res.entries.flatMap(e => expandCopies(scannedPhoto(e), e.copies)).map(p => withCachedMetadata(p, cached.get(photoId(p))));
-    history.clear();
+    if ((importing || !choice) && !importReturn) importReturn = previousState;
+    if (!importing && choice) history.clear();
     set({
+      missingPaths: null,
       source: { type: 'folder', id: res.root },
       folder: { root: res.root, name: res.name, unreadable: res.unreadable },
       subfolders: res.folders ?? [],
       candidates: all,
       importChoice: choice,
-      choosingImport: !choice,
+      choosingImport: importing || !choice,
       includeSubfolders: choice?.includeSubfolders === true,
       view: 'library', loupeFullscreen: false,
       compare: false,
       ...historyState(),
     });
-    displayImported(all, choice);
-    cacheScannedFolder(res.root, res.name, [...get().photos, ...get().hidden], choice?.mode === 'sync');
+    displayImported(libraryEntries(res.root, all, choice), choice);
+    if (choice) cacheFolder(res.root, [...get().photos, ...get().hidden]);
     void loadCatalogMetadata([...get().photos, ...get().hidden]);
     rememberFolder(res.root);
     if (res.unreadable) showToast(`${res.unreadable} items could not be read.`);
@@ -347,7 +403,7 @@ export async function openFolder(path: string) {
   } catch (err) {
     if (request === folderRequest) showToast(`Could not open that folder. ${String(err)}`);
   } finally {
-    if (request === folderRequest) set({ loading: false });
+    if (request === folderRequest) set({ loading: false, opening: null });
   }
 }
 
@@ -385,35 +441,132 @@ function displayImported(all: Photo[], choice: FolderImport | null) {
     selected: active >= 0 ? new Set([photoId(photos[active])]) : new Set(), histogram: null });
   const root = get().folder?.root;
   if (root && photos.length) {
-    void loadWhitePoints(root, [...new Set(photos.map(p => p.path))]);
-    void loadEmbedded(root, imported);
+    // Photos the library hasn't seen before (the catalog is cached after this).
+    const known = new Set(catalogPhotos().map(p => p.path));
+    const fresh = [...new Set(imported.filter(p => !p.copyId && !known.has(p.path)).map(p => p.path))];
+    void loadWhitePoints(root, imported);
+    // The preset fills what is still empty once the photos' own embedded metadata is in.
+    void loadEmbedded(root, imported).then(() => fillNewPhotos(root, fresh));
   }
+}
+
+/** Apply the automatic metadata preset to photos new to the library (empty fields only, not undoable). */
+function fillNewPhotos(root: string, paths: string[]) {
+  const preset = autoPreset();
+  if (!preset || !paths.length || get().folder?.root !== root) return;
+  const after = new Map<string, PhotoMeta>();
+  for (const path of paths) {
+    const before = familyOf(path).find(p => !p.copyId)?.meta ?? normalizeMeta(null);
+    const next = normalizeMeta(fillPreset(before, preset));
+    if (!sameMeta(before, next)) after.set(path, next);
+  }
+  if (!after.size) return;
+  setSourceMeta(after);
+  persistSources([...after.keys()]);
+  showToast(`Metadata preset ${preset.name} applied to ${after.size} new ${after.size === 1 ? 'photo' : 'photos'}`);
 }
 
 export function importFolderPhotos(choice: FolderImport, name?: string) {
   const { folder, candidates, photos, hidden } = get();
   if (!folder || get().loading) return;
-  // Preserve in-memory edits when adding more photos or enabling sync.
-  const current = new Map([...photos, ...hidden].map(p => [photoId(p), p]));
+  // Imports are additive snapshots. "sync" is accepted for old callers, never persisted.
+  const current = new Map([...catalogPhotos(), ...photos, ...hidden].map(p => [photoId(p), p]));
   const all = candidates.map(p => current.get(photoId(p)) ?? p);
-  choice = { ...choice, includeSubfolders: get().includeSubfolders };
-  if (choice.mode === 'selected') {
-    const available = new Set(all.map(p => p.path));
-    choice.paths = choice.paths.filter(path => available.has(path));
-  }
-  const previous = importedPaths(all.map(p => p.path), get().importChoice);
-  const wanted = importedPaths(all.map(p => p.path), choice);
-  const added = all.filter(p => wanted.has(p.path) && !previous.has(p.path)).map(photoId);
-  saveFolderImport(folder.root, choice);
-  set({ importChoice: choice, choosingImport: false, candidates: all });
-  displayImported(all, choice);
+  const requested = new Set(choice.mode === 'sync' ? all.map(p => p.path) : choice.paths);
+  const known = new Set(catalogPhotos().map(p => p.path));
+  const added = all.filter(p => requested.has(p.path) && !known.has(p.path));
+  const previous = folderMembership(folder.root);
+  const paths = [...new Set([...(previous?.mode === 'selected' ? previous.paths : []), ...added.map(p => p.path)])];
+  const next: FolderImport = { mode: 'selected', paths, includeSubfolders: get().includeSubfolders || previous?.includeSubfolders === true };
+  saveFolderImport(folder.root, next);
+  history.clear();
+  set({ ...historyState(), importChoice: next, choosingImport: false, candidates: all, libraryView: 'grid' });
+  displayImported(libraryEntries(folder.root, all, next), next);
   cacheFolder(folder.root, [...get().photos, ...get().hidden]);
-  // A sync refresh is browsing; an explicit import records its own fixed membership.
-  recordImport(name?.trim() || folder.name, folder.root, added.length ? added : all.filter(p => wanted.has(p.path)).map(photoId));
+  if (added.length) recordImport(name?.trim() || folder.name, folder.root, added.map(photoId));
+  importReturn = null;
   void loadCatalogMetadata([...get().photos, ...get().hidden]);
 }
 
-export function chooseImport(choosingImport: boolean) { set({ choosingImport }); }
+/** Enter Import without losing the Library source/selection that Cancel returns to. */
+export async function startImport(path = get().folder?.root) {
+  if (!path || get().lookEdit) return;
+  if (!importReturn) { finishCrop(true); importReturn = get(); }
+  set({ choosingImport: true, view: 'library', loupeFullscreen: false });
+  const opened = await openFolder(path, true);
+  if (!opened) chooseImport(false);
+  else if (get().includeSubfolders) await setIncludeSubfolders(false);
+  return opened;
+}
+export function chooseImport(choosingImport: boolean) {
+  if (choosingImport) {
+    if (!importReturn) importReturn = get();
+    set({ choosingImport: true, view: 'library', loupeFullscreen: false });
+  } else {
+    ++folderRequest;
+    const previous = importReturn;
+    importReturn = null;
+    if (previous) {
+      const { source, folder, photos, hidden, candidates, subfolders, importChoice, includeSubfolders, active, anchor, selected, pairCount, libraryView } = previous;
+      set({ source, folder, photos, hidden, candidates, subfolders, importChoice, includeSubfolders, active, anchor, selected, pairCount, libraryView,
+        choosingImport: false, opening: null, loading: false, view: 'library', ...historyState() });
+    } else set({ choosingImport: false, loading: false, opening: null });
+  }
+}
+
+/** Show missing entries even when they are in a subfolder outside the current folder scope. */
+export function showMissingPhotos(root: string, paths: string[]) {
+  ++folderRequest;
+  const imported = catalogPhotos().filter(p => withinFolder(root, p.path));
+  const { shown: photos, hidden } = arrange(imported, get().foldJpegs);
+  const missingPaths = new Set(paths);
+  const active = photos.findIndex(p => missingPaths.has(p.path));
+  set({ source: { type: 'folder', id: root }, folder: { root, name: root.split(/[\\/]/).pop() || root, unreadable: 0 },
+    photos, hidden, candidates: [], subfolders: [], importChoice: folderMembership(root), missingPaths, filter: NO_FILTER, selectedOnly: false,
+    choosingImport: false, libraryView: 'grid', view: 'library', loupeFullscreen: false, loading: false, opening: null,
+    active, anchor: active, selected: active < 0 ? new Set() : new Set([photoId(photos[active])]) });
+}
+
+/** Explicit reconciliation never deletes originals or sidecars. */
+export async function syncFolderPhotos(root: string, options: { add: string[]; remove: string[]; recursive: boolean; knownOnly: boolean; importer: boolean; folders?: string[] }) {
+  const knownFolders = new Set([...Object.keys(useCatalog.getState().folders), ...catalogPhotos().map(p => parentFolder(p.path))]);
+  if (!await openFolder(root)) return false;
+  if (options.recursive !== get().includeSubfolders) await setIncludeSubfolders(options.recursive);
+  if (get().folder?.root !== root || get().includeSubfolders !== options.recursive) return false;
+  if (options.knownOnly && options.recursive) set({ candidates: get().candidates.filter(p => parentFolder(p.path) === root || knownFolders.has(parentFolder(p.path))) });
+  const available = new Set(get().candidates.map(p => p.path));
+  const removed = new Set(get().folder?.unreadable ? [] : options.remove.filter(path => !available.has(path)));
+  if (removed.size) {
+    for (const importedRoot of importedRoots()) {
+      const choice = folderMembership(importedRoot);
+      if (choice?.mode === 'selected') saveFolderImport(importedRoot, { ...choice, paths: choice.paths.filter(path => !removed.has(path)) });
+    }
+    useCatalog.setState(c => ({ folders: Object.fromEntries(Object.entries(c.folders).map(([path, entries]) => [path, entries.filter(p => !removed.has(p.path))])),
+      imports: c.imports.map(i => ({ ...i, photoIds: i.photoIds.filter(id => !removed.has(id.split('\0')[0])) })),
+      collections: c.collections.map(c => c.type === 'manual' ? { ...c, photoIds: c.photoIds.filter(id => !removed.has(id.split('\0')[0])) } : c) }));
+    set({ photos: get().photos.filter(p => !removed.has(p.path)), hidden: get().hidden.filter(p => !removed.has(p.path)), importChoice: folderMembership(root) });
+  }
+  if (options.recursive) {
+    const paths = new Set(get().candidates.map(p => parentFolder(p.path)));
+    if (!options.knownOnly) for (const folder of options.folders ?? get().subfolders.map(f => f.path)) paths.add(folder);
+    for (const path of paths) if (withinFolder(root, path) && !useCatalog.getState().folders[path]) {
+      cacheFolder(path, []);
+      saveFolderImport(path, { mode: 'selected', paths: [] });
+    }
+  }
+  const scopeChoice = folderMembership(root);
+  if (scopeChoice?.mode === 'selected') {
+    const next = { ...scopeChoice, includeSubfolders: options.recursive };
+    saveFolderImport(root, next);
+    set({ importChoice: next });
+    displayImported(libraryEntries(root, get().candidates, next), next);
+  }
+  // Save only membership changes; Add all is a one-time import.
+  if (options.add.length) importFolderPhotos({ mode: 'selected', paths: options.add });
+  if (options.importer) chooseImport(true);
+  else { importReturn = null; set({ choosingImport: false }); }
+  return true;
+}
 
 /** Preview the requested scope without changing which photos have been imported. */
 export async function setIncludeSubfolders(include: boolean) {
@@ -429,7 +582,7 @@ export async function setIncludeSubfolders(include: boolean) {
     const current = new Map([...get().candidates, ...get().photos, ...get().hidden].map(p => [photoId(p), p]));
     const families = new Map<string, Photo[]>();
     for (const p of current.values()) families.set(p.path, [...(families.get(p.path) ?? []), p]);
-    set({ candidates: res.entries.flatMap(e => families.get(e.path) ?? expandCopies(scannedPhoto(e), e.copies)), includeSubfolders: include });
+    set({ candidates: res.entries.flatMap(e => families.get(e.path) ?? expandCopies(scannedPhoto(e), e.copies)), subfolders: res.folders ?? [], folder: { ...folder, unreadable: res.unreadable }, includeSubfolders: include });
     if (res.unreadable) showToast(`${res.unreadable} items could not be read.`);
   } catch (err) {
     if (request === folderRequest) showToast(`Could not read that folder. ${String(err)}`);
@@ -439,77 +592,134 @@ export async function setIncludeSubfolders(include: boolean) {
 }
 
 export function closeFolder() {
+  importReturn = null;
   ++folderRequest;
+  set({ missingPaths: null });
   finishCrop(true);
   endLookEdit();
   history.clear();
   set({ source: null, folder: null, photos: [], hidden: [], candidates: [], subfolders: [], importChoice: null,
-    choosingImport: false, includeSubfolders: false, loading: false, active: -1, selected: new Set(), view: 'library', libraryView: 'grid', loupeFullscreen: false, copySettingsSource: null, ...historyState() });
+    choosingImport: false, includeSubfolders: false, loading: false, opening: null, active: -1, selected: new Set(), view: 'library', libraryView: 'grid', loupeFullscreen: false, copySettingsSource: null, ...historyState() });
 }
 
 /** Load virtual sources from saved folder memberships, re-reading sidecars before showing them. */
 export async function selectSource(source: SourceSelection) {
   if (source.type === 'folder') return openFolder(source.id);
   if (get().lookEdit) return showToast('Save or cancel the look draft first');
+  trace.begin(`selectSource ${source.type} ${source.id}`);
   const request = ++folderRequest;
   finishCrop(true);
   cacheEdits([...get().photos, ...get().hidden]);
+  trace.mark('cacheEdits(previous)');
   const collectionAddIds = [...get().selected];
-  set({ loading: true });
-  try {
-    await flushSaves();
-    if (request !== folderRequest) return;
-    const catalog = useCatalog.getState();
-    const session = source.type === 'import' ? catalog.imports.find(i => i.id === source.id) : null;
-    const collection = source.type === 'collection' ? catalog.collections.find(c => c.id === source.id) : null;
-    if (!session && !collection) return;
-    const ids = new Set(session?.photoIds ?? (collection?.type === 'manual' ? collection.photoIds : []));
-    const knownRoots = [...new Set([...Object.keys(catalog.folders), ...importedRoots()])];
-    const roots = knownRoots.filter(root => collection?.type === 'smart' || session?.destinationPath === root || [...ids].some(id => id.startsWith(root.replace(/[\\/]$/, '') + (root.includes('\\') ? '\\' : '/'))));
-    const cached = new Map(catalogPhotos().map(p => [photoId(p), p]));
-    const scans = await Promise.allSettled(roots.map(async root => {
-      const choice = folderImport(root);
-      const res = await scanFolder(root, choice?.includeSubfolders === true);
-      const all = res.entries.flatMap(e => expandCopies(scannedPhoto(e), e.copies)).map(p => withCachedMetadata(p, cached.get(photoId(p))));
-      const wanted = importedPaths(all.map(p => p.path), choice);
-      return { root, name: res.name, sync: choice?.mode === 'sync', photos: all.filter(p => wanted.has(p.path)) };
-    }));
-    if (request !== folderRequest) return;
-    for (const result of scans) if (result.status === 'fulfilled') cacheScannedFolder(result.value.root, result.value.name, result.value.photos, result.value.sync);
-    if (scans.some(r => r.status === 'rejected')) showToast('Some folders are unavailable. Showing their saved library entries.');
-    const all = catalogPhotos();
+  const catalog = useCatalog.getState();
+  const session = source.type === 'import' ? catalog.imports.find(i => i.id === source.id) : null;
+  const collection = source.type === 'collection' ? catalog.collections.find(c => c.id === source.id) : null;
+  if (!session && !collection) return;
+  const ids = new Set(session?.photoIds ?? (collection?.type === 'manual' ? collection.photoIds : []));
+  const knownRoots = [...new Set([...Object.keys(catalog.folders), ...importedRoots()])];
+  const roots = knownRoots.filter(root => collection?.type === 'smart' || session?.destinationPath === root || [...ids].some(id => id.startsWith(root.replace(/[\\/]$/, '') + (root.includes('\\') ? '\\' : '/'))));
+  const root = session?.destinationPath ?? roots[0] ?? get().folder?.root;
+
+  /** Show `all`; `refresh` keeps the active photo, the selection, the view and undo. */
+  const display = (all: Photo[], refresh: boolean) => {
     scanOrder.clear();
     all.forEach((p, i) => scanOrder.set(p.path, i));
     const { shown: photos, hidden } = arrange(all, get().foldJpegs);
+    trace.mark('  arrange');
+    const pairCount = findPairs(all.filter(p => !p.copyId)).size;
+    trace.mark('  findPairs');
+    if (refresh) {
+      const s = get();
+      const activeId = s.photos[s.active] ? photoId(s.photos[s.active]) : null;
+      const active = activeId ? photos.findIndex(p => photoId(p) === activeId) : -1;
+      const visible = new Set(photos.map(photoId));
+      set({ photos, hidden, pairCount, active, anchor: active, selected: new Set([...s.selected].filter(id => visible.has(id))) });
+      return;
+    }
     const first = photos.findIndex(p => sourceMatches(p, source) && passes(p, get().filter));
-    const root = session?.destinationPath ?? roots[0] ?? get().folder?.root;
+    trace.mark('  first');
     history.clear();
-    set({ source, collectionAddIds, folder: root ? { root, name: root.split(/[\\/]/).pop() || root, unreadable: 0 } : null,
+    set({ source, missingPaths: null, collectionAddIds, folder: root ? { root, name: root.split(/[\\/]/).pop() || root, unreadable: 0 } : null,
       photos, hidden, candidates: [], subfolders: [], importChoice: null, choosingImport: false,
-      pairCount: findPairs(all.filter(p => !p.copyId)).size, active: first, anchor: first,
+      pairCount, active: first, anchor: first,
       selected: first >= 0 ? new Set([photoId(photos[first])]) : new Set(),
       view: 'library', loupeFullscreen: false, compare: false, histogram: null, ...historyState() });
+    trace.mark('  set');
     if (session) viewImport(session.id);
+  };
+
+  set({ loading: true });
+  // The catalog already holds these photos: show them at once and refresh them from disk behind
+  // the grid (rescanning every folder of a large collection takes a second or more).
+  const fromCatalog = catalogPhotos();
+  trace.mark(`catalogPhotos(${fromCatalog.length})`);
+  let shownFirst: Map<string, Photo> | null = null;
+  if (fromCatalog.length) {
+    display(fromCatalog, false);
+    trace.mark('display(catalog)');
+    trace.markPainted('painted(catalog)');
+    shownFirst = new Map([...get().photos, ...get().hidden].map(p => [photoId(p), p]));
+  } else beginOpening(source, (session ?? collection)!.name);
+  try {
+    trace.mark('before flushSaves');
+    await flushSaves();
+    trace.mark('flushSaves');
+    if (request !== folderRequest) return;
+    const cached = new Map(catalogPhotos().map(p => [photoId(p), p]));
+    const scans = await Promise.allSettled(roots.map(async root => {
+      let choice = folderMembership(root);
+      const res = await scanFolder(root, choice?.includeSubfolders === true);
+      choice = folderMembership(root, res.entries.map(scannedPhoto));
+      const all = res.entries.flatMap(e => expandCopies(scannedPhoto(e), e.copies)).map(p => withCachedMetadata(p, cached.get(photoId(p))));
+      trace.mark(`scan ${root.split('/').pop()} (${res.entries.length})`);
+      return { root, photos: libraryEntries(root, all, choice) };
+    }));
+    trace.mark(`scans(${roots.length})`);
+    if (request !== folderRequest) return;
+    // Photos marked or edited while the folders were read keep what was done to them.
+    const now = new Map([...get().photos, ...get().hidden].map(p => [photoId(p), p]));
+    const changed = shownFirst ? [...now.values()].filter(p => p !== shownFirst!.get(photoId(p))) : [];
+    for (const result of scans) if (result.status === 'fulfilled') cacheFolder(result.value.root, result.value.photos);
+    if (changed.length) cacheEdits(changed);
+    trace.mark('cacheScannedFolder');
+    if (scans.some(r => r.status === 'rejected')) showToast('Some folders are unavailable. Showing their saved library entries.');
+    const all = catalogPhotos();
+    display(all, !!shownFirst);
+    trace.mark('display(refresh)');
+    trace.markPainted('painted(refresh)');
     if (root) {
-      void loadWhitePoints(root, [...new Set(all.map(p => p.path))]);
-      void loadEmbedded(root, all);
+      void loadWhitePoints(root, all).then(() => trace.mark('whitePoints'));
+      void loadEmbedded(root, all).then(() => trace.mark('embedded'));
     }
-    void loadCatalogMetadata(all);
+    void loadCatalogMetadata(all).then(() => trace.mark('catalogMetadata'));
   } catch (err) {
     if (request === folderRequest) showToast(`Could not open that source. ${String(err)}`);
   } finally {
-    if (request === folderRequest) set({ loading: false });
+    if (request === folderRequest) set({ loading: false, opening: null });
   }
 }
 
 export function setSelectedOnly(selectedOnly: boolean) { set({ selectedOnly }); }
 
-/** Source membership is evaluated live, before the toolbar filters. */
-export const sourceIndices = (s: State = get()) => {
+/**
+ * Source membership is evaluated live, before the toolbar filters. The last answer is kept while
+ * the photos, the source and the source definitions are the same objects: the top bar, filter bar,
+ * header, grid and menu each read it on every store update, and a smart collection's rules over a
+ * large library took most of a second per click when each of them ran them again (2026-11-11).
+ * Callers must not change the arrays returned.
+ */
+let membership: { photos: Photo[]; source: SourceSelection | null; imports: unknown; collections: unknown; indices: number[]; members: Photo[] } | null = null;
+function sourceMembership(s: State) {
+  const { imports, collections } = useCatalog.getState();
+  const m = membership;
+  if (m && m.photos === s.photos && m.source === s.source && m.imports === imports && m.collections === collections) return m;
   const matches = sourceMatcher(s.source);
-  return s.photos.flatMap((p, i) => matches(p) ? [i] : []);
-};
-export const sourcePhotos = (s: State = get()) => sourceIndices(s).map(i => s.photos[i]);
+  const indices = s.photos.flatMap((p, i) => matches(p) ? [i] : []);
+  return membership = { photos: s.photos, source: s.source, imports, collections, indices, members: indices.map(i => s.photos[i]) };
+}
+export const sourceIndices = (s: State = get()) => sourceMembership(s).indices;
+export const sourcePhotos = (s: State = get()) => sourceMembership(s).members;
 
 // Keep the catalog current as edits, marks, versions and decoded camera metadata arrive.
 useApp.subscribe((s, old) => {
@@ -548,6 +758,7 @@ export function useActivePhotoFacts(): Photo | null {
 
 export const setView = (view: View) => {
   if (get().lookEdit) return showToast('Save or cancel the look draft first');
+  if (get().opening || get().choosingImport) return;
   if (view !== 'library' && !shown().length) return;
   if (view !== 'library' && !shown().includes(get().active)) setActive(shown()[0]);
   if (view !== 'develop') finishCrop(true);
@@ -557,7 +768,7 @@ export const setView = (view: View) => {
 export const isLibraryLoupe = (s: State = get()) => s.view === 'library' && s.libraryView === 'loupe' && !s.choosingImport;
 
 export function setLibraryView(libraryView: LibraryView) {
-  if (get().lookEdit || get().choosingImport) return;
+  if (get().lookEdit || get().choosingImport || get().opening) return;
   const list = shown();
   if (libraryView === 'loupe' && !list.length) return;
   if (libraryView === 'loupe' && !list.includes(get().active)) setActive(list[0], 'preserve');
@@ -567,7 +778,7 @@ export function setLibraryView(libraryView: LibraryView) {
 
 export function setLoupeFullscreen(fullscreen: boolean) {
   if (!fullscreen) { set({ loupeFullscreen: false }); return; }
-  if (get().lookEdit || get().choosingImport || !shown().length) return;
+  if (get().lookEdit || get().choosingImport || !!get().opening || !shown().length) return;
   if (!isLibraryLoupe()) setLibraryView('loupe');
   set({ loupeFullscreen: true });
 }
@@ -601,7 +812,7 @@ export function setActive(index: number, mode: 'single' | 'toggle' | 'range' | '
 export const shown = (s: State = get()) => {
   const scope = new Set(sourceIndices(s));
   const active = s.photos[s.active] && photoId(s.photos[s.active]) === s.filterExcludedActive ? -1 : s.active;
-  return shownIndices(s.photos, s.filter, active).filter(i => scope.has(i) && (!s.selectedOnly || s.selected.has(photoId(s.photos[i]))));
+  return shownIndices(s.photos, s.filter, active).filter(i => scope.has(i) && (!s.selectedOnly || s.selected.has(photoId(s.photos[i]))) && (!s.missingPaths || s.missingPaths.has(s.photos[i].path)));
 };
 
 /** Move through the shown photos; a grid row down is `delta` = columns. */
@@ -883,10 +1094,11 @@ export function markPhotos(mark: MarkKey, advance = false) {
 
 /**
  * Change the keywords and IPTC fields of the selected frames' sources (or the active one's), as one
- * undoable step. `key` merges quick successive edits of one field (typing) into one step.
+ * undoable step. `key` merges quick successive edits of one field (typing) into one step. `only`
+ * names other sources to change instead (the Keyword List renaming a keyword in all of them).
  */
-export function editMeta(change: (m: PhotoMeta) => PhotoMeta, label: string, key?: string) {
-  const sources = [...new Set(targets().map(p => p.path))];
+export function editMeta(change: (m: PhotoMeta) => PhotoMeta, label: string, key?: string, only?: string[]) {
+  const sources = only ?? [...new Set(targets().map(p => p.path))];
   if (!sources.length) return;
   const changes: Change[] = [];
   const after = new Map<string, PhotoMeta>();
@@ -1011,22 +1223,37 @@ export function setPhotoWhite(path: string, white: Xy | null) {
 
 const sameWhite = (a: Xy | null, b: Xy | null) => a === b || (!!a && !!b && a[0] === b[0] && a[1] === b[1]);
 
-/** Read RAW white points in the background, in batches, so thumbnails match the develop view. */
-async function loadWhitePoints(root: string, paths: string[]) {
+/**
+ * Read RAW white points in the background, in batches, so thumbnails match the develop view.
+ * Only RAWs not read before: LibRaw opens each file, ~10 s for 1,800 RAWs on an external drive.
+ */
+async function loadWhitePoints(root: string, frames: Photo[]) {
   const BATCH = 64;
+  const paths = [...new Set(frames.filter(p => p.raw && !p.read?.white).map(p => p.path))];
+  let found = new Map<string, Xy | null>();
+  const flush = () => {
+    const byPath = found;
+    found = new Map();
+    if (!byPath.size || get().folder?.root !== root) return;
+    updateOpenPhotos(p => {
+      if (!byPath.has(p.path) || p.read?.white) return p;
+      const w = byPath.get(p.path)!;
+      return { ...p, white: w && !sameWhite(p.white, w) ? w : p.white, read: { ...p.read, white: true } };
+    });
+  };
   for (let i = 0; i < paths.length; i += BATCH) {
     const chunk = paths.slice(i, i + BATCH);
     let whites: (Xy | null)[];
     try {
       whites = await whitePoints(chunk);
     } catch {
-      return;
+      break;
     }
     if (get().folder?.root !== root) return;
-    const byPath = new Map(chunk.map((p, k) => [p, whites[k]]));
-    if (![...byPath.values()].some(Boolean)) continue;
-    set({ photos: get().photos.map((p) => (byPath.get(p.path) && !sameWhite(p.white, byPath.get(p.path)!) ? { ...p, white: byPath.get(p.path)! } : p)) });
+    chunk.forEach((p, k) => found.set(p, whites[k] ?? null));
+    if (found.size >= FLUSH_EVERY) flush();
   }
+  flush();
 }
 
 /**
@@ -1038,28 +1265,39 @@ async function loadEmbedded(root: string, frames: Photo[]) {
   if (!isTauri()) return;
   const BATCH = 32;
   const bare = (p: Photo) => !p.copyId && p.rating === 0 && p.label === null && isEmptyMeta(p.meta);
-  const paths = [...new Set(frames.filter(bare).map(p => p.path))];
+  // Files read before (same size and modified time) reuse what was found, without reading them again.
+  const known = new Map<string, EmbeddedMetadata | null>();
+  for (const p of frames) if (bare(p) && p.read && p.read.embedded !== undefined) known.set(p.path, p.read.embedded);
+  const paths = [...new Set(frames.filter(p => bare(p) && !known.has(p.path)).map(p => p.path))];
+  let pending = known;
+  const flush = () => {
+    const byPath = pending;
+    pending = new Map();
+    if (!byPath.size || get().folder?.root !== root) return;
+    updateOpenPhotos(p => {
+      if (!byPath.has(p.path)) return p;
+      const e = byPath.get(p.path)!;
+      const read = p.read?.embedded === e ? p.read : { ...p.read, embedded: e };
+      // A frame marked while this was read keeps its own.
+      if (!e || (!p.copyId && !bare(p)) || (p.copyId && !isEmptyMeta(p.meta))) return read === p.read ? p : { ...p, read };
+      const meta = normalizeMeta(e.meta);
+      return p.copyId ? { ...p, meta, read } : { ...p, ...normalizeMarks(e.rating, e.label, e.reject ? 'reject' : p.flag), meta, read };
+    });
+  };
+  if (pending.size >= FLUSH_EVERY) flush();
   for (let i = 0; i < paths.length; i += BATCH) {
     const chunk = paths.slice(i, i + BATCH);
     let found: Awaited<ReturnType<typeof embeddedMetadata>>;
     try {
       found = await embeddedMetadata(chunk);
     } catch {
-      return;
+      break;
     }
     if (get().folder?.root !== root) return;
-    const byPath = new Map<string, NonNullable<(typeof found)[number]>>();
-    chunk.forEach((p, k) => { if (found[k]) byPath.set(p, found[k]!); });
-    if (!byPath.size) continue;
-    const update = (photos: Photo[]) => photos.map(p => {
-      const e = byPath.get(p.path);
-      // A frame marked while this was read keeps its own.
-      if (!e || (!p.copyId && !bare(p)) || (p.copyId && !isEmptyMeta(p.meta))) return p;
-      const meta = normalizeMeta(e.meta);
-      return p.copyId ? { ...p, meta } : { ...p, ...normalizeMarks(e.rating, e.label, e.reject ? 'reject' : p.flag), meta };
-    });
-    set({ photos: update(get().photos), hidden: update(get().hidden), candidates: update(get().candidates) });
+    chunk.forEach((p, k) => pending.set(p, found[k] ?? null));
+    if (pending.size >= FLUSH_EVERY) flush();
   }
+  flush();
 }
 
 // ---------- Cropping ----------

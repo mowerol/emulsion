@@ -47,7 +47,7 @@ it('exports each version with its own recipe, a distinct name and the real sourc
   expect(vi.mocked(loadImage).mock.calls.every(([path]) => path === '/a.jpg')).toBe(true);
   // The unedited original exports as Neutral at its defaults.
   expect(gpu.pixels.mock.calls.map(c => (c as unknown[])[1])).toEqual(versions.map(p => p.recipe ?? defaultRecipe()));
-  expect(writeExport).toHaveBeenCalledWith('/exports', 'a_Warm_one', expect.any(Uint8Array), 2, 1, { kind: 'jpeg', quality: 92 }, 'rename', '/a.jpg');
+  expect(writeExport).toHaveBeenCalledWith('/exports', 'a_Warm_one', expect.any(Uint8Array), 2, 1, { kind: 'jpeg', quality: 92 }, 'rename', '/a.jpg', undefined);
 });
 
 
@@ -182,5 +182,5 @@ it('skips taken names before developing, and sends 16-bit pixels for a 16-bit TI
   expect(exportExists).toHaveBeenCalledWith('/exports', 'p', 'tif');
   expect(loadImage).toHaveBeenCalledTimes(1);
   expect(gpu.pixels).not.toHaveBeenCalled();
-  expect(writeExport).toHaveBeenCalledWith('/exports', 'p', expect.any(Uint16Array), 2, 1, tiff, 'skip', plain.path);
+  expect(writeExport).toHaveBeenCalledWith('/exports', 'p', expect.any(Uint16Array), 2, 1, tiff, 'skip', plain.path, undefined);
 });

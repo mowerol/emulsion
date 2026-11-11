@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
 import { defaultRecipe } from '../film/recipe';
-import { NO_FILTER, matchCount, normalizeFilter, rangeWithin, shownIndices, stepWithin, type Filter } from './filter';
+import { NO_FILTER, isFiltering, matchCount, normalizeFilter, passes, rangeWithin, shownIndices, stepWithin, type Filter } from './filter';
 import type { Flag, Label } from './marks';
 
 const look = defaultRecipe();
@@ -60,10 +60,24 @@ describe('library filter', () => {
 
   it('reads a saved filter, dropping anything unexpected', () => {
     expect(normalizeFilter({ edit: 'edited', minRating: 9, flags: ['reject', 'none', 'maybe'], labels: ['blue', 'purple'] })).toEqual({
-      edit: 'edited', minRating: 5, flags: ['none', 'reject'], labels: ['blue'],
+      edit: 'edited', minRating: 5, flags: ['none', 'reject'], labels: ['blue'], keyword: '',
     });
     // Saved before flags replaced hearts.
     expect(normalizeFilter({ heart: true })).toEqual({ ...NO_FILTER, flags: ['pick'] });
     expect(normalizeFilter(null)).toEqual(NO_FILTER);
+  });
+});
+
+describe('keyword filter', () => {
+  it('shows photos with the keyword or one under it, and only at that place', async () => {
+    const { NO_META } = await import('./meta');
+    const base = { recipe: null, rating: 0, label: null, flag: null };
+    const kent = { ...base, meta: { ...NO_META, keywords: ['Places|UK|Kent'] } };
+    const uk = { ...base, meta: { ...NO_META, keywords: ['UK'] } };
+    const f = { ...NO_FILTER, keyword: 'Places|UK' };
+    expect([passes(kent, f), passes(uk, f)]).toEqual([true, false]);
+    expect([passes(kent, { ...f, keyword: 'UK' }), passes(uk, { ...f, keyword: 'UK' })]).toEqual([false, true]);
+    expect(isFiltering(f)).toBe(true);
+    expect(normalizeFilter({ keyword: ' Places | UK ' }).keyword).toBe('Places|UK');
   });
 });

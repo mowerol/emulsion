@@ -7,6 +7,7 @@ vi.mock('../backend/api', () => ({
 }));
 import { scanFolder, whitePoints, type ScanResult } from '../backend/api';
 import { closeFolder, importFolderPhotos, openFolder, openPaths, setIncludeSubfolders, useApp } from './store';
+import { useCatalog } from './catalog';
 import { NO_FILTER } from './filter';
 import { lastFolder } from './folders';
 
@@ -25,6 +26,7 @@ beforeEach(() => {
   });
   vi.clearAllMocks();
   closeFolder();
+  useCatalog.setState({ folders: {}, imports: [], collections: [] });
   useApp.setState({ filter: NO_FILTER });
   vi.mocked(scanFolder).mockResolvedValue(scan());
 });
@@ -48,13 +50,14 @@ it('remembers a selective import without adding newly discovered files', async (
   expect(useApp.getState().choosingImport).toBe(false);
 });
 
-it('syncs new files on reopen, removes missing files, and keeps folder choices independent', async () => {
+it('signals new files without importing them, retains missing photos, and keeps folder choices independent', async () => {
   await openFolder('/photos');
   importFolderPhotos({ mode: 'sync' });
   expect(useApp.getState().photos).toHaveLength(2);
   vi.mocked(scanFolder).mockResolvedValue(scan('/photos', ['b.jpg', 'c.jpg']));
   await openFolder('/photos');
-  expect(useApp.getState().photos.map(p => p.name)).toEqual(['b.jpg', 'c.jpg']);
+  expect(useApp.getState().photos.map(p => p.name).sort()).toEqual(['a.jpg', 'b.jpg']);
+  expect(useApp.getState().candidates.map(p => p.name)).toEqual(['b.jpg', 'c.jpg']);
   vi.mocked(scanFolder).mockResolvedValue(scan('/elsewhere'));
   await openFolder('/elsewhere');
   expect(useApp.getState().photos).toHaveLength(0);

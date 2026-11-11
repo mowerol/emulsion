@@ -4,6 +4,77 @@ The flags, Select sky, open-source map, export dialog grid and renamed Emulsion 
 are committed. Library Grid/Loupe and its vertical carousel are now committed. Separate metadata
 changes remain uncommitted in the working tree; older "Uncommitted" notes may be out of date.
 
+## Import removed from the top-right toolbar (2026-11-11)
+
+Committed on Oli's request (`TopBar.tsx`). Import duplicated the route into the current folder's
+importer in the pending Import/Sync redesign. Remove the normal toolbar button; keep File → Import…
+and Cmd+I. Sync and Export remain in the pending Library header, and the import screen keeps its
+Import all / Import selected actions. The existing uncommitted browser fixture now enters the
+importer through the same `chooseFolder` action as the File menu.
+Checks: TypeScript and the full `library-handoff` browser flow pass; desktop and 1200px headers inspected.
+**Oli should try:** File → Import… / Cmd+I in the native app (the browser fixture calls its handler).
+
+## Develop header shows the folder (2026-11-11)
+
+Uncommitted (`TopBar.tsx`, `LibrarySources.tsx`, `styles.css`, `library-handoff.tsx`). Oli wanted to see
+which folder he is in while developing. Develop's header now shows the same source identity as Library
+(folder breadcrumb with clickable ancestors, or the collection/import name, plus the count) after a
+divider; the More menu stays in Library (`SourceHeader` without `onOpen`). Below 1200px only the
+current folder shows. Check: `node tools/browser-tests/cdp-timing.mjs library-handoff screen=develop`.
+**Oli should try:** in Develop, read the folder name; click an ancestor in the breadcrumb (it opens that
+folder); open a collection and switch to Develop (its name shows).
+
+## Large smart collections no longer stall the app (2026-11-11)
+
+Uncommitted (`store.ts`, new `src/library/background-reads.test.ts`, timing tools below). Oli: clicking
+a large smart collection nearly crashed the app; after the first fix, still "extremely slow".
+
+- **Real cause (measured on Oli's 3,755 photos, `/Volumes/Oli External`):** every click rescanned
+  the folders (0.9 s) and then re-read *every* file in the background: white points (LibRaw opens
+  each RAW, 9.7 s) and embedded metadata (20.2 s), on all cores, competing with the thumbnails.
+  Neither result was remembered, so this repeated on every click and on every folder open.
+- **Fix 1, remember the reads:** `Photo.read` (`white`, `embedded`) is stored in the catalog with the
+  photo and carried by `withCachedMetadata` while size and modified time match. `loadWhitePoints`
+  reads only RAWs not read before; `loadEmbedded` reapplies remembered results without IPC.
+  Oli's existing catalog has no `read` yet, so the first open of each folder reads once more.
+- **Fix 2, fewer updates:** the background reads apply results every 1,024 photos (`FLUSH_EVERY`)
+  through `updateOpenPhotos`, which skips no-op updates; capture metadata rewrites only its photos.
+  Store work for 20,000 photos: 10.1 s -> 0.4 s.
+- **Tests/tools:** `background-reads.test.ts` (updates bounded; reopen makes no white point or
+  embedded IPC calls; a changed file is read again). `tools/browser-tests/smart-collection.tsx` +
+  `cdp-timing.mjs` (wall-clock, via DevTools protocol) mount the real Library on a catalog fixture
+  at `.scratch/smart/fixture.json` (Oli's settings and webview library index, local only) and
+  report long tasks: one ~290 ms task per click in Chrome. `npm run check` passes.
+- **Not done:** the first read of a new large folder still runs at full parallelism beside the
+  thumbnails (could wait for visible thumbnails first); each click still rescans every library
+  root (22 in settings, including stale `emulsion-perf-*` temp folders, Downloads, Documents);
+  Library subscribes to the whole store; the webview's localStorage WAL is 61 MB (the 4.4 MB
+  index is rewritten on catalog changes, debounced 150 ms).
+- **Opening shows at once** (Oli: the delay "shows on the prior folder screen which feels more like
+  a crash than a loading"): `State.opening` is set on click by `openFolder`/`selectSource`
+  (`beginOpening`), cleared when the read ends. Header, sidebar highlight (`shownSource`, folder tree
+  `highlighted`) and a "Reading photos…" pane switch immediately; the previous photos stay in
+  `photos` (deselected, Develop/Loupe blocked) and come back if the read fails. Refreshing the open
+  folder keeps it on screen. Tests: `src/library/opening.test.ts`. Screenshot via
+  `SHOT=.scratch/smart/opening.png node tools/browser-tests/cdp-timing.mjs smart-collection hold`.
+- **Collections and imports show from the catalog** (Oli: a second click went back to "Reading
+  photos…"): `selectSource` displays `catalogPhotos()` at once, rescans the folders behind the grid,
+  then refreshes keeping the active photo, selection, view and undo; photos marked or edited during
+  the rescan keep their changes (`changed` → `cacheEdits`). Only an empty catalog shows the opening
+  pane. The header says "Reading photos…" only for folders. Fixture with your catalog and 1.5 s
+  scans: first thumbnails 132 ms after the click (`cdp-timing.mjs smart-collection scanDelay=1500`).
+  Folders still rescan before showing (one folder is quick).
+- **Next task (on the README roadmap, Speed):** Oli still feels a pause when clicking the smart
+  collection. Measure it in the real app first, then the items below.
+- **Catalog storage.** The webview's localStorage WAL grew 61 → 163 MB in an hour: every
+  catalog change rewrites the whole 4.6 MB `emulsion.libraryIndex` (8.6 MB as UTF-16), twice per
+  collection open. Move the index out of localStorage (a Rust-side file or IndexedDB, written per
+  folder) before the library grows.
+- **Oli should try (app only):** click the smart collection once (slow, last time), then click
+  another source and back: thumbnails should appear at once and the Mac stay responsive. Click a
+  big folder from another folder, and from Develop: the new name and "Reading photos…" should show
+  at once. Click a folder on an unplugged drive: a toast, and the previous folder returns.
+
 ## Loupe artboard space: vertical image carousel (2026-11-11)
 
 Committed with the Library Grid/Loupe work below. Oli found the photo too
@@ -29,6 +100,53 @@ small and chose a vertical carousel consistent with Develop.
 - **App check remaining:** real WKWebView trackpad scrolling/pinch, camera-preview latency
   and native fullscreen transitions; browser IPC is mocked. No backend/pipeline changes.
 
+## Metadata finished: IPTC set, keyword hierarchy, presets, export metadata (2026-11-11)
+
+Uncommitted. Roadmap priority 3, done (Oli: speed is OK for now). Built in the same tree as the
+cull loupe above (shared files: `store.ts`, `styles.css`, `api.ts`, `commands.rs`, `lib.rs`, docs;
+stage apart). Oli chose Lightroom's model for all four parts.
+
+- **IPTC fields:** Lightroom's IPTC set, 31 fields in Content / Image / Copyright / Contact / Status
+  folds (Contact and Status folded by default), label-left grid. Rust `Meta` is now `keywords` +
+  a flattened `fields` map driven by `FIELDS` in `xmp.rs` (Text, LangAlt, List, `CreatorContactInfo`
+  struct, `xmpRights:Marked`); old sidecars read unchanged. Webview twin: `META_FIELDS` in `meta.ts`.
+- **Keyword hierarchy:** a keyword is a `|` path. Typed `Places > UK > Kent` or `Kent < UK < Places`;
+  a unique name resolves to its path. XMP: `dc:subject` = names + parents, `lr:hierarchicalSubject`
+  = paths when any keyword has a parent; Lightroom's trees are read back. **Keyword List** section
+  (`KeywordList.tsx`, `library/keywords.ts`): library-wide tree with counts, box assigns to the
+  selection (✓ all, – some), arrow filters, double-click renames, drag onto another moves inside,
+  right-click menu (new inside, rename, move to top, Person, delete with confirm). Renames reach
+  photos outside the open folder through `retag_keywords` (`keywords.rs`, newer XMP wins first).
+  **Filter bar** keyword menu (`Filter.keyword`, a path: matches it and what is inside).
+- **Presets:** `library/metapresets.ts`; Presets fold atop Metadata (Apply = one undo step, Save as
+  preset… picks which shared values to keep, New photos = auto preset). Auto preset fills only empty
+  fields of photos the catalog hadn't seen, after `loadEmbedded`, without undo (`fillNewPhotos`).
+- **Export metadata:** `export_meta.rs`. Lightroom's Include (copyright / + contact / all except
+  camera / all, default all), Remove person info (Person keywords) and location info (GPS + place
+  fields), Write keywords as Lightroom hierarchy. One XMP packet embedded with `XmpFile` in the
+  temporary file (now `.partial.<ext>`) before rename; the toolkit writes EXIF/TIFF tags and
+  IPTC-IIM too. Camera data: the original through the toolkit, else a RAW's embedded JPEG (RAF,
+  CR3), else LibRaw (`raw::camera_info`). Orientation 1, ColorSpace sRGB, original's pixel sizes
+  dropped. Sent as the `x-emulsion-meta` header (percent-encoded JSON).
+- **Checks:** `npm run check` passes (806 frontend, 116 Rust; 17 ignored). New Rust tests: IPTC set
+  round trip, keyword paths, retag (incl. XMP-only photo), export in JPEG/16-bit TIFF/PNG read back
+  with kamadak-exif and the toolkit, every Include choice, GPS removal from EXIF, person removal,
+  hierarchy. Ignored `raf_camera_data_from_its_preview` passes on `~/Pictures/1OKK6432.RAF`
+  (model and lens found). Probe screenshots `?metapanel`, `?metapanel&presets&theme=light`,
+  `?exportdialog={}` checked (captures in `.scratch/meta/`).
+- **Not done:** keyword synonyms and per-keyword Include on Export / Export Containing Keywords
+  (all levels are always written), IPTC Extension (PersonInImage, events), Lightroom keyword file
+  import/export, undo for retags outside the open folder, a timed check of the Keyword List with
+  thousands of keywords. Copyright and contact exports carry no rating or keywords (as Lightroom).
+- **Oli should try (app only):** type `Places > UK > Kent` in Keywords; type `kent` on another
+  photo (should become the same keyword); in the Keyword List drag Kent onto another keyword, rename
+  one by double-click, delete one used by photos in another folder, then open that folder (gone, and
+  its `.xmp` updated); tick boxes with several photos selected; filter bar keyword menu; Save as
+  preset… then Apply on other photos and Cmd+Z; set New photos to a preset and open a folder new to
+  the library; export a RAF and a JPEG with All, then check Preview's Inspector / `exiftool` for
+  camera, lens, GPS, copyright, keywords; again with Remove location and Copyright only; open an
+  export in Lightroom with Write as Lightroom hierarchy on.
+
 ## Library Grid/Loupe with optional fullscreen (2026-11-11)
 
 Committed. Oli challenged the separate fullscreen Cull mode and approved integrating
@@ -39,7 +157,7 @@ Loupe into Library. This supersedes the initial fullscreen-only implementation.
   original-preview filmstrip. The top-bar Cull action and separate `cull` View are gone.
   `View` is Library/Develop; `libraryView` is Grid/Loupe with independent
   `loupeFullscreen`. Hidden mounted Grid retains scroll/layout state.
-- **Keys/actions:** double-click a Grid tile, E, or Enter opens Loupe; G returns to Grid,
+- **Keys/actions:** E or Enter opens Loupe; double-click a Grid tile opens Develop (restored 2026-11-11); G returns to Grid,
   D opens Develop. Enter on Loupe's photo stage opens Develop, while focused controls
   keep native activation. F/fullscreen button optionally expands the photo; F/Escape
   restores the SAME embedded Loupe (same preview DOM, zoom/pan and source), Escape again

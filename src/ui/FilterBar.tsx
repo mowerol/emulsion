@@ -6,6 +6,8 @@ import { LABELS } from '../library/marks';
 import { Star } from 'lucide-react';
 import { useSourceDefinitions } from '../library/catalog';
 import { FlagIcon, Segmented } from './common';
+import { keywordPaths } from '../library/keywords';
+import { keywordName } from '../library/meta';
 
 /** What the Library grid and the filmstrip show: edited or not, stars and up, flags (any of picked,
  *  unflagged, rejected, as Lightroom's three flag toggles), colour tags.
@@ -17,6 +19,8 @@ export const FilterBar = memo(function FilterBar({ summary = true, showCount = t
   const scopedCount = useApp(s => sourcePhotos(s).length);
   const matching = useApp(s => matchCount(sourcePhotos(s), s.filter));
   const on = isFiltering(filter);
+  // The same array while no photo's keywords change, so a slider drag doesn't re-render the bar.
+  const keywords = useApp(s => keywordPaths(sourcePhotos(s)));
 
   return (
     <div className="filter-bar" role="group" aria-label="Filter photos">
@@ -28,6 +32,7 @@ export const FilterBar = memo(function FilterBar({ summary = true, showCount = t
             type="button"
             className={`mark-btn star${n <= filter.minRating ? ' on' : ''}`}
             aria-pressed={n === filter.minRating}
+            aria-label={n === 5 ? '5 stars' : `${n} stars and up`}
             title={n === filter.minRating ? 'Any rating' : n === 5 ? '5 stars' : `${n} ${n === 1 ? 'star' : 'stars'} and up`}
             // Clicking the chosen rating again turns the rating filter off.
             onClick={() => setFilter({ minRating: n === filter.minRating ? 0 : n })}
@@ -72,6 +77,12 @@ export const FilterBar = memo(function FilterBar({ summary = true, showCount = t
           );
         })}
       </span>
+      {(keywords.length > 0 || filter.keyword) && <select className="filter-keyword" aria-label="Keyword" value={filter.keyword}
+        title="Show photos with a keyword (or one inside it)" onChange={(e) => setFilter({ keyword: e.target.value })}>
+        <option value="">Any keyword</option>
+        {filter.keyword && !keywords.some((k) => k.toLowerCase() === filter.keyword.toLowerCase()) && <option value={filter.keyword}>{keywordName(filter.keyword)}</option>}
+        {keywords.map((k) => <option key={k} value={k}>{'\u2003'.repeat(k.split('|').length - 1) + keywordName(k)}</option>)}
+      </select>}
       {summary && on && (
         <>
           {showCount && <span className="filter-count" aria-live="polite">

@@ -3,11 +3,12 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import process from "node:process";
 import { builtinLooks } from "./tools/vite/builtin-looks";
+import { devTrace } from "./tools/vite/devtrace";
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
 export default defineConfig(() => ({
-  plugins: [react(), builtinLooks()],
+  plugins: [react(), builtinLooks(), devTrace()],
   test: { environment: "node", include: ["src/**/*.test.ts"] },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`

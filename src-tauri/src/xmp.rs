@@ -22,6 +22,7 @@
 //! go back into the XMP when it no longer is. A pick has no standard field and stays in the sidecar.
 
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -39,58 +40,140 @@ const IPTC: &str = xmp_ns::IPTC_CORE;
 /// Lightroom's default label set, in Emulsion's order.
 const LABELS: &[(&str, &str)] = &[("red", "Red"), ("yellow", "Yellow"), ("green", "Green"), ("blue", "Blue")];
 
-/// Keywords and IPTC Core fields: what Lightroom's Keywording and Metadata panels edit.
-/// Empty strings are unset.
+/// Where one IPTC field lives in XMP, as Lightroom Classic's Metadata panel writes it.
+#[derive(Clone, Copy)]
+enum Place {
+    /// A simple property.
+    Text(&'static str, &'static str),
+    /// A language alternative (`x-default` read and written; other languages are dropped on a write).
+    LangAlt(&'static str, &'static str),
+    /// An array, shown with its items joined by `; ` (`true`: ordered, a `Seq`).
+    List(&'static str, &'static str, bool),
+    /// A field of `Iptc4xmpCore:CreatorContactInfo`.
+    Contact(&'static str),
+    /// `xmpRights:Marked`: `copyrighted` (True), `public` (False, public domain) or unset (unknown).
+    Marked,
+}
+
+/// Every field Emulsion edits, by its id in `.emulsion.json` and the webview (`library/meta.ts`).
+/// Lightroom's IPTC set: contact, content, image, status and copyright.
+const FIELDS: &[(&str, Place)] = &[
+    ("title", Place::LangAlt(xmp_ns::DC, "title")),
+    ("caption", Place::LangAlt(xmp_ns::DC, "description")),
+    ("headline", Place::Text(PHOTOSHOP, "Headline")),
+    ("subjectCode", Place::List(IPTC, "SubjectCode", false)),
+    ("captionWriter", Place::Text(PHOTOSHOP, "CaptionWriter")),
+    ("creator", Place::List(xmp_ns::DC, "creator", true)),
+    ("jobTitle", Place::Text(PHOTOSHOP, "AuthorsPosition")),
+    ("address", Place::Contact("CiAdrExtadr")),
+    ("contactCity", Place::Contact("CiAdrCity")),
+    ("contactState", Place::Contact("CiAdrRegion")),
+    ("postalCode", Place::Contact("CiAdrPcode")),
+    ("contactCountry", Place::Contact("CiAdrCtry")),
+    ("phone", Place::Contact("CiTelWork")),
+    ("email", Place::Contact("CiEmailWork")),
+    ("website", Place::Contact("CiUrlWork")),
+    ("dateCreated", Place::Text(PHOTOSHOP, "DateCreated")),
+    ("genre", Place::Text(IPTC, "IntellectualGenre")),
+    ("sceneCode", Place::List(IPTC, "Scene", false)),
+    ("location", Place::Text(IPTC, "Location")),
+    ("city", Place::Text(PHOTOSHOP, "City")),
+    ("state", Place::Text(PHOTOSHOP, "State")),
+    ("country", Place::Text(PHOTOSHOP, "Country")),
+    ("countryCode", Place::Text(IPTC, "CountryCode")),
+    ("jobId", Place::Text(PHOTOSHOP, "TransmissionReference")),
+    ("instructions", Place::Text(PHOTOSHOP, "Instructions")),
+    ("credit", Place::Text(PHOTOSHOP, "Credit")),
+    ("source", Place::Text(PHOTOSHOP, "Source")),
+    ("copyright", Place::LangAlt(xmp_ns::DC, "rights")),
+    ("copyrightStatus", Place::Marked),
+    ("usageTerms", Place::LangAlt(xmp_ns::XMP_RIGHTS, "UsageTerms")),
+    ("copyrightUrl", Place::Text(xmp_ns::XMP_RIGHTS, "WebStatement")),
+];
+
+const CONTACT: &str = "CreatorContactInfo";
+
+/// Keywords and IPTC fields: what Lightroom's Keywording and Metadata panels edit. `fields`
+/// holds the set ones by their `FIELDS` id (flattened in JSON: `{ "keywords": [], "title": ... }`).
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Default)]
 #[serde(rename_all = "camelCase", default)]
 pub struct Meta {
-    /// `dc:subject`, in the order given.
+    /// The keywords, in the order given. A keyword with parents is its path from the top,
+    /// separated by `|` as in `lr:hierarchicalSubject` (`Places|UK|Kent`).
     pub keywords: Vec<String>,
-    /// `dc:title`.
-    pub title: String,
-    /// `dc:description`.
-    pub caption: String,
-    /// `dc:creator`, its items joined with `; `.
-    pub creator: String,
-    /// `dc:rights`.
-    pub copyright: String,
-    /// `Iptc4xmpCore:Location` (IPTC's sublocation).
-    pub location: String,
-    /// `photoshop:City`.
-    pub city: String,
-    /// `photoshop:State`.
-    pub state: String,
-    /// `photoshop:Country`.
-    pub country: String,
+    #[serde(flatten)]
+    pub fields: BTreeMap<String, String>,
 }
 
 impl Meta {
     pub fn is_empty(&self) -> bool {
-        *self == Meta::default()
+        self.keywords.is_empty() && self.fields.values().all(|v| v.trim().is_empty())
     }
 
-    /// Trimmed, with empty and repeated keywords dropped (case-insensitively, the first kept).
+    /// One field's value, empty when unset.
+    pub fn get(&self, id: &str) -> &str {
+        self.fields.get(id).map(String::as_str).unwrap_or("")
+    }
+
+    pub fn set(&mut self, id: &str, value: impl Into<String>) {
+        let value = value.into();
+        if value.is_empty() { self.fields.remove(id); } else { self.fields.insert(id.to_string(), value); }
+    }
+
+    /// Trimmed, unknown and empty fields dropped, empty and repeated keywords dropped
+    /// (case-insensitively, the first kept).
     pub fn tidy(&self) -> Meta {
         let mut keywords: Vec<String> = Vec::new();
         for k in &self.keywords {
-            let k = k.trim();
+            let k = tidy_path(k);
             if !k.is_empty() && !keywords.iter().any(|x| x.to_lowercase() == k.to_lowercase()) {
-                keywords.push(k.to_string());
+                keywords.push(k);
             }
         }
-        let t = |s: &String| s.trim().to_string();
-        Meta {
-            keywords,
-            title: t(&self.title),
-            caption: self.caption.trim().to_string(),
-            creator: t(&self.creator),
-            copyright: t(&self.copyright),
-            location: t(&self.location),
-            city: t(&self.city),
-            state: t(&self.state),
-            country: t(&self.country),
+        let mut out = Meta { keywords, fields: BTreeMap::new() };
+        for (id, place) in FIELDS {
+            let v = self.get(id).trim();
+            let v = match place {
+                Place::Marked => match v { "copyrighted" | "public" => v, _ => "" },
+                _ => v,
+            };
+            out.set(id, v);
+        }
+        out
+    }
+}
+
+/// A keyword path with each level trimmed and empty levels dropped.
+pub fn tidy_path(k: &str) -> String {
+    k.split('|').map(str::trim).filter(|s| !s.is_empty()).collect::<Vec<_>>().join("|")
+}
+
+/// `dc:subject` for keywords: each keyword's name and its parents' names, once each, as
+/// Lightroom writes them (its default, Include on Export, for every level).
+fn subjects(keywords: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    let mut add = |s: &str| {
+        if !out.iter().any(|x| x.to_lowercase() == s.to_lowercase()) {
+            out.push(s.to_string());
+        }
+    };
+    for k in keywords {
+        add(k.rsplit('|').next().unwrap_or(k));
+    }
+    for k in keywords {
+        for level in k.split('|') {
+            add(level);
         }
     }
+    out
+}
+
+/// The keywords an XMP holds: Lightroom's paths, then any `dc:subject` that no path names.
+fn keywords_of(m: &XmpMeta) -> Vec<String> {
+    let paths: Vec<String> = items(m, LR, "hierarchicalSubject").iter().map(|p| tidy_path(p)).filter(|p| !p.is_empty()).collect();
+    let named: std::collections::HashSet<String> = paths.iter().flat_map(|p| p.split('|').map(str::to_lowercase).collect::<Vec<_>>()).collect();
+    let flat = items(m, xmp_ns::DC, "subject").into_iter().filter(|s| !named.contains(&s.trim().to_lowercase()));
+    paths.into_iter().chain(flat).collect()
 }
 
 /// What Emulsion shares through XMP for one photo.
@@ -226,21 +309,38 @@ fn items(m: &XmpMeta, ns: &str, name: &str) -> Vec<String> {
     m.property_array(ns, name).map(|v| v.value).collect()
 }
 
+fn joined(values: Vec<String>) -> String {
+    values.iter().map(|s| s.trim()).filter(|s| !s.is_empty()).collect::<Vec<_>>().join("; ")
+}
+
+fn read_field(m: &XmpMeta, place: Place) -> String {
+    match place {
+        Place::Text(ns, name) => text(m, ns, name),
+        Place::LangAlt(ns, name) => lang_alt(m, ns, name),
+        Place::List(ns, name, _) => joined(items(m, ns, name)),
+        Place::Contact(field) => m.struct_field(IPTC, CONTACT, IPTC, field).map(|v| v.value.trim().to_string()).unwrap_or_default(),
+        Place::Marked => match text(m, xmp_ns::XMP_RIGHTS, "Marked").to_lowercase().as_str() {
+            "true" => "copyrighted".into(),
+            "false" => "public".into(),
+            _ => String::new(),
+        },
+    }
+}
+
+/// Stars, label, keywords and fields of an XMP packet (an exported file's, in tests).
+#[cfg(test)]
+pub fn values_of_meta(m: &XmpMeta) -> Interchange {
+    values_of(m)
+}
+
 fn values_of(m: &XmpMeta) -> Interchange {
     let rating = m.property(xmp_ns::XMP, "Rating").and_then(|v| v.value.trim().parse::<f64>().ok()).unwrap_or(0.0);
     let label = m.property(xmp_ns::XMP, "Label").and_then(|v| label_id(&v.value));
-    let meta = Meta {
-        keywords: items(m, xmp_ns::DC, "subject"),
-        title: lang_alt(m, xmp_ns::DC, "title"),
-        caption: lang_alt(m, xmp_ns::DC, "description"),
-        creator: items(m, xmp_ns::DC, "creator").iter().map(|s| s.trim()).filter(|s| !s.is_empty()).collect::<Vec<_>>().join("; "),
-        copyright: lang_alt(m, xmp_ns::DC, "rights"),
-        location: text(m, IPTC, "Location"),
-        city: text(m, PHOTOSHOP, "City"),
-        state: text(m, PHOTOSHOP, "State"),
-        country: text(m, PHOTOSHOP, "Country"),
+    let mut meta = Meta { keywords: keywords_of(m), fields: BTreeMap::new() };
+    for (id, place) in FIELDS {
+        meta.set(id, read_field(m, *place));
     }
-    .tidy();
+    let meta = meta.tidy();
     let reject = rating < 0.0;
     Interchange { rating: if reject { 0 } else { rating.round().clamp(0.0, 5.0) as u8 }, label, reject, meta }
 }
@@ -276,6 +376,26 @@ fn set_items(m: &mut XmpMeta, ns: &str, name: &str, values: &[String], ordered: 
     Ok(())
 }
 
+fn write_field(m: &mut XmpMeta, place: Place, value: &str) -> io::Result<()> {
+    match place {
+        Place::Text(ns, name) => set_text(m, ns, name, value),
+        Place::LangAlt(ns, name) => set_lang_alt(m, ns, name, value),
+        Place::List(ns, name, ordered) => {
+            let values: Vec<String> = value.split(';').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
+            if values.is_empty() { m.delete_property(ns, name).map_err(err) } else { set_items(m, ns, name, &values, ordered) }
+        }
+        Place::Contact(field) => {
+            if value.is_empty() {
+                if m.contains_struct_field(IPTC, CONTACT, IPTC, field) { m.delete_struct_field(IPTC, CONTACT, IPTC, field).map_err(err)?; }
+                Ok(())
+            } else {
+                m.set_struct_field(IPTC, CONTACT, IPTC, field, &value.into()).map_err(err)
+            }
+        }
+        Place::Marked => set_text(m, xmp_ns::XMP_RIGHTS, "Marked", match value { "copyrighted" => "True", "public" => "False", _ => "" }),
+    }
+}
+
 /// Set `want` on `m`, touching only what differs from what it holds. Returns whether anything
 /// changed.
 fn apply(m: &mut XmpMeta, want: &Interchange) -> io::Result<bool> {
@@ -293,45 +413,25 @@ fn apply(m: &mut XmpMeta, want: &Interchange) -> io::Result<bool> {
     }
     let (w, h) = (&want.meta, &have.meta);
     if w.keywords != h.keywords {
-        set_items(m, xmp_ns::DC, "subject", &w.keywords, false)?;
-        // Keep the hierarchy paths whose leaf is still a keyword, as Lightroom reads them.
-        let kept: Vec<String> = items(m, LR, "hierarchicalSubject")
-            .into_iter()
-            .filter(|path| {
-                let leaf = path.rsplit('|').next().unwrap_or("").trim().to_lowercase();
-                w.keywords.iter().any(|k| k.to_lowercase() == leaf)
-            })
-            .collect();
-        if m.contains_property(LR, "hierarchicalSubject") {
-            if kept.is_empty() { m.delete_property(LR, "hierarchicalSubject").map_err(err)? } else { set_items(m, LR, "hierarchicalSubject", &kept, false)? }
+        if w.keywords.is_empty() { m.delete_property(xmp_ns::DC, "subject").map_err(err)? } else { set_items(m, xmp_ns::DC, "subject", &subjects(&w.keywords), false)? }
+        // Lightroom's paths when any keyword has parents; flat keywords are their own paths.
+        if w.keywords.iter().any(|k| k.contains('|')) {
+            set_items(m, LR, "hierarchicalSubject", &w.keywords, false)?;
+        } else if m.contains_property(LR, "hierarchicalSubject") {
+            m.delete_property(LR, "hierarchicalSubject").map_err(err)?;
         }
         changed = true;
     }
-    for (ns, name, wv, hv) in [
-        (xmp_ns::DC, "title", &w.title, &h.title),
-        (xmp_ns::DC, "description", &w.caption, &h.caption),
-        (xmp_ns::DC, "rights", &w.copyright, &h.copyright),
-    ] {
+    for (id, place) in FIELDS {
+        let (wv, hv) = (w.get(id), h.get(id));
         if wv != hv {
-            set_lang_alt(m, ns, name, wv)?;
+            write_field(m, *place, wv)?;
             changed = true;
         }
     }
-    if w.creator != h.creator {
-        let names: Vec<String> = w.creator.split(';').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
-        if names.is_empty() { m.delete_property(xmp_ns::DC, "creator").map_err(err)? } else { set_items(m, xmp_ns::DC, "creator", &names, true)? }
-        changed = true;
-    }
-    for (ns, name, wv, hv) in [
-        (IPTC, "Location", &w.location, &h.location),
-        (PHOTOSHOP, "City", &w.city, &h.city),
-        (PHOTOSHOP, "State", &w.state, &h.state),
-        (PHOTOSHOP, "Country", &w.country, &h.country),
-    ] {
-        if wv != hv {
-            set_text(m, ns, name, wv)?;
-            changed = true;
-        }
+    // A contact block whose last field was cleared goes too.
+    if FIELDS.iter().all(|(id, p)| !matches!(p, Place::Contact(_)) || w.get(id).is_empty()) && m.contains_property(IPTC, CONTACT) {
+        m.delete_property(IPTC, CONTACT).map_err(err)?;
     }
     if changed {
         if let Ok(now) = XmpDateTime::current() {
@@ -339,6 +439,17 @@ fn apply(m: &mut XmpMeta, want: &Interchange) -> io::Result<bool> {
         }
     }
     Ok(changed)
+}
+
+/// Set `values` on `m` (a new packet for an exported file). Lightroom's keyword paths are
+/// written only with `hierarchy` (its Write Keywords as Lightroom Hierarchy).
+pub fn fill(m: &mut XmpMeta, values: &Interchange, hierarchy: bool) -> io::Result<()> {
+    XmpMeta::register_namespace(LR, "lr").map_err(err)?;
+    apply(m, values)?;
+    if !hierarchy && m.contains_property(LR, "hierarchicalSubject") {
+        m.delete_property(LR, "hierarchicalSubject").map_err(err)?;
+    }
+    Ok(())
 }
 
 /// Write `values` into `image`'s XMP sidecar, keeping everything else in it. Returns the
@@ -409,12 +520,12 @@ mod tests {
         let img = dir.path().join("DSCF0001.RAF");
         fs::write(&img, b"x").unwrap();
         let mut v = some(4, Some("green"), &["Beach", "Family", "beach"]);
-        v.meta.title = "Low tide".into();
-        v.meta.caption = "Morning, before the rain".into();
-        v.meta.creator = "Oli; Sam".into();
-        v.meta.copyright = "© 2026".into();
-        v.meta.city = "Margate".into();
-        v.meta.country = "United Kingdom".into();
+        v.meta.set("title", "Low tide");
+        v.meta.set("caption", "Morning, before the rain");
+        v.meta.set("creator", "Oli; Sam");
+        v.meta.set("copyright", "© 2026");
+        v.meta.set("city", "Margate");
+        v.meta.set("country", "United Kingdom");
         assert!(write(&img, &v).unwrap().is_some());
         let text = fs::read_to_string(dir.path().join("DSCF0001.xmp")).unwrap();
         assert!(text.contains("xmp:Rating=\"4\"") || text.contains("<xmp:Rating>4</xmp:Rating>"), "{text}");
@@ -424,8 +535,59 @@ mod tests {
         assert_eq!(back.values.rating, 4);
         assert_eq!(back.values.label.as_deref(), Some("green"));
         assert_eq!(back.values.meta.keywords, vec!["Beach", "Family"]);
-        assert_eq!(back.values.meta.creator, "Oli; Sam");
+        assert_eq!(back.values.meta.get("creator"), "Oli; Sam");
         assert_eq!(back.values.meta, v.meta.tidy());
+    }
+
+    #[test]
+    fn keyword_paths_round_trip_as_lightroom_writes_them() {
+        let dir = tempfile::tempdir().unwrap();
+        let img = dir.path().join("h.RAF");
+        fs::write(&img, b"x").unwrap();
+        write(&img, &some(0, None, &[" Places | UK|Kent ", "Beach", "places|uk|kent"])).unwrap();
+        let m = XmpMeta::from_str(&fs::read_to_string(dir.path().join("h.xmp")).unwrap()).unwrap();
+        assert_eq!(items(&m, xmp_ns::DC, "subject"), vec!["Kent", "Beach", "Places", "UK"]);
+        assert_eq!(items(&m, LR, "hierarchicalSubject"), vec!["Places|UK|Kent", "Beach"]);
+        assert_eq!(read_sidecar(&img, true).unwrap().values.meta.keywords, vec!["Places|UK|Kent", "Beach"]);
+        // No parents left: plain dc:subject and no hierarchy.
+        write(&img, &some(0, None, &["Beach"])).unwrap();
+        let text = fs::read_to_string(dir.path().join("h.xmp")).unwrap();
+        assert!(!text.contains("hierarchicalSubject") && !text.contains("Kent"), "{text}");
+    }
+
+    #[test]
+    fn writes_lightrooms_iptc_set() {
+        let dir = tempfile::tempdir().unwrap();
+        let img = dir.path().join("f.RAF");
+        fs::write(&img, b"x").unwrap();
+        let mut v = some(0, None, &[]);
+        for (id, value) in [
+            ("headline", "Storm"), ("jobTitle", "Photographer"), ("email", "a@b.c"), ("contactCity", "Deal"),
+            ("copyrightStatus", "copyrighted"), ("usageTerms", "Editorial only"), ("copyrightUrl", "https://x.y"),
+            ("sceneCode", "011900; 011000"), ("countryCode", "GBR"), ("credit", "Oli"), ("dateCreated", "2026-11-11"),
+        ] {
+            v.meta.set(id, value);
+        }
+        write(&img, &v).unwrap();
+        let text = fs::read_to_string(dir.path().join("f.xmp")).unwrap();
+        for s in ["photoshop:Headline", "Iptc4xmpCore:CreatorContactInfo", "Iptc4xmpCore:CiEmailWork", "xmpRights:Marked", "True", "xmpRights:UsageTerms", "Iptc4xmpCore:Scene", "photoshop:AuthorsPosition"] {
+            assert!(text.contains(s), "{s} in {text}");
+        }
+        assert_eq!(read_sidecar(&img, true).unwrap().values.meta, v.meta.tidy());
+        // Public domain is False; clearing the contact fields removes the block.
+        v.meta.set("copyrightStatus", "public");
+        v.meta.set("email", "");
+        v.meta.set("contactCity", "");
+        write(&img, &v).unwrap();
+        let text = fs::read_to_string(dir.path().join("f.xmp")).unwrap();
+        assert!(text.contains("False") && !text.contains("CreatorContactInfo"), "{text}");
+        let back = read_sidecar(&img, true).unwrap().values.meta;
+        assert_eq!((back.get("copyrightStatus"), back.get("email")), ("public", ""));
+        // An unknown status or field is dropped.
+        let mut odd = Meta::default();
+        odd.set("copyrightStatus", "maybe");
+        odd.set("nonsense", "x");
+        assert!(odd.tidy().is_empty());
     }
 
     #[test]
@@ -449,16 +611,17 @@ mod tests {
         assert_eq!((found.values.rating, found.values.reject), (0, true), "a reject reads as a reject flag");
         assert_eq!(found.values.label, None, "Purple is not an Emulsion label");
         // Drop Dog, add a title: the reject, Purple and the develop settings stay.
+        assert_eq!(found.values.meta.keywords, vec!["Places|Kent", "Animals|Dog"], "Lightroom's paths are the keywords");
         let mut want = found.values.clone();
-        want.meta.keywords = vec!["Places".into(), "Kent".into()];
-        want.meta.title = "Harbour".into();
+        want.meta.keywords = vec!["Places|Kent".into()];
+        want.meta.set("title", "Harbour");
         write(&img, &want).unwrap();
         let text = fs::read_to_string(dir.path().join("a.xmp")).unwrap();
         assert!(text.contains("Exposure2012") && text.contains("+0.35"), "{text}");
         assert!(text.contains("Purple") && text.contains("-1"), "{text}");
-        assert!(text.contains("Places|Kent") && !text.contains("Animals|Dog"), "{text}");
+        assert!(text.contains("Places|Kent") && !text.contains("Animals|Dog") && !text.contains(">Dog<"), "{text}");
         assert!(text.contains("MetadataDate"), "{text}");
-        assert_eq!(read_sidecar(&img, true).unwrap().values.meta.title, "Harbour");
+        assert_eq!(read_sidecar(&img, true).unwrap().values.meta.get("title"), "Harbour");
         // A label replaces Purple; the reject stays until it is cleared.
         want.label = Some("red".into());
         write(&img, &want).unwrap();

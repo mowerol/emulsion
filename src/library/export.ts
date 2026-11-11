@@ -5,7 +5,9 @@ import { defaultRecipe } from '../film/recipe';
 // library/stillclient.ts, Remove crops included), encode and write in Rust.
 
 import { exportStem, photoName } from './copies';
-import { checkExportDir, exportExists, ExportWriteError, loadImage, writeExport, type ExistingFiles, type ExportFormat } from '../backend/api';
+import { checkExportDir, exportExists, ExportWriteError, loadImage, writeExport, type ExistingFiles, type ExportFormat, type ExportMetadata } from '../backend/api';
+import type { MetadataInclude } from './exportsettings';
+import { NO_META } from './meta';
 import type { HalfImage } from '../engine/engine';
 import type { Photo } from './store';
 import { framePixels } from '../film/crop';
@@ -23,6 +25,22 @@ export interface ExportOptions {
   longEdge: number | null;
   format: ExportFormat;
   existing: ExistingFiles;
+  /** What metadata to embed (Lightroom's Metadata section); absent embeds none. */
+  metadata?: ExportMetadataOptions;
+}
+
+export interface ExportMetadataOptions {
+  include: MetadataInclude;
+  removePerson: boolean;
+  removeLocation: boolean;
+  hierarchy: boolean;
+  /** Keywords marked Person in the Keyword List. */
+  personKeywords: string[];
+}
+
+/** What Rust embeds for one frame (src-tauri/src/export_meta.rs `Request`). */
+export function metadataRequest(p: Photo, o: ExportMetadataOptions): ExportMetadata {
+  return { source: p.path, ...o, rating: p.rating, label: p.label, meta: p.meta ?? NO_META };
 }
 
 export const FORMAT_EXT: Record<ExportFormat['kind'], string> = { jpeg: 'jpg', png: 'png', tiff: 'tif' };
@@ -155,7 +173,7 @@ export async function exportPhotos(
         frame = await develop(p);
       }
       if (!frame) { result.canceled = true; break; }
-      const written = await writeExport(dir, stem, ...frame, opts.format, opts.existing, p.path);
+      const written = await writeExport(dir, stem, ...frame, opts.format, opts.existing, p.path, opts.metadata && metadataRequest(p, opts.metadata));
       if (written.skipped) result.skipped.push(photoName(p));
       else result.written.push(written.path);
     } catch (err) {

@@ -20,7 +20,10 @@ vi.mock('./library/folders', async importOriginal => ({
   ...await importOriginal<typeof import('./library/folders')>(), lastFolder: () => null,
 }));
 vi.mock('./ui/appmenu', async importOriginal => ({ ...await importOriginal<typeof import('./ui/appmenu')>(), installAppMenu: async () => () => {} }));
-vi.mock('./ui/TopBar', () => ({ TopBar: () => null }));
+vi.mock('./ui/TopBar', async () => {
+  const { SourceHeader } = await import('./ui/LibrarySources');
+  return { TopBar: () => createElement(SourceHeader, { onOpen: () => {} }) };
+});
 vi.mock('./ui/Develop', () => ({ Develop: () => null }));
 vi.mock('./ui/Panel', () => ({ Panel: () => null }));
 vi.mock('./ui/Images', () => ({ Images: () => null }));
@@ -173,6 +176,7 @@ it('drags an unselected photo alone and keeps ordinary clicks working after canc
 
 it('sets a target in the collection header and marks it in the sidebar', async () => {
   await act(async () => useApp.setState({ source: { type: 'collection', id: 'picks' } }));
+  await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="More source actions"]')!.click());
   const button = [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Set as target collection'))!;
   await act(async () => button.click());
   expect(useCatalog.getState().targetCollectionId).toBe('picks');
@@ -217,6 +221,7 @@ it.each(['header', 'context menu'])('clears the target from its %s without remov
   if (location === 'context menu') {
     await act(async () => host.querySelector('[title="Picks"]')!.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, clientX: 100, clientY: 100 })));
   }
+  if (location === 'header') await act(async () => host.querySelector<HTMLButtonElement>('[aria-label="More source actions"]')!.click());
   const action = location === 'header'
     ? [...host.querySelectorAll('button')].find(b => b.textContent?.includes('Clear target collection'))!
     : document.querySelector<HTMLButtonElement>('[role="menuitemcheckbox"]')!;

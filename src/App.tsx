@@ -13,7 +13,7 @@ import { clearRecentFolders, lastFolder } from './library/folders';
 import { dialogOpen, installAppMenu, RECENT_PREFIX } from './ui/appmenu';
 import { firstOf } from './ui/menubridge';
 import {
-  isLibraryLoupe, setLibraryView, setLoupeFullscreen, activePhoto, addToTargetCollection, openCopySettings, createVirtualCopies, markPhotos, openFolder, openPaths, pasteSettings, redo, selectAll, setCompare, setExportOpen, setView, showToast, step, stepToEnd, undo, useApp,
+  chooseImport, isLibraryLoupe, setLibraryView, setLoupeFullscreen, activePhoto, addToTargetCollection, openCopySettings, createVirtualCopies, markPhotos, openFolder, openPaths, pasteSettings, redo, selectAll, setCompare, setExportOpen, setView, showToast, step, stepToEnd, undo, useApp,
 } from './library/store';
 import { Images } from './ui/Images';
 import { useWorkspace } from './ui/workspace';
@@ -25,6 +25,7 @@ import { ShortcutsDialog } from './ui/ShortcutsDialog';
 import { SettingsDialog } from './ui/SettingsDialog';
 import { Library, gridColumns } from './ui/Library';
 import { Panel } from './ui/Panel';
+import { requestFolderSync, selectAllImports } from './ui/Folders';
 import { TopBar, chooseFolder } from './ui/TopBar';
 import { LookCreatorHeader, LookLutColumn, LookPreviewFooter } from './ui/LookCreator';
 
@@ -52,6 +53,7 @@ let keyClipboard: { id: 'copy' | 'paste'; at: number } | null = null;
 /** File menu items and Edit's settings items; they never act on a text field. */
 const MENU_ACTIONS: Record<string, () => void> = {
   'import': () => { void chooseFolder(); },
+  'sync-folder': () => { const s = useApp.getState(); if (s.source?.type === 'folder' && s.folder) requestFolderSync(s.folder.root); },
   'export': () => setExportOpen(true),
   'virtual-copy': () => createVirtualCopies(),
   'show-in-finder': () => { const p = activePhoto(); if (p) void revealItemInDir(p.path).catch(() => showToast('Could not show the photo')); },
@@ -79,6 +81,7 @@ export function menuAction(id: string) {
     return;
   }
   if (blocked) return;
+  if (useApp.getState().choosingImport) { if (id === 'select-all') selectAllImports(); return; }
   if ((id === 'undo' || id === 'redo') && performance.now() - keyUndoAt < 500) return;
   if (keyClipboard?.id === id && performance.now() - keyClipboard.at < 500) return;
   if (useApp.getState().lookEdit && id !== 'undo' && id !== 'redo') return;
@@ -96,6 +99,7 @@ export function useShortcuts() {
       const mod = e.metaKey || e.ctrlKey;
       if (e.defaultPrevented) return;
       if (s.copySettingsSource || document.querySelector('[role="dialog"][aria-modal="true"], dialog[open]')) return;
+      if (s.choosingImport && e.key === 'Escape') { e.preventDefault(); chooseImport(false); return; }
       if (e.key === '\\') {
         if (s.view === 'develop') setCompare(true);
         return;
@@ -118,7 +122,7 @@ export function useShortcuts() {
       if (s.lookEdit) return;
       const onRange = (e.target as HTMLElement)?.tagName === 'INPUT';
       const k = e.key.toLowerCase();
-      if (mod && k === 'o') { e.preventDefault(); if (firstOf('import', 'key')) chooseFolder(); return; }
+      if (mod && (k === 'o' || k === 'i')) { e.preventDefault(); if (firstOf('import', 'key')) chooseFolder(); return; }
       if (k === 'g' && !mod && !e.altKey) { setLibraryView('grid'); return; }
       if (s.view === 'library' && s.choosingImport) return;
       if (!mod && !e.altKey && e.key === 'Escape' && isLibraryLoupe(s)) { e.preventDefault(); if (s.loupeFullscreen) setLoupeFullscreen(false); else setLibraryView('grid'); return; }
@@ -226,6 +230,7 @@ export default function App() {
   const view = useApp((s) => s.view);
   const toast = useApp((s) => s.toast);
   const hasFolder = useApp((s) => s.folder !== null);
+  const importing = useApp(s => s.choosingImport);
   useShortcuts();
   const dropping = useDesktop();
   const editingLook = useApp(s => !!s.lookEdit);
@@ -236,7 +241,7 @@ export default function App() {
   useEffect(() => { document.documentElement.dataset.theme = theme; }, [theme]);
 
   return (
-    <div className={`app${editingLook ? ' app-look-editor' : ''}${fullscreen ? ' app-loupe-fullscreen' : ''}`}>
+    <div className={`app${editingLook ? ' app-look-editor' : ''}${fullscreen ? ' app-loupe-fullscreen' : ''}${view === 'library' ? ' app-library' : ''}${importing ? ' app-import' : ''}`}>
       {editingLook ? <LookCreatorHeader /> : <TopBar />}
       {editingLook ? <div className="workspace workspace-look">
         <LookLutColumn />

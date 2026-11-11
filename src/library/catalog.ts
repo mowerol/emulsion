@@ -135,6 +135,15 @@ export function setTargetCollection(id: string | null) {
   if (id !== null && !useCatalog.getState().collections.some(c => c.id === id && c.type === 'manual')) return;
   useCatalog.setState({ targetCollectionId: id });
 }
+/**
+ * The local calendar day of `time` as YYYY-MM-DD (what toLocaleDateString('en-CA') gives). Built by
+ * hand: toLocaleDateString makes an Intl formatter per call, 35 ms per 2,000 photos, and a date
+ * rule runs it for every photo without a capture date each time a collection's members are read.
+ */
+export function localDay(time: number) {
+  const d = new Date(time), pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
 export function matchesRules(photo: Photo, rules: SmartRule[]): boolean {
   return rules.every(rule => {
     switch (rule.field) {
@@ -151,7 +160,7 @@ export function matchesRules(photo: Photo, rules: SmartRule[]): boolean {
       }
       case 'folder': return photo.path.toLowerCase().startsWith(rule.value.replace(/[\\/]$/, '').toLowerCase() + (rule.value.includes('\\') ? '\\' : '/'));
       case 'date': {
-        const day = photo.capture?.date ?? new Date(photo.modified).toLocaleDateString('en-CA');
+        const day = photo.capture?.date ?? localDay(photo.modified);
         return rule.before ? day <= rule.value : day >= rule.value;
       }
     }

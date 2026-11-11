@@ -13,9 +13,11 @@ pub mod inpaint;
 mod inpaint_cache;
 mod inpaint_commands;
 mod jxl;
+mod keywords;
 mod noise_cache;
 mod noiseprofiles;
 mod export;
+mod export_meta;
 mod exposure;
 mod library;
 mod lens;
@@ -70,6 +72,7 @@ pub fn run() {
             commands::native_text_edit,
             commands::auto_perspective,
             commands::scan_folder,
+            commands::list_folder_photos,
             commands::photo_exposure,
             commands::catalog_metadata,
             commands::browse_directory,
@@ -92,6 +95,7 @@ pub fn run() {
             commands::capture_info,
             commands::write_sidecar,
             commands::sidecar_history,
+            commands::retag_keywords,
             commands::read_app_settings,
             commands::write_app_settings,
             commands::app_backups,

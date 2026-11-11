@@ -41,6 +41,9 @@ export interface StartupOptions {
 export const isTauri = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
 export const scanFolder = (path: string, recursive = true) => invoke<ScanResult>('scan_folder', { path, recursive });
+export interface DiskListing { entries: { path: string; modified: number }[]; folders: Directory[]; unreadable: number }
+/** Cheap discovery; never reads sidecars or image data. */
+export const listFolderPhotos = (path: string, recursive = false) => invoke<DiskListing>('list_folder_photos', { path, recursive });
 export interface Directory { path: string; name: string }
 export const browseDirectory = (path: string) => invoke<Directory[]>('browse_directory', { path });
 export const computerFolders = () => invoke<Directory[]>('computer_folders');
@@ -59,6 +62,7 @@ export const catalogMetadata = (paths: string[]) => invoke<(CatalogMetadata | nu
 
 export async function thumbnail(path: string, maxEdge = 512): Promise<Blob> {
   const buf = await invoke<ArrayBuffer>('thumbnail', { path, maxEdge });
+  if (import.meta.env.DEV) void import('../dev/trace').then(t => t.markOnce('first thumbnail'));
   return new Blob([buf], { type: 'image/jpeg' });
 }
 
@@ -142,6 +146,10 @@ export async function captureInfo(path: string, width: number, height: number): 
 export interface EmbeddedMetadata { rating: number; label: string | null; reject?: boolean; meta: unknown }
 export const embeddedMetadata = (paths: string[]) => invoke<(EmbeddedMetadata | null)[]>('embedded_metadata', { paths });
 
+/** Rename or move keyword `from` (with the keywords under it) to `to`, or delete it (null), in photos that aren't open. */
+export interface Retagged { path: string; meta: unknown | null; error: string | null }
+export const retagKeywords = (paths: string[], from: string, to: string | null) => invoke<Retagged[]>('retag_keywords', { paths, from, to });
+
 /** As-shot white points (CIE xy) of `paths`; null for anything that is not a RAW. */
 export const whitePoints = (paths: string[]) => invoke<([number, number] | null)[]>('white_points', { paths });
 
@@ -198,8 +206,21 @@ export interface Written { path: string; skipped: boolean }
 
 /** Write one developed frame: 8-bit RGBA, or 16-bit RGB for a 16-bit format. `protect` is the
  * photo's own file, which an overwrite refuses to replace. */
+/** Metadata to embed in an exported frame (src-tauri/src/export_meta.rs `Request`). */
+export interface ExportMetadata {
+  source: string;
+  include: 'copyright' | 'copyrightContact' | 'allExceptCamera' | 'all';
+  removePerson: boolean;
+  removeLocation: boolean;
+  hierarchy: boolean;
+  rating: number;
+  label: string | null;
+  meta: unknown;
+  personKeywords: string[];
+}
+
 export function writeExport(dir: string, stem: string, pixels: Uint8Array | Uint16Array, width: number, height: number,
-  format: ExportFormat, existing: ExistingFiles, protect: string) {
+  format: ExportFormat, existing: ExistingFiles, protect: string, metadata?: ExportMetadata) {
   const body = pixels instanceof Uint8Array ? pixels : new Uint8Array(pixels.buffer, pixels.byteOffset, pixels.byteLength);
   return invoke<Written>('write_export', body, {
     headers: {
@@ -210,6 +231,7 @@ export function writeExport(dir: string, stem: string, pixels: Uint8Array | Uint
       'x-emulsion-format': encodeURIComponent(JSON.stringify(format)),
       'x-emulsion-existing': encodeURIComponent(JSON.stringify(existing)),
       'x-emulsion-protect': encodeURIComponent(protect),
+      'x-emulsion-meta': metadata ? encodeURIComponent(JSON.stringify(metadata)) : '',
     },
   }).catch(err => { throw writeError(err); });
 }

@@ -85,7 +85,7 @@ async function main() {
   await until(() => document.querySelector('.cull-image-window img'), 'No loupe preview in StrictMode');
   assert(isLibraryLoupe() && !fullscreen && !useApp.getState().loupeFullscreen, 'Opening a photo forced fullscreen');
   assert(document.querySelector('.folder-directory')!.getBoundingClientRect().width > 0, 'Lost folders');
-  assert(document.querySelector('.source-header')!.getBoundingClientRect().height > 0, 'Lost source header');
+  assert(document.querySelector('.compact-source')!.getBoundingClientRect().height > 0, 'Lost source header');
   assert(document.querySelector('.library-bar')!.getBoundingClientRect().height > 0, 'Lost filters/view controls');
   await until(() => document.querySelector('.library-image-rail .image-frame'), 'Vertical carousel missing');
   assert(document.querySelector('.cull-photo-info')?.textContent?.includes('1 of 4'), 'Wrong position');

@@ -456,7 +456,8 @@ mod tests {
         // A look alone says nothing to other apps.
         write(&img, &Saved { recipe: Some(json!({ "exposure": 1 })), ..Saved::default() }, false).unwrap();
         assert!(!xmp_path.exists());
-        let meta = Meta { keywords: vec!["Sea".into()], title: "Harbour".into(), ..Meta::default() };
+        let mut meta = Meta { keywords: vec!["Sea".into()], ..Meta::default() };
+        meta.set("title", "Harbour");
         let saved = Saved { recipe: Some(json!({ "exposure": 1 })), rating: 3, label: Some("blue".into()), flag: Some("pick".into()), meta: meta.clone(), ..Saved::default() };
         write(&img, &saved, false).unwrap();
         let (back, sync) = read_synced(&img).unwrap();

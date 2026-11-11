@@ -114,6 +114,41 @@ fn skip(entry: &DirEntry) -> bool {
     entry.file_type().is_dir() && entry.file_name() == EXPORT_DIR_NAME
 }
 
+/// File identities only: no sidecars, EXIF, thumbnails or image decoding.
+#[derive(Serialize, Debug)]
+pub struct DiskEntry {
+    pub path: String,
+    pub modified: u64,
+}
+#[derive(Serialize, Debug)]
+pub struct DiskListing {
+    pub entries: Vec<DiskEntry>,
+    pub folders: Vec<FolderEntry>,
+    pub unreadable: usize,
+}
+pub fn list_photos(root: &Path, recursive: bool) -> std::io::Result<DiskListing> {
+    // Fail an unavailable root instead of treating an unplugged drive as empty.
+    std::fs::read_dir(root)?;
+    let mut listing = DiskListing { entries: Vec::new(), folders: Vec::new(), unreadable: 0 };
+    for item in WalkDir::new(root).follow_links(false)
+        .max_depth(if recursive { usize::MAX } else { 1 }).into_iter().filter_entry(|e| !skip(e)) {
+        let item = match item { Ok(item) => item, Err(_) => { listing.unreadable += 1; continue; } };
+        if item.depth() > 0 && item.file_type().is_dir() {
+            listing.folders.push(FolderEntry { path: item.path().to_string_lossy().into_owned(), name: item.file_name().to_string_lossy().into_owned() });
+        }
+        if !item.file_type().is_file() || classify(item.path()) == Kind::Other { continue; }
+        match item.metadata() {
+            Ok(meta) => listing.entries.push(DiskEntry {
+                path: item.path().to_string_lossy().into_owned(),
+                modified: meta.modified().ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_millis() as u64).unwrap_or(0),
+            }),
+            Err(_) => listing.unreadable += 1,
+        }
+    }
+    listing.entries.sort_by(|a, b| natord::compare_ignore_case(&a.path, &b.path));
+    Ok(listing)
+}
+
 /// Scan `target`. If it is a file, its parent folder is scanned and the file is
 /// returned as `focus`.
 pub fn scan(target: &Path, recursive: bool) -> std::io::Result<ScanResult> {
@@ -210,23 +245,7 @@ pub fn scan(target: &Path, recursive: bool) -> std::io::Result<ScanResult> {
             let path = PathBuf::from(&e.path);
             let siblings = &by_dir[&path.parent().map(Path::to_path_buf).unwrap_or_default()];
             let owner = xmp::owns(&path, siblings.iter().map(PathBuf::as_path));
-            let (mut saved, sync) = saved.map_or((sidecar::Saved::default(), None), |(s, y)| (s, Some(y)));
-            if let Some(found) = xmp::read_sidecar(&path, owner) {
-                if xmp_is_newer(&found, sync) {
-                    // A reject (Rating -1) carries no stars: the sidecar's stay. A pick has no
-                    // XMP field and stays too, unless the other app rejected the photo.
-                    if found.values.reject {
-                        saved.flag = Some("reject".into());
-                    } else {
-                        saved.rating = found.values.rating;
-                        if saved.flag.as_deref() == Some("reject") {
-                            saved.flag = None;
-                        }
-                    }
-                    saved.label = found.values.label;
-                    saved.meta = found.values.meta;
-                }
-            }
+            let saved = with_newer_xmp(saved, xmp::read_sidecar(&path, owner));
             e.recipe = saved.recipe;
             e.rating = saved.rating;
             e.label = saved.label;
@@ -257,6 +276,29 @@ pub fn scan(target: &Path, recursive: bool) -> std::io::Result<ScanResult> {
 
 /// Whether an XMP sidecar says something newer than Emulsion's own sidecar: it changed since
 /// Emulsion last wrote it, or (never written by Emulsion) it is newer than the last save.
+/// What a photo's sidecar says, with a newer XMP's stars, label, keywords and fields over it
+/// (another app changed them since Emulsion's last save).
+pub fn with_newer_xmp(saved: Option<(sidecar::Saved, sidecar::Sync)>, found: Option<xmp::Found>) -> sidecar::Saved {
+    let (mut saved, sync) = saved.map_or((sidecar::Saved::default(), None), |(s, y)| (s, Some(y)));
+    if let Some(found) = found {
+        if xmp_is_newer(&found, sync) {
+            // A reject (Rating -1) carries no stars: the sidecar's stay. A pick has no
+            // XMP field and stays too, unless the other app rejected the photo.
+            if found.values.reject {
+                saved.flag = Some("reject".into());
+            } else {
+                saved.rating = found.values.rating;
+                if saved.flag.as_deref() == Some("reject") {
+                    saved.flag = None;
+                }
+            }
+            saved.label = found.values.label;
+            saved.meta = found.values.meta;
+        }
+    }
+    saved
+}
+
 fn xmp_is_newer(found: &xmp::Found, sync: Option<sidecar::Sync>) -> bool {
     match sync {
         None => true,
@@ -312,6 +354,33 @@ mod tests {
         assert_eq!(flat.folders.len(), 1);
         assert_eq!(flat.folders[0].name, "roll b");
         assert_eq!(flat.folders[0].path, r.join("roll b").to_string_lossy());
+    }
+
+    #[test]
+    fn cheap_listing_uses_file_identities_and_skips_hidden_exports_and_symlinks() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        touch(&root.join("a.ORF"));
+        touch(&root.join("nested/b.jpg"));
+        touch(&root.join("nested/deep/c.jpg"));
+        touch(&root.join(".hidden/x.jpg"));
+        touch(&root.join("._a.ORF"));
+        touch(&root.join("Emulsion exports/a.jpg"));
+        touch(&root.join("notes.txt"));
+        let flat = list_photos(root, false).unwrap();
+        assert_eq!(flat.entries.len(), 1);
+        assert!(flat.entries[0].path.ends_with("a.ORF"));
+        assert!(flat.entries[0].modified > 0);
+        let recursive = list_photos(root, true).unwrap();
+        assert_eq!(recursive.entries.len(), 3);
+        assert_eq!(recursive.folders.len(), 2);
+        assert_eq!(recursive.unreadable, 0);
+        assert!(list_photos(&root.join("disconnected"), true).is_err());
+        #[cfg(unix)] {
+            std::os::unix::fs::symlink(root.join("nested"), root.join("linked")).unwrap();
+            std::os::unix::fs::symlink(root.join("a.ORF"), root.join("linked.ORF")).unwrap();
+            assert_eq!(list_photos(root, true).unwrap().entries.len(), 3);
+        }
     }
 
     #[test]

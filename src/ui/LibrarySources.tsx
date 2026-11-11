@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { Download, Filter, GalleryVerticalEnd, Plus, Target } from 'lucide-react';
-import { addToCollection, catalogPhotos, importTime, matchesRules, saveCollection, setTargetCollection, sourceCount, targetCollection, useCatalog, type Collection, type SmartRule } from '../library/catalog';
-import { chooseImport, closeFolder, openFolder, selectSource, showToast, sourcePhotos, useApp } from '../library/store';
+import { Download, Ellipsis, Filter, GalleryVerticalEnd, Plus, Target } from 'lucide-react';
+import { addToCollection, catalogPhotos, importTime, localDay, matchesRules, saveCollection, setTargetCollection, sourceCount, targetCollection, useCatalog, type Collection, type SmartRule } from '../library/catalog';
+import { startImport, openFolder, selectSource, showToast, shownSource, sourcePhotos, useApp } from '../library/store';
 import { photoId } from '../library/copies';
 import { LABELS } from '../library/marks';
 import { FLAG_FILTERS } from '../library/filter';
 import { FolderDirectory } from './Folders';
 import { foldPairs } from '../library/pairs';
 import { LibraryMenu, LibrarySection } from './LibrarySection';
-import { chooseFolder } from './TopBar';
+import { revealItemInDir } from '@tauri-apps/plugin-opener';
 
 export type LibraryDialog = { kind: 'history' | 'collections' | 'manual' | 'smart' | 'rename' | 'add'; collection?: Collection; ids?: string[] };
 type OpenDialog = (dialog: LibraryDialog) => void;
@@ -61,7 +61,7 @@ function CollectionContextMenu({ x, y, collection, target, onClose }: {
 }
 
 function CollectionRow({ collection, count, over }: { collection: Collection; count: number; over: boolean }) {
-  const selected = useApp(s => s.source?.type === 'collection' && s.source.id === collection.id);
+  const selected = useApp(s => { const shown = shownSource(s); return shown?.type === 'collection' && shown.id === collection.id; });
   const target = useCatalog(s => s.targetCollectionId === collection.id);
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const ref = useRef<HTMLButtonElement>(null);
@@ -88,7 +88,7 @@ function CollectionRow({ collection, count, over }: { collection: Collection; co
 
 export function LibrarySidebar({ onOpen, dragTarget }: { onOpen: OpenDialog; dragTarget?: string | null }) {
   const catalog = useCatalog();
-  const source = useApp(s => s.source);
+  const source = useApp(shownSource);
   const selected = useApp(s => s.selected);
   const fold = useApp(s => s.foldJpegs);
   const cached = useMemo(() => catalogPhotos(catalog), [catalog]);
@@ -123,55 +123,48 @@ export function LibrarySidebar({ onOpen, dragTarget }: { onOpen: OpenDialog; dra
 const foldCatalog = (photos: ReturnType<typeof catalogPhotos>) => foldPairs(photos).shown;
 
 function Breadcrumb({ children }: { children: ReactNode }) { return <nav className="source-breadcrumb" aria-label="Source navigation">{children}</nav>; }
-function FolderBreadcrumb({ root }: { root: string }) {
+export function FolderBreadcrumb({ root, importing = false }: { root: string; importing?: boolean }) {
   const separator = root.includes('\\') ? '\\' : '/';
   const parts = root.split(/[\\/]/).filter(Boolean);
-  return <Breadcrumb>{parts.map((part, i) => <span key={i}>
-    {i > 0 && <span className="breadcrumb-separator">/</span>}
-    {i === parts.length - 1 ? <span aria-current="page">{part}</span> : <button type="button" onClick={() => {
+  return <Breadcrumb>{parts.map((part, i) => part === 'Volumes' && i === 0 ? null : <span key={i} className={i === parts.length - 1 ? 'breadcrumb-current' : 'breadcrumb-ancestor'}>
+    {i > (parts[0] === 'Volumes' ? 1 : 0) && <span className="breadcrumb-separator">/</span>}
+    {i === parts.length - 1 ? importing ? <strong title={root}>{part}</strong> : <h1 title={root}>{part}</h1> : <button type="button" onClick={() => {
       const path = (root.startsWith('/') ? '/' : root.startsWith('\\\\') ? '\\\\' : '') + parts.slice(0, i + 1).join(separator);
-      void openFolder(/^[a-z]:$/i.test(path) ? path + separator : path);
+      void openFolder(/^[a-z]:$/i.test(path) ? path + separator : path, importing);
     }}>{part}</button>}
   </span>)}</Breadcrumb>;
 }
 
-export function SourceHeader({ onOpen }: { onOpen: OpenDialog }) {
+/** Source identity belongs to the app header; folder actions live in More.
+ *  Develop shows the identity alone (no `onOpen`): actions stay in Library. */
+export function SourceHeader({ onOpen }: { onOpen?: OpenDialog }) {
   const s = useApp();
   const catalog = useCatalog();
-  const session = s.source?.type === 'import' ? catalog.imports.find(i => i.id === s.source!.id) : undefined;
-  const collection = s.source?.type === 'collection' ? catalog.collections.find(c => c.id === s.source!.id) : undefined;
-  const isTarget = !!collection && targetCollection(catalog)?.id === collection.id;
-  const title = session?.name ?? collection?.name ?? s.folder?.name ?? 'Photos';
+  const source = shownSource(s);
+  const session = source?.type === 'import' ? catalog.imports.find(i => i.id === source.id) : undefined;
+  const collection = source?.type === 'collection' ? catalog.collections.find(c => c.id === source.id) : undefined;
+  const root = source?.type === 'folder' ? source.id : s.folder?.root;
+  const title = s.opening?.name ?? session?.name ?? collection?.name ?? 'Library';
   const count = sourcePhotos(s).length;
-  const detail = session ? `Imported ${importTime(session.importedAt)} from ${session.sourceDevice} → ${session.destinationPath}`
-    : collection ? collection.type === 'smart' ? 'Smart collection · updates automatically' : 'Collection · photos stay in their folders'
-    : s.folder?.root ?? 'Select a folder from your computer or an external drive.';
-  return <header className="source-header">
-    <div className="source-heading-text">
-      {session ? <Breadcrumb><button type="button" onClick={() => onOpen({ kind: 'history' })}>Recent imports</button><span>/</span><span>{importTime(session.importedAt)}</span></Breadcrumb>
-        : collection ? <Breadcrumb><button type="button" onClick={() => onOpen({ kind: 'collections' })}>Collections</button><span>/</span><span>{collection.name}</span></Breadcrumb>
-        : s.folder ? <FolderBreadcrumb root={s.folder.root} /> : <Breadcrumb><button type="button" onClick={closeFolder}>Library</button></Breadcrumb>}
-      <div className="source-title"><h1>{title}</h1><span>{count.toLocaleString()} {count === 1 ? 'photo' : 'photos'}</span></div>
-      <p className="source-detail" title={detail}>{s.loading ? 'Reading photos…' : detail}</p>
-    </div>
-    <div className="source-actions">
+  return <div className="compact-source" aria-busy={!!s.opening}>
+    {source?.type === 'folder' && root ? <FolderBreadcrumb root={root} /> : <h1 title={session?.destinationPath}>{title}</h1>}
+    <span className="source-count">{s.opening ? '…' : count.toLocaleString()}</span>
+    {onOpen && <LibraryMenu label="More source actions" icon={<Ellipsis size={16} />}>
       {session ? <>
-        <button type="button" className="btn" disabled={s.loading} onClick={() => void openFolder(session.destinationPath)}>Show in folder</button>
-        <button type="button" className="btn" disabled={!count} onClick={() => onOpen({ kind: 'add', ids: s.selected.size ? [...s.selected] : sourcePhotos(s).map(photoId) })}>Add to collection…</button>
-      </> : collection ? collection.type === 'smart' ? <button type="button" className="btn" onClick={() => onOpen({ kind: 'smart', collection })}>Edit rules…</button> : <>
-        <button type="button" className="btn" aria-pressed={isTarget}
-          title={isTarget ? 'Clear the target collection assignment' : 'B adds selected Library photos or the current Develop photo to the target collection'}
-          onClick={() => toggleTargetCollection(collection)}>
-          <Target size={14} />{isTarget ? 'Clear target collection' : 'Set as target collection'}
-        </button>
-        <button type="button" className="btn" disabled={!s.selected.size && !s.collectionAddIds.length} onClick={() => { addToCollection(collection.id, s.collectionAddIds.length ? s.collectionAddIds : [...s.selected]); useApp.setState({ collectionAddIds: [] }); showToast(`Selected photos added to ${collection.name}`); }}>Add selected</button>
-        <button type="button" className="btn" onClick={() => onOpen({ kind: 'rename', collection })}>Rename…</button>
-      </> : s.folder ? <>
-        <button type="button" className="btn" disabled={s.loading} onClick={() => void openFolder(s.folder!.root)}>Refresh folder</button>
-        {s.importChoice && !s.choosingImport && <button type="button" className="btn" disabled={s.loading} onClick={() => chooseImport(true)}>Manage import</button>}
-      </> : <button type="button" className="btn" onClick={chooseFolder}><Download size={14} />Import</button>}
-    </div>
-  </header>;
+        <button type="button" onClick={() => void openFolder(session.destinationPath)}>Show in folder</button>
+        <button type="button" onClick={() => onOpen({ kind: 'add', ids: s.selected.size ? [...s.selected] : sourcePhotos(s).map(photoId) })}>Add to collection…</button>
+      </> : collection ? <>
+        {collection.type === 'smart' ? <button type="button" onClick={() => onOpen({ kind: 'smart', collection })}>Edit rules…</button> : <>
+          <button type="button" onClick={() => toggleTargetCollection(collection)}>{targetCollection(catalog)?.id === collection.id ? 'Clear target collection' : 'Set as target collection'}</button>
+          <button type="button" disabled={!s.selected.size && !s.collectionAddIds.length} onClick={() => { addToCollection(collection.id, s.collectionAddIds.length ? s.collectionAddIds : [...s.selected]); useApp.setState({ collectionAddIds: [] }); showToast(`Selected photos added to ${collection.name}`); }}>Add selected</button>
+          <button type="button" onClick={() => onOpen({ kind: 'rename', collection })}>Rename…</button>
+        </>}
+      </> : <button type="button" disabled={!root || s.loading} onClick={() => void startImport(root)}>Manage import…</button>}
+      {root && <button type="button" onClick={() => void revealItemInDir(root).catch(() => showToast('Could not show the folder'))}>Show in Finder</button>}
+      <button type="button" onClick={() => onOpen({ kind: 'history' })}>Recent imports…</button>
+      <button type="button" onClick={() => onOpen({ kind: 'collections' })}>Collections…</button>
+    </LibraryMenu>}
+  </div>;
 }
 
 const RULE_FIELDS: { value: SmartRule['field']; label: string }[] = [
@@ -184,7 +177,7 @@ function defaultRule(field: SmartRule['field']): SmartRule {
   if (field === 'edited') return { field, value: true };
   if (field === 'flag') return { field, value: 'pick' };
   if (field === 'label') return { field, value: 'red' };
-  if (field === 'date') return { field, value: new Date().toLocaleDateString('en-CA'), before: false };
+  if (field === 'date') return { field, value: localDay(Date.now()), before: false };
   return { field, value: '' };
 }
 function RuleEditor({ rule, onChange, onRemove }: { rule: SmartRule; onChange: (rule: SmartRule) => void; onRemove: () => void }) {

@@ -488,6 +488,37 @@ fn tiff_compressions(d: &[u8]) -> Vec<u32> {
 }
 
 /// The camera's own preview embedded in the file, oriented.
+/// The RAW's embedded JPEG preview as stored (with the camera's EXIF, for most cameras).
+pub fn embedded_jpeg(path: &Path) -> Option<Vec<u8>> {
+    let cpath = c_path(path).ok()?;
+    let mut t = EmuRawThumb { format: 0, width: 0, height: 0, flip: 0, data: std::ptr::null(), len: 0 };
+    let mut img: *mut c_void = std::ptr::null_mut();
+    let mut err = [0 as c_char; 256];
+    openmp_root();
+    let rc = unsafe { emu_raw_thumb(cpath.as_ptr(), &mut t, &mut img, err.as_mut_ptr(), err.len()) };
+    if rc != 0 {
+        return None;
+    }
+    let bytes = (t.format == 1).then(|| unsafe { std::slice::from_raw_parts(t.data, t.len) }.to_vec());
+    unsafe { emu_raw_free(img) };
+    bytes
+}
+
+/// Make, model and exposure settings read by LibRaw, for RAWs whose EXIF nothing else reads.
+pub fn camera_info(path: &Path) -> Option<(String, String, crate::exposure::Exposure)> {
+    let cpath = c_path(path).ok()?;
+    let mut info = EmuRawInfo::empty();
+    let mut err = [0 as c_char; 256];
+    openmp_root();
+    let rc = unsafe { emu_raw_info(cpath.as_ptr(), &mut info, err.as_mut_ptr(), err.len()) };
+    if rc != 0 {
+        return None;
+    }
+    let mut e = crate::exposure::Exposure::new(info.iso as f64, info.shutter as f64, info.aperture as f64, info.focal_length as f64);
+    e.focal_length35 = (info.focal_length35.is_finite() && info.focal_length35 > 0.0).then_some(info.focal_length35 as f64);
+    Some((error_text(&info.make), error_text(&info.model), e))
+}
+
 pub fn embedded_preview(path: &Path) -> Result<DynamicImage, String> {
     let cpath = c_path(path)?;
     let mut t = EmuRawThumb { format: 0, width: 0, height: 0, flip: 0, data: std::ptr::null(), len: 0 };

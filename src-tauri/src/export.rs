@@ -195,16 +195,17 @@ pub fn encode_jpeg(rgba: &[u8], width: u32, height: u32, quality: u8) -> Result<
 /// Make the export folder and check a file can be written in it, before any frame is developed.
 pub fn check_dir(dir: &Path) -> Result<(), WriteError> {
     fs::create_dir_all(dir).map_err(|e| io_error("create", dir, &e))?;
-    let probe = temp_path(dir, "write-check");
+    let probe = temp_path(dir, "write-check", "tmp");
     let written = fs::File::create_new(&probe).and_then(|mut f| f.write_all(b"emulsion"));
     let _ = fs::remove_file(&probe);
     written.map_err(|e| io_error("write to", dir, &e))
 }
 
-fn temp_path(dir: &Path, stem: &str) -> PathBuf {
+/// A hidden temporary file; it keeps the export's extension so the XMP Toolkit can recognise it.
+fn temp_path(dir: &Path, stem: &str, ext: &str) -> PathBuf {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     let n = NEXT.fetch_add(1, Ordering::Relaxed);
-    dir.join(format!(".{stem}.emulsion-{}-{n}.partial", std::process::id()))
+    dir.join(format!(".{stem}.emulsion-{}-{n}.partial.{ext}", std::process::id()))
 }
 
 /// The file a frame of `stem` would be written to, for checking before developing it.
@@ -224,6 +225,11 @@ fn same_file(a: &Path, b: &Path) -> bool {
 /// finished temporary file is renamed over that claim. `Overwrite` renames the finished file over
 /// the old one in one step, and refuses when that would be `protect` (the photo itself).
 pub fn place(dir: &Path, stem: &str, ext: &str, bytes: &[u8], existing: Existing, protect: Option<&Path>) -> Result<Written, WriteError> {
+    place_with(dir, stem, ext, bytes, existing, protect, None)
+}
+
+/// `place`, embedding `meta` in the file before it takes its name (`export_meta`).
+fn place_with(dir: &Path, stem: &str, ext: &str, bytes: &[u8], existing: Existing, protect: Option<&Path>, meta: Option<&xmp_toolkit::XmpMeta>) -> Result<Written, WriteError> {
     let wanted = dir.join(format!("{stem}.{ext}"));
     if existing == Existing::Skip && fs::symlink_metadata(&wanted).is_ok() {
         return Ok(Written { path: wanted, skipped: true });
@@ -236,12 +242,19 @@ pub fn place(dir: &Path, stem: &str, ext: &str, bytes: &[u8], existing: Existing
             return Err(format!("Did not write {}: it would replace the original photo", wanted.display()).into());
         }
     }
-    let tmp = temp_path(dir, stem);
-    let written = fs::File::create_new(&tmp).and_then(|mut f| {
-        f.write_all(bytes)?;
-        f.sync_all()
-    });
+    let tmp = temp_path(dir, stem, ext);
+    let written = fs::File::create_new(&tmp).and_then(|mut f| f.write_all(bytes));
     if let Err(e) = written {
+        let _ = fs::remove_file(&tmp);
+        return Err(io_error("write", &wanted, &e));
+    }
+    if let Some(meta) = meta {
+        if let Err(e) = crate::export_meta::embed(&tmp, meta) {
+            let _ = fs::remove_file(&tmp);
+            return Err(format!("Could not write {}: {e}", wanted.display()).into());
+        }
+    }
+    if let Err(e) = fs::File::open(&tmp).and_then(|f| f.sync_all()) {
         let _ = fs::remove_file(&tmp);
         return Err(io_error("write", &wanted, &e));
     }
@@ -293,6 +306,7 @@ pub fn write_frame(
     format: Format,
     existing: Existing,
     protect: Option<&Path>,
+    meta: Option<&crate::export_meta::Request>,
 ) -> Result<Written, WriteError> {
     fs::create_dir_all(dir).map_err(|e| io_error("create", dir, &e))?;
     let stem = safe_stem(stem);
@@ -300,12 +314,16 @@ pub fn write_frame(
     if existing == Existing::Skip && fs::symlink_metadata(dir.join(format!("{stem}.{}", format.ext()))).is_ok() {
         return Ok(Written { path: dir.join(format!("{stem}.{}", format.ext())), skipped: true });
     }
+    let packet = match meta.map(crate::export_meta::packet).transpose() {
+        Ok(p) => p,
+        Err(e) => return Err(format!("Could not prepare the metadata for {stem}: {e}").into()),
+    };
     let bytes = encode(px, width, height, format)?;
-    place(dir, &stem, format.ext(), &bytes, existing, protect)
+    place_with(dir, &stem, format.ext(), &bytes, existing, protect, packet.as_ref())
 }
 
 pub fn write_jpeg(dir: &Path, stem: &str, rgba: &[u8], width: u32, height: u32, quality: u8) -> Result<PathBuf, WriteError> {
-    write_frame(dir, stem, &Pixels::Rgba8(rgba), width, height, Format::Jpeg { quality }, Existing::Rename, None).map(|w| w.path)
+    write_frame(dir, stem, &Pixels::Rgba8(rgba), width, height, Format::Jpeg { quality }, Existing::Rename, None, None).map(|w| w.path)
 }
 
 #[cfg(test)]

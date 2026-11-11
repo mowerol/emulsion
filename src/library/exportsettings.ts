@@ -20,13 +20,28 @@ export interface ExportSettings {
   /** Long edge in pixels, or null for full size. */
   longEdge: number | null;
   existing: ExistingFiles;
+  /** Lightroom Classic's Metadata › Include. */
+  metadata: MetadataInclude;
+  removePerson: boolean;
+  removeLocation: boolean;
+  /** Lightroom's Write Keywords as Lightroom Hierarchy. */
+  hierarchy: boolean;
 }
+
+export type MetadataInclude = 'copyright' | 'copyrightContact' | 'allExceptCamera' | 'all';
+export const METADATA_INCLUDE: { value: MetadataInclude; name: string }[] = [
+  { value: 'copyright', name: 'Copyright only' },
+  { value: 'copyrightContact', name: 'Copyright and contact info only' },
+  { value: 'allExceptCamera', name: 'All except camera info' },
+  { value: 'all', name: 'All metadata' },
+];
 
 /** As exports were before these settings: `Emulsion exports` in the open folder, JPEG 92, never overwriting. */
 export const EXPORT_DEFAULTS: ExportSettings = {
   destination: 'folder', folder: null, useSubfolder: true, subfolder: 'Emulsion exports',
   format: 'jpeg', jpegQuality: 92, pngBits: 16, tiffBits: 16, tiffCompression: 'zip',
   longEdge: null, existing: 'rename',
+  metadata: 'all', removePerson: false, removeLocation: false, hierarchy: false,
 };
 
 const pick = <T,>(value: unknown, allowed: readonly T[], fallback: T): T => allowed.includes(value as T) ? value as T : fallback;
@@ -47,6 +62,10 @@ export function normalizeExportSettings(input: unknown): ExportSettings {
     tiffCompression: pick(p.tiffCompression, ['none', 'lzw', 'zip'] as const, d.tiffCompression),
     longEdge: p.longEdge === null ? null : edge ?? d.longEdge,
     existing: pick(p.existing, ['rename', 'overwrite', 'skip'] as const, d.existing),
+    metadata: pick(p.metadata, METADATA_INCLUDE.map(m => m.value), d.metadata),
+    removePerson: typeof p.removePerson === 'boolean' ? p.removePerson : d.removePerson,
+    removeLocation: typeof p.removeLocation === 'boolean' ? p.removeLocation : d.removeLocation,
+    hierarchy: typeof p.hierarchy === 'boolean' ? p.hierarchy : d.hierarchy,
   };
 }
 
@@ -56,14 +75,16 @@ export function exportFormat(s: ExportSettings): ExportFormat {
   return { kind: 'jpeg', quality: s.jpegQuality };
 }
 
-/** The run's options; `openFolder` stands in for a destination folder not yet chosen. */
-export function exportOptions(s: ExportSettings, openFolder: string): ExportOptions {
+/** The run's options; `openFolder` stands in for a destination folder not yet chosen, `personKeywords`
+ *  are the Keyword List's person keywords (Remove person info). */
+export function exportOptions(s: ExportSettings, openFolder: string, personKeywords: string[] = []): ExportOptions {
   return {
     dir: s.destination === 'original' ? null : s.folder ?? openFolder,
     subfolder: s.useSubfolder ? s.subfolder : '',
     longEdge: s.longEdge,
     format: exportFormat(s),
     existing: s.existing,
+    metadata: { include: s.metadata, removePerson: s.removePerson, removeLocation: s.removeLocation, hierarchy: s.hierarchy, personKeywords },
   };
 }
 

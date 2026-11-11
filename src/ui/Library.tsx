@@ -6,13 +6,13 @@ import { photoId, photoName } from '../library/copies';
 import { setActive, setFilter, setFoldJpegs, setSelectedOnly, setLibraryView, setView, sourceIndices, useApp, useShown, type Photo } from '../library/store';
 import { NO_FILTER, isFiltering } from '../library/filter';
 import { LABEL } from '../library/marks';
-import { FolderImportView } from './Folders';
+import { DiskDirectory, FolderImportView } from './Folders';
 import { FilterBar } from './FilterBar';
 import { FlagIcon, MarkControls, Thumb, useVisible } from './common';
 import { LibraryLoupe } from './LibraryLoupe';
 import { LibraryImageRail } from './LibraryImageRail';
 import { ExposureInfo } from './ExposureInfo';
-import { LibrarySidebar, LibrarySourceDialog, SourceHeader, type LibraryDialog } from './LibrarySources';
+import { LibrarySidebar, LibrarySourceDialog, type LibraryDialog } from './LibrarySources';
 import { useCollectionDrag } from './collectionDrag';
 import { LibraryMenu } from './LibrarySection';
 import { setPrefs, usePrefs } from './prefs';
@@ -71,12 +71,13 @@ export function Library() {
   const [dialog, setDialog] = useState<LibraryDialog | null>(null);
   const showExif = usePrefs(p => p.libraryExif);
   const autoAdvance = usePrefs(p => p.autoAdvance);
-  const loupe = s.libraryView === 'loupe' && !s.choosingImport;
+  const opening = s.opening;
+  const loupe = s.libraryView === 'loupe' && !s.choosingImport && !opening;
   const active = shown.includes(s.active) ? s.photos[s.active] : null;
   const gridRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const filtering = isFiltering(s.filter) || s.selectedOnly;
-  const clear = () => { setFilter(NO_FILTER); setSelectedOnly(false); };
+  const filtering = isFiltering(s.filter) || s.selectedOnly || !!s.missingPaths;
+  const clear = () => { setFilter(NO_FILTER); setSelectedOnly(false); useApp.setState({ missingPaths: null }); };
   useEffect(() => { try { localStorage.setItem(SIZE_KEY, String(size)); } catch { /* session only */ } }, [size]);
   // Only the rows near the view are mounted: 10,000 photos otherwise make ~140,000 elements.
   const vp = useViewport(scrollRef, 'y', [s.choosingImport, !!shown.length, loupe]);
@@ -110,13 +111,13 @@ export function Library() {
   }, [s.active, loupe]);
   const selectedCount = scope.filter(i => s.selected.has(photoId(s.photos[i]))).length;
   return <section className={`library library-with-directory${loupe ? ' library-has-loupe' : ''}${s.loupeFullscreen && loupe ? ' library-fullscreen' : ''}`} onClickCapture={drag.click}>
-    <LibrarySidebar onOpen={setDialog} dragTarget={drag.preview?.target} />
+    {s.choosingImport ? <DiskDirectory /> : <LibrarySidebar onOpen={setDialog} dragTarget={drag.preview?.target} />}
     {drag.preview && <div className="collection-drag-preview" style={{ left: drag.preview.x + 14, top: drag.preview.y + 14 }}>
       {drag.preview.count} {drag.preview.count === 1 ? 'photo' : 'photos'}
     </div>}
     <main className="library-content">
-      <SourceHeader onOpen={setDialog} />
-      {s.choosingImport ? <div className="library-import-scroll"><FolderImportView key={s.folder?.root} /></div> : <>
+      {opening ? <div className="library-empty library-opening" role="status"><h2><span className="library-opening-mark" aria-hidden="true" />Reading photos…</h2></div>
+      : s.choosingImport ? <FolderImportView key={s.folder?.root} /> : <>
         <div className="library-bar" role="toolbar" aria-label="Library filters and view">
           <div className="seg library-views" role="group" aria-label="Library view">
             <button type="button" aria-pressed={!loupe} onClick={() => setLibraryView('grid')} title="Grid (G)">Grid</button>
@@ -125,10 +126,11 @@ export function Library() {
           <FilterBar showCount={false} />
           <span className="library-toolbar-space" />
           <button type="button" className="library-toggle" aria-pressed={s.foldJpegs} onClick={() => setFoldJpegs(!s.foldJpegs)} title="Show RAW+JPEG pairs as one frame"><Layers size={13} />Fold JPEGs</button>
-          <button type="button" className="library-toggle" aria-pressed={s.selectedOnly} onClick={() => setSelectedOnly(!s.selectedOnly)} title="Show selected photos only"><ListFilter size={13} />Selected photos only</button>
+          <button type="button" className="library-toggle" aria-pressed={s.selectedOnly} onClick={() => setSelectedOnly(!s.selectedOnly)} title="Show selected photos only"><ListFilter size={13} />Selected only</button>
           {!loupe && <label className="size-control" title="Thumbnail size"><Square size={12} /><input aria-label="Thumbnail size" className="range" type="range" min={140} max={320} step={10} value={size} onChange={e => setSize(Number(e.target.value))} /><Square size={16} /></label>}
           <LibraryMenu label="Library view settings" icon={<Settings2 size={14} />}><label className="library-setting"><input type="checkbox" checked={showExif} onChange={e => setPrefs({ libraryExif: e.target.checked })} />Show capture settings</label></LibraryMenu>
         </div>
+        {s.missingPaths && <div className="library-missing-notice" role="status">Showing missing photos <button type="button" className="import-select" onClick={clear}>Show all photos</button></div>}
         <div className="library-grid-scroll" ref={scrollRef} hidden={loupe}>
           {shown.length ? <div className="grid" ref={gridRef} role="listbox" aria-label="Photos" aria-multiselectable
             style={{ ['--cell' as string]: `${size}px`, paddingTop: GRID_PAD + win.start * layout.pitch, paddingBottom: GRID_PAD + Math.max(0, rows - win.end) * layout.pitch }}>
@@ -139,12 +141,17 @@ export function Library() {
           </div>}
         </div>
         {loupe && <div className="library-loupe-body"><LibraryImageRail /><LibraryLoupe /></div>}
-        {!loupe && active && <div className="library-grid-marks">
-          <MarkControls photo={active} advance={autoAdvance} />
-          <label className="cull-auto"><input type="checkbox" checked={autoAdvance} onChange={e => { setPrefs({ autoAdvance: e.target.checked }); e.target.blur(); }} />Auto Advance</label>
-        </div>}
       </>}
-      <footer className="library-status"><span aria-live="polite">{s.choosingImport ? `${s.candidates.filter(p => !p.copyId).length} photos available to import` : filtering ? `${shown.length} of ${sourceCount} photos` : `${sourceCount} ${sourceCount === 1 ? 'photo' : 'photos'} · ${selectedCount} selected`}</span><span>{loupe ? 'G Grid · D Develop · F Fullscreen' : 'Double-click or E Loupe · D Develop'}</span></footer>
+      {!s.choosingImport && <footer className="library-status library-bottom-bar">
+        {!opening && !loupe && <div className="library-bottom-controls">
+          <fieldset className="library-marks-fieldset" disabled={!active}><MarkControls photo={active} advance={autoAdvance} /></fieldset>
+          <label className="cull-auto"><input type="checkbox" checked={autoAdvance} onChange={e => { setPrefs({ autoAdvance: e.target.checked }); e.target.blur(); }} />Auto advance</label>
+        </div>}
+        <span className="library-toolbar-space" />
+        <span aria-live="polite">{opening ? `Opening ${opening.name}…` : `${selectedCount.toLocaleString()} selected · ${shown.length.toLocaleString()} of ${sourceCount.toLocaleString()}`}</span>
+        {!opening && <><span className="chrome-divider" /><span className="library-key-hints">{loupe ? 'G Grid · D Develop · F Fullscreen' : 'E Loupe · D Develop'}</span></>}
+      </footer>}
+
     </main>
     {context.menu}
     {dialog && <LibrarySourceDialog key={`${dialog.kind}-${dialog.collection?.id ?? ''}`} dialog={dialog} onClose={() => setDialog(null)} onOpen={setDialog} />}

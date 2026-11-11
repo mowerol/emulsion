@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { useEffect, useRef, useState } from 'react';
-import { Flag as FlagGlyph, FlagOff } from 'lucide-react';
+import { Flag as FlagGlyph, FlagOff, Star } from 'lucide-react';
 import { photoId } from '../library/copies';
 import { useThumb } from '../library/thumbs';
 import { lookName } from '../film/looks';
@@ -80,12 +80,12 @@ export function MarkBadges({ photo }: { photo: Photo }) {
 }
 
 /** Flag, stars and colour tag to click, for the selected frames (or the active one). */
-export function MarkControls({ photo, advance = false }: { photo: Photo; advance?: boolean }) {
+export function MarkControls({ photo, advance = false }: { photo: Photo | null; advance?: boolean }) {
   return (
     <div className="mark-controls">
       <span className="mark-flags-input" role="group" aria-label="Flag">
         {FLAGS.map((f) => {
-          const on = photo.flag === f.id;
+          const on = photo?.flag === f.id;
           return (
             <button
               key={f.id}
@@ -107,14 +107,14 @@ export function MarkControls({ photo, advance = false }: { photo: Photo; advance
           <button
             key={n}
             type="button"
-            className={`mark-btn star${n <= photo.rating ? ' on' : ''}`}
+            className={`mark-btn star${n <= (photo?.rating ?? 0) ? ' on' : ''}`}
             aria-label={`${n} ${n === 1 ? 'star' : 'stars'}`}
-            aria-pressed={n === photo.rating}
-            title={n === photo.rating ? `Clear rating (0)` : `${n} ${n === 1 ? 'star' : 'stars'} (${n})`}
+            aria-pressed={n === (photo?.rating ?? 0)}
+            title={n === (photo?.rating ?? 0) ? `Clear rating (0)` : `${n} ${n === 1 ? 'star' : 'stars'} (${n})`}
             // Clicking the current rating clears it, as in Lightroom.
-            onClick={() => markPhotos({ rating: n === photo.rating ? 0 : n }, advance)}
+            onClick={() => markPhotos({ rating: n === (photo?.rating ?? 0) ? 0 : n }, advance)}
           >
-            {'★'}
+            <Star size={15} fill="currentColor" strokeWidth={1.8} />
           </button>
         ))}
       </span>
@@ -123,9 +123,9 @@ export function MarkControls({ photo, advance = false }: { photo: Photo; advance
           <button
             key={l.id}
             type="button"
-            className={`mark-btn swatch-btn${photo.label === l.id ? ' on' : ''}`}
+            className={`mark-btn swatch-btn${photo?.label === l.id ? ' on' : ''}`}
             aria-label={`${l.name} tag`}
-            aria-pressed={photo.label === l.id}
+            aria-pressed={photo?.label === l.id}
             title={`${l.name} (${l.key})`}
             onClick={() => markPhotos({ label: l.id }, advance)}
           >

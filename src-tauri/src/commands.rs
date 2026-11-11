@@ -47,6 +47,11 @@ pub async fn scan_folder(path: String, recursive: bool) -> Result<library::ScanR
 }
 
 #[tauri::command]
+pub async fn list_folder_photos(path: String, recursive: bool) -> Result<library::DiskListing, String> {
+    blocking(move || library::list_photos(Path::new(&path), recursive).map_err(|e| e.to_string())).await
+}
+
+#[tauri::command]
 pub async fn photo_exposure(path: String) -> Result<Option<crate::exposure::Exposure>, String> {
     blocking(move || Ok(crate::exposure::read(Path::new(&path)))).await
 }
@@ -172,6 +177,31 @@ pub async fn write_sidecar(path: String, saved: sidecar::Saved, checkpoint: Opti
     .await
 }
 
+/// One photo's keywords after `retag_keywords`.
+#[derive(serde::Serialize)]
+pub struct Retagged {
+    path: String,
+    /// The photo's metadata now, when it changed.
+    meta: Option<xmp::Meta>,
+    error: Option<String>,
+}
+
+/// Rename or move keyword `from` (and the keywords under it) to `to`, or delete it (`to` null), in
+/// photos that aren't open (the Keyword List).
+#[tauri::command]
+pub async fn retag_keywords(paths: Vec<String>, from: String, to: Option<String>) -> Result<Vec<Retagged>, String> {
+    blocking(move || {
+        Ok(paths
+            .par_iter()
+            .map(|p| match crate::keywords::retag(Path::new(p), &from, to.as_deref()) {
+                Ok(meta) => Retagged { path: p.clone(), meta, error: None },
+                Err(e) => Retagged { path: p.clone(), meta: None, error: Some(e.to_string()) },
+            })
+            .collect())
+    })
+    .await
+}
+
 /// Earlier states of a photo's edits, newest first.
 #[tauri::command]
 pub async fn sidecar_history(path: String) -> Result<Vec<sidecar::Earlier>, String> {
@@ -278,10 +308,15 @@ pub async fn write_export(request: Request<'_>) -> Result<export::Written, expor
     let existing: export::Existing =
         serde_json::from_str(&header(&request, "x-emulsion-existing")?).map_err(|e| format!("Invalid existing-file rule: {e}"))?;
     let protect = header(&request, "x-emulsion-protect").ok().filter(|p| !p.is_empty()).map(PathBuf::from);
+    // What to embed (Export › Metadata); absent writes none.
+    let meta: Option<crate::export_meta::Request> = match header(&request, "x-emulsion-meta") {
+        Ok(text) if !text.is_empty() => Some(serde_json::from_str(&text).map_err(|e| format!("Invalid export metadata: {e}"))?),
+        _ => None,
+    };
     let pixels = bytes.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let px = if format.bits() == 16 { export::Pixels::Rgb16(&pixels) } else { export::Pixels::Rgba8(&pixels) };
-        export::write_frame(&dir, &stem, &px, width, height, format, existing, protect.as_deref())
+        export::write_frame(&dir, &stem, &px, width, height, format, existing, protect.as_deref(), meta.as_ref())
     })
     .await
     .map_err(|e| e.to_string())?

@@ -5,8 +5,8 @@ vi.mock('../backend/api', () => ({
   thumbnail: vi.fn(), isTauri: () => false, logToTerminal: () => {},
 }));
 import { scanFolder, writeSidecar, type ScanResult } from '../backend/api';
-import { addToCollection, cacheFolder, catalogPhotos, matchesRules, migrateCollection, saveCollection, sourceMatches, useCatalog } from './catalog';
-import { closeFolder, importFolderPhotos, markPhotos, openFolder, selectAll, selectSource, setFilter, setFoldJpegs, setSelectedOnly, shown, sourcePhotos, step, undo, useApp, type Photo } from './store';
+import { addToCollection, cacheFolder, catalogPhotos, localDay, matchesRules, migrateCollection, saveCollection, sourceMatches, useCatalog } from './catalog';
+import { closeFolder, importFolderPhotos, markPhotos, openFolder, selectAll, selectSource, setFilter, setFoldJpegs, setSelectedOnly, shown, sourceIndices, sourcePhotos, step, undo, useApp, type Photo } from './store';
 import { defaultRecipe } from '../film/recipe';
 import { compareFolders } from './folders';
 import { NO_FILTER } from './filter';
@@ -85,6 +85,18 @@ it('updates smart membership immediately as ratings change, including undo', asy
   expect(sourcePhotos().map(p => p.name)).toEqual(['a.jpg']);
 });
 
+it('reads a source\'s members once per state, not once per caller', async () => {
+  await importFolder('/once', ['a.jpg', 'b.jpg']);
+  saveCollection({ id: 'any', name: 'Any', type: 'smart', rules: [{ field: 'rating', value: 0 }], createdAt: 1 });
+  await selectSource({ type: 'collection', id: 'any' });
+  const first = sourcePhotos();
+  expect(sourcePhotos()).toBe(first);
+  expect(sourceIndices()).toBe(sourceIndices());
+  // A changed rule is a new definition, and is read again.
+  saveCollection({ id: 'any', name: 'Any', type: 'smart', rules: [{ field: 'rating', value: 1 }], createdAt: 1 });
+  expect(sourcePhotos()).toEqual([]);
+});
+
 it('combines toolbar filters with the source, gives a real empty state, and retains the active edit', async () => {
   await importFolder('/filters', ['a.jpg', 'b.jpg']);
   const active = useApp.getState().active;
@@ -119,6 +131,10 @@ it('evaluates edited, flag, label, camera, look, capture date, and folder rules 
   expect(matchesRules({ ...p, recipe: null }, [{ field: 'look', value: 'Neutral' }])).toBe(true);
   expect(matchesRules(p, [{ field: 'camera', value: 'Canon' }])).toBe(false);
   expect(matchesRules({ ...p, capture: undefined, modified: new Date(2026, 9, 12).getTime() }, [{ field: 'date', value: '2026-10-12', before: true }])).toBe(true);
+  // The local day, as toLocaleDateString('en-CA') gives it, at both ends of a day.
+  for (const t of [new Date(2026, 0, 5, 0, 0, 1).getTime(), new Date(2026, 11, 31, 23, 59).getTime(), 1790000000000]) {
+    expect(localDay(t)).toBe(new Date(t).toLocaleDateString('en-CA'));
+  }
 });
 
 it('matches each flag state, and reads a Favourite rule from before flags as Picked', () => {
@@ -153,11 +169,14 @@ it('ignores an outdated source scan after the user switches back to a folder', a
   expect(useApp.getState().source).toEqual({ type: 'folder', id: '/race' });
 });
 
-it('records newly discovered sync files as a separate import without expanding the older session', async () => {
+it('records explicitly added files as a separate import without expanding the older session', async () => {
   await importFolder('/sync-history', ['a.jpg']);
   const first = useCatalog.getState().imports[0];
   folders['/sync-history'] = scan('/sync-history', ['a.jpg', 'b.jpg']);
   await openFolder('/sync-history');
+  expect(useCatalog.getState().imports).toHaveLength(1);
+  expect(sourcePhotos().map(p => p.name)).toEqual(['a.jpg']);
+  importFolderPhotos({ mode: 'selected', paths: ['/sync-history/b.jpg'] });
   expect(useCatalog.getState().imports[0].photoIds).toEqual(['/sync-history/b.jpg']);
   await selectSource({ type: 'import', id: first.id });
   expect(sourcePhotos().map(p => p.name)).toEqual(['a.jpg']);

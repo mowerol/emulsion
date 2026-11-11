@@ -40,14 +40,15 @@ export function menuState(s: State, prefs: InterfacePreferences, workspace: Work
   const photo = free && !!activePhoto(s);
   const developing = (s.view === 'develop' || !!s.lookEdit) && !!activePhoto(s);
   const enabled: Record<string, boolean> = {
-    'import': free,
-    'export': free && sourcePhotos(s).length > 0,
+    'import': free && !s.choosingImport,
+    'sync-folder': free && !s.choosingImport && s.source?.type === 'folder',
+    'export': free && !s.choosingImport && sourcePhotos(s).length > 0,
     'show-in-finder': photo,
     'virtual-copy': photo,
     'copy-settings': photo,
     'paste-settings': photo && !!s.clipboard,
     'view-library': free,
-    'view-develop': free && sourcePhotos(s).length > 0,
+    'view-develop': free && !s.choosingImport && sourcePhotos(s).length > 0,
     'library-grid': free && !s.choosingImport,
     'library-loupe': photo && !s.choosingImport && shownPhotos(s).length > 0,
     'loupe-fullscreen': photo && !s.choosingImport && shownPhotos(s).length > 0,
@@ -200,7 +201,8 @@ export async function installAppMenu(run: (id: string) => void): Promise<() => v
   await fillRecent();
 
   const file = await Submenu.new({ text: 'File', items: [
-    await item('import', 'Import Folder…', 'CmdOrCtrl+O'),
+    await item('import', 'Import…', 'CmdOrCtrl+I'),
+    await item('sync-folder', 'Sync Folder…'),
     recent,
     await sep(),
     await item('virtual-copy', 'Create Virtual Copy', "CmdOrCtrl+'"),
