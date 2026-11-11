@@ -78,7 +78,7 @@ export function ellipseValue(e: EllipseShape, u: number, v: number, W: number, H
 
 export const shapeValue = (s: MaskShape, u: number, v: number, W: number, H: number) =>
   s.kind === 'gradient' ? gradientValue(s, u, v, W, H) : s.kind === 'ellipse' ? ellipseValue(s, u, v, W, H)
-    : s.kind === 'object' ? rasterValue(s.raster, u, v) : brushValue(s as BrushShape, u, v, W, H);
+    : s.kind === 'object' || s.kind === 'sky' ? rasterValue(s.raster, u, v) : brushValue(s as BrushShape, u, v, W, H);
 
 /** darktable's _combine_masks_*: `dest` so far, with the next shape's value already at its opacity. */
 export function combine(mode: MaskMode | 'copy', dest: number, mask: number): number {
@@ -292,7 +292,7 @@ export function packShapes(masks: Mask[], show = -1): { shapes: number[]; count:
       if (s.kind === 'gradient') shapes.push(1, mode, s.opacity, slot, s.anchor[0], s.anchor[1], rad(s.rotation), s.compression, s.curvature, s.linear ? 1 : 0, s.invert ? 1 : 0, 0);
       else if (s.kind === 'ellipse') shapes.push(2, mode, s.opacity, slot, s.center[0], s.center[1], s.radius[0], s.radius[1], rad(s.rotation), s.border, s.proportional ? 1 : 0, s.invert ? 1 : 0);
       // Brushes and objects past the textures' room count as empty.
-      else if (s.kind === 'object') shapes.push(4, mode, objects < MAX_OBJECTS ? s.opacity : 0, slot, objects++, 0, 0, 0, 0, 0, 0, s.invert ? 1 : 0);
+      else if (s.kind === 'object' || s.kind === 'sky') shapes.push(4, mode, objects < MAX_OBJECTS ? s.opacity : 0, slot, objects++, 0, 0, 0, 0, 0, 0, s.invert ? 1 : 0);
       else shapes.push(3, mode, brushes < MAX_BRUSHES ? s.opacity : 0, slot, brushes++, 0, 0, 0, 0, 0, 0, s.invert ? 1 : 0);
     });
   }

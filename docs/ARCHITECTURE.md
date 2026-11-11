@@ -163,6 +163,23 @@ Halation and Glow are darktable's spektrafilm optics (film-base reflections; the
 
 A recipe's `crop` (`film/crop.ts`) turns the photo about its centre by `angle`, then cuts a rectangle from it, measured in units of the source's width and height (so with no rotation it is the ordinary crop in image coordinates). The develop pass composes crop with perspective and maps each frame pixel to the source with one projective map (`uGeoU`, `uGeoV`, `uGeoW`); every other pass (tone equalizer map, highlight pyramid, sharpening) still works on the whole source, which the develop pass samples at the mapped point. Grain, halation and glow belong to the film, so they stay tied to the uncropped frame and cropping enlarges them, as it would a negative. The vignette is RawTherapee's post-crop one: it is fitted to the crop (`uVigGeoU/V/W`, the inverse of the frame map, so source-space taps place it too). While cropping, the canvas shows the whole straightened photo (`bounds`) with the stage colour around it, and `CropOverlay` edits a draft in the store that is saved as one undo step when cropping ends. Everything that sizes a render (export, thumbnails, stock tiles, histogram) uses `framePixels`. Pasted settings keep each frame's own crop.
 
+### Automatic sky masks
+
+Masks → Select sky (`ui/skyselect.ts`) is an immediate action using the same uncropped,
+unmasked sRGB render as object selection (at most 1536 px). It checks a separate optional
+model package (`sky_commands.rs`: `sky_mask_status`, `sky_mask_install`, `segment_sky`),
+sharing ONNX Runtime with SAM. The 88 MB U²-Net FP16 ONNX model is pinned by revision and
+SHA-256, downloaded only after the sized prompt, and run locally on Apple silicon's CPU.
+`sky.rs` follows the model author's 320² RGB preprocessing, first output and min/max
+normalization. The soft mask is bilinearly resized to the render and saved as `SkyShape`
+(`kind: 'sky'`, `raster`) in one undo step, without SAM prompts. Sky and object shapes share
+the eight raster slots in `ObjectGpu` and the existing shader path. Brush combinations,
+ranges, refinement, geometry, thumbnails and exports therefore use the saved pixels.
+Pending selection captures the frame's identity (including virtual-copy id) and destination
+mask; navigation, cancellation, changed lens geometry or a removed destination discard the
+result. A consented model download can continue in the background and be joined by a new
+selection. No inference runs during ordinary edits or export of a saved mask.
+
 ### Preview and export
 
 Settled regional rendering retains full source density for the spatial effects at every zoom.
@@ -322,7 +339,7 @@ Writes are debounced in the webview and atomic in Rust (write to a temporary fil
 
 **Edit history.** A sidecar also keeps earlier states of the edits (`history`: recipe and copies, oldest first, at most 20 and 4 MB), as darktable keeps the history stack in its XMP. A state is kept when it is replaced at a checkpoint: a reset, a paste, an edit of several photos, removing a copy, restoring an earlier edit (the webview passes `checkpoint` with the write), or the first change 30 minutes after the last checkpoint (`checkpoint` time in the file). Stars, tags and flags never make history. A photo with history keeps its sidecar after a reset. The panel's ⋯ menu → Earlier edits lists them (`sidecar_history`).
 
-**XMP sidecars.** Stars, the colour label, keywords and IPTC fields (title, caption, creator, copyright, sublocation, city, state, country) are also shared with other apps through `<stem>.xmp` beside the photo, Lightroom Classic's convention (`DSCF0001.RAF` → `DSCF0001.xmp`), read and written with Adobe's XMP Toolkit SDK (`src-tauri/src/xmp.rs`). Keywords and IPTC fields belong to the source file: they are saved as `meta` at the top of `.emulsion.json` and its virtual copies share them; copies' own stars and labels stay in Emulsion's sidecar, as do picks (no standard field). A reject is written as `xmp:Rating` -1, as Bridge and darktable write it and Lightroom reads it; the stars stay in `.emulsion.json` meanwhile and go back into the XMP when the reject is cleared. On a scan, a newer XMP with -1 rejects the photo and keeps its stars; a newer one without it un-rejects it.
+**XMP sidecars.** Stars, the colour label, keywords and IPTC fields (title, caption, creator, copyright, sublocation, city, state, country) are also shared with other apps through `<stem>.xmp` beside the photo, Lightroom Classic's convention (`DSCF0001.RAF` → `DSCF0001.xmp`), read and written with Adobe's XMP Toolkit SDK (`src-tauri/src/xmp.rs`). Keywords and IPTC fields belong to the source file: they are saved as `meta` at the top of `.emulsion.json` and its virtual copies share them; copies' own stars and labels stay in Emulsion's sidecar, as do picks (no standard field). A reject is written as `xmp:Rating` -1, as Bridge and darktable write it and Lightroom reads it; the stars stay in `.emulsion.json` meanwhile and go back into the XMP when the reject is cleared. On a scan, a newer XMP with -1 rejects the photo and keeps its stars; a newer XMP without it un-rejects it.
 
 - *Ownership:* one `<stem>.xmp` serves a whole stem, so a RAW owns it over a DNG over anything else (RAW+JPEG pairs), and a tie (two RAWs of one name) means nobody. A file that doesn't own it neither reads nor writes it.
 - *Writing:* when a save changes the stars, label, keywords or fields (`sidecar::write` compares with the last save), the XMP is updated before `.emulsion.json`: only fields that differ are touched, everything else in the file is kept (Lightroom's `crs:` develop settings, darktable's history, a `-1` reject, a Purple label, `lr:hierarchicalSubject` paths whose leaf is still a keyword), and `xmp:MetadataDate` is stamped. `.emulsion.json` records the XMP's modified time after that write (`xmp`). A file that isn't XMP is never replaced; the edits are saved and the error shown. A photo with nothing to share gets no XMP. Nothing is written into photos.

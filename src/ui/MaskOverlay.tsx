@@ -236,7 +236,7 @@ export function MaskOverlay({ transform, frame, W, H, view, cssW, cssH, onPick }
         </g>
       );
     }
-    if (s.kind === 'brush') return null;
+    if (s.kind === 'brush' || s.kind === 'sky') return null;
     if (s.kind === 'object') return drawPrompts(s, isActive || (tool?.kind === 'object' && editingObject() === s.id));
     const h = ellipseHandles(s, W, H);
     const c = toScreen(s.center);

@@ -4,13 +4,14 @@
 // the values that have no handle.
 
 import { useEffect, useRef, useState } from 'react';
-import { Ellipsis } from 'lucide-react';
+import { CloudSun, Ellipsis } from 'lucide-react';
 import { BRUSH_DEFAULTS, MASK_MODES, MASK_SLIDERS, REFINE_SLIDERS, type EllipseShape, type GradientShape, type Mask, type MaskMode, type MaskShape, type MaskSliderDef, type ObjectShape } from '../film/masks';
 import { installObjectModel, newObjectSession, prepareObjectSelect, useObjectSelect } from './objectselect';
 import { formatEv, formatSigned } from '../film/recipe';
 import { MaskRanges } from './MaskRange';
 import { deleteMask, deleteShape, duplicateMask, setMaskUi, updateMask, updateShape, useMasks, useMaskUi, useSelectedMask, type MaskTool } from './maskui';
 import { LiveRange } from './LiveRange';
+import { cancelSkySelect, installSkyModel, retrySkySelect, selectSky, useSkySelect } from './skyselect';
 
 const TOOLS: { kind: MaskTool['kind']; label: string; short: string; hint: string }[] = [
   { kind: 'gradient', label: 'Linear gradient', short: 'Linear', hint: 'Drag on the photo from where the effect is full to where it ends' },
@@ -19,7 +20,7 @@ const TOOLS: { kind: MaskTool['kind']; label: string; short: string; hint: strin
   { kind: 'object', label: 'Select object', short: 'Object', hint: 'Click a thing in the photo to select it. Click again to take in more, ⇧-click to leave a part out, ⌘⇧-click to start over' },
 ];
 
-const shapeName = (s: MaskShape) => (s.kind === 'gradient' ? 'Linear gradient' : s.kind === 'ellipse' ? 'Radial gradient' : s.kind === 'object' ? 'Object' : 'Brush');
+const shapeName = (s: MaskShape) => (s.kind === 'gradient' ? 'Linear gradient' : s.kind === 'ellipse' ? 'Radial gradient' : s.kind === 'object' ? 'Object' : s.kind === 'sky' ? 'Sky' : 'Brush');
 
 function Slider({ id, label, value, min, max, step, format, onChange, onReset }: {
   id: string; label: string; value: number; min: number; max: number; step: number;
@@ -40,6 +41,7 @@ const fmtFor = (d: MaskSliderDef) => (d.key === 'exposure' ? formatEv : formatSi
 
 function ToolButtons({ mode, label }: { mode: MaskTool['mode']; label?: string }) {
   const tool = useMaskUi((s) => s.tool);
+  const skyBusy = useSkySelect((s) => s.phase === 'checking' || s.phase === 'downloading' || s.phase === 'working');
   return (
     <div className={`mask-tools${label ? ' labelled' : ''}`} role="group" aria-label={label ?? 'New mask'}>
       <span className="mask-tools-label">{label ?? 'New mask'}</span>
@@ -49,6 +51,7 @@ function ToolButtons({ mode, label }: { mode: MaskTool['mode']; label?: string }
           return (
             <button key={t.kind} type="button" className={`btn mask-tool ${t.kind}`} aria-pressed={on} title={t.hint} aria-label={label ? `${label} ${t.label.toLowerCase()}` : undefined}
               onClick={() => {
+                cancelSkySelect();
                 setMaskUi({ tool: on ? null : { kind: t.kind, mode }, pick: null });
                 if (t.kind === 'object' && !on) { newObjectSession(); void prepareObjectSelect(); }
               }}>
@@ -56,6 +59,11 @@ function ToolButtons({ mode, label }: { mode: MaskTool['mode']; label?: string }
             </button>
           );
         })}
+        <button type="button" className="btn mask-tool sky" disabled={skyBusy}
+          aria-label={label ? `${label} sky` : 'Select sky'} title="Automatically select the sky in this photo"
+          onClick={() => void selectSky(mode)}>
+          <CloudSun size={14} aria-hidden="true" /><span className="mask-tool-name">{label ? 'Sky' : 'Select sky'}</span>
+        </button>
       </div>
     </div>
   );
@@ -69,7 +77,7 @@ function ShapeRow({ mask, shape, index }: { mask: Mask; shape: MaskShape; index:
     <li className={`mask-shape${active ? ' active' : ''}`}>
       <div className="mask-shape-head">
         <button type="button" className="mask-shape-name" aria-pressed={active} onClick={() => setMaskUi({ shape: active ? null : shape.id })}>
-          <span className={`mask-shape-icon ${shape.kind}`} aria-hidden="true" />{shapeName(shape)}
+          {shape.kind === 'sky' ? <CloudSun size={14} aria-hidden="true" /> : <span className={`mask-shape-icon ${shape.kind}`} aria-hidden="true" />}{shapeName(shape)}
         </button>
         {index > 0 && (
           <select aria-label="How this shape joins the ones above" value={shape.mode} onChange={(e) => edit((s) => ({ ...s, mode: e.target.value as MaskMode }), 'Shape mode')}>
@@ -85,6 +93,7 @@ function ShapeRow({ mask, shape, index }: { mask: Mask; shape: MaskShape; index:
             onChange={(v) => edit((s) => ({ ...s, opacity: v / 100 }), 'Shape opacity', true)} onReset={() => edit((s) => ({ ...s, opacity: 1 }), 'Shape opacity')} />
           {shape.kind === 'gradient' ? <GradientFields shape={shape} edit={edit} /> : shape.kind === 'ellipse' ? <EllipseFields shape={shape} edit={edit} />
             : shape.kind === 'object' ? <ObjectFields mask={mask} shape={shape} />
+            : shape.kind === 'sky' ? <p className="hint">Use Add or Subtract with a brush to refine the sky. Feather follows edges in the photo.</p>
             : <p className="hint">{shape.strokes.length} {shape.strokes.length === 1 ? 'stroke' : 'strokes'}</p>}
         </div>
       )}
@@ -162,6 +171,29 @@ function ObjectStatus() {
     </div>
   );
   return null;
+}
+
+/** Sky is an immediate action, so its status stays visible without a pointer tool. */
+function SkyStatus() {
+  const { phase, download, progress, error } = useSkySelect();
+  if (phase === 'idle') return null;
+  return (
+    <div className="mask-object-status" role={phase === 'error' ? 'alert' : 'status'}>
+      {phase === 'missing' ? <>
+        <p className="hint">Select sky needs a one-time {Math.ceil(download / 1e6)} MB model download. Photos stay on this Mac.</p>
+        <button type="button" className="btn" onClick={() => void installSkyModel()}>Download sky model</button>
+      </> : phase === 'downloading' ? <>
+        <p className="hint">Downloading sky model… {progress?.total ? `${Math.round(100 * progress.done / progress.total)}%` : ''}</p>
+        <progress aria-label="Sky model download" max={progress?.total || 1} value={progress?.done ?? 0} />
+      </> : phase === 'checking' ? <p className="hint">Checking sky model…</p>
+        : phase === 'working' ? <p className="hint">Selecting sky…</p>
+          : <>
+            <p className="hint">{error}</p>
+            {phase === 'error' && <button type="button" className="btn" onClick={() => void retrySkySelect()}>Try again</button>}
+          </>}
+      <button type="button" className="btn" onClick={cancelSkySelect}>{phase === 'downloading' ? 'Continue in background' : phase === 'unsupported' ? 'Dismiss' : 'Cancel'}</button>
+    </div>
+  );
 }
 
 /** darktable's brush settings: border (size), hardness and density. */
@@ -267,7 +299,8 @@ export function MaskControls() {
     const key = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA') && (t as HTMLInputElement).type !== 'range' && (t as HTMLInputElement).type !== 'checkbox') return;
-      if (e.key === 'Escape' && (useMaskUi.getState().tool || useMaskUi.getState().pick)) { e.preventDefault(); setMaskUi({ tool: null, pick: null }); }
+      if (e.key === 'Escape' && useSkySelect.getState().phase !== 'idle') { e.preventDefault(); cancelSkySelect(); }
+      else if (e.key === 'Escape' && (useMaskUi.getState().tool || useMaskUi.getState().pick)) { e.preventDefault(); setMaskUi({ tool: null, pick: null }); }
       else if (!e.metaKey && !e.ctrlKey && !e.altKey && e.key.toLowerCase() === 'o' && useMaskUi.getState().selected) setMaskUi({ overlay: !useMaskUi.getState().overlay });
       else if ((e.key === '[' || e.key === ']') && useMaskUi.getState().tool?.kind === 'brush') {
         const b = useMaskUi.getState().brush;
@@ -280,6 +313,7 @@ export function MaskControls() {
   return (
     <div className="mask-controls">
       <ToolButtons mode="new" />
+      <SkyStatus />
       {tool && <p className="hint mask-hint">{TOOLS.find((t) => t.kind === tool.kind)!.hint}. Esc puts the tool down.</p>}
       {tool?.kind === 'brush' && <BrushSettings />}
       {tool?.kind === 'object' && <ObjectStatus />}
@@ -296,7 +330,7 @@ export function MaskControls() {
           ))}
         </ul>
       )}
-      {!masks.length && !tool && <p className="hint">A mask applies its own exposure, white balance and colour to part of the photo. Pick a gradient, then drag on the photo.</p>}
+      {!masks.length && !tool && <p className="hint">A mask applies its own exposure, white balance and colour to part of the photo. Select the sky or an object, paint a brush, or draw a gradient.</p>}
       {selected && <MaskEditor mask={selected} />}
     </div>
   );

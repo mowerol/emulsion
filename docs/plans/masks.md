@@ -44,6 +44,27 @@ Linear gradient (darktable gradient: sigmoidal or linear transition, curvature) 
 
 ## Phase 3: AI subject and sky masks
 
+### Sky built (2026-11-11)
+
+**Select sky** is now a one-click action in New mask, Add and Subtract. It creates a `sky`
+shape containing the same RLE raster used by objects, with no SAM prompts or model dependency
+when reopening/exporting. Sky and objects share the eight raster slots. Brushes, ranges and
+the existing guided-filter Feather controls refine it. It is one undo step; pending results
+are discarded on frame/virtual-copy navigation, cancellation or changed lens geometry.
+
+The separate optional model download is U²-Net sky FP16 (88,084,505 bytes), hosted at
+`voyagerfromeast/skyseg` revision `d76f97cf68f049654f087d78d071dfd7505b2561`, SHA-256
+`74d87f4a69378a610a6be662f859c38cfbdfdd75ff74bbfc54842965ed6fc9f7`. It shares the installed
+ONNX Runtime with SAM but does not require SAM. `sky.rs` follows xiongzhu666's
+`onnx_interence.py` at `1f7811b32b64ddc957269defff84bc87a3f0b74f`: 320², RGB, ImageNet
+normalization, first graph output, min/max normalization and uint8 truncation. Bilinear
+resizing is expressed in Rust; its rounding can differ from OpenCV by one input byte. A
+constant map is kept empty. CPU inference uses four threads. No automatic DenseCRF or
+special sky-edge processing is added; manual mask refinement remains available.
+
+The findings and original plan below are historical; see NOTICE and ARCHITECTURE for the
+implemented model and storage format.
+
 Findings (2026-11-01):
 
 - darktable 5.6 shipped AI object masks: click a subject, the model segments it and the mask is vectorised into editable path shapes. Models: SAM 2.1 (small by default; tiny and base-plus) and SegNext ViT-B, downloaded on request, opt-in, run locally on CPU or GPU, no telemetry. darktable's own docs say results are sometimes worse than classical masks and fine detail (hair) is weak; matting refinement is being worked on by a contributor, not shipped. Community packages add SAM 2.1 Large (Apache-2.0) and SAM 3 (custom licence, darktable 5.8+).

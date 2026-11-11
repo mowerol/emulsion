@@ -49,6 +49,9 @@ export function setObjectRenderer(f: (() => ObjectRender | null) | null) {
   renderer = f;
 }
 
+/** Shared whole-frame render for automatic sky selection. Does not load or run SAM. */
+export const maskRender = () => renderer?.() ?? null;
+
 /** Check the model is there; when it is, encode the photo shown. */
 export async function prepareObjectSelect() {
   if (!isTauri()) return set({ phase: 'unsupported', error: 'Object selection runs in the desktop app.' });
@@ -154,7 +157,7 @@ async function click(x: number, y: number, tool: MaskTool, away: boolean, clear:
   if (!encoded) return;
   const masks = masksNow();
   if (!current) {
-    if (objectCount(masks) >= MAX_OBJECTS) return showToast(`A photo can hold ${MAX_OBJECTS} selected objects over all its masks.`);
+    if (objectCount(masks) >= MAX_OBJECTS) return showToast(`A photo can hold ${MAX_OBJECTS} AI selections over all its masks.`);
     if (shapeCount(masks) >= MAX_SHAPES) return showToast(`A photo can hold ${MAX_SHAPES} shapes over all its masks.`);
     if ((tool.mode === 'new' || !masks.some((m) => m.id === useMaskUi.getState().selected)) && masks.length >= MAX_MASKS) return showToast(`A photo can hold ${MAX_MASKS} masks.`);
   }

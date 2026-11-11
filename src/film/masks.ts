@@ -101,14 +101,22 @@ export interface ObjectShape extends ShapeBase {
   raster: ObjectRaster;
 }
 
-export type MaskShape = GradientShape | EllipseShape | BrushShape | ObjectShape;
+/** A one-click sky selection, stored in source coordinates alongside object rasters. */
+export interface SkyShape extends ShapeBase {
+  kind: 'sky';
+  raster: ObjectRaster;
+}
+
+export type RasterShape = ObjectShape | SkyShape;
+export type MaskShape = GradientShape | EllipseShape | BrushShape | RasterShape;
+export const isRasterShape = (s: MaskShape): s is RasterShape => s.kind === 'object' || s.kind === 'sky';
 
 /** darktable's brush defaults (darktableconfig.xml.in): border 0.05, hardness 0.66, density 1. */
 export const BRUSH_DEFAULTS = { border: 0.05, hardness: 0.66, density: 1 };
 
 /** How many brush shapes a photo holds over all its masks (one RGBA mask texture). */
 export const MAX_BRUSHES = 4;
-/** How many AI objects a photo holds over all its masks (two layers of the mask stack). */
+/** How many object and sky rasters a photo holds over all its masks (two stack layers). */
 export const MAX_OBJECTS = 8;
 /** Prompts on one object; darktable sets no limit, this keeps a sidecar sane. */
 export const MAX_OBJECT_PROMPTS = 64;
@@ -229,8 +237,8 @@ export const maskActive = (m: Mask) => m.on && m.opacity > 0 && m.shapes.length 
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
-/** How many AI objects a list of masks holds. */
-export const objectCount = (masks: Mask[]) => masks.reduce((n, m) => n + m.shapes.filter((s) => s.kind === 'object').length, 0);
+/** How many object and sky rasters a list of masks holds. */
+export const objectCount = (masks: Mask[]) => masks.reduce((n, m) => n + m.shapes.filter(isRasterShape).length, 0);
 
 /** How many brush shapes a list of masks holds. */
 export const brushCount = (masks: Mask[]) => masks.reduce((n, m) => n + m.shapes.filter((s) => s.kind === 'brush').length, 0);
@@ -257,6 +265,10 @@ function normalizeShape(input: unknown): MaskShape | null {
       return { x: num(q.x, 0, -2, 3), y: num(q.y, 0, -2, 3), border: num(q.border, BRUSH_DEFAULTS.border, 0.0005, 1), hardness: num(q.hardness, BRUSH_DEFAULTS.hardness, 0, 1), density: num(q.density, BRUSH_DEFAULTS.density, 0, 1) };
     }).filter((n): n is BrushNode => !!n)).filter((st) => st.length > 0 && (nodes += st.length) <= MAX_BRUSH_NODES);
     return { ...newBrush(), ...base, strokes };
+  }
+  if (o.kind === 'sky') {
+    const raster = normalizeRaster(o.raster);
+    return raster ? { ...base, kind: 'sky', raster } : null;
   }
   if (o.kind === 'object') {
     const raster = normalizeRaster(o.raster);

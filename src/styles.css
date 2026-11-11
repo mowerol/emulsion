@@ -724,10 +724,11 @@ input.range:disabled { opacity: 0.35; cursor: default; }
 .mask-tools { display:flex; flex-direction:column; gap:4px; min-width:0; }
 .mask-tools-label { width:62px; font-size:11px; color:var(--muted); }
 .mask-tool-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:4px; min-width:0; }
-/* Add and Subtract: the four shapes sit as icons beside their label. */
+/* Add and Subtract: shapes sit as icons beside their label. */
 .mask-tools.labelled { display:grid; grid-template-columns:52px minmax(0,1fr); align-items:start; gap:0 6px; }
 .mask-tools.labelled .mask-tools-label { width:auto; padding-top:9px; }
-.mask-tools.labelled .mask-tool-grid { grid-template-columns:repeat(4,minmax(0,1fr)); gap:3px; }
+.mask-tools.labelled .mask-tool-grid { grid-template-columns:repeat(5,minmax(0,1fr)); gap:3px; }
+.mask-tools:not(.labelled) .mask-tool.sky { grid-column:1 / -1; }
 .mask-tools.labelled .mask-tool { flex-direction:column; justify-content:center; gap:3px; padding:4px 2px; }
 .mask-tools.labelled .mask-tool-name { display:block; font-size:10px; color:var(--muted); }
 .mask-tools.labelled .mask-tool[aria-pressed=true] .mask-tool-name { color:inherit; }

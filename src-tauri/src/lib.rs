@@ -24,6 +24,8 @@ mod rawspeed_cameras;
 mod presets;
 mod perspective;
 mod segment;
+mod sky;
+mod sky_commands;
 mod sidecar;
 mod thumbs;
 mod user_looks;
@@ -107,6 +109,9 @@ pub fn run() {
             ai_masks::segment_encode,
             ai_masks::segment_decode,
             ai_masks::segment_refine,
+            sky_commands::sky_mask_status,
+            sky_commands::sky_mask_install,
+            sky_commands::segment_sky,
             inpaint_commands::remove_status,
             inpaint_commands::remove_install,
             inpaint_commands::remove_inpaint,
@@ -115,7 +120,7 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building Emulsion")
         .run(|app, event| match event {
-            tauri::RunEvent::Exit => { noise_cache::shutdown(); ai_masks::shutdown(); inpaint_commands::shutdown(); }
+            tauri::RunEvent::Exit => { noise_cache::shutdown(); ai_masks::shutdown(); sky_commands::shutdown(); inpaint_commands::shutdown(); }
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             tauri::RunEvent::Opened { urls } => {
                 let paths: Vec<String> = urls.iter().filter_map(|u| u.to_file_path().ok()).map(|p| p.to_string_lossy().into_owned()).collect();

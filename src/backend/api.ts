@@ -235,6 +235,17 @@ export interface AiMaskStatus { supported: boolean; installed: boolean; download
 export const aiMaskStatus = () => invoke<AiMaskStatus>('ai_mask_status');
 export const aiMaskInstall = () => invoke<void>('ai_mask_install');
 
+/** Automatic sky masks use a separate, optional model and share ONNX Runtime with SAM. */
+export const skyMaskStatus = () => invoke<AiMaskStatus>('sky_mask_status');
+export const skyMaskInstall = () => invoke<void>('sky_mask_install');
+export async function segmentSky(rgba: Uint8Array, width: number, height: number): Promise<Uint8Array> {
+  const mask = new Uint8Array(await invoke<ArrayBuffer>('segment_sky', rgba, {
+    headers: { 'x-emulsion-width': String(width), 'x-emulsion-height': String(height) },
+  }));
+  if (mask.length !== width * height) throw new Error('Invalid sky mask size.');
+  return mask;
+}
+
 /** Local Remove model (src-tauri/src/inpaint_commands.rs); download needs explicit UI consent. */
 export interface RemoveStatus { supported: boolean; installed: boolean; download: number; model: string }
 export const removeStatus = () => invoke<RemoveStatus>('remove_status');

@@ -1,12 +1,21 @@
 # Handoff
 
-All work through 2026-11-10 is committed except the top section (the DCP removal, darktable camera data, app icon, DNG
-and TIFF support, and the retouch overlays went in together); "Uncommitted" notes below are out of date.
+All work through 2026-11-11 is committed and pushed (flags, Select sky, the open-source map, the export
+dialog grid and the renamed Emulsion looks); "Uncommitted" notes below are out of date.
+
+## Open-source feature map (2026-11-11)
+
+Added `docs/OPEN_SOURCE.md` at Oli's request: feature-to-project attribution,
+implementation links, AI model installation status, bundled assets, supporting
+libraries, local experiments and historical ports. README now introduces the
+main contributors and links the guide; NOTICE remains the detailed licence,
+commit and copyright record and links back. Corrected README's stale grain and
+Shadows attribution and NOTICE's outdated development-only LaMa download wording.
+Documentation only; local links, LUT counts and diff whitespace checked.
 
 ## Pick and reject flags replace hearts (2026-11-11)
 
-Committed apart from Select sky (uncommitted in the same tree; they share `api.ts`,
-`styles.css`, README, ARCHITECTURE and this file). Roadmap priority 4, first step.
+Committed (9565daf). Roadmap priority 4, first step.
 Oli's choice: the heart goes; 5 stars and Pick take its place. Auto Advance is an option, off by
 default (Lightroom's); the full-screen cull loupe comes later.
 
@@ -74,6 +83,62 @@ first pass covers stars and labels, keywords, IPTC fields and reading embedded X
   in Emulsion → it shows Lightroom's; type keywords with commas and Enter, remove a chip, Cmd+Z;
   select two photos and edit City (shows Mixed first); a Fuji RAF rated in camera shows its stars
   after opening the folder; typing digits in the fields must not rate the photo.
+
+## AI Select sky (2026-11-11)
+
+Committed. Oli clarified that "AI sky removal" means automatically selecting the sky for
+local adjustments. Implemented **Masks → Select sky**, and **Add/Subtract → Sky**, within
+the existing panel (impeccable, incumbent design). It needs no click on the image. New masks
+are named Sky; each successful selection is one undo step. Brush, ranges, Feather and Blur
+work on it as on other shapes. The optional first-use prompt shows the missing download's
+size; downloading and selecting have status, failures have Try again. Continue in background
+keeps an already consented download running without selecting the old frame.
+
+- **Native:** `sky.rs` follows xiongzhu666's U²-Net `onnx_interence.py` at
+  `1f7811b32b64ddc957269defff84bc87a3f0b74f`: 320² RGB, ImageNet normalization, CHW,
+  first output, min/max normalization, uint8 truncation. Bilinear resizing is expressed
+  directly in Rust (rounding can differ from OpenCV by one input byte). `sky_commands.rs`
+  registers status/install/inference, validates RGBA dimensions and length, keeps a CPU
+  session with four intra-op threads, and releases it on exit.
+- **Model:** optional 88,084,505-byte FP16 ONNX from `voyagerfromeast/skyseg`, revision
+  `d76f97cf68f049654f087d78d071dfd7505b2561`, SHA-256
+  `74d87f4a69378a610a6be662f859c38cfbdfdd75ff74bbfc54842965ed6fc9f7`. Pinned and
+  verified with the existing installer, in `ai-models/mask-sky-u2net-fp16`. Shares ONNX
+  Runtime with SAM but downloads no SAM weights. MIT licence retained in
+  `src-tauri/licenses/skyseg.txt` and installed next to the model; NOTICE updated.
+- **Storage/rendering:** `SkyShape` (`kind: 'sky'`, raster, no SAM prompts), source
+  coordinates, existing RLE sidecar. `ObjectGpu` and `packShapes` share the existing eight
+  raster slots between objects and skies; no new shader or texture unit. The input is the
+  existing whole-frame 1536 px object render. No inference when editing, reopening, making
+  thumbnails or exporting a saved mask. `skyselect.ts` captures frame/virtual-copy identity,
+  destination mask and render geometry; navigation (even away and back), leaving Develop,
+  cancellation, changed lens geometry and deleted destinations discard pending results.
+- **Checked:** typecheck and production build; 95 Rust tests pass (16 ignored), plus the
+  ignored real-model `sky_on_photo` run explicitly. Frontend: 775 pass, 1 skipped; the sole
+  failure was `builtin-looks.test.ts` expecting the old Film names; fixed when the renamed
+  Emulsion looks were committed, and `npm run check` now passes.
+  New `skyselect.test.ts` covers consent/download retry/joining a background download,
+  undo/redo, Add/Subtract, navigation/virtual copies, cancellation, geometry, deleted
+  destinations, capacity and unsupported machines. `objectmask.test.ts` covers sidecar,
+  shared raster packing and brush subtraction. `sky-mask` GPU browser test passes in main
+  and worker modes: same pixels as the object raster path, crop/brush/refinement and saved
+  export match exactly (max diff 0). UI inspected at 280 and 340 px, plus the download prompt;
+  captures in `.scratch/sky/`. `git diff --check` clean.
+- **Real model:** upstream `eval/233129.jpg` (tree, buildings, cloudy night sky), 4032×3024:
+  load 0.118 s, inference/resizing 0.676 s. Compared with the author's Python/OpenCV path:
+  mean mask difference 0.157/255, p99 2/255, max 14/255; threshold agreement 99.956%.
+  The small differences start with uint8 resize rounding. Visually the tree and buildings
+  stay out while sky, including gaps through branches, is selected. Reproduction assets,
+  Python environment, model and diagnostic masks are ignored under `.scratch/sky/`;
+  no user-facing model installation was performed.
+- **Limits:** the model predicts at 320²; fine foliage/building edges may need Feather and
+  brush touchups. It uses upstream's per-image min/max normalization, not a calibrated
+  "no sky" classifier. A constant output becomes empty (avoids division by zero).
+  No dedicated matting, automatic DenseCRF or native in-app timing/interaction check.
+- **Oli should try:** reload the app, Masks → Select sky, accept the sized download once;
+  Exposure should affect the sky alone. Check trees/buildings/clouds, Add/Subtract Sky,
+  brush correction, Feather, Undo/Redo, crop/rotate, reopening and export. Switch photos or
+  virtual copies during selection: the old result must not be applied to the new frame.
 
 ## Fade removed; Vignette is RawTherapee's post-crop vignette (2026-11-10)
 

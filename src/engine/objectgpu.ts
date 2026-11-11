@@ -6,16 +6,16 @@
 
 import type { Gpu, Program } from './gpu';
 import type { Layer } from './maskstack';
-import { MAX_OBJECTS, type Mask, type ObjectShape } from '../film/masks';
+import { isRasterShape, MAX_OBJECTS, type Mask, type RasterShape } from '../film/masks';
 import { decodeRaster } from '../film/objectmask';
 
 /** The objects of the masks the shader packs, in order (their place here is their channel). */
-export function objectShapes(masks: Mask[], index: number[]): ObjectShape[] {
-  return index.flatMap((i) => masks[i].shapes.filter((s): s is ObjectShape => s.kind === 'object')).slice(0, MAX_OBJECTS);
+export function objectShapes(masks: Mask[], index: number[]): RasterShape[] {
+  return index.flatMap((i) => masks[i].shapes.filter(isRasterShape)).slice(0, MAX_OBJECTS);
 }
 
 /** Stack layers the objects need. */
-export const objectLayers = (objects: ObjectShape[]) => Math.ceil(objects.length / 4);
+export const objectLayers = (objects: RasterShape[]) => Math.ceil(objects.length / 4);
 
 export class ObjectGpu {
   private key = '';
@@ -24,11 +24,11 @@ export class ObjectGpu {
 
   constructor(private gpu: Gpu, private program: Program) {}
 
-  static key(objects: ObjectShape[]) {
+  static key(objects: RasterShape[]) {
     return objects.map((o) => o.raster.id).join(',');
   }
 
-  private texture(o: ObjectShape): WebGLTexture | null {
+  private texture(o: RasterShape): WebGLTexture | null {
     const hit = this.textures.get(o.raster.id);
     if (hit) return hit;
     const px = decodeRaster(o.raster);
@@ -50,7 +50,7 @@ export class ObjectGpu {
   }
 
   /** Draw the objects into `layers` unless they already hold them (`generation` tells a new stack). */
-  draw(objects: ObjectShape[], layers: Layer[], first: number, generation: number) {
+  draw(objects: RasterShape[], layers: Layer[], first: number, generation: number) {
     if (!objects.length) return;
     const key = `${generation}|${first}|${layers[first]?.w}x${layers[first]?.h}|${ObjectGpu.key(objects)}`;
     if (key === this.key) return;

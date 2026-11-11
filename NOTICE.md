@@ -2,6 +2,9 @@
 
 Emulsion is licensed under the GNU General Public License, version 3 or later (GPL-3.0-or-later). See [LICENSE](LICENSE).
 
+For a feature-by-feature overview of these contributions, including bundled libraries,
+assets and local experiments, see [Open-source foundations](docs/OPEN_SOURCE.md).
+
 ## Code ported from other projects
 
 Every port is listed here with its source, upstream licence, the upstream commit it came from, and what changed. See [docs/PORTING.md](docs/PORTING.md) for the format.
@@ -54,6 +57,14 @@ Template:
 - Model: Segment Anything 2.1, Hiera Small, by Meta (FAIR), https://github.com/facebookresearch/sam2, Nikhila Ravi et al., "SAM 2: Segment Anything in Images and Videos" (2024), https://arxiv.org/abs/2408.00714. Weights Apache-2.0. ONNX export from `darktable-ai` release `release-5.6.0` (`mask-object-sam21-small.dtmodel`, SHA-256 `06a629ac1adf40daec47d2191cbdbdac609d93769584a05f65f4276bf784663f`), downloaded on request into the app's data folder; not committed or bundled
 - Methods: DenseCRF after Philipp Krähenbühl and Vladlen Koltun, "Efficient Inference in Fully Connected CRFs with Gaussian Edge Potentials" (NIPS 2011); permutohedral lattice after Andrew Adams, Jongmin Baek and Abe Davis, "Fast High-Dimensional Filtering Using the Permutohedral Lattice" (2010); distance transform after Pedro Felzenszwalb and Daniel Huttenlocher, "Distance Transforms of Sampled Functions" (2004)
 - Runtime: ONNX Runtime 1.23.2 (MIT), downloaded on request with the model (SHA-256 `b4d513ab2b26f088c66891dbbc1408166708773d7cc4163de7bdca0e9bbb7856`), through `ort` 2.0.0-rc.11 (MIT OR Apache-2.0)
+
+### Automatic sky masks, from U²-Net sky segmentation
+- Upstream: https://github.com/xiongzhu666/Sky-Segmentation-and-Post-processing, `onnx_interence.py`, commit `1f7811b32b64ddc957269defff84bc87a3f0b74f`
+- Licence: MIT; Copyright (c) 2021 xiongzhu666. Full licence in `src-tauri/licenses/skyseg.txt`, also written next to each downloaded model
+- Ported to: `src-tauri/src/sky.rs`; model installation and IPC in `src-tauri/src/sky_commands.rs`
+- Processing: 320 × 320 RGB, ImageNet mean/std normalization and CHW float32 input; first graph output, per-image min/max normalization, multiplication by 255 and uint8 truncation. Pixel-centre bilinear resize is expressed directly in Rust; rounding can differ from OpenCV by one input byte. The finished mask is bilinearly resized to the uncropped render and stored through the existing raster-mask path. A constant prediction becomes an empty mask instead of dividing by zero. No custom thresholds, sky replacement or automatic DenseCRF processing are added; the existing mask Feather/Blur controls and brush shapes refine it
+- Model: U²-Net sky weights from xiongzhu666, FP16 ONNX distribution by voyagerfromeast at https://huggingface.co/voyagerfromeast/skyseg, revision `d76f97cf68f049654f087d78d071dfd7505b2561`, `skyseg_fp16.onnx`, 88,084,505 bytes, SHA-256 `74d87f4a69378a610a6be662f859c38cfbdfdd75ff74bbfc54842965ed6fc9f7`. Downloaded only on request, verified before installation, never bundled. U²-Net architecture: Xuebin Qin et al., "U²-Net: Going Deeper with Nested U-Structure for Salient Object Detection" (2020), https://github.com/xuebinqin/U-2-Net
+- Runtime: the existing optional ONNX Runtime 1.23.2 (MIT) through `ort` 2.0.0-rc.11 (MIT OR Apache-2.0), CPU inference with four intra-op threads
 
 ### Camera crops and colour matrices, from rawspeed (darktable)
 - Upstream: https://github.com/darktable-org/rawspeed, `data/cameras.xml`, `src/librawspeed/decoders/ArwDecoder.cpp` and `RawDecoder.cpp`, commit 62052260182413a6ccd834efad81fda10153d760
@@ -109,7 +120,7 @@ Template:
 - Licence: Apache-2.0 (code and model cards). Copyright [2021] Samsung Research
 - Method: Roman Suvorov et al., “Resolution-robust Large Mask Inpainting with Fourier Convolutions,” WACV 2022. Carve export: Nikita Selin and Carve.Photos Team
 - Used by: `tools/inpaint/compare.py`, which imports the original generator unchanged and repeats the inference-only mask concatenation/composition from `DefaultInpaintingTrainingModule.forward`; no training, losses or refinement. The reference output is scaled/clipped to match Carve's ONNX wrapper. Carve's custom Fourier implementation is not used in the PyTorch reference. `src-tauri/src/inpaint.rs` packs RGBA8 crops/masks for that ONNX graph and validates/rounds its already-composited output. Full Apache-2.0 text is in `tools/inpaint/licenses/LaMa-APACHE-2.0.txt`
-- Assets: development-only downloads, not bundled. `lama_fp32.onnx` from Carve/LaMa-ONNX revision c3c0c9e468934d62e79c329e35d82dd09ff8c444, SHA-256 1faef5301d78db7dda502fe59966957ec4b79dd64e16f03ed96913c7a4eb68d6. Reference archive from smartywu/big-lama revision 05cb2be7f8dbe6ca7c6e78f4fc827a4b2baaa4a9, SHA-256 f1b358ca24093b93a106183b98a3dea6e8ed09f3b43ea7251eb2c81e7b4575f6
+- Assets: not bundled. Remove downloads `lama_fp32.onnx` on request through `src-tauri/src/inpaint_commands.rs`, from Carve/LaMa-ONNX revision c3c0c9e468934d62e79c329e35d82dd09ff8c444, SHA-256 1faef5301d78db7dda502fe59966957ec4b79dd64e16f03ed96913c7a4eb68d6. The development-only reference archive is from smartywu/big-lama revision 05cb2be7f8dbe6ca7c6e78f4fc827a4b2baaa4a9, SHA-256 f1b358ca24093b93a106183b98a3dea6e8ed09f3b43ea7251eb2c81e7b4575f6
 - Training data: Big-LaMa uses Places2 Challenge. The current official Places legacy dataset access terms restrict the images to research/reproducing/comparing algorithms. The model cards declare Apache-2.0; the inspected sources do not expressly resolve whether dataset terms attach to these weights. See `docs/research/lama-model-sources.md` for primary links and the provenance limits
 
 ### MI-GAN fast-model experiment

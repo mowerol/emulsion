@@ -4,6 +4,21 @@ Film looks for digital photos. Open a folder, choose a Look, adjust its Amount a
 
 Emulsion is a desktop app: a Rust core (folders, decoding, thumbnails, sidecars, export) with a React interface and a GPU film pipeline written in GLSL.
 
+## Open-source foundations
+
+Emulsion builds on the open-source photography community's work:
+
+- **darktable:** most tone, colour, detail, noise reduction, grain, retouch, mask and lens-correction processing.
+- **RawTherapee:** capture and finishing sharpening, post-crop vignette, and perspective correction, the latter also incorporating darktable code.
+- **Spektrafilm, through darktable:** the current Halation and Glow models.
+- **LibRaw and RawSpeed:** RAW decoding, camera colour matrices and crop data.
+- **RawNIND, SAM 2.1, U²-Net and LaMa:** local AI denoising, object selection, sky selection and removal; model assets are installed separately.
+- **João Almeida's t3mujinpack, Pat David / G'MIC and PictureFX:** bundled film LUT collections.
+
+See [Open-source foundations](docs/OPEN_SOURCE.md) for the feature-by-feature map,
+including file/metadata libraries, interface assets, frameworks and local experiments.
+[NOTICE.md](NOTICE.md) records upstream commits, licences, copyright and changes.
+
 ## Status
 
 Version 0.1. Working today:
@@ -12,17 +27,18 @@ Version 0.1. Working today:
 - Library grid with adjustable thumbnail size, multi-select (Shift and Cmd/Ctrl click, select all).
 - The last browsed folder and its import scope reopen on launch. ISO, shutter speed, aperture and focal length appear beneath the Develop histogram, in the Workflow footer, and on Library/import tiles when recorded by the camera. Metadata is read lazily without decoding the photo.
 - Develop view with filmstrip and a live preview, rendered on the GPU. Zoom to 100% and beyond (the full resolution loads when needed), pan, and a clipping overlay. The side panel keeps the histogram pinned and folds sections away.
+- One-click **Select sky** in Masks, with Add/Subtract sky and brush refinement. The first use offers an optional model download (about 88 MB, plus the shared runtime if needed). U²-Net runs locally on Apple silicon; the saved selection works with local adjustments, undo, virtual copies, thumbnails and export.
 - Local object removal: choose **Remove** in the toolbar (`E`), then paint over an object. Brush is the default; circles and ellipses also work. **After each stroke** runs each stroke immediately; turn it off to paint several strokes and Apply them together. The first use offers a sized, optional LaMa model download. Pending spots pulse, failed spots show a warning and Retry, and export asks before writing a frame with unfilled removals. Completed patches are restored for Develop and thumbnails. Photos stay on your Mac. Heal/Clone has its own toolbar tool (`Q`).
 - Noise reduction in Refine → Noise reduction: Luminance and Colour sliders using darktable's profiled wavelet denoiser and bundled camera/ISO profiles. New RAW edits start with Colour at 50 and Luminance at 0; existing edits retain their settings. JPEG/TIFF use a generic profile and start with both at 0.
 - AI Noise Reduction for RAW photos in the same section: an enable switch and Amount slider, with background progress. RawNIND runs locally; full-resolution results are cached for preview and export. Requires installed model/runtime assets (see [setup](tools/denoise/README.md)).
 - Transform in the toolbar (`T`), with automatic Vertical, Horizontal or Both perspective correction (RawTherapee), manual correction and rotation, and Constrain crop to remove blank borders. Saved per photo and used in thumbnails and exports. Constrain crop and focal length are in the tool's options popover.
 - Point tone curve, master and per channel, on the final image (darktable's monotone spline), with the frame's histogram behind it.
-- Film grain from the statistics of the Boolean grain model (Newson et al., 2017): coarse and broken up in thin shadows, strongest in the midtones, smooth in dense highlights, clumping more when pushed. Amount, Size and Roughness, with film speed presets from ISO 50 to 3200; each stock starts at its own ISO. Grain and halation are off (0) until turned up.
+- Film grain ported from darktable, with lightness-dependent response and stock-speed mapping. Amount, Size and Roughness, with film speed presets from ISO 50 to 3200; each stock starts at its own ISO. Grain and halation are off (0) until turned up.
 - Live histogram of the developed frame (red, green, blue and luma) with clipping readouts.
 - Neutral, the default: the clean tone curve with no film look, like a raw converter's default profile. Every control works on an unedited photo, starting from Neutral.
 - Nine film stocks (Portra 400 and 160, Gold 200, Ektar 100, Superia 400, Pro 400H, CineStill 800T, Tri-X 400, HP5 Plus), push and pull processing, four scanner profiles (Frontier, Noritsu, flatbed, straight).
 - White balance: Temperature and Tint from the RAW's as-shot setting, presets and a neutral eyedropper, by CAT16 chromatic adaptation (ported from darktable).
-- Exposure, contrast, highlights, shadows, whites, blacks, vibrance, saturation, fade, halation, glow and vignette. Contrast, vibrance and saturation are ported from darktable's colour balance rgb; the tone curve, whites and blacks from darktable's sigmoid; highlights and shadows from darktable's tone equalizer.
+- Exposure, contrast, highlights, shadows, whites, blacks, vibrance, saturation, halation, glow and vignette. Contrast, vibrance, saturation and shadows are ported from darktable's colour balance rgb; the tone curve, whites and blacks from darktable's sigmoid (with its Exposure black level for negative Blacks); highlights from darktable's tone equalizer. Halation and Glow use spektrafilm models through darktable; Vignette comes from RawTherapee.
 - Stock tiles that preview the current photo through each stock.
 - Copy settings with Cmd/Ctrl C: choose individual adjustments, Check all / Check none, and reuse the last confirmed selection. Camera profile, crop, transform, masks and Heal/Remove are available but unchecked initially. Cmd/Ctrl V pastes only the chosen settings to the selection; other adjustments and marks stay with each photo. The former Shift shortcuts still work. Undo and redo every edit (a slider drag or batch paste is one step). Compare with the original by holding `\`, with the Before button, or side by side with a draggable split. Reset any panel section on its own.
 - One Look slot with a compact selector, favourites dropdown and a full browser with Colour/B&W filters and list/grid views. Bundled film looks and your custom looks appear together; favourites and browser layout are remembered. Create and revise Looks in a dedicated editor with an optional base LUT, colour/tone controls and scanner finish. LUT strength and blend belong to that editor. Applied versions retain their appearance when library entries change or are deleted; the photo can inherit or override the scanner finish beneath Look.
@@ -107,6 +123,7 @@ node tools/browser-tests/treatment-filters.mjs workspace  # retired Classic pref
 
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): how the app and the film pipeline fit together, and where new modules go.
 - [docs/PORTING.md](docs/PORTING.md): how to bring in code from darktable and other open-source projects, and how to credit it.
+- [docs/OPEN_SOURCE.md](docs/OPEN_SOURCE.md): which projects contribute to each app feature, bundled assets and dependencies.
 - [tools/denoise/README.md](tools/denoise/README.md): opt-in native AI noise reduction experiment, benchmarks and neutral comparison reports.
 
 ## Roadmap
@@ -119,14 +136,14 @@ Goal (agreed 2026-11-10): make Emulsion a credible replacement for Lightroom Cla
 2. **Export.** Today: 8-bit sRGB JPEG with size and quality, no metadata. Add TIFF 16-bit, PNG, AVIF/HEIF; output colour space (sRGB, Display P3, AdobeRGB, ProPhoto) with an embedded ICC; EXIF/IPTC kept (with an option to strip GPS); output sharpening for screen or print; file-name templates; saved export presets; watermark; export next to the original. Colour-managed raster input (not assuming sRGB) and a Display P3 preview go with this.
 3. **Interchange and metadata.** First pass built 2026-11-11 (not yet tried in the app): stars, colour labels, keywords and IPTC Core fields are read from and written to Lightroom-style `<stem>.xmp` sidecars (newer wins on scan), XMP embedded in photos is read, and a Keywords and Metadata tab edits them; see [Architecture](docs/ARCHITECTURE.md#sidecars). Still to do: metadata presets, keyword hierarchy and a keyword list, a keyword filter in the filter bar, more IPTC fields (headline, contact, copyright status), writing metadata into exports (with Export), and pick/reject mapping once flags exist.
 4. **Culling and library scale.** Pick and reject built 2026-11-11 (P/X/U flags replace hearts, which read as picks; independent of stars and tags, saved per frame, badges, three flag filters, a Flag smart-collection rule, batch marking and undo, Shift or Photo › Auto Advance to move on; a reject is XMP Rating -1; rejection never deletes). Still to do: a fast full-screen cull loupe on embedded previews; Compare and Survey views; stacks and auto-stacking bursts; text and keyword search; smart-collection rules for camera, lens, date, ISO and keywords; batch rename; capture-time offset; a catalog performance check at 50–100k photos.
-5. **Editing parity.** Live multi-photo sync / auto-sync (copy and paste settings exist); Auto tone and white balance (port decision: darktable's exposure auto vs RawTherapee's Auto Levels; ask Oli); one-click Sky, Subject and People masks; defringe (darktable `defringe`); RAW highlight recovery and a per-camera exposure baseline; colour-only Looks (see [profiles-and-presets.md](docs/plans/profiles-and-presets.md#next-ideas-oli-2026-11-01-not-built)).
+5. **Editing parity.** Live multi-photo sync / auto-sync (copy and paste settings exist); Auto tone and white balance (port decision: darktable's exposure auto vs RawTherapee's Auto Levels; ask Oli); one-click Subject and People masks; defringe (darktable `defringe`); RAW highlight recovery and a per-camera exposure baseline; colour-only Looks (see [profiles-and-presets.md](docs/plans/profiles-and-presets.md#next-ideas-oli-2026-11-01-not-built)).
 
 ### Built
 
 - **Backups:** daily and pre-upgrade settings snapshots, settings export/import and restore, and checkpoint history stored in sidecars with an **Earlier edits…** restore interface. See [Architecture](docs/ARCHITECTURE.md#app-data-and-backups).
 - **Looks:** bundled film LUT packs, custom Looks and presets, scanner inheritance, applied-look snapshots, reference-photo LUT matching with optional hue transfer, and the built-in Emulsion collection. Measured stock characterisations remain a separate possibility below.
 - **Retouch:** darktable-derived healing, cloning, fill, blur and wavelet processing; local LaMa Remove with optional model download, retry, export handling and saved patch restoration. The current Heal picker exposes Heal and Clone; Remove is a separate tool.
-- **Masks:** gradients, brush, ranges, refinement, local adjustments and SAM object selection. Sky and scribble selection remain deferred.
+- **Masks:** gradients, brush, ranges, refinement, local adjustments, SAM object selection and one-click Sky selection. Scribble selection remains deferred.
 - **Noise reduction:** profiled wavelet Luminance/Colour controls and the existing linear RawNIND AI path. Validation and additional methods remain below.
 - **Performance mechanisms:** Develop rendering in a worker, once-per-frame control delivery, region rendering, map caches, background full-resolution preparation and capture-sharpening reuse. Performance acceptance remains open.
 
@@ -148,4 +165,4 @@ Goal (agreed 2026-11-10): make Emulsion a credible replacement for Lightroom Cla
 
 ## License
 
-Emulsion is free software under the GNU General Public License, version 3 or later. See [LICENSE](LICENSE). Third-party code and assets are listed in [NOTICE.md](NOTICE.md).
+Emulsion is free software under the GNU General Public License, version 3 or later. See [LICENSE](LICENSE). The [open-source feature map](docs/OPEN_SOURCE.md) explains the contributions; [NOTICE.md](NOTICE.md) records third-party code and asset attribution and licences.

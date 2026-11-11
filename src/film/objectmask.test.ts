@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
 import { decodeRaster, encodeRaster, normalizeRaster, rasterValue } from './objectmask';
-import { MAX_OBJECTS, newMask, normalizeMasks, type ObjectShape } from './masks';
+import { MAX_OBJECTS, newBrush, newMask, normalizeMasks, objectCount, type ObjectShape, type SkyShape } from './masks';
 import { maskValue, packShapes } from '../engine/masks';
 import { objectShapes } from '../engine/objectgpu';
 
@@ -20,6 +20,22 @@ const object = (px: Uint8Array, w: number, h: number): ObjectShape =>
   ({ id: 'o', kind: 'object', mode: 'add', invert: false, opacity: 1, prompts: [{ x: 0.5, y: 0.5, label: 1 }], raster: encodeRaster(px, w, h) });
 
 describe('object rasters', () => {
+  it('stores sky separately from SAM and shares the raster stack and brush combinations', () => {
+    const sky: SkyShape = { id: 'sky', kind: 'sky', mode: 'add', opacity: 1, invert: false, raster: encodeRaster(new Uint8Array([255, 255, 0, 0]), 2, 2) };
+    const obj = object(boxPixels(2, 2, 1, 1, 2, 2), 2, 2);
+    const brush = { ...newBrush('subtract'), strokes: [[{ x: 0.25, y: 0.25, border: 0.15, hardness: 1, density: 1 }]] };
+    const m = { ...newMask(sky, 0), exposure: 1, shapes: [sky, brush, obj] };
+    const back = normalizeMasks(JSON.parse(JSON.stringify([m])));
+    expect(back).toEqual([m]);
+    expect(objectCount(back)).toBe(2);
+    const packed = packShapes(back);
+    expect(objectShapes(back, packed.index)).toEqual([sky, obj]);
+    expect(packed.shapes[0]).toBe(4);
+    expect(packed.shapes[2 * 12 + 4]).toBe(1);
+    expect(maskValue({ ...m, shapes: [sky] }, 0.5, 0.25, 3000, 2000)).toBe(1);
+    expect(maskValue({ ...m, shapes: [sky] }, 0.5, 0.75, 3000, 2000)).toBe(0);
+    expect(maskValue({ ...m, shapes: [sky, brush] }, 0.25, 0.25, 3000, 2000)).toBe(0);
+  });
   it('round-trips the pixels, runs longer than 255 included', () => {
     const px = boxPixels(600, 40, 100, 10, 500, 30);
     const r = encodeRaster(px, 600, 40);
