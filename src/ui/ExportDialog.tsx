@@ -180,17 +180,15 @@ export function ExportDialog() {
                 </div>
               </div>}
               <div className="settings-row">
-                <label className="settings-label export-check">
-                  <input type="checkbox" checked={s.useSubfolder} onChange={e => set({ useSubfolder: e.target.checked })} />
-                  <span>Put in subfolder</span>
-                </label>
-                <div className="settings-control">
+                <label className="settings-label" htmlFor="export-subfolder-on">Subfolder</label>
+                <div className="settings-control export-subfolder">
+                  <input id="export-subfolder-on" type="checkbox" aria-label="Put in subfolder" checked={s.useSubfolder} onChange={e => set({ useSubfolder: e.target.checked })} />
                   <input type="text" className="export-text" aria-label="Subfolder name" value={s.subfolder} disabled={!s.useSubfolder}
                     placeholder="Folder name" spellCheck={false} onChange={e => set({ subfolder: e.target.value })} />
                 </div>
               </div>
               <div className="settings-row">
-                <label className="settings-label" htmlFor="export-existing">If a file has the same name</label>
+                <label className="settings-label" htmlFor="export-existing">Existing files</label>
                 <div className="settings-control">
                   <select id="export-existing" value={s.existing} onChange={e => set({ existing: e.target.value as ExportSettings['existing'] })}>
                     <option value="rename">Add a number</option>
@@ -214,11 +212,13 @@ export function ExportDialog() {
                   {seg('Format', s.format, [['jpeg', 'JPEG'], ['tiff', 'TIFF'], ['png', 'PNG']] as const, v => set({ format: v }))}
                 </div>
               </div>
-              {s.format === 'jpeg' && <label className="slider compact">
-                <span>Quality</span>
-                <output>{s.jpegQuality}</output>
-                <input className="range" type="range" min={60} max={100} value={s.jpegQuality} onChange={(e) => set({ jpegQuality: Number(e.target.value) })} />
-              </label>}
+              {s.format === 'jpeg' && <div className="settings-row">
+                <label className="settings-label" htmlFor="export-quality">Quality</label>
+                <div className="settings-control export-quality">
+                  <input id="export-quality" className="range" type="range" min={60} max={100} value={s.jpegQuality} onChange={(e) => set({ jpegQuality: Number(e.target.value) })} />
+                  <output htmlFor="export-quality">{s.jpegQuality}</output>
+                </div>
+              </div>}
               {s.format !== 'jpeg' && <div className="settings-row">
                 <span className="settings-label">Bit depth</span>
                 <div className="settings-control">
@@ -232,7 +232,10 @@ export function ExportDialog() {
                   {seg('Compression', s.tiffCompression, [['none', 'None'], ['lzw', 'LZW'], ['zip', 'ZIP']] as const, v => set({ tiffCompression: v }))}
                 </div>
               </div>}
-              <p className="hint">sRGB, without metadata.</p>
+              <div className="settings-row">
+                <span className="settings-label">Colour space</span>
+                <div className="settings-control export-static">sRGB, no metadata</div>
+              </div>
             </section>
             <section aria-labelledby="export-size">
               <h3 id="export-size">Size</h3>
