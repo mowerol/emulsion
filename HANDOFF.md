@@ -1,17 +1,20 @@
 # Handoff
 
-The flags, Select sky, open-source map, export dialog grid and renamed Emulsion looks
-are committed. Library Grid/Loupe and its vertical carousel are now committed. Separate metadata
-changes remain uncommitted in the working tree; older "Uncommitted" notes may be out of date.
+The flags, Select sky, open-source map, export dialog grid, renamed Emulsion looks and Library
+Grid/Loupe with its vertical carousel are committed. Library import/sync, metadata, collection
+performance fixes and the Import toolbar removal landed in `8931147`. Built-in look tuning remains
+uncommitted; older "Uncommitted" notes below are out of date.
 
 ## Import removed from the top-right toolbar (2026-11-11)
 
-Committed on Oli's request (`TopBar.tsx`). Import duplicated the route into the current folder's
-importer in the pending Import/Sync redesign. Remove the normal toolbar button; keep File → Import…
-and Cmd+I. Sync and Export remain in the pending Library header, and the import screen keeps its
-Import all / Import selected actions. The existing uncommitted browser fixture now enters the
+Committed in `8931147` on Oli's request (`TopBar.tsx`). Import duplicated the route into the current
+folder's importer in the Import/Sync redesign. The normal toolbar button is removed; File → Import…
+and Cmd+I remain. Sync and Export stay in the Library header, and the import screen keeps its
+Import all / Import selected actions. The existing browser fixture now enters the
 importer through the same `chooseFolder` action as the File menu.
-Checks: TypeScript and the full `library-handoff` browser flow pass; desktop and 1200px headers inspected.
+Checks: `npm run check` passes in the working tree (824 frontend, 117 Rust). The isolated staged
+tree builds and passes 796 frontend tests. The full `library-handoff` browser flow passes;
+desktop and 1200px headers inspected.
 **Oli should try:** File → Import… / Cmd+I in the native app (the browser fixture calls its handler).
 
 ## Develop header shows the folder (2026-11-11)
