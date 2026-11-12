@@ -4,7 +4,7 @@
 # Retina, 60 fps): drops the still lead-in, crossfades the end back into the opening frame so the
 # loop has no jump, and writes hero-ui.mp4 (H.264) and hero-ui.webm (AV1) at 1920 x 1200, the same
 # at 2x (hero-ui@2x.*, for a hero that fills a Retina screen: interface text stays sharp), and
-# hero-ui-poster.jpg (the opening frame).
+# hero-ui-poster.jpg and .webp (the opening frame; the site uses the WebP).
 # Usage: tools/marketing/hero-ui-video.sh <take-raw.mov> <out folder>
 set -euo pipefail
 raw=$1 out=$2
@@ -27,4 +27,5 @@ for size in 1920x1200 2464x1540; do
     -c:v libsvtav1 -preset 5 -crf "${CRFAV1:-36}" "${tags[@]}" "$out/$name.webm" 2>&1 | grep -v '^Svt\[' || true
 done
 ffmpeg -v error -y -ss "$START" -i "$raw" -frames:v 1 -vf scale=1920:1200:flags=lanczos -q:v 2 "$out/hero-ui-poster.jpg"
+cwebp -quiet -q 82 -m 6 "$out/hero-ui-poster.jpg" -o "$out/hero-ui-poster.webp"
 ls -la "$out"

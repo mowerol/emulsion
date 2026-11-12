@@ -18,7 +18,7 @@ It lives in `site/` of the Emulsion repo and deploys to GitHub Pages (mowerol.gi
 Edit `src/site.ts`:
 
 - `downloadUrl` points at the releases page; switch it to `/releases/latest` once a release is published.
-- `heroVideo.webm` / `heroVideo.mp4`: the loop from `tools/marketing/hero-ui-video.sh`. To preview locally, copy the files into `public/assets/` (git ignores video there) and set e.g. `'assets/hero-ui.webm'`. For the live site, upload them as GitHub Release assets and put their full URLs here. The hero plays it muted and looping; until then it shows the Develop screenshot with a "Video placeholder" tag.
+- `heroVideo.webm` / `heroVideo.mp4`: the loop from `tools/marketing/hero-ui-video.sh`. The loops live in `public/assets/` and are committed (~1 MB per 10 s at 1920 px; Pages serves them with range requests). Re-recording adds the new files to git history, so keep loops short and lean. Posters are WebP (`cwebp -q 82 -m 6`). The hero plays it muted and looping; until then it shows the Develop screenshot with a "Video placeholder" tag.
 
 Screenshot slots (the dashed boxes) use `<Shot>` in `src/components/LocalAI.tsx` (the Download banner has no image). The Looks switcher shows one photo through each Emulsion look: `collection` in `src/components/Looks.tsx` names `public/assets/looks/<img>-1200.webp` and `-2400.webp` (3:2, WebP from the app's full-size JPEG exports, `cwebp -q 82 -m 6 -resize <w> 0`); a look without an image is left out. Add an image to `public/assets/` and pass `src`, for example `<Shot src="assets/masks.webp" alt="A mask on the sky" placeholder="..." />`.
 

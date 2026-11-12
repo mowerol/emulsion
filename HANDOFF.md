@@ -11,8 +11,11 @@ header tile; re-record if that matters. Not checked in the app: the Dock icon af
 may cache the old one). Site, same session: sections are closer (`.sec` padding
 `clamp(72px, 9vw, 128px)`, was 96/13vw/176), and the Download banner's image slot is gone (Oli tried
 a Look Creator screenshot there and found it too short). The site commit carries the other site
-session's Looks switcher, noise-reduction compare and masks card too. `masks.mp4` is git-ignored,
-so the live masks card shows its poster until the clip is a Release asset (like the hero loop).
+session's Looks switcher, noise-reduction compare and masks card too. Videos are now committed
+(uncommitted at time of writing): `site/.gitignore` ignores only `.mov`; hero-ui.mp4/.webm (2.7/2.4 MB)
+and masks.mp4 (1.0 MB) are served by Pages. Posters are WebP (hero 273→107 KB, masks 305→152 KB;
+`hero-ui-video.sh` now writes the WebP too) and the favicon is 64 px (184→5 KB). Still open: the
+`og:image` is WebP (some link previews want JPEG/PNG).
 Not committed (other sessions' work in progress): `src/backend/api.ts` and its test,
 `src/library/stillclient.ts`, `src/engine/warm.test.ts`, `src/film/emulsion-looks.json` and
 `builtin-looks.test.ts`, the README roadmap link and the RAW highlight recovery plan/research.

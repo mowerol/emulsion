@@ -3,7 +3,5 @@ dist
 *.tsbuildinfo
 .DS_Store
 
-# Hero video is hosted as a Release asset, not in git
-public/assets/*.mp4
-public/assets/*.webm
+# The published loops (.mp4, .webm) are committed and served by Pages; raw recordings are not
 public/assets/*.mov
