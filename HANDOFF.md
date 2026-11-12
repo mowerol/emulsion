@@ -13,6 +13,71 @@ Oli's in-app checks, then the first-launch pass, then release notes
 Exports remain the feature priority after release work. Committed work is not pushed until
 Oli says "push"; CI only runs from a pushed `v*` tag.
 
+## RAW brightness audit — next editing task (Oli, 2026-11-11)
+
+Oli reports that the same creative look gives different **brightness/contrast** on Fuji and OM-3
+**RAW files**. The agreed next investigation is the shared RAW input path, before tuning the
+creative looks further. This investigation has not started beyond a source/metadata inspection;
+no new exposure-normalization algorithm or correction has been implemented.
+
+**Requirement:** this must scale across cameras without Emulsion maintaining hand-tuned exposure
+offsets or users calibrating each body. The earlier suggestion to calibrate Fuji and OM-3
+individually is superseded. Oli has no matched RAW pair; do not block the general investigation
+on taking new photographs. Matched scenes would help validate exact agreement later.
+
+Next steps:
+
+1. Build a repeatable diagnostic using existing RAWs and controlled fixtures. Trace sensor black/
+   white-level scaling, white-balance gains, dynamic-range modes and usable exposure/baseline
+   metadata through to scene-linear working RGB, immediately before the shared tone curve.
+2. Identify missing or incorrect normalization supported by that evidence. Use the file/decoder's
+   existing camera data and general rules, with defined fallbacks when metadata is absent. Do not
+   assume one fixed gain is the cause or blindly undo intentional exposure compensation.
+3. Fix confirmed issues, then validate preview/export agreement and preserve existing saved edits
+   (version changed rendering/cache identities if necessary). Assess Standard's tone only after
+   establishing the input scale. Unmatched photographs cannot prove an exact cross-camera match.
+
+Start in `src-tauri/native/raw_shim.cpp` and `src-tauri/src/raw.rs`, then the input/tone shader
+stages. Currently LibRaw supplies 16-bit linear camera RGB, with as-shot WB, automatic brightening
+disabled and highlight clipping enabled; Rust applies the standard camera matrix and a shared
+`BASELINE_GAIN = 1.8`. LibRaw has DNG `baseline_exposure` metadata (with an absent-value sentinel),
+but the shim's `EmuRawInfo` does not expose it. Check availability and semantics across formats
+before treating any metadata field as a general solution. Existing decoder camera support is
+allowed; an Emulsion-maintained calibration per camera is not the proposed architecture.
+
+**Auto Exposure is separate:** a camera-independent image-analysis algorithm can adjust a series
+toward comparable brightness, but makes a scene-dependent decision. Do not silently add it to
+input normalization or force intentionally dark scenes toward middle grey. Its port choice is
+still open in the README roadmap.
+
+Completed in this conversation, currently uncommitted:
+
+- **Library sidebar headings** (Recent imports, Collections, Folders) now match Develop's section
+  headings: 13px semibold sentence case, 40px rows, 14px muted chevron (were 11px tracked uppercase,
+  32px, 12px chevron). Develop's Images header matches them too (40px
+  row, not 48px; chevron 14px in; title weight 600, not `<strong>`'s 700). Probe view
+  `?sectionheads&theme=<mid|light|dark>` shows all three side by side.
+- **Top bar** is the compact 44px Library bar in every view (Develop's was 56px on `--app`); the
+  former `.topbar-library` rules now apply to `.topbar`. Only `body:has(.topbar-library)`'s
+  960px min-width stays Library-only. The Look Creator's `.look-header` matches it too (44px, panel background,
+  12px 30px-tall buttons). Probe:
+  `?sectionheads=topbar&view=<library|develop>`.
+- **Emulsion Standard** is first in the official Emulsion collection and the default for new edits.
+  It currently uses the existing clean neutral rendering (no added colour balance, curve or LUT),
+  without new camera normalization. Saved legacy recipes keep their prior look/neutral fallback.
+  Photo matching, perspective analysis and look-authoring bases explicitly use Neutral.
+- Colour grading: clearer labels, an actual tonal-mask graph, and **independent local range tabs**
+  for the wheel and Colour & brightness. The intermediate single-selector design was rejected
+  because the lower controls required returning to the wheel tabs. Retain the local tabs.
+- Latest checks: `npm run build`; `npm test` (**853 passed, one skipped**);
+  `node tools/browser-tests/realtime.mjs treatment-filters 30` (passes, including the Standard
+  default and official collection). No native tests were rerun for these frontend changes.
+  The grading browser fixture is `grading-tones` (`builtin` query exercises Emulsion Neg);
+  its selector, pixel-change and saved-settings checks passed before the Standard addition.
+- Preserve concurrent in-app tuning in `src/film/emulsion-looks.json`. Do not restore the whole
+  file to undo another change. The general direction is also recorded in
+  [the grading plan](docs/plans/colour-grading.md#standard-rendering-direction-oli-2026-11-11).
+
 ## New branding (2026-11-11, committed `02ca26d`)
 
 Oli's replacement kit is `/Users/oli/Documents/emulsion-brand (1)` for the header, app icon

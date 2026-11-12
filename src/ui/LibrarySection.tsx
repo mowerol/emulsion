@@ -11,7 +11,7 @@ export function LibrarySection({ id, label, actions, children }: { id: string; l
   return <section className="library-section">
     <header className="library-section-heading">
       <button type="button" className="library-section-title" aria-expanded={expanded} aria-controls={`library-${id}`} onClick={toggle}>
-        <ChevronDown size={12} strokeWidth={2} className={expanded ? '' : 'collapsed'} />{label}
+        <ChevronDown size={14} strokeWidth={2} className={expanded ? '' : 'collapsed'} />{label}
       </button>
       {actions}
     </header>

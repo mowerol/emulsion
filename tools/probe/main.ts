@@ -48,6 +48,10 @@ import { StageMenu } from '../../src/ui/StageMenu';
 import { Panel } from '../../src/ui/Panel';
 import { CameraColourWarning } from '../../src/ui/CameraProfile';
 import { Section } from '../../src/ui/Section';
+import { LibrarySection } from '../../src/ui/LibrarySection';
+import { Images } from '../../src/ui/Images';
+import { TopBar } from '../../src/ui/TopBar';
+import { LookCreatorHeader } from '../../src/ui/LookCreator';
 import { ExportDialog } from '../../src/ui/ExportDialog';
 import { CatalogBackupDialog, promptBackup } from '../../src/ui/CatalogBackupDialog';
 import { setBackupSettings } from '../../src/library/catalogbackup';
@@ -974,6 +978,44 @@ try {
     createRoot(host).render(createElement(CatalogBackupDialog));
     void promptBackup('quit');
     out.backupdialog = 'mounted';
+  } else if (new URLSearchParams(location.search).has('sectionheads')) {
+    // Library's source sidebar beside Develop's panel, to compare section headings: ?sectionheads&theme=<mid|light|dark>.
+    const q = new URLSearchParams(location.search);
+    if (q.get('theme')) document.documentElement.dataset.theme = q.get('theme')!;
+    const wrap = document.createElement('div');
+    wrap.style.cssText = 'position:fixed;inset:0;display:flex;gap:24px;background:var(--canvas)';
+    const lib = document.createElement('div');
+    lib.className = 'library-with-directory';
+    const dev = document.createElement('aside');
+    dev.className = 'panel panel-workflow';
+    dev.style.cssText = 'width:340px';
+    const imgs = document.createElement('div');
+    imgs.style.cssText = 'width:300px;display:flex;flex-direction:column';
+    wrap.append(imgs, lib, dev);
+    document.body.append(wrap);
+    const row = (name: string, n: number) => createElement('button', { key: name, type: 'button', className: 'source-row' }, createElement('span', { className: 'source-chevron-slot' }), createElement('span', { className: 'source-name' }, name), createElement('span', { className: 'source-count' }, n));
+    createRoot(lib).render(createElement('nav', { className: 'folder-directory', style: { background: 'var(--panel)' } },
+      createElement(LibrarySection, { id: 'probe-imports', label: 'Recent imports', children: [row('Lisbon trip', 214), row('Margate', 88)] }),
+      createElement(LibrarySection, { id: 'probe-collections', label: 'Collections', children: [row('Portfolio', 31)] }),
+      createElement(LibrarySection, { id: 'probe-folders', label: 'Folders', children: [row('Pictures', 1820)] })));
+    createRoot(dev).render(createElement('div', { className: 'grouped-controls-body' },
+      ...['Light', 'Colour', 'Detail'].map(t => createElement('div', { key: t, className: 'control-section-slot' }, createElement(Section, { id: `probe-${t}`, title: t, children: createElement('div', { className: 'slider' }, createElement('label', null, 'Exposure')) })))));
+    const photo = (name: string) => ({ path: `/p/${name}`, rel: name, name, size: 1, modified: 0, recipe: null, seed: 1, white: null, rating: 0, label: null, flag: null, raw: true, pair: null });
+    useApp.setState({ photos: ['A.RAF', 'B.RAF', 'C.RAF'].map(photo), active: 0 });
+    createRoot(imgs).render(createElement('section', { className: 'images-pane', style: { flex: 1 } }, createElement(Images)));
+    // ?sectionheads=topbar&view=<library|develop|look>: the top bar alone, as that view shows it.
+    if (q.get('sectionheads') === 'topbar') {
+      wrap.remove();
+      document.querySelectorAll('canvas').forEach(c => c.remove());
+      useApp.setState({ folder: { root: '/p', name: 'Lisbon trip', unreadable: 0 }, view: q.get('view') === 'develop' ? 'develop' : 'library' });
+      const app = document.createElement('div');
+      app.className = 'app';
+      app.style.height = 'auto';
+      document.body.append(app);
+      createRoot(app).render(q.get('view') === 'look' ? createElement(LookCreatorHeader) : createElement(TopBar));
+      if (q.get('view') === 'look') app.classList.add('app-look-editor');
+    }
+    out.sectionheads = 'mounted';
   } else if (new URLSearchParams(location.search).has('metapanel')) {
     // Keywords and Metadata for two selected photos that share some keywords: ?metapanel&theme=<mid|light|dark>.
     const q = new URLSearchParams(location.search);
