@@ -47,8 +47,12 @@ export const quantize = (pos: number, view: number) => { const step = Math.max(1
  */
 export function useViewport(ref: RefObject<HTMLElement | null>, axis: 'x' | 'y', deps: unknown[] = []) {
   const [vp, setVp] = useState({ pos: 0, size: 0, cross: 0 });
+  // Follow the element itself, not just `deps`: a scroller remounted by a branch the deps don't see
+  // (the Library's "Opening…" state) left the listener on the detached one, so the window froze at
+  // its old position and scrolling showed empty space below the first rows.
+  const [el, setEl] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => { if (ref.current !== el) setEl(ref.current); });
   useLayoutEffect(() => {
-    const el = ref.current;
     if (!el) return;
     const read = () => {
       const size = axis === 'y' ? el.clientHeight : el.clientWidth;
@@ -62,7 +66,7 @@ export function useViewport(ref: RefObject<HTMLElement | null>, axis: 'x' | 'y',
     ro.observe(el);
     return () => { el.removeEventListener('scroll', read); ro.disconnect(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ref, axis, ...deps]);
+  }, [el, axis, ...deps]);
   return vp;
 }
 

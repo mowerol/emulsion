@@ -13,6 +13,23 @@ Oli's in-app checks, then the first-launch pass, then release notes
 Exports remain the feature priority after release work. Committed work is not pushed until
 Oli says "push"; CI only runs from a pushed `v*` tag.
 
+## Library grid stopped after ~30 photos (fixed 2026-11-11, uncommitted)
+
+After opening one folder with photos and then another, the grid showed only the first rows and empty
+space below. `useViewport` (`src/ui/virtual.ts`) kept its scroll listener on the scroller that the
+"Reading photos…" state had unmounted, so the row window never moved. It now follows the element
+itself. Regression: `node tools/browser-tests/realtime.mjs library-handoff 60 screen=reopen`
+(fails without the fix, 15 of 64 mounted). Oli should check in the app: open one folder, then
+another large one, and scroll to the end.
+
+Same session: thumbnails of older (already cached) folders never appeared after scrolling a large
+uncached RAW folder. `ThumbStore` fetched in arrival order through 4 slots and never dropped a
+request, so hundreds of slow embedded-preview reads (~8/min on the external drive) sat ahead of
+disk-cache hits. Now frames register while on screen (`watch`/`unwant` in `useThumb`), a queued
+fetch whose frame left the screen is dropped (not marked failed), and the newest is served first.
+Direct callers (Develop, photo matching, tile renders) pin their fetch so it is never dropped.
+Tests: `src/library/thumbs-queue.test.ts`. Not yet looked at: why RAF previews read so slowly.
+
 ## RAW brightness audit — next editing task (Oli, 2026-11-11)
 
 Oli reports that the same creative look gives different **brightness/contrast** on Fuji and OM-3

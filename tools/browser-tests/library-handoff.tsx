@@ -69,6 +69,23 @@ async function main() {
     assert(!document.querySelector('.topbar .compact-source [aria-label="More source actions"]'), 'Develop header keeps source actions in Library');
     return result({ screen: 'develop', folder: crumb.textContent, count: document.querySelector('.topbar .source-count')?.textContent });
   }
+  if (query.get('screen') === 'reopen') {
+    // Opening another source remounts the grid's scroller ("Reading photos…" in between); the
+    // windowed rows must follow the new one, or scrolling shows empty space past the first rows.
+    const other = '/Volumes/Oli External/Photos/2026/March';
+    catalog.cacheFolder(other, photos.map(p => ({ ...entry({ ...p, path: p.path.replace(root, other) }, other), seed: 1, white: null, pair: null })));
+    saveFolderImport(other, { mode: 'selected', paths: photos.map(p => p.path.replace(root, other)), includeSubfolders: false });
+    disk.push(...photos.map(p => ({ ...p, path: p.path.replace(root, other) })));
+    await store.openFolder(other); await wait(500);
+    assert(store.useApp.getState().photos.length === 64, 'Second folder did not open');
+    const scroller = document.querySelector<HTMLElement>('.library-grid-scroll')!;
+    assert(scroller.scrollHeight > scroller.clientHeight * 1.5, 'Fixture grid should scroll');
+    const before = document.querySelectorAll('.grid .cell').length;
+    scroller.scrollTop = scroller.scrollHeight; scroller.dispatchEvent(new Event('scroll')); await wait(300);
+    const last = document.querySelector('.grid .cell:last-child')?.getAttribute('aria-posinset');
+    assert(Number(last) === 64, `Last photo not mounted after reopening and scrolling (last ${last}, ${before} mounted before)`);
+    return result({ screen: 'reopen', passed: true, mountedBefore: before, last });
+  }
   if (query.get('screen') === 'library') return result({ screen: 'library', gridHeight: Math.round(rect('.library-grid-scroll').height), imported: 40 });
   button('Sync…').focus(); button('Sync…').click(); await wait();
   assert(document.querySelector('dialog[open]'), 'Sync dialog did not open');

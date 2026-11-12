@@ -41,10 +41,16 @@ interface Developed { key: string; url: string }
 interface ThumbJob { path: string; recipe: Recipe | null; seed: number; white: Xy | null; raw: boolean; sourceVersion?: string }
 const hasRemove = (recipe: Recipe | null) => !!recipe?.retouch.some(s => s.tool === 'remove' && s.opacity > 0);
 
-class ThumbStore {
+/** A thumbnail fetch dropped from the queue because its frame left the screen before it started. */
+class ThumbCancelled extends Error {}
+
+export class ThumbStore {
   private originals = new Map<string, Original>();
   private inflight = new Map<string, Promise<Original>>();
-  private waiting: (() => void)[] = [];
+  /** Fetches waiting for a slot, by path; the newest is served first. */
+  private waiting = new Map<string, { go: () => void; cancel: () => void }>();
+  /** How many frames on screen want each path; a fetch nobody wants any more leaves the queue. */
+  private wants = new Map<string, number>();
   private running = 0;
   private developed = new Map<string, Developed>();
   private wanted = new Map<string, ThumbJob>();
@@ -66,26 +72,65 @@ class ThumbStore {
     this.listeners.forEach((fn) => fn());
   }
 
-  private async slot() {
+  /**
+   * Wait for a fetch slot. Served newest first, and a path no frame on screen wants any more is
+   * dropped: scrolling through a large folder of slow RAWs otherwise queued hundreds of fetches
+   * (in order, all to be read) ahead of the frames actually on screen, even ones already cached.
+   */
+  private async slot(path: string) {
     if (this.running < FETCH_CONCURRENCY) {
       this.running++;
       return;
     }
-    await new Promise<void>((r) => this.waiting.push(r));
+    await new Promise<void>((go, cancel) => this.waiting.set(path, { go, cancel: () => cancel(new ThumbCancelled()) }));
     this.running++;
   }
   private release() {
     this.running--;
-    this.waiting.shift()?.();
+    const last = [...this.waiting.keys()].pop();
+    if (last === undefined) return;
+    const next = this.waiting.get(last)!;
+    this.waiting.delete(last);
+    next.go();
+  }
+  /** Move a waiting fetch to the front of the queue (it is on screen again). */
+  private bump(path: string) {
+    const w = this.waiting.get(path);
+    if (!w) return;
+    this.waiting.delete(path);
+    this.waiting.set(path, w);
   }
 
-  original(path: string): Promise<Original> {
+  /** A frame showing `path` came on screen (paired with `unwant`). */
+  watch(path: string) {
+    this.wants.set(path, (this.wants.get(path) ?? 0) + 1);
+  }
+
+  /** A frame that wanted `path` left the screen. */
+  unwant(path: string, id = path) {
+    const n = (this.wants.get(path) ?? 1) - 1;
+    if (n > 0) { this.wants.set(path, n); return; }
+    this.wants.delete(path);
+    if (!this.pinned.has(path)) {
+      this.waiting.get(path)?.cancel();
+      this.waiting.delete(path);
+    }
+    // An edited frame not yet developed waits until it is on screen again.
+    if (!this.settling.has(id)) this.wanted.delete(id);
+  }
+
+  /** Paths fetched for something other than a frame on screen (Develop, photo matching): never dropped. */
+  private pinned = new Set<string>();
+
+  /** The camera/cached thumbnail of `path`. `onScreen` fetches (frames) leave the queue with their frame. */
+  original(path: string, onScreen = false): Promise<Original> {
     const hit = this.originals.get(path);
     if (hit) return Promise.resolve(hit);
+    if (!onScreen) this.pinned.add(path);
     let p = this.inflight.get(path);
     if (!p) {
       p = (async () => {
-        await this.slot();
+        try { await this.slot(path); } catch (err) { this.inflight.delete(path); this.pinned.delete(path); throw err; }
         try {
           const blob = await thumbnail(path, THUMB_EDGE);
           const o = { blob, url: URL.createObjectURL(blob) };
@@ -93,11 +138,12 @@ class ThumbStore {
           this.emit();
           return o;
         } catch (err) {
-          this.failed.add(path);
+          if (!(err instanceof ThumbCancelled)) this.failed.add(path);
           this.emit();
           throw err;
         } finally {
           this.inflight.delete(path);
+          this.pinned.delete(path);
           this.release();
         }
       })();
@@ -119,7 +165,10 @@ class ThumbStore {
    * developed at once.
    */
   want(path: string, recipe: Recipe | null, seed: number, white: Xy | null, raw = false, id = path, sourceVersion?: string) {
-    if (!this.originals.has(path) && !this.failed.has(path)) this.original(path).catch(() => {});
+    if (!this.originals.has(path) && !this.failed.has(path)) {
+      this.bump(path);
+      this.original(path, true).catch(() => {});
+    }
     if (!recipe) this.unedited.add(id);
     if (recipe && this.developed.get(id)?.key !== thumbKey(recipe, white, sourceVersion)) {
       this.waitingRemovals.delete(id);
@@ -156,7 +205,7 @@ class ThumbStore {
         if (this.developed.get(id)?.key === key) continue;
         const epoch = this.removalEpoch.get(path) ?? 0;
         try {
-          const orig = await this.original(path);
+          const orig = await this.original(path, true);
           const url = await developBlob(orig.blob, job.recipe, job.seed, DEVELOPED_EDGE, job.white, path, job.raw, job.sourceVersion);
           if (this.latest.get(id) !== job) { URL.revokeObjectURL(url); continue; }
           const prev = this.developed.get(id);
@@ -274,6 +323,11 @@ async function developBlob(blob: Blob, recipe: Recipe | null, seed: number, edge
 /** The best thumbnail URL for a frame; requests it while `visible`. */
 export function useThumb(path: string, recipe: Recipe | null, seed: number, visible: boolean, white: Xy | null, raw = false, id = path, sourceVersion?: string) {
   useSyncExternalStore(thumbs.subscribe, thumbs.snapshot);
+  useEffect(() => {
+    if (!visible) return;
+    thumbs.watch(path);
+    return () => thumbs.unwant(path, id);
+  }, [path, visible, id]);
   useEffect(() => {
     if (visible) thumbs.want(path, recipe, seed, white, raw, id, sourceVersion);
   }, [path, recipe, seed, visible, white, raw, id, sourceVersion]);
