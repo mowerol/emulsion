@@ -2,6 +2,13 @@
 
 The report and interpretation are in [app-performance.md](../../docs/research/app-performance.md). These tools measure current behavior; they do not optimize the application.
 
+For the Library folder-switch regression, run `node tools/browser-tests/webkit.mjs folder-switch`
+on macOS. It opens a visible isolated WKWebView with the real Library, a synthetic 22,000-photo
+catalog and distinct RAW/JPEG pairs. It holds scan responses to measure cached-grid paint and
+refresh separately, reporting the first switch and checking five repeat switches against a
+100 ms budget per phase. Disk and thumbnail bytes are mocked, so this measures UI work rather
+than external-drive latency. The deterministic work-count regression is in `src/library/pairs.test.ts`.
+
 ```sh
 node tools/performance/run.mjs state chrome
 node tools/performance/run.mjs library webkit

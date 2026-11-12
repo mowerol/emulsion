@@ -44,8 +44,9 @@ export function findPairs<T extends Pairable>(photos: T[]): Map<string, T> {
 export function foldPairs<T extends Pairable>(photos: T[]): { shown: (T & { pair: string | null })[]; hidden: T[] } {
   const folded = new Map<string, string>();
   const hiddenPaths = new Set<string>();
+  const copiedPaths = new Set(photos.filter(p => p.copyId).map(p => p.path));
   for (const [raw, jpeg] of findPairs(photos)) {
-    if (marked(jpeg) || photos.some(p => p.copyId && p.path === jpeg.path)) continue;
+    if (marked(jpeg) || copiedPaths.has(jpeg.path)) continue;
     folded.set(raw, jpeg.path);
     hiddenPaths.add(jpeg.path);
   }

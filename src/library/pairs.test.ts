@@ -40,4 +40,23 @@ describe('RAW+JPEG pairs', () => {
   it('leaves JPEGs alone when two RAWs share the name', () => {
     expect(foldPairs([photo('A.RAF'), photo('A.DNG'), photo('A.JPG')]).hidden).toHaveLength(0);
   });
+
+  it('checks virtual-copy ownership in linear work while folding a large folder', () => {
+    let copyReads = 0;
+    const photos = Array.from({ length: 1000 }, (_, i) => ({
+      ...photo(`IMG_${Math.floor(i / 2)}.${i % 2 ? 'JPG' : 'RAF'}`),
+      get copyId(): string | undefined { copyReads++; return undefined; },
+    }));
+    const { shown, hidden } = foldPairs(photos);
+    expect(shown).toHaveLength(500);
+    expect(hidden).toHaveLength(500);
+    expect(copyReads).toBeLessThan(photos.length * 10);
+  });
+
+  it('keeps a JPEG with a virtual copy visible while folding unrelated pairs', () => {
+    const photos = [photo('A.RAF'), photo('A.JPG'), { ...photo('A.JPG'), copyId: 'copy' }, photo('B.RAF'), photo('B.JPG')];
+    const { shown, hidden } = foldPairs(photos);
+    expect(shown.map(p => p.rel)).toEqual(['A.RAF', 'A.JPG', 'A.JPG', 'B.RAF']);
+    expect(hidden.map(p => p.rel)).toEqual(['B.JPG']);
+  });
 });

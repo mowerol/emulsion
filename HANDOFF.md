@@ -1,5 +1,30 @@
 # Handoff
 
+**Library folder-switch freeze (2026-11-12):** Reproduced in an isolated,
+visible WKWebView mounting the real Library with 22,000 catalog photos and switches between
+two 3,000-file RAW/JPEG folders. Held scan IPC separates cached display from refresh; thumbnail
+bytes are synthetic. Repeat switches painted the grid in **1,399–1,792 ms** and refresh in
+**1,521–1,984 ms**. `foldPairs` checked every photo for virtual-copy ownership once per JPEG;
+both the folder tree and collection counts fold the whole catalog after navigation updates.
+It now indexes paths with virtual copies once, preserving the same folding decisions.
+After this change alone, repeat switches painted in **74–80 ms**, refresh **75–87 ms**
+(first switch: 91/107 ms). The saved runner's final repeat passed: **72–87 ms** to grid,
+**81–94 ms** refresh; first switch 96/104 ms. Another run had outliers up to **210 ms**,
+so this is not a stable p95 or universal 100 ms acceptance claim. These are UI measurements
+with mocked disk, not end-to-end timings on Oli External. Unchanged catalog invalidation still
+causes redundant sidebar work; native
+scans, metadata and cold thumbnail reads remain separate costs.
+
+Reproduce: `node tools/browser-tests/webkit.mjs folder-switch` (macOS; opens an isolated window).
+The fixture reports all six samples and checks the five repeat switches against a 100 ms budget
+for each phase. Deterministic regression in `src/library/pairs.test.ts` failed before the fix:
+**502,500** virtual-copy property reads for 1,000 photos (budget <10,000); it now passes,
+including keeping JPEG virtual copies visible. `npm test`: **882 tests pass**;
+`npm run build`: typecheck and production build pass. The diagnostic store-only timing test
+was removed in favor of the deterministic work-count test and the actual mounted UI benchmark.
+For future catalog performance checks, include distinct RAW/JPEG pairs across folders; a fixture
+with colliding relative names did not exercise the same catalog-wide folding cost.
+
 **Hero re-recorded on Oli's final DSCF8579 edit (2026-11-12, committed and pushed):** Oli
 changed his edit (Blacks 0→18, Contrast 10→−1, Whites 0→1, temperature 6307→6713 K); the take's
 moves (Neg, Exposure 0.75, Shadows 19, Halation 13, Grain 31) are unchanged, so the cursor script
