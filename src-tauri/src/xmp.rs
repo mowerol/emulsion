@@ -297,6 +297,14 @@ pub fn read_embedded(image: &Path) -> Option<Interchange> {
     m.map(|m| values_of(&m))
 }
 
+/// Lightroom's Read Metadata from Files: what the files say about `image` now, whatever Emulsion
+/// saved since. Its `.xmp` sidecar (or darktable's) when there is one, otherwise the XMP inside
+/// the file (where Lightroom writes for JPEG, TIFF and DNG). `None` when neither says anything.
+pub fn read_from_files(image: &Path) -> Option<Interchange> {
+    let owner = sidecar_for(image).is_some();
+    read_sidecar(image, owner).map(|found| found.values).or_else(|| read_embedded(image).filter(|v| !v.is_empty()))
+}
+
 fn text(m: &XmpMeta, ns: &str, name: &str) -> String {
     m.property(ns, name).map(|v| v.value.trim().to_string()).unwrap_or_default()
 }
@@ -654,6 +662,23 @@ mod tests {
         fs::write(dir.path().join("c.xmp"), b"not xml <").unwrap();
         assert!(write(&img, &some(2, None, &[])).is_err());
         assert_eq!(fs::read(dir.path().join("c.xmp")).unwrap(), b"not xml <");
+    }
+
+    #[test]
+    fn reading_from_files_takes_the_sidecar_whoever_saved_last() {
+        let dir = tempfile::tempdir().unwrap();
+        let img = dir.path().join("f.RAF");
+        fs::write(&img, b"x").unwrap();
+        assert_eq!(read_from_files(&img), None);
+        // Another app's XMP, older than Emulsion's last save: a scan keeps Emulsion's marks
+        // (library::with_newer_xmp), reading from files takes the XMP's.
+        write(&img, &some(4, Some("red"), &["Places|Japan"])).unwrap();
+        let saved = crate::sidecar::Saved { rating: 1, ..Default::default() };
+        let later = crate::sidecar::Sync { updated: u64::MAX, xmp: None };
+        let scanned = crate::library::with_newer_xmp(Some((saved, later)), read_sidecar(&img, true));
+        assert_eq!(scanned.rating, 1);
+        let v = read_from_files(&img).unwrap();
+        assert_eq!((v.rating, v.label.as_deref(), v.meta.keywords.clone()), (4, Some("red"), vec!["Places|Japan".to_string()]));
     }
 
     #[test]

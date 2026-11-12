@@ -13,7 +13,7 @@ import { clearRecentFolders, lastFolder } from './library/folders';
 import { dialogOpen, installAppMenu, RECENT_PREFIX } from './ui/appmenu';
 import { firstOf } from './ui/menubridge';
 import {
-  chooseImport, isLibraryLoupe, setLibraryView, setLoupeFullscreen, activePhoto, addToTargetCollection, openCopySettings, createVirtualCopies, markPhotos, openFolder, openPaths, pasteSettings, redo, selectAll, setCompare, setExportOpen, setView, showToast, step, stepToEnd, undo, useApp,
+  chooseImport, isLibraryLoupe, setLibraryView, setLoupeFullscreen, activePhoto, addToTargetCollection, openCopySettings, createVirtualCopies, markPhotos, openFolder, openPaths, pasteSettings, readMetadataFromFiles, redo, selectAll, setCompare, setExportOpen, setView, showToast, step, stepToEnd, undo, useApp,
 } from './library/store';
 import { Images } from './ui/Images';
 import { useWorkspace } from './ui/workspace';
@@ -60,6 +60,7 @@ const MENU_ACTIONS: Record<string, () => void> = {
   'sync-folder': () => { const s = useApp.getState(); if (s.source?.type === 'folder' && s.folder) requestFolderSync(s.folder.root); },
   'export': () => setExportOpen(true),
   'virtual-copy': () => createVirtualCopies(),
+  'read-metadata': () => { void readMetadataFromFiles(); },
   'show-in-finder': () => { const p = activePhoto(); if (p) void revealItemInDir(p.path).catch(() => showToast('Could not show the photo')); },
   'copy-settings': () => openCopySettings(),
   'paste-settings': () => pasteSettings(),

@@ -104,6 +104,7 @@ pub fn run() {
             commands::delete_custom_look,
             commands::white_points,
             commands::embedded_metadata,
+            commands::read_metadata_from_files,
             commands::capture_info,
             commands::write_sidecar,
             commands::sidecar_history,

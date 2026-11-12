@@ -8,7 +8,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { useRef } from 'react';
 import type { Histogram } from '../engine/histogram';
 import type { Xy } from '../engine/whitebalance';
-import { catalogMetadata, embeddedMetadata, isTauri, scanFolder, whitePoints, type EmbeddedMetadata, type Entry, type ScanProgress } from '../backend/api';
+import { catalogMetadata, embeddedMetadata, isTauri, metadataFromFiles, scanFolder, whitePoints, type EmbeddedMetadata, type Entry, type ScanProgress } from '../backend/api';
 import { isEmptyMeta, normalizeMeta, sameMeta, type PhotoMeta } from './meta';
 import { autoPreset, fillPreset } from './metapresets';
 import { folderImport, importedPaths, importedRoots, rememberFolder, saveFolderImport, type FolderImport } from './folders';
@@ -1172,6 +1172,68 @@ export function editMeta(change: (m: PhotoMeta) => PhotoMeta, label: string, key
   setSourceMeta(after);
   set(historyState());
   persistSources([...after.keys()]);
+}
+
+/** A photo's marks with what its XMP says over them, as a scan takes a newer XMP (library.rs). */
+export function marksFromFile(p: Marks, found: EmbeddedMetadata): Marks {
+  // A reject (Rating -1) carries no stars, so the photo's stay; a pick has no XMP field and
+  // stays unless the file rejects the photo.
+  if (found.reject) return normalizeMarks(p.rating, found.label, 'reject');
+  return normalizeMarks(found.rating, found.label, p.flag === 'reject' ? null : p.flag);
+}
+
+/**
+ * Library › Read Metadata from Files, as Lightroom's: the stars, colour label, reject, keywords
+ * and IPTC fields of the selected photos' files (or the active one's) replace Emulsion's, as one
+ * undoable step. A scan only takes an XMP that changed after Emulsion's last save; this takes it
+ * whoever saved last. Virtual copies keep their own marks and share the source's metadata.
+ */
+export async function readMetadataFromFiles() {
+  if (!isTauri()) return;
+  const sources = [...new Set(targets().map(p => p.path))];
+  if (!sources.length) return;
+  let found: (EmbeddedMetadata | null)[];
+  try {
+    found = await metadataFromFiles(sources);
+  } catch (e) {
+    showToast(`Could not read metadata from files: ${e}`);
+    return;
+  }
+  const byPath = new Map(sources.flatMap((path, i) => found[i] ? [[path, found[i]!] as const] : []));
+  const files = (n: number) => `${n} ${n === 1 ? 'photo' : 'photos'}`;
+  if (!byPath.size) {
+    showToast(sources.length === 1 ? 'This photo’s files have no metadata to read' : 'These photos’ files have no metadata to read');
+    return;
+  }
+  const changes: Change[] = [];
+  const metas = new Map<string, PhotoMeta>();
+  for (const [path, v] of byPath) {
+    const before = familyOf(path).find(p => !p.copyId)?.meta ?? normalizeMeta(null);
+    const after = normalizeMeta(v.meta);
+    if (sameMeta(before, after)) continue;
+    metas.set(path, after);
+    changes.push({ path, meta: true, before, after });
+  }
+  const photos = get().photos.map(p => {
+    const v = byPath.get(p.path);
+    if (!v || p.copyId) return p;
+    const before: Marks = { rating: p.rating, label: p.label, flag: p.flag };
+    const after = marksFromFile(before, v);
+    if (sameMarks(after, before)) return p;
+    changes.push({ path: photoId(p), marks: true, before, after });
+    return { ...p, ...after };
+  });
+  const changed = new Set(changes.map(c => c.path.split('\0')[0]));
+  if (!changed.size) {
+    showToast(`Already up to date with the files of ${files(byPath.size)}`);
+    return;
+  }
+  history.record(`Read metadata from files on ${files(changed.size)}`, changes, performance.now());
+  set({ photos });
+  if (metas.size) setSourceMeta(metas);
+  set(historyState());
+  persistSources([...changed]);
+  showToast(`Read metadata from files: ${files(changed.size)} updated`);
 }
 
 /** Give every frame of each source its metadata. */

@@ -33,6 +33,26 @@ ejected). The recorded end state matches his sidecar field for field. New `hero-
 and poster (125 KB) in `site/public/assets/`; the header now shows the final icon tile. The
 opening frame is on the working tree's Emulsion Standard (revision 2, uncommitted retune from
 another session); re-record if that retune is dropped. Take and @2x cuts: `.scratch/hero-take-2/`.
+**The site is live** at https://mowerol.github.io/emulsion/: Oli set Pages' source to GitHub
+Actions (every earlier deploy had failed with 404 for want of it) and the re-run deployed; the page
+and hero video/poster serve 200 at their full sizes. Pushes touching `site/**` now deploy themselves.
+**Photo › Read Metadata from Files (2026-11-12, uncommitted):** Oli wanted Lightroom's command
+on Emulsion's side. A scan (opening a folder, Sync Folder) only takes an `.xmp` that changed since
+Emulsion last wrote it, or is newer than the last save when Emulsion never wrote it, so a Lightroom
+XMP older than a photo's Emulsion sidecar (e.g. sidecars from before XMP support) was never
+read. The new command (`xmp::read_from_files`, command `read_metadata_from_files`, store
+`readMetadataFromFiles`) takes the selected photos' `.xmp` (or darktable's, or the XMP inside a
+JPEG/TIFF/DNG) over Emulsion's stars, label, reject, keywords and IPTC fields as one undoable step,
+with the scan's reject/pick rules (`marksFromFile`); virtual copies keep their marks. Tests: Rust
+`reading_from_files_takes_the_sidecar_whoever_saved_last`, `src/library/store-readmeta.test.ts`;
+`npm run check` passes (884 JS, 132 Rust). Not checked in the app: the menu item on real files.
+
+**Site on phones (uncommitted):** Built-on strip stacks (label, names, link) below 900 px; paired
+buttons stack full width and card/banner padding drops to 24 px below 520 px; hero title scales to
+keep one line per sentence down to 320 px; Looks shows the four looks as a captioned 2×2 grid below
+640 px (Oli's idea) instead of the chip switcher; 44 px touch targets on coarse pointers. Checked by
+CDP phone emulation at 320/390/768 and 1440 (desktop unchanged, no horizontal overflow); the
+before/after drag on a real iPhone is not checked.
 
 **Final app icon and site spacing (2026-11-12, committed and pushed):** Oli supplied the final
 icon, `~/Documents/emulsion-brand (1)/emulsion-logo-icon.png` (809×820; new slider shape). It is

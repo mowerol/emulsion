@@ -175,6 +175,14 @@ pub async fn embedded_metadata(paths: Vec<String>) -> Result<Vec<Option<xmp::Int
     blocking(move || Ok(paths.par_iter().map(|p| sidecar::embedded(Path::new(p))).collect())).await
 }
 
+/// Library › Read Metadata from Files: what each photo's XMP says now, over whatever Emulsion
+/// saved since (a scan only takes an XMP that changed after Emulsion's last save). `None` where
+/// no file says anything.
+#[tauri::command]
+pub async fn read_metadata_from_files(paths: Vec<String>) -> Result<Vec<Option<xmp::Interchange>>, String> {
+    blocking(move || Ok(paths.par_iter().map(|p| xmp::read_from_files(Path::new(p))).collect())).await
+}
+
 #[tauri::command]
 pub async fn write_sidecar(path: String, saved: sidecar::Saved, checkpoint: Option<bool>) -> Result<(), String> {
     blocking(move || {

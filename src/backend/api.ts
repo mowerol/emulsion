@@ -149,6 +149,8 @@ export async function captureInfo(path: string, width: number, height: number): 
 /** What is embedded in each photo, for photos with no stars, label or metadata of their own yet. */
 export interface EmbeddedMetadata { rating: number; label: string | null; reject?: boolean; meta: unknown }
 export const embeddedMetadata = (paths: string[]) => invoke<(EmbeddedMetadata | null)[]>('embedded_metadata', { paths });
+/** What each photo's XMP says now (its .xmp sidecar, or the XMP inside it), for Read Metadata from Files. */
+export const metadataFromFiles = (paths: string[]) => invoke<(EmbeddedMetadata | null)[]>('read_metadata_from_files', { paths });
 
 /** Rename or move keyword `from` (with the keywords under it) to `to`, or delete it (null), in photos that aren't open. */
 export interface Retagged { path: string; meta: unknown | null; error: string | null }
