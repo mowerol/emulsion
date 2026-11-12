@@ -67,7 +67,7 @@ pub struct Entry {
     pub copies: Vec<sidecar::VirtualCopy>,
 }
 
-#[derive(Serialize, Debug)]
+#[derive(Serialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ScanResult {
     pub root: String,
@@ -81,6 +81,13 @@ pub struct ScanResult {
 }
 
 #[derive(Serialize, Debug)]
+pub struct ScanProgress {
+    #[serde(flatten)]
+    pub batch: ScanResult,
+    pub total: usize,
+}
+
+#[derive(Serialize, Debug, Clone)]
 pub struct FolderEntry {
     pub path: String,
     pub name: String,
@@ -152,6 +159,12 @@ pub fn list_photos(root: &Path, recursive: bool) -> std::io::Result<DiskListing>
 /// Scan `target`. If it is a file, its parent folder is scanned and the file is
 /// returned as `focus`.
 pub fn scan(target: &Path, recursive: bool) -> std::io::Result<ScanResult> {
+    scan_with_progress(target, recursive, None)
+}
+
+/// Discover and sort file identities first, then read sidecars in bounded batches. The first
+/// screenful can start loading thumbnails while the rest of a slow drive is still being read.
+pub fn scan_with_progress(target: &Path, recursive: bool, mut progress: Option<&mut dyn FnMut(ScanProgress)>) -> std::io::Result<ScanResult> {
     let (root, focus): (PathBuf, Option<String>) = if target.is_file() {
         let parent = target
             .parent()
@@ -170,7 +183,7 @@ pub fn scan(target: &Path, recursive: bool) -> std::io::Result<ScanResult> {
         .follow_links(false)
         .max_depth(if recursive { usize::MAX } else { 1 });
 
-    let mut entries: Vec<(Option<(sidecar::Saved, sidecar::Sync)>, Entry)> = Vec::new();
+    let mut entries: Vec<Entry> = Vec::new();
     let mut folders = Vec::new();
     let mut unreadable = 0;
 
@@ -216,8 +229,7 @@ pub fn scan(target: &Path, recursive: bool) -> std::io::Result<ScanResult> {
             .map(|c| c.as_os_str().to_string_lossy().into_owned())
             .collect::<Vec<_>>()
             .join("/");
-        let saved = sidecar::read_synced(item.path());
-        entries.push((saved, Entry {
+        entries.push(Entry {
             path: item.path().to_string_lossy().into_owned(),
             rel,
             name: item.file_name().to_string_lossy().into_owned(),
@@ -230,48 +242,60 @@ pub fn scan(target: &Path, recursive: bool) -> std::io::Result<ScanResult> {
             meta: xmp::Meta::default(),
             raw: kind == Kind::Raw,
             copies: Vec::new(),
-        }));
+        });
     }
-
-    // Which photo owns each stem's XMP needs its folder's other photos.
-    let mut by_dir: std::collections::HashMap<PathBuf, Vec<PathBuf>> = std::collections::HashMap::new();
-    for (_, e) in &entries {
-        let p = PathBuf::from(&e.path);
-        by_dir.entry(p.parent().map(Path::to_path_buf).unwrap_or_default()).or_default().push(p);
-    }
-    let mut entries: Vec<Entry> = entries
-        .into_iter()
-        .map(|(saved, mut e)| {
-            let path = PathBuf::from(&e.path);
-            let siblings = &by_dir[&path.parent().map(Path::to_path_buf).unwrap_or_default()];
-            let owner = xmp::owns(&path, siblings.iter().map(PathBuf::as_path));
-            let saved = with_newer_xmp(saved, xmp::read_sidecar(&path, owner));
-            e.recipe = saved.recipe;
-            e.rating = saved.rating;
-            e.label = saved.label;
-            e.flag = saved.flag;
-            e.meta = saved.meta;
-            e.copies = saved.copies;
-            e
-        })
-        .collect();
 
     entries.sort_by(|a, b| natord::compare_ignore_case(&a.rel, &b.rel));
     folders.sort_by(|a, b| natord::compare_ignore_case(&a.name, &b.name));
+    // Only siblings with the same stem can claim an XMP. Comparing every photo to its whole
+    // folder made this quadratic (millions of path/stem comparisons in a large shoot).
+    let mut by_stem: std::collections::HashMap<(PathBuf, Option<String>), Vec<PathBuf>> = std::collections::HashMap::new();
+    for e in &entries {
+        let p = PathBuf::from(&e.path);
+        let key = (p.parent().map(Path::to_path_buf).unwrap_or_default(), xmp::stem_key(&p));
+        by_stem.entry(key).or_default().push(p);
+    }
 
     let name = root
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_else(|| root.to_string_lossy().into_owned());
 
-    Ok(ScanResult {
+    let mut result = ScanResult {
         root: root.to_string_lossy().into_owned(),
         name,
         entries,
         unreadable,
         focus,
         folders,
-    })
+    };
+    let total = result.entries.len();
+    // A small first batch gets content on screen; subsequent batches amortize IPC and renders.
+    let mut start = 0;
+    while start < total {
+        let end = (start + if start == 0 { 24 } else { 256 }).min(total);
+        for e in &mut result.entries[start..end] {
+            let path = PathBuf::from(&e.path);
+            let key = (path.parent().map(Path::to_path_buf).unwrap_or_default(), xmp::stem_key(&path));
+            let owner = xmp::owns(&path, by_stem[&key].iter().map(PathBuf::as_path));
+            let saved = with_newer_xmp(sidecar::read_synced(&path), xmp::read_sidecar(&path, owner));
+            e.recipe = saved.recipe;
+            e.rating = saved.rating;
+            e.label = saved.label;
+            e.flag = saved.flag;
+            e.meta = saved.meta;
+            e.copies = saved.copies;
+        }
+        if let Some(send) = progress.as_mut() {
+            send(ScanProgress { batch: ScanResult {
+                entries: result.entries[start..end].to_vec(),
+                root: result.root.clone(), name: result.name.clone(), unreadable,
+                focus: result.focus.clone(), folders: result.folders.clone(),
+            }, total });
+        }
+        start = end;
+    }
+    Ok(result)
 }
 
 /// Whether an XMP sidecar says something newer than Emulsion's own sidecar: it changed since
@@ -475,6 +499,49 @@ mod tests {
     #[test]
     fn missing_folder_is_an_error() {
         assert!(scan(Path::new("/definitely/not/here"), true).is_err());
+    }
+
+    #[test]
+    #[ignore = "manual folder scan timing"]
+    fn scan_timing() {
+        // Optional real-folder measurement is read-only; the default fixture is synthetic.
+        let requested = std::env::var_os("EMULSION_SCAN_FOLDER").map(PathBuf::from);
+        let dir = tempfile::tempdir().unwrap();
+        if requested.is_none() {
+            for i in 0..2000 { touch(&dir.path().join(format!("IMG_{i}.RAF"))); }
+        }
+        let started = std::time::Instant::now();
+        let mut first = None;
+        let res = scan_with_progress(requested.as_deref().unwrap_or(dir.path()), false, Some(&mut |_| {
+            if first.is_none() { first = Some(started.elapsed()); }
+        })).unwrap();
+        println!("scan: {} photos, first={:?}, complete={:?}", res.entries.len(), first, started.elapsed());
+    }
+
+    #[test]
+    fn streams_complete_sidecars_before_reading_the_rest_and_keeps_xmp_ownership_across_batches() {
+        let dir = tempfile::tempdir().unwrap();
+        for i in 0..23 { touch(&dir.path().join(format!("A_{i}.jpg"))); }
+        for name in ["X.DNG", "X.RAF", "Z.jpg"] { touch(&dir.path().join(name)); }
+        sidecar::write(&dir.path().join("A_0.jpg"), &sidecar::Saved { rating: 3, ..Default::default() }, false).unwrap();
+        sidecar::write(&dir.path().join("X.RAF"), &sidecar::Saved { rating: 4, ..Default::default() }, false).unwrap();
+        let mut batches = Vec::new();
+        let result = scan_with_progress(dir.path(), false, Some(&mut |progress| {
+            assert_eq!(progress.total, 26);
+            if batches.is_empty() {
+                assert_eq!(progress.batch.entries.len(), 24);
+                assert_eq!(progress.batch.entries[0].rating, 3);
+                assert_eq!(progress.batch.entries[23].name, "X.DNG");
+                assert_eq!(progress.batch.entries[23].rating, 0, "the RAF in the next batch owns X.xmp");
+                // Changing a later sidecar here proves it hasn't been read before the first batch.
+                sidecar::write(&dir.path().join("Z.jpg"), &sidecar::Saved { rating: 5, ..Default::default() }, false).unwrap();
+            }
+            batches.push(progress.batch.entries);
+        })).unwrap();
+        assert_eq!(batches.len(), 2);
+        assert_eq!(result.entries[24].rating, 4);
+        assert_eq!(result.entries[25].rating, 5);
+        assert_eq!(serde_json::to_value(batches.into_iter().flatten().collect::<Vec<_>>()).unwrap(), serde_json::to_value(result.entries).unwrap());
     }
 
     #[test]

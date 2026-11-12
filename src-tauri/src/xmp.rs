@@ -195,7 +195,7 @@ impl Interchange {
     }
 }
 
-fn stem_key(p: &Path) -> Option<String> {
+pub(crate) fn stem_key(p: &Path) -> Option<String> {
     Some(p.file_stem()?.to_string_lossy().to_lowercase())
 }
 

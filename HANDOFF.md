@@ -29,6 +29,29 @@ toolbar style. Checked by screenshot in mid, light and dark. Tooltips now take `
 hidden on a button whose menu is open. Not checked in the app: Export, Settings, Library source and
 Look Creator selects.
 
+**Folder opening (2026-11-12):** Oli flagged the blocking “Reading photos…” screen
+on both first imports and return visits. `openFolder` now displays imported photos from the
+catalog immediately and refreshes sidecars behind the grid, preserving selection/range anchor,
+Develop/Loupe, undo and edits/version changes made during the scan (including edits when leaving
+before the refresh completes). First imports receive complete, naturally sorted photos through
+a Tauri Channel: 24 in the first batch, then 256 at a time. Thumbnails and selection work while
+the remaining scan runs; Import waits for completion. Cancellation, superseding navigation and
+late Channel deliveries are guarded; a failed partial import restores the prior source.
+`library.rs` groups XMP ownership checks by folder AND stem instead of comparing every photo
+with its whole folder. The 2,000-file synthetic scan went from ~360 ms to ~91 ms total, with its
+first batch at ~55 ms (local file/sidecar work, not RAW decoding). A read-only native scan of
+the actual Portugal folder on Oli External found 3,006 photos: first batch ~158 ms, complete
+~238 ms. Reproduce with `EMULSION_SCAN_FOLDER='<folder>' cargo test library::tests::scan_timing
+-- --ignored --nocapture` from src-tauri; without the environment variable it uses the fixture.
+`npm run check` passes (863 JS tests, 130 Rust tests at that run; additional opening regressions
+also checked). `tools/browser-tests/folder-loading.tsx` holds scan responses and checks both
+paths, thumbnail arrival, selection and Import gating; `screen=import` leaves it partially
+loaded for screenshots. Browser checks pass at 1200×800 and 960×720. The existing
+`library-handoff screen=reopen` scenario still reaches photo 64 (its legacy JSON result makes
+realtime.mjs exit 1 despite `passed: true`). Remaining real-app check: first open and return to
+a large folder on the external drive; native scan timing excludes thumbnail decoding and
+WKWebView rendering.
+
 The flags, Select sky, open-source map, export dialog grid, renamed Emulsion looks and Library
 Grid/Loupe with its vertical carousel are committed. Library import/sync, metadata, collection
 performance fixes and the Import toolbar removal landed in `19bddf2`. Older "Uncommitted" notes below are out of date.

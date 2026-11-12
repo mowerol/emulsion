@@ -195,6 +195,7 @@ export function FolderImportView() {
   const root = useApp(s => s.folder?.root);
   const folder = useApp(s => s.folder?.name);
   const loading = useApp(s => s.loading);
+  const found = useApp(s => s.candidates.length);
   const includeSubfolders = useApp(s => s.includeSubfolders);
   const anchor = useRef(-1);
   const scroll = useRef<HTMLDivElement>(null);
@@ -264,6 +265,6 @@ export function FolderImportView() {
         })}
       </div> : <div className="library-empty"><h2>{loading ? 'Reading photos…' : already ? 'All photos in this folder are already in the library' : 'No photos in this folder'}</h2><p>{already ? 'Turn off Hide already imported to see them.' : 'Choose another folder or include subfolders.'}</p></div>}
     </div>
-    <footer className="library-status"><span>{loading ? 'Reading photos…' : `${fresh.length.toLocaleString()} new in ${folder ?? 'folder'} · ${already.toLocaleString()} already in library`}</span><span>Space select · Shift-click range · Esc cancel</span></footer>
+    <footer className="library-status"><span role="status">{loading ? `Loading photos… · ${found.toLocaleString()} found` : `${fresh.length.toLocaleString()} new in ${folder ?? 'folder'} · ${already.toLocaleString()} already in library`}</span><span>Space select · Shift-click range · Esc cancel</span></footer>
   </section>;
 }

@@ -4,7 +4,7 @@
 use percent_encoding::percent_decode_str;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use tauri::ipc::{InvokeBody, Request, Response};
+use tauri::ipc::{InvokeBody, JavaScriptChannelId, Request, Response};
 use tauri::State;
 
 use rayon::prelude::*;
@@ -42,8 +42,14 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, String> + Sen
 }
 
 #[tauri::command]
-pub async fn scan_folder(path: String, recursive: bool) -> Result<library::ScanResult, String> {
-    blocking(move || library::scan(Path::new(&path), recursive).map_err(|e| e.to_string())).await
+pub async fn scan_folder(webview: tauri::Webview, path: String, recursive: bool, on_progress: Option<JavaScriptChannelId>) -> Result<library::ScanResult, String> {
+    let on_progress = on_progress.map(|id| id.channel_on::<_, library::ScanProgress>(webview));
+    blocking(move || {
+        let mut send = |batch| { if let Some(channel) = &on_progress { let _ = channel.send(batch); } };
+        if on_progress.is_some() {
+            library::scan_with_progress(Path::new(&path), recursive, Some(&mut send))
+        } else { library::scan(Path::new(&path), recursive) }.map_err(|e| e.to_string())
+    }).await
 }
 
 #[tauri::command]

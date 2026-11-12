@@ -2,7 +2,7 @@ import { noiseJob } from '../library/noise';
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Typed calls into the Rust core (src-tauri/src/commands.rs).
 
-import { invoke } from '@tauri-apps/api/core';
+import { Channel, invoke } from '@tauri-apps/api/core';
 import type { HalfImage } from '../engine/engine';
 import type { InputMode } from '../engine/params';
 
@@ -33,6 +33,9 @@ export interface ScanResult {
   folders: { path: string; name: string }[];
 }
 
+/** Fully read photos in natural-order batches; the command returns the complete scan. */
+export interface ScanProgress extends ScanResult { total: number }
+
 export interface StartupOptions {
   openPath: string | null;
   startView: string | null;
@@ -40,7 +43,8 @@ export interface StartupOptions {
 
 export const isTauri = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
-export const scanFolder = (path: string, recursive = true) => invoke<ScanResult>('scan_folder', { path, recursive });
+export const scanFolder = (path: string, recursive = true, onProgress?: (batch: ScanProgress) => void) =>
+  invoke<ScanResult>('scan_folder', { path, recursive, ...(onProgress ? { onProgress: new Channel(onProgress) } : {}) });
 export interface DiskListing { entries: { path: string; modified: number }[]; folders: Directory[]; unreadable: number }
 /** Cheap discovery; never reads sidecars or image data. */
 export const listFolderPhotos = (path: string, recursive = false) => invoke<DiskListing>('list_folder_photos', { path, recursive });

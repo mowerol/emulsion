@@ -33,7 +33,7 @@ beforeEach(() => {
 
 it('browses only the folder itself without importing or reading RAW metadata', async () => {
   await openFolder('/photos');
-  expect(scanFolder).toHaveBeenCalledWith('/photos', false);
+  expect(scanFolder).toHaveBeenCalledWith('/photos', false, expect.any(Function));
   expect(useApp.getState()).toMatchObject({ choosingImport: true, photos: [], active: -1 });
   expect(useApp.getState().candidates).toHaveLength(2);
   expect(useApp.getState().subfolders).toEqual([{ path: '/photos/Trip', name: 'Trip' }]);
@@ -121,7 +121,7 @@ it('remembers the last successfully browsed folder, including folders awaiting i
 it('imports and selects photos dropped on the app without asking', async () => {
   vi.mocked(scanFolder).mockResolvedValue(scan('/dropped', ['a.jpg', 'b.jpg', 'c.jpg']));
   await openPaths(['/dropped/b.jpg', '/dropped/c.jpg']);
-  expect(scanFolder).toHaveBeenCalledWith('/dropped/b.jpg', false);
+  expect(scanFolder).toHaveBeenCalledWith('/dropped/b.jpg', false, expect.any(Function));
   const s = useApp.getState();
   expect(s.choosingImport).toBe(false);
   expect(s.photos.map(p => p.name)).toEqual(['b.jpg', 'c.jpg']);

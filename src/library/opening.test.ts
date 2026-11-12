@@ -6,9 +6,9 @@ vi.mock('../backend/api', () => ({
   scanFolder: vi.fn(), whitePoints: vi.fn(async () => []), writeSidecar: vi.fn(async () => {}),
   thumbnail: vi.fn(), isTauri: () => false, logToTerminal: () => {},
 }));
-import { scanFolder, type ScanResult } from '../backend/api';
+import { scanFolder, type ScanProgress, type ScanResult } from '../backend/api';
 import { catalogPhotos, saveCollection, useCatalog } from './catalog';
-import { closeFolder, importFolderPhotos, markPhotos, openFolder, selectSource, setActive, setView, shownSource, sourcePhotos, useApp } from './store';
+import { chooseImport, closeFolder, createVirtualCopies, importFolderPhotos, markPhotos, openFolder, removeVirtualCopies, selectSource, setActive, setView, shownSource, sourcePhotos, useApp } from './store';
 import { NO_FILTER } from './filter';
 
 const scan = (root: string, names: string[]): ScanResult => ({ root, name: root.split('/').pop()!, unreadable: 0, focus: null, folders: [],
@@ -70,6 +70,183 @@ it('keeps the open folder on screen while it is refreshed', async () => {
   expect(useApp.getState().selected.size).toBe(1);
   release();
   await opened;
+});
+
+it('shows an imported folder from the catalog before its disk scan finishes', async () => {
+  await openFolder('/elsewhere');
+  const release = slowScan(scan('/small', ['a.jpg', 'b.jpg', 'new.jpg']));
+  const opened = openFolder('/small');
+  await settle();
+  try {
+    expect(useApp.getState().opening).toBeNull();
+    expect(useApp.getState().source).toEqual({ type: 'folder', id: '/small' });
+    expect(sourcePhotos().map(p => p.name)).toEqual(['a.jpg', 'b.jpg']);
+  } finally {
+    release();
+    await opened;
+  }
+});
+
+it('returns immediately to the cached folder while a different folder is still opening', async () => {
+  const releaseOther = slowScan(scan('/other', ['c.jpg']));
+  const other = openFolder('/other');
+  await settle();
+  const releaseSmall = slowScan(scan('/small', ['a.jpg', 'b.jpg']));
+  const small = openFolder('/small');
+  await settle();
+  try {
+    expect(useApp.getState().opening).toBeNull();
+    expect(sourcePhotos().map(p => p.name)).toEqual(['a.jpg', 'b.jpg']);
+    releaseOther();
+    await other;
+    expect(useApp.getState().loading).toBe(true);
+  } finally {
+    releaseOther();
+    releaseSmall();
+    await Promise.all([other, small]);
+  }
+});
+
+it('shows the first batch of a new folder while the rest is still being read', async () => {
+  let progress: ((batch: ScanProgress) => void) | undefined;
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  vi.mocked(scanFolder).mockImplementationOnce(async (_path, _recursive, onProgress) => {
+    progress = onProgress;
+    await gate;
+    return scan('/new', ['first.jpg', 'last.jpg']);
+  });
+  const opened = openFolder('/new');
+  await settle();
+  try {
+    expect(progress).toBeTypeOf('function');
+    progress!({ ...scan('/new', ['first.jpg']), total: 2 });
+    expect(useApp.getState()).toMatchObject({ opening: null, loading: true, choosingImport: true });
+    expect(useApp.getState().candidates.map(p => p.name)).toEqual(['first.jpg']);
+    expect(useApp.getState().photos).toEqual([]);
+  } finally {
+    release();
+    await opened;
+  }
+  expect(useApp.getState().candidates.map(p => p.name)).toEqual(['first.jpg', 'last.jpg']);
+});
+
+it('preserves edits, selection, Develop, and undo while an imported folder refreshes', async () => {
+  await openFolder('/elsewhere');
+  const release = slowScan(scan('/small', ['a.jpg', 'b.jpg']));
+  const opened = openFolder('/small');
+  await settle();
+  try {
+    const i = useApp.getState().photos.findIndex(p => p.name === 'b.jpg');
+    setActive(i);
+    markPhotos({ rating: 4 });
+    setView('develop');
+  } finally {
+    release();
+    await opened;
+  }
+  const s = useApp.getState();
+  expect(s.photos[s.active]).toMatchObject({ name: 'b.jpg', rating: 4 });
+  expect([...s.selected]).toEqual(['/small/b.jpg']);
+  expect(s.view).toBe('develop');
+  expect(s.history.undo).toBeTruthy();
+  expect(catalogPhotos().find(p => p.path === '/small/b.jpg')?.rating).toBe(4);
+});
+
+it('keeps the range anchor and decoded metadata while accepting refreshed sidecar marks', async () => {
+  await openFolder('/elsewhere');
+  const result = scan('/small', ['a.jpg', 'b.jpg']);
+  result.entries[1].rating = 3;
+  const release = slowScan(result);
+  const opened = openFolder('/small');
+  await settle();
+  setActive(0);
+  setActive(1, 'range');
+  useApp.setState(s => ({ photos: s.photos.map(p => p.name === 'a.jpg' ? { ...p, white: [0.3, 0.3] } : p) }));
+  release();
+  await opened;
+  const s = useApp.getState();
+  expect(s.photos[s.anchor].name).toBe('a.jpg');
+  expect(s.photos[s.active].name).toBe('b.jpg');
+  expect(s.selected.size).toBe(2);
+  expect(s.photos.find(p => p.name === 'a.jpg')?.white).toEqual([0.3, 0.3]);
+  expect(s.photos.find(p => p.name === 'b.jpg')?.rating).toBe(3);
+});
+
+it('does not restore a virtual copy removed during a background scan', async () => {
+  createVirtualCopies();
+  const copy = useApp.getState().photos.find(p => p.copyId)!;
+  await openFolder('/elsewhere');
+  const result = scan('/small', ['a.jpg', 'b.jpg']);
+  result.entries[0].copies = [{ id: copy.copyId!, name: copy.copyName!, recipe: copy.recipe, rating: copy.rating, label: copy.label, flag: copy.flag }];
+  const release = slowScan(result);
+  const opened = openFolder('/small');
+  await settle();
+  setActive(useApp.getState().photos.findIndex(p => p.copyId === copy.copyId));
+  removeVirtualCopies();
+  release();
+  await opened;
+  expect(useApp.getState().photos.some(p => p.copyId)).toBe(false);
+  expect(catalogPhotos().some(p => p.copyId)).toBe(false);
+});
+
+it.each(['cancel', 'switch', 'failure'] as const)('ignores partial results after an import %s', async action => {
+  const previous = useApp.getState();
+  let progress: ((batch: ScanProgress) => void) | undefined;
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  vi.mocked(scanFolder).mockImplementationOnce(async (_path, _recursive, onProgress) => {
+    progress = onProgress;
+    await gate;
+    if (action === 'failure') throw Error('Drive disconnected');
+    return scan('/new', ['first.jpg', 'last.jpg']);
+  });
+  const opened = openFolder('/new');
+  await settle();
+  progress!({ ...scan('/new', ['first.jpg']), total: 2 });
+  if (action === 'cancel') chooseImport(false);
+  if (action === 'switch') await openFolder('/other');
+  release();
+  await opened;
+  // Channel deliveries can arrive after either cancellation or the command's final response.
+  progress!({ ...scan('/new', ['last.jpg']), total: 2 });
+  const s = useApp.getState();
+  expect(s.loading).toBe(false);
+  if (action === 'switch') {
+    expect(s.folder?.root).toBe('/other');
+    expect(s.candidates.every(p => p.path.startsWith('/other/'))).toBe(true);
+  } else {
+    expect(s.choosingImport).toBe(false);
+    expect(s.folder?.root).toBe('/small');
+    expect(s.photos).toEqual(previous.photos);
+    expect(s.selected).toEqual(previous.selected);
+  }
+});
+
+it('keeps cached entries available if an imported folder is disconnected', async () => {
+  await openFolder('/elsewhere');
+  const release = slowScan(new Error('Drive disconnected'));
+  const opened = openFolder('/small');
+  await settle();
+  release();
+  await opened;
+  expect(useApp.getState().loading).toBe(false);
+  expect(useApp.getState().folder?.root).toBe('/small');
+  expect(sourcePhotos().map(p => p.name)).toEqual(['a.jpg', 'b.jpg']);
+});
+
+it.each(['switch', 'close'] as const)('retains edits when leaving a cached folder before its scan finishes: %s', async action => {
+  await openFolder('/elsewhere');
+  const release = slowScan(scan('/small', ['a.jpg', 'b.jpg']));
+  const opened = openFolder('/small');
+  await settle();
+  markPhotos({ rating: 4 });
+  if (action === 'switch') await openFolder('/other');
+  else closeFolder();
+  release();
+  await opened;
+  expect(catalogPhotos().find(p => p.path === '/small/a.jpg')?.rating).toBe(4);
+  expect(useApp.getState().folder?.root ?? null).toBe(action === 'switch' ? '/other' : null);
 });
 
 it('returns to the previous folder when the new one cannot be read', async () => {
