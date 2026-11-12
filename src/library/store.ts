@@ -126,6 +126,10 @@ export interface State {
     id: string; name: string; path: string; original: Recipe | null; past: (Recipe | null)[]; future: (Recipe | null)[]; start: { name: string; draft: Recipe }; matching?: object;
     /** The newest undo step's key and time, so a drag is one step, merged by the photo history's rule. */
     last?: { key: string; at: number };
+    /** The photo editing started on, once the draft has moved to a test photo (moveLookEdit). */
+    home?: string;
+    /** A test photo from outside the open photos, added to them while the draft is on it. */
+    guest?: string;
   } | null;
   /** The crop being edited, for the photo at `path` of size W × H; it is saved when cropping ends. */
   cropEdit: { path: string; draft: Crop; W: number; H: number } | null;
@@ -1361,7 +1365,9 @@ export function lookEditDirty(s: Pick<State, 'lookEdit' | 'photos'>): boolean {
   const e = s.lookEdit;
   if (!e) return false;
   const draft = s.photos.find((x) => photoId(x) === e.path)?.recipe ?? null;
-  return e.name !== e.start.name || JSON.stringify(draft) !== JSON.stringify(e.start.draft);
+  // Preview exposure is not saved with the look, so it alone leaves nothing unsaved.
+  const look = (r: Recipe | null) => JSON.stringify(r && { ...r, exposure: 0 });
+  return e.name !== e.start.name || look(draft) !== look(e.start.draft);
 }
 
 /** Stop editing a look: the photo gets its saved recipe back. Returns the draft it had. */
@@ -1369,8 +1375,38 @@ export function endLookEdit(): Recipe | null {
   const e = get().lookEdit;
   if (!e) return null;
   const draft = get().photos.find((x) => photoId(x) === e.path)?.recipe ?? null;
-  set({ lookEdit: null, photos: get().photos.map((x) => (photoId(x) === e.path ? { ...x, recipe: e.original } : x)) });
+  const photos = get().photos.map((x) => (photoId(x) === e.path ? { ...x, recipe: e.original } : x)).filter(x => photoId(x) !== e.guest);
+  // On a test photo from elsewhere, go back to the photo editing started on.
+  const back = e.guest === e.path ? photos.findIndex(x => photoId(x) === e.home) : -1;
+  set({ lookEdit: null, photos, ...(e.guest ? reselect(photos, back >= 0 ? back : Math.min(get().active, photos.length - 1)) : {}) });
   return draft;
+}
+
+const reselect = (photos: Photo[], index: number) => ({ active: index, anchor: index, selected: index >= 0 ? new Set([photoId(photos[index])]) : new Set<string>() });
+
+/**
+ * Show the look draft on `target` instead (a test photo clicked in the Look Creator): that photo
+ * gets the draft and the one it leaves gets its saved recipe back. The draft is as shot, so it and
+ * its undo history move unchanged. A photo outside the open ones joins them until the draft
+ * leaves it or editing ends.
+ */
+export function moveLookEdit(target: Photo) {
+  const s = get();
+  const e = s.lookEdit;
+  const id = photoId(target);
+  if (!e || e.matching || id === e.path) return;
+  const draft = s.photos.find(p => photoId(p) === e.path)?.recipe ?? null;
+  let photos = s.photos.map(p => photoId(p) === e.path ? { ...p, recipe: e.original } : p);
+  if (e.guest) photos = photos.filter(p => photoId(p) !== e.guest);
+  let index = photos.findIndex(p => photoId(p) === id);
+  const guest = index < 0 ? id : undefined;
+  if (index < 0) { photos = [...photos, target]; index = photos.length - 1; }
+  const on = photos[index];
+  const original = on.recipe;
+  // Preview exposure belongs to the photo it was set on: the next photo starts as shot.
+  const shot = <R extends Recipe | null>(r: R): R => (r && r.exposure ? { ...r, exposure: 0 } : r);
+  photos[index] = { ...on, recipe: shot(draft) };
+  set({ lookEdit: { ...e, path: id, original, home: e.home ?? e.path, guest, last: undefined, past: e.past.map(shot), future: e.future.map(shot) }, photos, ...reselect(photos, index) });
 }
 
 function lookDraftHistory(side: 'past' | 'future') {

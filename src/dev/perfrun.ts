@@ -10,7 +10,8 @@
 import { logToTerminal, writeJpeg } from '../backend/api';
 import { Engine, InputMode } from '../engine/engine';
 import { defaultRecipe, type Recipe } from '../film/recipe';
-import { activePhoto, editActive, importFolderPhotos, useApp } from '../library/store';
+import { activePhoto, editActive, endLookEdit, importFolderPhotos, startLookEdit, useApp } from '../library/store';
+import { photoId } from '../library/copies';
 import { setWorkspace, type ControlGroupId } from '../ui/workspace';
 import { useCatalog } from '../library/catalog';
 import { setDetailOrder } from '../ui/detailorder';
@@ -630,14 +631,16 @@ export async function run(which: string) {
     out.engine = perfClient?.mode ?? null;
     // With the engine in its worker, its frames come from the client (the prototype hooks above
     // see only a main-thread engine): draw counts, texture memory and pass timings are main-mode only.
-    if (perfClient?.mode === 'worker') {
+    const watchFrames = () => {
+      if (perfClient?.mode !== 'worker') return;
       const client = perfClient;
       client.onFrame = (f) => {
         lastSrcW = f.srcW;
         lastScale = client.lastScale;
         frames.push({ start: f.start, done: f.done, cpu: f.cpu, tag: tagOf(client.recipeOf(f.seq) as Recipe | null), srcW: f.srcW, detail: f.detail, seq: f.seq, preparation: f.preparation, captureCache: f.captureCache, memory: f.memory, denoise: f.denoise, pending: f.pending, region: f.region });
       };
-    }
+    };
+    watchFrames();
     const only = which.split(',');
     const want = (k: string) => only.includes('all') || only.includes(k);
 
@@ -722,6 +725,35 @@ export async function run(which: string) {
       await settle(1500, 30000);
       out.denoiseOffExposure = await sliderDrag('exposure', 'develop');
       setSliders({ profiledDenoise: 'auto' });
+    }
+    if (only.includes('look')) {
+      // The Look Creator with its test photos: drags with the strip rendering beside the
+      // preview, how long the strip takes to catch up after a drag, and the same drags folded.
+      const p = activePhoto()!;
+      startLookEdit(photoId(p), 'perf-look', 'Perf look', defaultRecipe('neutral'));
+      // The Look Creator mounts its own Develop, with a new engine client: watch its frames.
+      const before = perfClient;
+      for (let i = 0; i < 300 && perfClient === before; i++) await wait(20);
+      watchFrames();
+      const tiles = () => [...document.querySelectorAll('.look-test')];
+      const caughtUp = async () => {
+        const t0 = performance.now();
+        while (performance.now() - t0 < 30000 && (!tiles().length || tiles().some(t => t.classList.contains('stale') || !t.classList.contains('ready') && !t.querySelector('.look-test-failed')))) await wait(20);
+        return Math.round(performance.now() - t0);
+      };
+      if (document.querySelector('.look-tests.folded')) (document.querySelector('.look-tests-fold') as HTMLButtonElement).click();
+      out.lookStripFirstMs = await caughtUp();
+      out.lookTiles = tiles().length;
+      await settle(1000, 30000);
+      out.lookContrast = await sliderDrag('contrast', 'develop');
+      out.lookContrastCatchUpMs = await caughtUp();
+      out.lookSaturation = await sliderDrag('saturation', 'develop');
+      out.lookSaturationCatchUpMs = await caughtUp();
+      (document.querySelector('.look-tests-fold') as HTMLButtonElement).click();
+      await settle(1000, 30000);
+      out.lookContrastFolded = await sliderDrag('contrast', 'develop');
+      (document.querySelector('.look-tests-fold') as HTMLButtonElement).click();
+      endLookEdit();
     }
     if (want('again')) {
       // The same drags again in the same session: what is left once one-time costs are paid.

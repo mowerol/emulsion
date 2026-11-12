@@ -2,14 +2,15 @@
 // The Look Creator: a full-window workspace for building a look (an optional base
 // LUT or photo match plus tone and colour settings) on the current photo. A header bar holds the
 // name and the save actions, the source chooser has its own column on the left, the
-// preview sits between, and the look's adjustments are in the panel on the right.
+// preview sits between with test photos under it (LookTestStrip), and the look's adjustments
+// are in the panel on the right.
 import { useEffect, useRef, useState } from 'react';
 import { ChevronDown, Redo2, Undo2 } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { PACK, PACKS, lookName, lutBase, withLook, type PackId } from '../film/looks';
 import { defaultRecipe, withStock, type Recipe } from '../film/recipe';
 import { settingsFromRecipe, withLutBase } from '../film/creative';
-import { importLutFile, lutSourceOf, saveLook } from '../library/userlooks';
+import { importLutFile, lutSourceOf, saveLook, uuid } from '../library/userlooks';
 import { builtinOfEditId, saveBuiltinLook } from '../library/builtinlooks';
 import { activePhoto, editActive, endLookEdit, lookEditDirty, redo, renameLookEdit, showToast, undo, useApp } from '../library/store';
 import { LutBrowser, lutPacks, type LutCollection } from './TreatmentBrowser';
@@ -24,16 +25,33 @@ const fail = (e: unknown) => showToast(String(e));
 /** The header's name field asks for focus through this when a save needs a name. */
 let askForName: (() => void) | null = null;
 
-/** Save the draft as a look (and apply it to the photo when `apply`), then leave the workspace. */
-async function saveDraft(apply: boolean): Promise<void> {
+/** Whether the look being edited is already saved (a copy of it would then be a new look). */
+const isSavedLook = (id: string) => !!builtinOfEditId(id) || !!PACK.custom.looks[id as StockId];
+
+/**
+ * Save the draft as a look (and apply it to the photo when `apply`), then leave the workspace.
+ * `copy` saves it as a new custom look and leaves the one being edited as it was.
+ */
+async function saveDraft(apply: boolean, copy = false): Promise<void> {
   const s = useApp.getState();
   const editing = s.lookEdit;
   const photo = activePhoto(s);
   if (!editing || editing.matching || !photo?.recipe) return;
-  const builtin = builtinOfEditId(editing.id);
+  const builtin = copy ? null : builtinOfEditId(editing.id);
   const isNew = !builtin && !PACK.custom.looks[editing.id as StockId];
-  if (!editing.name.trim() || isNew && editing.name.trim() === DEFAULT_NAME) { askForName?.(); return; }
+  if (!editing.name.trim() || isNew && !copy && editing.name.trim() === DEFAULT_NAME) { askForName?.(); return; }
+  // Preview exposure is not part of a look: settingsFromRecipe leaves exposure out.
   const settings = settingsFromRecipe(photo.recipe, lutSourceOf(photo.recipe));
+  if (copy) {
+    // A copy keeps a name given in this session, else is named after the look it was made from.
+    const name = editing.name.trim() !== editing.start.name ? editing.name.trim() : `${editing.name.trim()} copy`;
+    const id = await saveLook(uuid(), name, settings);
+    endLookEdit();
+    const entry = PACK.custom.looks[id]!;
+    editActive(r => ({ ...withStock(r ?? defaultRecipe(), id), pack: 'custom', lookAmount: 100, scannerFromLook: true, lookSnapshot: { id, name: entry.name!, revision: entry.revision ?? 1, kind: 'look', settings: structuredClone(entry.settings!) } }), 'Apply saved look');
+    showToast(`Saved and applied as a new look, ${name}`);
+    return;
+  }
   if (builtin) {
     await saveBuiltinLook(builtin, editing.name.trim(), settings);
     endLookEdit();
@@ -67,7 +85,8 @@ function NameField() {
   return <button type="button" className="look-name" title="Rename the look" onClick={() => { setText(name); setEditing(true); }}>{name || 'Untitled'}</button>;
 }
 
-function SaveButton({ saving, onSave }: { saving: boolean; onSave: (apply: boolean) => void }) {
+function SaveButton({ saving, onSave }: { saving: boolean; onSave: (apply: boolean, copy?: boolean) => void }) {
+  const saved = useApp(s => !!s.lookEdit && isSavedLook(s.lookEdit.id));
   const [menu, setMenu] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -81,6 +100,7 @@ function SaveButton({ saving, onSave }: { saving: boolean; onSave: (apply: boole
     <button type="button" className="look-save-more" disabled={saving} aria-label="More save options" aria-haspopup="menu" aria-expanded={menu} onClick={() => setMenu(!menu)}><ChevronDown size={14} strokeWidth={2.25} aria-hidden="true" /></button>
     {menu && <div className="look-save-menu" role="menu">
       <button type="button" role="menuitem" onClick={() => { setMenu(false); onSave(false); }}>Save to library only</button>
+      {saved && <button type="button" role="menuitem" onClick={() => { setMenu(false); onSave(true, true); }}>Save as copy and apply</button>}
     </div>}
   </div>;
 }
@@ -94,10 +114,10 @@ export function LookCreatorHeader() {
   const builtin = useApp(s => !!s.lookEdit && !!builtinOfEditId(s.lookEdit.id));
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState(false);
-  const save = async (apply: boolean) => {
+  const save = async (apply: boolean, copy = false) => {
     if (saving || matching) return;
     setSaving(true);
-    try { await saveDraft(apply); } catch (e) { fail(e); } finally { setSaving(false); }
+    try { await saveDraft(apply, copy); } catch (e) { fail(e); } finally { setSaving(false); }
   };
   const cancel = () => { if (lookEditDirty(useApp.getState())) setConfirming(true); else endLookEdit(); };
   const keys = useRef({ save, cancel, confirming });
@@ -131,7 +151,7 @@ export function LookCreatorHeader() {
       <button type="button" className="icon-btn" aria-label="Undo" data-tip={`Undo ${MOD}Z`} disabled={!canUndo} onClick={undo}><Undo2 size={16} aria-hidden="true" /></button>
       <button type="button" className="icon-btn" aria-label="Redo" data-tip={`Redo ⇧${MOD}Z`} disabled={!canRedo} onClick={redo}><Redo2 size={16} aria-hidden="true" /></button>
     </div>
-    <SaveButton saving={saving || matching} onSave={apply => void save(apply)} />
+    <SaveButton saving={saving || matching} onSave={(apply, copy) => void save(apply, copy)} />
   </header>;
 }
 
@@ -175,12 +195,24 @@ export function LookLutColumn() {
   </aside>;
 }
 
-/** Under the preview: how to compare, and what the preview shows. */
+/**
+ * Under the preview: how to compare, what the preview shows, and its exposure. Preview exposure
+ * only helps judge a look on a dark or bright frame: it is not saved with the look, not shown in
+ * the test photos, and goes back to 0 when the draft moves to another photo (moveLookEdit).
+ */
 export function LookPreviewFooter() {
+  const exposure = useApp(s => activePhoto(s)?.recipe?.exposure ?? 0);
+  const set = (v: number) => editActive(r => ({ ...(r ?? defaultRecipe()), exposure: Math.round(v * 100) / 100 }), 'Preview exposure');
   return <footer className="look-preview-footer">
     <span>Hold <kbd>\</kbd> to see the original</span>
     <span aria-hidden="true" className="look-preview-dot">·</span>
-    <span>Look only, without the photo’s own edits</span>
+    <span title="The photo without its own edits: no exposure, white balance or tone changes">Photo shown as shot</span>
+    <label className={`look-preview-exposure${exposure ? ' changed' : ''}`} title="Brightens or darkens this preview while you build the look. Not saved with the look. Double-click to reset.">
+      <span>Preview exposure</span>
+      <LiveRange aria-label="Preview exposure" min="-3" max="3" step="0.05" value={exposure} style={{ '--t': (exposure + 3) / 6 } as React.CSSProperties}
+        onChange={set} onDoubleClick={() => set(0)} />
+      <output>{exposure > 0 ? '+' : exposure < 0 ? '−' : ''}{Math.abs(exposure).toFixed(2)} EV</output>
+    </label>
   </footer>;
 }
 

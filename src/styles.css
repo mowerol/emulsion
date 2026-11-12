@@ -1690,7 +1690,41 @@ body:has(.workspace-look) { min-width: 960px; }
 
 .main.look-preview { flex-direction: column; background: var(--canvas); }
 .look-preview > .develop { min-height: 0; }
-.look-preview-footer { height: 36px; flex: none; display: flex; align-items: center; justify-content: center; gap: 18px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); background: var(--panel); }
+/* Test photos: the look draft on other photos, under the preview. */
+.look-tests { flex: none; background: var(--panel); border-top: 1px solid var(--line); padding: 0 16px 12px; }
+.look-tests.folded { padding-bottom: 0; }
+.look-tests-head { height: 34px; display: flex; align-items: center; gap: 12px; }
+.look-tests-fold { display: inline-flex; align-items: center; gap: 4px; margin-left: -4px; padding: 3px 6px 3px 4px; border: 0; border-radius: 5px; background: none; color: var(--text); font-size: 12px; font-weight: 600; cursor: pointer; }
+.look-tests-fold:hover { background: var(--hover); }
+.look-tests-fold svg { color: var(--muted); }
+.look-tests-hint { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.look-tests-source { margin-left: auto; max-width: 220px; min-width: 0; background: var(--ctl); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; font-size: 12px; color: var(--text); }
+.look-tests-row { display: grid; grid-template-columns: repeat(6, minmax(0, 148px)); justify-content: center; gap: 10px; }
+.look-test { position: relative; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.look-test-pick { position: relative; display: block; width: 100%; aspect-ratio: 3 / 2; padding: 0; border: 1px solid transparent; border-radius: 5px; background: var(--histo); overflow: hidden; cursor: pointer; }
+.look-test-pick:hover:not(:disabled) { border-color: var(--faint); }
+.look-test-pick:disabled { cursor: default; }
+.look-test-pick:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.look-test.current .look-test-pick { border-color: var(--text); box-shadow: 0 0 0 1px var(--text); cursor: default; }
+.look-test-pick img, .look-test-pick canvas { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.look-test-pick canvas { transition: opacity 160ms cubic-bezier(0.16, 1, 0.3, 1); }
+.look-test.ready .look-test-pick img { visibility: hidden; }
+.look-test.stale .look-test-pick canvas { opacity: 0.55; }
+.look-test-failed { position: absolute; inset: 0; display: grid; place-items: center; font-size: 11px; color: var(--muted); }
+.look-test-caption { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-align: center; }
+.look-test.current .look-test-caption { color: var(--text); }
+.look-test-pin.icon-btn { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 5px; background: rgba(0, 0, 0, 0.5); color: #fff; opacity: 0; transition: opacity 120ms ease-out; }
+.look-test:hover .look-test-pin, .look-test-pin:focus-visible, .look-test-pin.on { opacity: 1; }
+.look-test-pin.icon-btn:hover:not(:disabled) { background: rgba(0, 0, 0, 0.7); color: #fff; }
+.look-test-pin.on svg { fill: currentColor; }
+.look-tests-empty { grid-column: 2 / -1; align-self: center; margin: 0; font-size: 12px; color: var(--muted); }
+.look-preview-footer { height: 40px; flex: none; display: flex; align-items: center; gap: 14px; padding: 0 16px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); background: var(--panel); white-space: nowrap; }
+.look-preview-footer > span { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.look-preview-exposure { margin-left: auto; flex: none; display: flex; align-items: center; gap: 10px; color: var(--text3); }
+.look-preview-exposure input.range { width: 132px; accent-color: var(--accent); }
+.look-preview-exposure output { width: 56px; text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+.look-preview-exposure.changed output { color: var(--text); }
+@media (max-width: 1240px) { .look-preview-footer > span:nth-child(n+2) { display: none; } }
 .look-preview-footer kbd { font: inherit; padding: 1px 5px; border: 1px solid var(--dim); border-radius: 3px; }
 .look-preview-dot { color: var(--dim); }
 

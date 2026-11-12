@@ -10,10 +10,11 @@ import { LookChooser } from './LookChooser';
 import type { StockId } from '../film/stocks';
 
 const empty: ProfileSettings = { colorBalance: null, curve: null, lut: null };
-function begin(photo: Photo, id: string, name: string, settings: ProfileSettings) {
-  const original = photo.recipe ?? defaultRecipe();
-  const neutral = { ...defaultRecipe('neutral'), lens: original.lens, wb: original.wb, exposure: original.exposure };
-  startLookEdit(photoId(photo), id, name, recipeFromSettings(neutral, settings));
+/** Open a look for editing on `photo`, built on the photo as shot. */
+export function begin(photo: Photo, id: string, name: string, settings: ProfileSettings) {
+  // Looks are built on the photo as shot (no exposure or white balance of its own), so every
+  // look starts from the same place whichever photo it is made on (Oli, 2026-11-12).
+  startLookEdit(photoId(photo), id, name, recipeFromSettings(defaultRecipe('neutral'), settings));
 }
 export function TreatmentControls({ photo }: { photo: Photo }) {
   useUserLooksVersion();

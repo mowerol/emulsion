@@ -36,6 +36,33 @@ keywords). The README feature list is stale (film stocks, scanner profiles). Nex
 as 0.1.0 (no bump needed); Oli re-enters `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, then tag `v0.1.0`. Committed work is not pushed until
 Oli says "push"; CI only runs from a pushed `v*` tag.
 
+**Look Creator test photos (2026-11-11, uncommitted):** a strip under the Look Creator's preview
+(`src/ui/LookTestStrip.tsx`) shows the draft on the photo being edited plus 5 others: pins first,
+then one per other camera, then a spread over capture time (`src/library/testphotos.ts`). The
+source is the open photos, any Library folder or a collection; pins and source are in
+settings.json (`emulsion.lookTestPhotos`), folding in localStorage. Clicking a tile moves the
+draft and its undo history there (`moveLookEdit`).
+Since 2026-11-12 every look draft starts **as shot** (Oli): `defaultRecipe('neutral')` plus the look, none of the photo's exposure, WB or tones (`begin` in TreatmentControls, test `src/ui/lookdraft.test.ts`), so the draft is the same recipe on every test photo and moves unchanged. The footer under the preview has a **Preview exposure** slider (−3 to +3 EV): it is the draft's `exposure`, which `settingsFromRecipe` never saves, `lookEditDirty` ignores, the test photos don't show, and `moveLookEdit` resets. The Save menu has **Save as copy and apply** for an already saved look (custom or built-in): a new custom look named "<name> copy" (or the name given this session), applied; the original is untouched. A photo from elsewhere joins `photos` only while the draft is on it, and ending on one returns
+to the starting photo. Renders go through the stills worker (`src/ui/photorenders.ts`), wait
+180 ms after edits and while any pointer is held. Tests: `testphotos.test.ts`,
+`store-testphotos.test.ts`, browser `look-tests` (PASS). Perf: one valid PROD run on 3 ORF + 3
+RAF: controls 59.4/60.1 fps, 0 stale, but one 44 ms frame in the Contrast drag (folded: 24 ms);
+strip first fill 4.0 s. Photo fps wasn't captured (fixed since: the driver now re-hooks the Look
+Creator's engine client, `perfrun.ts` `look` scenario). Later runs failed to open any photo,
+even a plain `sliders` run, so they need re-running on an idle Mac:
+`PROD=1 node tools/perf/inapp.mjs <3 ORF + 3 RAF> look`. PRODUCT.md (impeccable) is new.
+
+**Release LUT cleanup (2026-11-11, uncommitted):** bundled looks are now Emulsion, t3mujinpack
+(8) and Pat David's black & white and negative sets (121: B&W 25, colour negative 13, newer 39,
+older 44). PictureFX and Pat David's colour slide and instant sets are deleted (files,
+catalogue, `picturefx` PackId, Look browser folders, NOTICE/README/RELEASING/OPEN_SOURCE).
+Saved edits that used a removed look fall back like any unknown pack. Same session: Develop's
+Images pane defaults to 3 columns (a saved choice is kept), and the Library's RAW+JPEG `×2`
+badge is gone (it read as a virtual copy). `npm run check` passes. `tools/browser-tests/library.tsx`
+was already failing at HEAD: its invoke mock returns `[]` where `diskChanges` expects a listing
+object. The Dock shows "emulsion" only in the dev build (bare binary); the bundle's
+CFBundleName is "Emulsion".
+
 ## Library grid stopped after ~30 photos (fixed 2026-11-11, uncommitted)
 
 After opening one folder with photos and then another, the grid showed only the first rows and empty

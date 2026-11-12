@@ -31,6 +31,7 @@ import { Panel } from './ui/Panel';
 import { requestFolderSync, selectAllImports } from './ui/Folders';
 import { TopBar, chooseFolder } from './ui/TopBar';
 import { LookCreatorHeader, LookLutColumn, LookPreviewFooter } from './ui/LookCreator';
+import { LookTestStrip } from './ui/LookTestStrip';
 
 const typingIn = (t: EventTarget | null) => {
   const el = t as HTMLElement | null;
@@ -250,7 +251,7 @@ export default function App() {
       {editingLook ? <LookCreatorHeader /> : <TopBar />}
       {editingLook ? <div className="workspace workspace-look">
         <LookLutColumn />
-        <div className="main look-preview"><Develop /><LookPreviewFooter /></div>
+        <div className="main look-preview"><Develop /><LookTestStrip /><LookPreviewFooter /></div>
         <Panel key="controls" />
       </div> :
       <div className={`workspace${workflow ? ' workspace-workflow' : view !== 'develop' || !hasFolder ? ' workspace-library' : ''}`}>

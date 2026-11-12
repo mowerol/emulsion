@@ -22,6 +22,7 @@ export const APP_SETTING_KEYS = [
   'emulsion.exportPresets',
   'emulsion.catalogBackup',
   'emulsion.updates',
+  'emulsion.lookTestPhotos',
 ] as const;
 export type AppSettingKey = (typeof APP_SETTING_KEYS)[number];
 
