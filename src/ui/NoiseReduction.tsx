@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { isTauri } from '../backend/api';
 import { defaultRecipe, type Recipe } from '../film/recipe';
@@ -9,11 +9,18 @@ import type { CameraMetadata } from '../film/profiles';
 import { editActive } from '../library/store';
 import { noiseJob, useNoiseJobs } from '../library/noise';
 import { LiveRange } from './LiveRange';
+import { checkNoiseModel, installNoiseModel, useNoiseModel } from './noisemodel';
 
 export function NoiseReductionControls({ recipe, path, raw }: { recipe: Recipe; path: string; raw: boolean }) {
   const p = recipe.noiseReduction ?? NOISE_DEFAULTS;
   const job = useNoiseJobs(s => s.jobs[path]);
+  const model = useNoiseModel();
+  // Turning it on without the model asks for the download first, for this photo.
+  const [asked, setAsked] = useState<string | null>(null);
+  const shownPath = useRef(path);
+  shownPath.current = path;
   const drag = useRef<string | null>(null);
+  useEffect(() => { if (raw) void checkNoiseModel(); }, [raw]);
   useEffect(() => {
     if (!isTauri()) return;
     const subscription = listen<{ path: string; done: number; total: number }>('noise-reduction-progress', event => {
@@ -24,11 +31,43 @@ export function NoiseReductionControls({ recipe, path, raw }: { recipe: Recipe; 
   }, []);
   const change = (patch: Partial<NoiseReduction>) => editActive(r => ({ ...(r ?? defaultRecipe()), noiseReduction: { ...NOISE_DEFAULTS, ...r?.noiseReduction, ...patch } }), 'Noise reduction',
     drag.current ? { key: drag.current, continuous: true } : undefined);
+  const toggle = (on: boolean) => {
+    if (on && model.phase !== 'ready') {
+      setAsked(path);
+      if (model.phase === 'idle' || model.phase === 'error') void checkNoiseModel();
+      return;
+    }
+    setAsked(null);
+    change({ enabled: on });
+  };
+  const download = async () => {
+    const wanted = asked;
+    // Turn it on only if the photo it was asked for is still the one shown.
+    if (!await installNoiseModel()) return; // The error stays up, with Try again.
+    if (wanted && wanted === shownPath.current) change({ enabled: true });
+    setAsked(null);
+  };
+  // The model's state matters while it is on, or being turned on.
+  const offer = raw && (p.enabled || asked === path) && model.phase !== 'ready' && model.phase !== 'idle';
+  const mb = Math.ceil(model.download / 1e6);
   return <div className="noise-reduction">
-    <label className="lens-toggle"><input type="checkbox" aria-label="AI Noise Reduction" checked={raw && p.enabled} disabled={!raw} onChange={e => change({ enabled: e.target.checked })} />AI Noise Reduction</label>
+    <label className="lens-toggle"><input type="checkbox" aria-label="AI Noise Reduction" checked={raw && p.enabled} disabled={!raw} onChange={e => toggle(e.target.checked)} />AI Noise Reduction</label>
+    {offer && <div className="model-status" role={model.phase === 'error' ? 'alert' : 'status'}>
+      {model.phase === 'missing' ? <>
+        <p className="hint">AI Noise Reduction uses darktable's RawNIND model, run on this Mac. It's a one-time {mb} MB download.</p>
+        <button type="button" className="btn" onClick={() => void download()}>Download model</button>
+      </> : model.phase === 'downloading' ? <>
+        <p className="hint">Downloading the model… {model.progress?.total ? `${Math.round(100 * model.progress.done / model.progress.total)}%` : ''}</p>
+        <progress aria-label="Noise reduction model download" max={model.progress?.total || 1} value={model.progress?.done ?? 0} />
+      </> : model.phase === 'checking' ? <p className="hint">Checking for the model…</p>
+        : <>
+          <p className="hint">{model.error}</p>
+          {model.phase === 'error' && <button type="button" className="btn" onClick={() => void checkNoiseModel()}>Try again</button>}
+        </>}
+    </div>}
     {raw ? <>
       <div className={`slider${p.enabled ? ' changed' : ''}`}>
-        <label htmlFor="noise-amount" onDoubleClick={() => change({ amount: 50 })}>Amount</label>
+        <label htmlFor="noise-amount" onDoubleClick={() => change({ amount: NOISE_DEFAULTS.amount })}>Amount</label>
         <ValueInput id="noise-amount" value={p.amount} label="Noise reduction amount" display={String(Math.round(p.amount))} disabled={!p.enabled}
           onCommit={(text) => { const v = Number(text); if (text.trim() !== '' && Number.isFinite(v)) change({ amount: Math.min(100, Math.max(0, Math.round(v))) }); }} />
         <div className="track"><LiveRange id="noise-amount" aria-label="Noise reduction amount" min={0} max={100} step={1} value={p.amount} disabled={!p.enabled}
@@ -36,7 +75,7 @@ export function NoiseReductionControls({ recipe, path, raw }: { recipe: Recipe; 
           onChange={(v) => change({ amount: v })} /></div>
       </div>
       {p.enabled && job?.pending && <p className="hint" role="status">{job.total ? `Reducing noise… ${Math.round(100 * job.done / job.total)}%` : 'Preparing noise reduction…'}</p>}
-      {p.enabled && job?.error && <p className="hint error" role="alert">{job.error}</p>}
+      {p.enabled && job?.error && !offer && <p className="hint error" role="alert">{job.error}</p>}
       <p className="hint">Reduces sensor noise before sharpening. Check fine detail at 100%.</p>
     </> : <p className="hint">AI noise reduction is available for RAW photos.</p>}
   </div>;

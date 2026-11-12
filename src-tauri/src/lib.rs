@@ -139,6 +139,8 @@ pub fn run() {
             ai_masks::segment_refine,
             sky_commands::sky_mask_status,
             sky_commands::sky_mask_install,
+            noise_cache::noise_model_status,
+            noise_cache::noise_model_install,
             sky_commands::segment_sky,
             inpaint_commands::remove_status,
             inpaint_commands::remove_install,

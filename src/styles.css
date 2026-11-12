@@ -942,8 +942,8 @@ input.range:disabled { opacity: 0.35; cursor: default; }
 .mask-prompt.in circle { fill:#2e9d5a; }
 .mask-prompt.out circle { fill:#c8463c; }
 .mask-prompt path { stroke:#fff; stroke-width:1.6; stroke-linecap:round; }
-.mask-object-status { display:flex; flex-direction:column; gap:6px; align-items:flex-start; padding:8px 10px; border:1px solid var(--line); border-radius:5px; }
-.mask-object-status progress { width:100%; }
+.mask-object-status, .model-status { display:flex; flex-direction:column; gap:6px; align-items:flex-start; padding:8px 10px; border:1px solid var(--line); border-radius:5px; }
+.mask-object-status progress, .model-status progress { width:100%; }
 .mask-tool.object .mask-tool-icon, .mask-shape-icon.object { width:10px; height:10px; border-radius:3px 6px 4px 7px; border:1.5px solid currentColor; background:none; }
 
 

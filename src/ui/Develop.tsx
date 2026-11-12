@@ -10,6 +10,7 @@ import type { Histogram } from '../engine/histogram';
 import { activeTool, chooseTool, toolHint, useTools } from './tools';
 import { RetouchOverlay } from './RetouchOverlay';
 import { useRemoveUi } from './removemodel';
+import { useNoiseModel } from './noisemodel';
 import { KEY_STEPS, applyPending, cancelPending, removeSpot, scrollSpot, useRetouchUi } from './retouchui';
 import { cycleCropOverlay } from './prefs';
 import { lutPending, useLutVersion } from '../engine/lutstore';
@@ -194,6 +195,9 @@ export function Develop() {
   const stage = STAGE_COLORS.find((c) => c.id === stageId)!;
   const path = photo?.path;
   const wantsNoise = !!photo?.raw && noiseEnabled(photo.recipe);
+  // A photo that failed for want of the noise model loads again once it is downloaded.
+  const noiseInstalls = useNoiseModel((s) => s.installs);
+  const noiseRetry = wantsNoise ? noiseInstalls : 0;
   const frameId = photo ? photoId(photo) : null;
   const lutVersion = useLutVersion();
   const maskSelected = useMaskUi((s) => s.selected);
@@ -370,7 +374,7 @@ export function Develop() {
       cancelled = true;
       resumeThumbnails();
     };
-  }, [path, wantsNoise, swapSource, engineReady]);
+  }, [path, wantsNoise, noiseRetry, swapSource, engineReady]);
 
   // Track the stage size.
   useEffect(() => {

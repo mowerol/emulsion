@@ -1,0 +1,6 @@
+RawNIND UtNet2, Benoit Brummer and Christophe De Vleeschouwer.
+Pretrained weights: GPL3 / CC-BY-4.0 (dual licence).
+Source, training code, weights and licence: https://github.com/trougnouf/rawnind_jddc
+Package: https://github.com/darktable-org/darktable-ai/releases/tag/release-5.6.0
+Paper: https://arxiv.org/abs/2501.08924
+See rawdenoise-nind/config.json for the complete upstream model card.

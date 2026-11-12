@@ -1,5 +1,40 @@
 # Handoff
 
+**AI Noise Reduction model download (2026-11-12, uncommitted):** beta users had no way to get
+the RawNIND model (only `tools/denoise/setup.py`), and ticking AI Noise Reduction without it
+dropped the photo to its embedded preview with an error. Now `noise_cache.rs` pins darktable-ai's
+`rawdenoise-nind.dtmodel` (release-5.6.0, 57.7 MB, archive and model SHA-256) as an
+`ai_models::Package` beside the mask/Remove models, sharing ONNX Runtime; `noise_model_status` /
+`noise_model_install` (event `noise-model-progress`) follow the sky/Remove pattern. Lookup
+order: `EMULSION_DENOISE_ASSETS`, the download, then the old setup-script folders, so existing
+installs keep working. In the panel (`src/ui/NoiseReduction.tsx`, store `src/ui/noisemodel.ts`)
+ticking it without the model shows a sized Download button instead of turning it on; after
+the download it turns on if the same photo is still shown, and Develop reloads a photo whose
+load failed for want of the model (`installs` counter in the load effect's deps). Checked: new
+Rust lookup test; the real archive unpacks to the expected layout with the right model hash
+(scratch test, removed); the GitHub URL returns 200 and 57,700,134 bytes; store tests; full
+`npm run check` passes (879 JS, 131 Rust). Not checked in the app: the panel UI and a real
+download. Oli didn't see the offer because his Mac still has setup-script installs, which the
+lookup finds first (`~/Library/Application Support/app.emulsion.desktop/denoise` and, in dev
+builds, `src-tauri/target/denoise/assets`); move both aside to see it. The Amount now starts at
+100 when turned on (Oli, same day); saved edits keep theirs. README, NOTICE, release notes, ARCHITECTURE and tools/denoise/README updated.
+
+**Site content and README (2026-11-12, uncommitted):** Oli asked what the site was missing.
+Added `site/src/components/Looks.tsx` (after Why Emulsion: the six Emulsion looks as a strip of
+4:5 `<Shot>` placeholders, then cards for Look Creator, the t3mujinpack/Pat David LUT packs, and
+halation/glow/grain) and `Library.tsx` (after Local AI: import and cull, XMP interchange with
+Lightroom, copies/presets/paste, export); both are in the nav. Download has a small note
+(Apple silicon beta, Open Anyway) linking to the FAQ's `#install` answer, which opens itself on
+arrival. New FAQ answers: which Macs, the macOS block, coming from Lightroom (XMP; Save
+Metadata to File in Classic), data collection (updates and model downloads only), beta gaps,
+bug reports. The README no longer leads with "film looks" and no longer names film stocks
+(Oli: the app has moved on); the bundled LUT packs keep a trademark line. Site builds and
+typechecks; screenshots checked at 1440 px. Not yet checked in a real browser: clicking the
+Download note's "here's how" scrolls to and opens the install answer. Still open from the
+review, not yet agreed with Oli: Foundations/Built on omit Spektrafilm and the AI
+models; the FAQ says algorithms are ported "into its own Rust core" (most run as GLSL);
+"Read the source and NOTICE" links to the repo root; the `og:image` is WebP.
+
 **Beta release preparation (2026-11-12):** corrected `docs/release-notes/0.1.0.md` and the
 README's built Looks list: Photo Match is removed; Look Creator test-photo previews and saving
 copies are available. Committed the pending Chrome revision 20 tuning and original header

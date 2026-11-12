@@ -3,7 +3,8 @@
 // 0c67b465033205c46735c5a194f2b23d55e68363; GLSL twin: noise.frag.glsl.
 // SPDX-License-Identifier: GPL-3.0-or-later
 export interface NoiseReduction { enabled: boolean; amount: number; model: 'rawnind-linear-v1' }
-export const NOISE_DEFAULTS: NoiseReduction = { enabled: false, amount: 50, model: 'rawnind-linear-v1' };
+/** Turning it on starts at full strength. Saved edits keep their own amount. */
+export const NOISE_DEFAULTS: NoiseReduction = { enabled: false, amount: 100, model: 'rawnind-linear-v1' };
 export function normalizeNoiseReduction(value: unknown): NoiseReduction | null {
   if (!value || typeof value !== 'object') return null;
   const v = value as Partial<NoiseReduction>;

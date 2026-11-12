@@ -1,14 +1,10 @@
 # AI Noise Reduction and native probe
 
-In the app, open **Refine → Detail → AI Noise Reduction** on a RAW photo. Enable it and adjust Amount (initially 50). Progress appears while the first full-resolution result is prepared. Amount changes blend the cached source/result on the GPU. Before and Split compare the original noise; preview, thumbnails and export share the result. Originals are unchanged; settings are saved in sidecars.
+In the app, open **Refine → Detail → AI Noise Reduction** on a RAW photo. Enable it and adjust Amount (initially 100). Progress appears while the first full-resolution result is prepared. Amount changes blend the cached source/result on the GPU. Before and Split compare the original noise; preview, thumbnails and export share the result. Originals are unchanged; settings are saved in sidecars.
 
-Install the pinned model/runtime into the app's data directory on Apple Silicon:
+The first time it is turned on, the panel offers the model as a sized, optional download (`noise_model_install` in `src-tauri/src/noise_cache.rs`): darktable-ai's `rawdenoise-nind` package and ONNX Runtime, pinned by SHA-256, into the app's `ai-models` folder beside the mask and Remove models (the runtime is shared). Apple Silicon only. No runtime or weights are bundled by the app build.
 
-```sh
-python3 tools/denoise/setup.py --assets "$HOME/Library/Application Support/app.emulsion.desktop/denoise"
-```
-
-The app also searches `EMULSION_DENOISE_ASSETS`, bundled `denoise` resources and the development probe directory. Runtime/model are loaded on demand; a missing model produces an error rather than exporting an undenoised substitute. The installer currently packages Apple Silicon; other platforms need an appropriate ONNX Runtime library and `runtime.json`. No runtime or weights are bundled by the app build yet.
+The app looks first in `EMULSION_DENOISE_ASSETS`, then that download, then folders made by `setup.py` (the app data's `denoise` folder, bundled `denoise` resources and, in development, the probe directory). Runtime/model are loaded on demand; a missing model produces an error rather than exporting an undenoised substitute. Other platforms need an appropriate ONNX Runtime library and `runtime.json`.
 
 The CLI below uses the same native denoiser for quality/performance experiments. It runs before capture sharpening or creative processing and never edits app recipes, sidecars or originals.
 

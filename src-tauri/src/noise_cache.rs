@@ -2,6 +2,8 @@
 //! One serialized inference worker, one full-resolution pair in memory and a
 //! bounded disk cache shared by previews, virtual copies, thumbnails and export.
 use crate::{
+    ai_masks::Status,
+    ai_models::{self, Archive, Package, RUNTIME},
     decode,
     denoise::{Denoiser, MODEL_SHA256, Provider},
     raw,
@@ -171,23 +173,99 @@ fn trim(root: &Path, keep: &str) {
     }
 }
 
-fn assets(app: &tauri::AppHandle) -> Result<PathBuf, String> {
-    let mut candidates = vec![];
+/// darktable-ai's RawNIND package, the one darktable 5.6 downloads. The app uses its linear model
+/// (checked again against denoise::MODEL_SHA256 on loading); the Bayer model beside it is unused.
+const MODEL: Package = Package {
+    id: "rawdenoise-nind",
+    url: "https://github.com/darktable-org/darktable-ai/releases/download/release-5.6.0/rawdenoise-nind.dtmodel",
+    sha256: "d71b5f1e727c85a359e6f74dca9e2016c9d8fc3e2f7ac3e9b347d80ceca969af",
+    bytes: 57_700_134,
+    archive: Archive::Zip,
+    check: "rawdenoise-nind/model_linear.onnx",
+    license: Some(include_str!("../licenses/rawnind.txt")),
+};
+const PACKAGES: [&Package; 2] = [&RUNTIME, &MODEL];
+
+/// The ONNX Runtime library and the linear model, wherever they were installed.
+struct Assets {
+    library: PathBuf,
+    model: PathBuf,
+}
+
+/// The in-app download, beside the other AI models.
+fn downloaded(root: &Path) -> Option<Assets> {
+    PACKAGES.iter().all(|p| ai_models::installed(root, p)).then(|| Assets {
+        library: root.join(RUNTIME.id).join(RUNTIME.check),
+        model: root.join(MODEL.id).join(MODEL.check),
+    })
+}
+
+/// A folder made by tools/denoise/setup.py, whose runtime.json names the library.
+fn setup_folder(dir: &Path) -> Option<Assets> {
+    let model = dir.join("model_linear.onnx");
+    let config: serde_json::Value = serde_json::from_slice(&fs::read(dir.join("runtime.json")).ok()?).ok()?;
+    let library = dir.join(config["library"].as_str()?);
+    model.is_file().then_some(Assets { library, model })
+}
+
+const NOT_INSTALLED: &str = "The AI Noise Reduction model isn't installed. Download it under Noise reduction in Refine.";
+
+fn assets(app: &tauri::AppHandle) -> Result<Assets, String> {
     if let Some(path) = std::env::var_os("EMULSION_DENOISE_ASSETS") {
-        candidates.push(PathBuf::from(path));
+        if let Some(found) = setup_folder(Path::new(&path)) {
+            return Ok(found);
+        }
     }
+    if let Some(found) = ai_models::root(app).ok().and_then(|root| downloaded(&root)) {
+        return Ok(found);
+    }
+    let mut folders = vec![];
     if let Ok(path) = app.path().app_data_dir() {
-        candidates.push(path.join("denoise"));
+        folders.push(path.join("denoise"));
     }
     if let Ok(path) = app.path().resource_dir() {
-        candidates.push(path.join("denoise"));
+        folders.push(path.join("denoise"));
     }
     // The development setup already verifies the released model and runtime.
     if cfg!(debug_assertions) {
-        candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/denoise/assets"));
+        folders.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/denoise/assets"));
     }
-    candidates.into_iter().find(|p| p.join("runtime.json").is_file() && p.join("model_linear.onnx").is_file())
-        .ok_or("Noise reduction model is not installed. Install the RawNIND model and ONNX Runtime before enabling it.".into())
+    folders.iter().find_map(|dir| setup_folder(dir)).ok_or_else(|| NOT_INSTALLED.into())
+}
+
+#[tauri::command]
+pub fn noise_model_status(app: tauri::AppHandle) -> Result<Status, String> {
+    let root = ai_models::root(&app)?;
+    let installed = assets(&app).is_ok();
+    let download = if installed {
+        0
+    } else {
+        PACKAGES.iter().filter(|p| !ai_models::installed(&root, p)).map(|p| p.bytes).sum()
+    };
+    Ok(Status { supported: ai_models::supported(), installed, download })
+}
+
+/// Called only from the sized Download button. Normal app startup never downloads.
+#[tauri::command]
+pub async fn noise_model_install(app: tauri::AppHandle) -> Result<(), String> {
+    if !ai_models::supported() {
+        return Err("AI Noise Reduction needs a Mac with Apple silicon.".into());
+    }
+    let root = ai_models::root(&app)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let todo: Vec<_> = PACKAGES.iter().copied().filter(|p| !ai_models::installed(&root, p)).collect();
+        let total: u64 = todo.iter().map(|p| p.bytes).sum();
+        let mut before = 0;
+        for p in todo {
+            ai_models::install(&root, p, |n| {
+                let _ = app.emit("noise-model-progress", serde_json::json!({ "done": before + n.min(p.bytes), "total": total }));
+            })?;
+            before += p.bytes;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }
 
 pub fn load(
@@ -219,7 +297,7 @@ fn load_cached(
     root: &Path,
     path: &Path,
     edge: Option<u32>,
-    resolve_assets: impl Fn() -> Result<PathBuf, String>,
+    resolve_assets: impl Fn() -> Result<Assets, String>,
     notify: impl Fn(usize, usize) + Copy,
 ) -> Result<Vec<u8>, String> {
     let id = key(path)?;
@@ -233,16 +311,7 @@ fn load_cached(
             Err(_) => {
                 notify(0, 0);
                 if worker.model.is_none() {
-                    let assets = resolve_assets()?;
-                    let config: serde_json::Value = serde_json::from_slice(
-                        &fs::read(assets.join("runtime.json")).map_err(|e| e.to_string())?,
-                    )
-                    .map_err(|e| e.to_string())?;
-                    let library = assets.join(
-                        config["library"]
-                            .as_str()
-                            .ok_or("Invalid noise reduction runtime configuration")?,
-                    );
+                    let Assets { library, model } = resolve_assets()?;
                     let provider = if cfg!(target_os = "macos") {
                         Provider::Coreml
                     } else {
@@ -251,14 +320,14 @@ fn load_cached(
                     worker.model = Some(
                         Denoiser::open(
                             &library,
-                            &assets.join("model_linear.onnx"),
+                            &model,
                             provider,
                             &root.parent().unwrap_or(root).join("noise-model-cache"),
                         )
                         .or_else(|_| {
                             Denoiser::open(
                                 &library,
-                                &assets.join("model_linear.onnx"),
+                                &model,
                                 Provider::Cpu,
                                 &root.parent().unwrap_or(root).join("noise-model-cache"),
                             )
@@ -280,14 +349,10 @@ fn load_cached(
                 {
                     Ok((image, _)) => image,
                     Err(_) => {
-                        let assets = resolve_assets()?;
-                        let cfg: serde_json::Value = serde_json::from_slice(
-                            &fs::read(assets.join("runtime.json")).map_err(|e| e.to_string())?,
-                        )
-                        .map_err(|e| e.to_string())?;
+                        let Assets { library, model } = resolve_assets()?;
                         worker.model = Some(Denoiser::open(
-                            &assets.join(cfg["library"].as_str().ok_or("Invalid runtime")?),
-                            &assets.join("model_linear.onnx"),
+                            &library,
+                            &model,
                             Provider::Cpu,
                             &root.parent().unwrap_or(root).join("noise-model-cache"),
                         )?);
@@ -389,7 +454,7 @@ mod tests {
             root.path(),
             Path::new(&path),
             Some(512),
-            || Ok(assets.clone()),
+            || setup_folder(&assets).ok_or_else(|| "run tools/denoise/setup.py".to_string()),
             |_, _| {},
         )
         .unwrap();
@@ -414,6 +479,29 @@ mod tests {
         .unwrap();
         assert_eq!(u32::from_le_bytes(smaller[0..4].try_into().unwrap()), 256);
         eprintln!("[denoise] real RAW inference, paired payload and persistent cache reuse passed");
+    }
+    #[test]
+    fn finds_the_download_and_the_setup_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+        assert!(downloaded(root).is_none());
+        for p in PACKAGES {
+            let check = root.join(p.id).join(p.check);
+            fs::create_dir_all(check.parent().unwrap()).unwrap();
+            fs::write(&check, b"").unwrap();
+        }
+        let found = downloaded(root).unwrap();
+        assert_eq!(found.library, root.join("onnxruntime-1.23.2/onnxruntime-osx-arm64-1.23.2/lib/libonnxruntime.1.23.2.dylib"));
+        assert_eq!(found.model, root.join("rawdenoise-nind/rawdenoise-nind/model_linear.onnx"));
+
+        let setup = root.join("setup");
+        fs::create_dir_all(&setup).unwrap();
+        fs::write(setup.join("runtime.json"), br#"{"library": "lib/libonnxruntime.dylib"}"#).unwrap();
+        assert!(setup_folder(&setup).is_none(), "no model yet");
+        fs::write(setup.join("model_linear.onnx"), b"").unwrap();
+        let found = setup_folder(&setup).unwrap();
+        assert_eq!(found.library, setup.join("lib/libonnxruntime.dylib"));
+        assert_eq!(found.model, setup.join("model_linear.onnx"));
     }
     #[test]
     fn float_cache_preserves_signed_values_and_rejects_truncation() {

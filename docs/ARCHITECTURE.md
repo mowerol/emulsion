@@ -283,11 +283,15 @@ finished frames. Develop's preview/full caches distinguish enabled/disabled
 sources, while amount changes only render. Thumbnails, look previews and export
 request the same pair. Export errors instead of substituting an undenoised source.
 The setting is off for legacy/new photos, RAW only, and travels with Detail presets,
-copy/paste, undo/redo and sidecars. The enabled amount starts at 50.
+copy/paste, undo/redo and sidecars. The enabled amount starts at 100.
 
-Assets are resolved from `EMULSION_DENOISE_ASSETS`, `app_data_dir()/denoise`,
-`resource_dir()/denoise`, or the development probe assets directory. Runtime/model
-are never loaded for ordinary decoding. See [setup and probe](../tools/denoise/README.md)
+Assets are resolved from `EMULSION_DENOISE_ASSETS`, the in-app download
+(`app_data_dir()/ai-models`: darktable-ai's `rawdenoise-nind` package and the ONNX Runtime
+shared with masks and Remove, fetched only from the panel's sized Download button), then
+`setup.py` folders: `app_data_dir()/denoise`, `resource_dir()/denoise` or the development
+probe assets directory. Turning the setting on without a model offers the download instead;
+a finished install reloads a photo that failed for want of it. Runtime/model are never
+loaded for ordinary decoding. See [setup and probe](../tools/denoise/README.md)
 and [measured findings](research/ai-noise-reduction.md).
 
 LibRaw 0.22.3 is vendored in `src-tauri/vendor/libraw` and compiled into the app by `build.rs`, always optimised and without LCMS or libjpeg. On macOS the build enables LibRaw's existing OpenMP loops when LLVM's runtime is installed (see README), links it statically, and caps each decode at four threads; no extra runtime installation is needed. A missing runtime warns and falls back to serial decoding; `EMULSION_LIBRAW_SERIAL=1` forces that reference build. `native/raw_shim.cpp` is a small C interface over it; `raw.rs` calls it. The `image` dependency is also optimized in development: otherwise preview resizing competes with full-resolution decoding for seconds. Measured zoom-to-detail stages and the remaining latency are in [zoom-detail.md](research/zoom-detail.md).

@@ -283,6 +283,10 @@ export async function segmentSky(rgba: Uint8Array, width: number, height: number
   return mask;
 }
 
+/** AI Noise Reduction's RawNIND model (src-tauri/src/noise_cache.rs); download needs explicit UI consent. */
+export const noiseModelStatus = () => invoke<AiMaskStatus>('noise_model_status');
+export const noiseModelInstall = () => invoke<void>('noise_model_install');
+
 /** Local Remove model (src-tauri/src/inpaint_commands.rs); download needs explicit UI consent. */
 export interface RemoveStatus { supported: boolean; installed: boolean; download: number; model: string }
 export const removeStatus = () => invoke<RemoveStatus>('remove_status');
