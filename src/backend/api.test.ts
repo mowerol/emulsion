@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
-import { HEADER_BYTES, parsePayload } from './api';
+import { HEADER_BYTES, parsePayload, pixelBuffers } from './api';
 
 describe('image payload', () => {
   it('parses the header and pixel view', () => {
@@ -51,4 +51,18 @@ it('reads camera metadata independently of lens support, including combined payl
     new Uint16Array(bytes,total)[0]=0x3c00;
     expect(parsePayload(bytes).camera).toEqual(camera);expect(parsePayload(bytes).lens).toEqual(lens);expect(parsePayload(bytes).data[0]).toBe(0x3c00);
   }
+});
+
+it('transfers a paired (AI Noise Reduction) decode as its one buffer', () => {
+  const w = 2, h = 1;
+  const buf = new ArrayBuffer(HEADER_BYTES + w * h * 8 * 2), dv = new DataView(buf);
+  dv.setUint32(0, w, true); dv.setUint32(4, h, true); dv.setUint32(12, 8, true);
+  const img = parsePayload(buf);
+  expect(img.denoised?.buffer).toBe(img.data.buffer);
+  // Naming the shared buffer twice is what failed exports with AI Noise Reduction on.
+  expect(() => structuredClone(img, { transfer: [img.data.buffer, img.denoised!.buffer] })).toThrow(/[Dd]uplicate/);
+  expect(pixelBuffers(img)).toEqual([buf]);
+  const moved = structuredClone(img, { transfer: pixelBuffers(img) });
+  expect(moved.denoised!.length).toBe(w * h * 4);
+  expect(buf.byteLength).toBe(0);
 });

@@ -117,6 +117,12 @@ export function parsePayload(buf: ArrayBuffer): HalfImage {
   return { width, height, mode, white, lens, camera, fullWidth, fullHeight, denoised: paired ? new Uint16Array(buf, pixelOffset + width * height * 8, width * height * 4) : undefined, data: new Uint16Array(buf, pixelOffset, width * height * 4) };
 }
 
+/** The buffers to transfer when moving a decode to a worker. A paired decode (AI Noise Reduction)
+ * holds its original and denoised pixels as two views of one buffer, and a transfer list that
+ * names a buffer twice fails ("Duplicate transferable for structured clone"). */
+export const pixelBuffers = (img: HalfImage): ArrayBuffer[] =>
+  [...new Set([img.data.buffer, img.denoised?.buffer].filter((b): b is ArrayBuffer => b instanceof ArrayBuffer))];
+
 export async function loadImage(path: string, maxEdge?: number, noiseReduction = false): Promise<HalfImage> {
   if (noiseReduction) noiseJob(path, { pending: true, done: 0, total: 0, error: undefined });
   try {

@@ -8,7 +8,7 @@ import { AssetSync } from '../engine/assetsync';
 import { StillRenderer, type FromStills, type RemoveInput, type ToStills } from '../engine/stills';
 import { engineMode } from '../ui/developclient';
 import type { SourceRef } from '../engine/developloop';
-import { logToTerminal } from '../backend/api';
+import { logToTerminal, pixelBuffers } from '../backend/api';
 import { InputMode } from '../engine/params';
 import type { HalfImage } from '../engine/engine';
 import type { RemoveContext } from '../engine/removequeue';
@@ -80,7 +80,7 @@ export class StillClient {
    * `transfer` moved there, leaving `img`'s pixel arrays empty. */
   upload(img: HalfImage, origin?: string, transfer = false): StillSource {
     const key = ++keys;
-    this.send({ type: 'upload', key, img, origin }, transfer ? [img.data.buffer, ...(img.denoised ? [img.denoised.buffer] : [])] : []);
+    this.send({ type: 'upload', key, img, origin }, transfer ? pixelBuffers(img) : []);
     return { key, w: img.width, h: img.height, fullW: img.fullWidth, fullH: img.fullHeight, mode: img.mode, white: img.white,
       camera: img.camera, lens: img.lens, denoised: !!img.denoised, origin };
   }
