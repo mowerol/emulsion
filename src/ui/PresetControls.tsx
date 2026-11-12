@@ -35,7 +35,7 @@ function groupValue(g: PresetGroup, r: Recipe): string {
 }
 
 /** A small menu under a button; closes on a pick, outside click or Escape. */
-function Menu({ label, icon, children, className = '' }: { label: string; icon: React.ReactNode; className?: string; children: (close: () => void) => React.ReactNode }) {
+export function Menu({ label, icon, children, className = '' }: { label: string; icon: React.ReactNode; className?: string; children: (close: () => void) => React.ReactNode }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {

@@ -36,6 +36,7 @@ export function Section({
   title,
   summary,
   onReset,
+  actions,
   children,
   hidden = false,
   defaultOpen = true,
@@ -45,6 +46,8 @@ export function Section({
   summary?: string;
   /** Shown as a Reset link in the heading when the section differs from its defaults. */
   onReset?: () => void;
+  /** More controls for the whole section, shown in its heading (before Reset) while it is open. */
+  actions?: ReactNode;
   children: ReactNode;
   hidden?: boolean;
   defaultOpen?: boolean;
@@ -88,6 +91,7 @@ export function Section({
           <span className="section-title">{title}</span>
           {!open && summary && <span className="section-summary">{summary}</span>}
         </button>
+        {open && actions}
         {onReset && (
           <button type="button" className="icon-btn section-reset" onClick={onReset} aria-label={`Reset ${title}`} data-tip={`Reset ${title}`}>
             {RESET_ICON}

@@ -9,7 +9,8 @@ import { sidecarHistory, type EarlierEdit } from '../backend/api';
 import { flushSaves } from '../library/sidecars';
 // The lab order: what this frame is developed with.
 
-import { type ReactNode, memo, useEffect, useRef, useState } from 'react';
+import { type ReactNode, memo, useCallback, useEffect, useRef, useState } from 'react';
+import type { ToneCurve } from '../film/curve';
 import { Blend, ClipboardPaste, Copy, Ellipsis, Eraser, Redo2, RotateCcw, SlidersHorizontal, Sparkle, SquareDashedMousePointer, SwatchBook, Tags, Undo2, type LucideIcon } from 'lucide-react';
 import { CameraColourWarning } from './CameraProfile';
 import { TransformControls, transformSummary } from './TransformControls';
@@ -26,7 +27,7 @@ import { MOD, Segmented } from './common';
 import { PhotoInfo } from './PhotoInfo';
 import { MaskControls } from './MaskControls';
 import { Histogram } from './Histogram';
-import { CurveEditor } from './CurveEditor';
+import { CurveEditor, CurvePresetMenu, useCurveSummary } from './CurveEditor';
 import { CONTROL_GROUPS, setWorkspace, useWorkspace } from './workspace';
 import { CropControls, cropSummary } from './CropControls';
 import { commitTyped } from './typed';
@@ -419,6 +420,8 @@ export function Panel() {
   useEffect(() => { if (grouped && controlsBody.current) controlsBody.current.scrollTop = 0; }, [workspace.group, grouped, !!editing]);
 
   const base = recipe ?? defaultRecipe();
+  const curveSummary = useCurveSummary(recipe?.curve ?? null);
+  const setCurve = useCallback((curve: ToneCurve | null) => editActive(r => ({ ...(r ?? defaultRecipe()), curve })), []);
   const pickScanner = (choice: ScannerId | 'look') => {
     const change = (r: Recipe | null): Recipe => choice === 'look' ? { ...(r ?? defaultRecipe()), scannerFromLook: true } : { ...(r ?? defaultRecipe()), scanner: choice, scannerFromLook: false };
     if (editing) editActive(change, 'Look scanner finish');
@@ -451,8 +454,9 @@ export function Panel() {
     adjust: !grouped && <Section id="adjust" title="Adjustments" onReset={resetFor('adjust', 'Adjustments')}>
       <WhiteBalanceControls recipe={base} white={photo.white} />{rows(sliderGroup('adjust'))}
     </Section>,
-    curve: <Section id="curve" title="Tone curve" summary={recipe?.curve ? 'Edited' : 'Straight'} onReset={resetFor('curve', 'Tone curve')}>
-      <CurveEditor curve={base.curve} disabled={false} onChange={curve => editActive(r => ({ ...(r ?? defaultRecipe()), curve }))} />
+    curve: <Section id="curve" title="Tone curve" summary={curveSummary} onReset={resetFor('curve', 'Tone curve')}
+      actions={<CurvePresetMenu curve={base.curve} onChange={setCurve} />}>
+      <CurveEditor curve={base.curve} disabled={false} onChange={setCurve} />
     </Section>,
     color: <Section id="color" title={grouped ? 'HSL' : 'Colour'} summary={recipe?.color ? 'Edited' : 'As shot'} onReset={resetFor('color', 'Colour')}><ColorControls recipe={base} /></Section>,
     grading: <Section id="grading" title={grouped ? 'Colour wheels' : 'Colour Grading'} summary={sectionChanged(recipe, 'grading') ? 'Edited' : 'Neutral'} onReset={resetFor('grading', 'Colour Grading')}><ColourGradingControls recipe={base} /></Section>,

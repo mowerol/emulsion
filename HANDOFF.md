@@ -1,5 +1,34 @@
 # Handoff
 
+**Tone curve (2026-11-12, uncommitted):** `src/ui/CurveEditor.tsx`. Delete/Backspace remove the
+*selected* point: clicking or adding a point selects it (filled) and focuses the graph, which owns
+the keys (arrows move it, Escape lets it go) and stops them reaching the photo shortcuts.
+Double-click removes the point under the cursor; it is handled on the graph because pointer
+capture sends the double-click there, which is why it never worked on the point. No WebKit focus
+ring on a clicked point (`:focus` outline off; keyboard focus still thickens the stroke).
+A **curve presets** icon in the section heading, before Reset (`CurvePresetMenu`; `Section` takes
+`actions`, shown while open), opens a menu like the Presets panel's: Linear, the built-ins Subtle
+S-curve and Subtle S-curve fade (`src/film/curvepresets.ts`, master curve only, points in its
+comments), then **My presets** (every saved preset whose only group is Curve), a tick on the match,
+and **Save curve as preset…**, which turns the menu into a name field with Back and Save. The folded
+section's summary names the match (or Custom, Straight). The Red, Green and Blue graphs are tinted like Lightroom
+Classic: channel colour above the diagonal, opposite (cyan, magenta, yellow) below, labelled in the
+corners. Tests: `curvepresets.test.ts`; browser `curve-editor` (PASS; `screen=naming`, `screen=saved`).
+Same session: the stage tab is now named **Metadata** (was "Keywords and Metadata", whose tooltip
+ran off the window), and the first and last stage tabs anchor their tooltips inside the panel.
+Not checked in the app: real clicks, double-clicks and Delete in WKWebView, the menu near the
+panel's bottom, the built-ins on real photos, the Metadata tab tooltip.
+**Selects (same session):** Oli chose to restyle the closed control only (the open list stays the
+native macOS popup). One `select:not([multiple])` rule near `select { accent-color }` in styles.css
+gives every closed drop-down the buttons' surface (`--ctl`, `--border`, 6 px radius, `--hover`), and a
+chevron from `--select-chevron` (one per theme). The ~12 per-place rules now set only size and layout
+(the Masks shape select stays compact; the Library source dialog stays taller); the Develop panel's
+underlined selects and the preset sheet's are gone. The canvas bar's zoom level keeps its bare
+toolbar style. Checked by screenshot in mid, light and dark. Tooltips now take `width: max-content`
+(WebKit sized an end-anchored tip to its grid button: the curve presets tip was squeezed) and are
+hidden on a button whose menu is open. Not checked in the app: Export, Settings, Library source and
+Look Creator selects.
+
 The flags, Select sky, open-source map, export dialog grid, renamed Emulsion looks and Library
 Grid/Loupe with its vertical carousel are committed. Library import/sync, metadata, collection
 performance fixes and the Import toolbar removal landed in `19bddf2`. Older "Uncommitted" notes below are out of date.
