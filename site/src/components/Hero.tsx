@@ -18,7 +18,7 @@ export default function Hero() {
           fast, easy, and fun. Everything you rely on in Lightroom, but open source and free forever.
         </p>
         <div data-reveal data-delay="260" className="btn-row center">
-          <a href="#download" className="btn btn-accent">{site.downloadLabel}</a>
+          <a href={site.downloadUrl} className="btn btn-accent">{site.downloadLabel}</a>
           <a href={site.githubUrl} className="btn btn-outline">View on GitHub</a>
         </div>
         <p data-reveal data-delay="320" className="hero-note">Free for everyone. Forever.</p>

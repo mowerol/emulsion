@@ -1,4 +1,4 @@
-import { asset } from '../site.ts';
+import { asset, site } from '../site.ts';
 export default function Nav() {
   return (
     <nav className="nav">
@@ -14,7 +14,7 @@ export default function Nav() {
           <a href="#library">Library</a>
           <a href="#faq">FAQ</a>
         </div>
-        <a href="#download" className="btn btn-light btn-sm">Download</a>
+        <a href={site.downloadUrl} className="btn btn-light btn-sm">Download</a>
       </div>
     </nav>
   );
