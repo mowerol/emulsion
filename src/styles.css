@@ -1583,6 +1583,8 @@ select { accent-color: var(--accent); }
 .library-empty { padding: 40px 24px; color: var(--text2); }
 .library-empty h2 { font-size: 14px; font-weight: 600; margin: 0 0 12px; }
 .library-empty p { font-size: 12px; color: var(--muted); }
+.library-empty-action { margin: 4px 0 4px; }
+.library-empty .library-empty-hint { color: var(--faint); }
 .library-status { height: 32px; flex: 0 0 32px; padding: 0 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px; border-top: 1px solid var(--line); background: var(--panel); color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; }
 .library-status > span:last-child { overflow: hidden; text-overflow: ellipsis; }
 .library-source-dialog { width: min(680px, calc(100vw - 48px)); max-height: calc(100vh - 80px); overflow: auto; }

@@ -10,7 +10,23 @@ below), and the repo is now **public**. Branding (`02ca26d`, docs/BRANDING.md) a
 built-in look tuning (`637d9c8`) are committed too. Agreed order for the rest:
 Oli's in-app checks, then the first-launch pass, then release notes
 (`docs/release-notes/<version>.md`, now required by the build) and the version bump last.
-Exports remain the feature priority after release work. Committed work is not pushed until
+Exports remain the feature priority after release work.
+
+**Oli's in-app checks (2026-11-11):** passed: Library grid (second large folder scrolls to the
+end), new Dock icon, Check for Updates, the header mark in the Export button's `--accent`, and
+the new **Purple** label (fifth Lightroom colour, no key; XMP `Purple`). Both of those small
+changes are uncommitted. **XMP sidecars** pass too; a pick doesn't reach Lightroom, as expected
+(XMP has no pick field and Lightroom keeps flags in its catalog). Oli kept it that way. All in-app
+checks are done.
+
+**First-launch pass (2026-11-11, uncommitted):** `tools/browser-tests/first-launch.tsx` mounts the
+whole app on an empty catalog and fresh profile (`SHOT=out.png node tools/browser-tests/realtime.mjs
+first-launch 20`). Found: an empty library had no visible way in (the toolbar Import button was
+removed; only File › Import…, Cmd+I or Folders ⋯). The empty state now has **Import Photos…**
+(`chooseFolder`, as File › Import…) and a hint naming Cmd+I and the Dock. No startup errors.
+Install is covered by `tools/release/INSTALL.txt` (Open Anyway) and the translocation message.
+Not checked headlessly: Open Anyway from a real dmg, macOS folder-access prompts, AI consent on
+first use. Next: release notes, then the version bump. Committed work is not pushed until
 Oli says "push"; CI only runs from a pushed `v*` tag.
 
 ## Library grid stopped after ~30 photos (fixed 2026-11-11, uncommitted)
@@ -616,7 +632,7 @@ first pass covers stars and labels, keywords, IPTC fields and reading embedded X
   keywords is never folded under its RAW. Probe: `?metapanel` (or `?metapanel=one`) mounts it.
 - **Not done (README roadmap):** metadata presets, keyword hierarchy/list, keyword filter in the
   filter bar, more IPTC fields, metadata in exports, pick/reject mapping. Virtual copies' stars
-  aren't in XMP (Lightroom doesn't write them either). A label Emulsion lacks (Purple) reads as none
+  aren't in XMP (Lightroom doesn't write them either). A custom label (Lightroom label sets) reads as none
   and stays in the file.
 - **Checks:** `cargo test` 106 pass (xmp, sidecar and scan tests: Lightroom fixture with `crs:`,
   hierarchy, Purple and reject kept; RAW+JPEG ownership; newer-wins both ways; broken XMP).

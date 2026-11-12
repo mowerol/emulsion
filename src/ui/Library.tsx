@@ -7,6 +7,7 @@ import { setActive, setFilter, setFoldJpegs, setSelectedOnly, setLibraryView, se
 import { NO_FILTER, isFiltering } from '../library/filter';
 import { LABEL } from '../library/marks';
 import { DiskDirectory, FolderImportView } from './Folders';
+import { chooseFolder } from './TopBar';
 import { FilterBar } from './FilterBar';
 import { FlagIcon, MarkControls, Thumb, useVisible } from './common';
 import { LibraryLoupe } from './LibraryLoupe';
@@ -137,7 +138,14 @@ export function Library() {
             {visible.map((i, k) => <Cell position={win.start * layout.cols + k + 1} total={shown.length} startDrag={drag.start} contextMenu={context.open} key={photoId(s.photos[i])} photo={s.photos[i]} index={i} number={frameNumbers.get(i)!} active={i === s.active} selected={s.selected.has(photoId(s.photos[i]))} showExif={showExif} />)}
           </div> : <div className="library-empty">
             <h2>{s.loading ? 'Reading photos…' : filtering ? 'No photos match these filters' : s.source?.type === 'collection' ? 'This collection is empty' : s.source?.type === 'import' ? 'No photos from this import are available' : s.folder ? 'No imported photos in this folder' : 'Your library starts here'}</h2>
-            {filtering ? <button type="button" className="btn" onClick={clear}>Clear filters</button> : <p>{s.source?.type === 'collection' ? 'Add photos from a folder, or adjust the smart collection rules.' : 'Import photos or choose a folder in the sidebar.'}</p>}
+            {filtering ? <button type="button" className="btn" onClick={clear}>Clear filters</button>
+              : !s.loading && !s.source && !s.folder ? <>
+                {/* The first screen a new tester sees: the toolbar has no Import button, so offer it here. */}
+                <p>Choose a folder of photos to bring into your library.</p>
+                <button type="button" className="btn primary library-empty-action" onClick={() => void chooseFolder()}>Import Photos…</button>
+                <p className="library-empty-hint">Or use File › Import… (⌘I), or drop photos on Emulsion in the Dock.</p>
+              </>
+              : <p>{s.source?.type === 'collection' ? 'Add photos from a folder, or adjust the smart collection rules.' : 'Import photos or choose a folder in the sidebar.'}</p>}
           </div>}
         </div>
         {loupe && <div className="library-loupe-body"><LibraryImageRail /><LibraryLoupe /></div>}
