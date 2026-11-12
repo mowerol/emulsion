@@ -26,7 +26,14 @@ removed; only File › Import…, Cmd+I or Folders ⋯). The empty state now has
 (`chooseFolder`, as File › Import…) and a hint naming Cmd+I and the Dock. No startup errors.
 Install is covered by `tools/release/INSTALL.txt` (Open Anyway) and the translocation message.
 Not checked headlessly: Open Anyway from a real dmg, macOS folder-access prompts, AI consent on
-first use. Next: release notes, then the version bump. Committed work is not pushed until
+first use.
+
+**Release notes written (2026-11-11):** `docs/release-notes/0.1.0.md`, plain text (the update
+dialog shows it raw; CI puts it under INSTALL.txt on the release page). AI Noise Reduction is
+left out until it's confirmed to work without manual model setup; reports go to GitHub Issues.
+INSTALL.txt no longer says edits are XMP (edits are `.emulsion.json`; XMP carries stars, labels,
+keywords). The README feature list is stale (film stocks, scanner profiles). Next: the beta ships
+as 0.1.0 (no bump needed); Oli re-enters `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, then tag `v0.1.0`. Committed work is not pushed until
 Oli says "push"; CI only runs from a pushed `v*` tag.
 
 ## Library grid stopped after ~30 photos (fixed 2026-11-11, uncommitted)
