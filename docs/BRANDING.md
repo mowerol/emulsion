@@ -4,7 +4,9 @@ The artwork comes from Oli's `emulsion-brand (1)` kit (2026-11-11). Runtime asse
 in `public/brand`; the app does not depend on the original Documents folder.
 
 - `mark.svg`: the supplied `emulsion-icon-color.svg`, with its canvas cropped to
-  the artwork for use at small sizes. The paths and orange (`#DF7318`) are unchanged.
+  the artwork for use at small sizes. The paths and orange (`#DF7318`) are unchanged in
+  the file, but the header uses it as a CSS mask filled with `--accent` (`#E8913A`), so
+  the mark matches the Export button (Oli, 2026-11-11).
 - `wordmark.svg`: the supplied `emulsion-wordmark-color.svg`, also cropped. The
   header uses it as a CSS mask: paper (`#FAFAFA`) on mid-grey/dark themes, ink
   (`#36393F`) on the light theme. Its custom lettering stays vector at every scale.
@@ -12,8 +14,7 @@ in `public/brand`; the app does not depend on the original Documents folder.
   shading and transparent edges. It also serves as the browser favicon.
 
 The header uses a 24px mark and 17px wordmark, with an 8px gap. The photo editor's
-neutral theme surfaces and existing control accent colours remain separate from
-the logo palette so the surround continues to support colour judgement.
+neutral theme surfaces remain separate from the logo palette so the surround continues to support colour judgement.
 
 To regenerate desktop icons on macOS after replacing the supplied app icon, run:
 

@@ -49,7 +49,7 @@ export function TopBar() {
   return <>
     <header className={`topbar${s.view === 'library' ? ' topbar-library' : ''}${importing ? ' topbar-import' : ''}`}>
       <div className="brand" role="img" aria-label="Emulsion">
-        <img className="brand-mark" src="/brand/mark.svg" alt="" width="23" height="24" draggable={false} />
+        <span className="brand-mark" aria-hidden="true" />
         <span className="brand-wordmark" aria-hidden="true" />
       </div>
       {importing ? <>

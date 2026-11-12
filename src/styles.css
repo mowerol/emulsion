@@ -260,7 +260,11 @@ body:has(.library-fullscreen) { min-width: 0; }
   border-bottom: 1px solid var(--line); background: var(--bg); min-height: 40px;
 }
 .brand { display: flex; align-items: center; flex-shrink: 0; gap: 8px; }
-.brand-mark { display: block; width: 23px; height: 24px; }
+.brand-mark {
+  display: block; width: 23px; height: 24px; background: var(--accent); /* matches the Export button */
+  -webkit-mask: url('/brand/mark.svg') center / contain no-repeat;
+  mask: url('/brand/mark.svg') center / contain no-repeat;
+}
 .brand-wordmark {
   display: block; width: 88px; height: 17px; background: #fafafa;
   -webkit-mask: url('/brand/wordmark.svg') center / contain no-repeat;
