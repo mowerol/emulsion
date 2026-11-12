@@ -172,7 +172,7 @@
     "id": "emulsion-film-chrome",
     "name": "Emulsion Chrome",
     "bw": false,
-    "revision": 19,
+    "revision": 20,
     "settings": {
       "colorBalance": {
         "shadows_Y": -0.33,
@@ -308,7 +308,7 @@
           -13,
           -12,
           -36,
-          -83,
+          -48,
           -30,
           0
         ],

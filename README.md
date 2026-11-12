@@ -144,7 +144,7 @@ Goal (agreed 2026-11-10): make Emulsion a credible replacement for Lightroom Cla
 ### Built
 
 - **Backups:** daily and pre-upgrade settings snapshots, settings export/import and restore, and checkpoint history stored in sidecars with an **Earlier edits…** restore interface. See [Architecture](docs/ARCHITECTURE.md#app-data-and-backups).
-- **Looks:** bundled film LUT packs, custom Looks and presets, scanner inheritance, applied-look snapshots, reference-photo LUT matching with optional hue transfer, and the built-in Emulsion collection. Measured stock characterisations remain a separate possibility below.
+- **Looks:** bundled film LUT packs, custom Looks and presets, scanner inheritance, applied-look snapshots, test-photo previews in Look Creator, and the built-in Emulsion collection. Measured stock characterisations remain a separate possibility below.
 - **Retouch:** darktable-derived healing, cloning, fill, blur and wavelet processing; local LaMa Remove with optional model download, retry, export handling and saved patch restoration. The current Heal picker exposes Heal and Clone; Remove is a separate tool.
 - **Masks:** gradients, brush, ranges, refinement, local adjustments, SAM object selection and one-click Sky selection. Scribble selection remains deferred.
 - **Noise reduction:** profiled wavelet Luminance/Colour controls and the existing linear RawNIND AI path. Validation and additional methods remain below.
