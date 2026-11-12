@@ -11,7 +11,7 @@ Read [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) before touching the pipeline, 
 - Commit only when Oli says "commit", push only when he says "push". Write commit messages that explain what changed and why, ending with the Co-Authored-By line.
 - Image processing comes from established open-source tools (see the next rule), ported with credit: upstream copyright lines in the file header, the commit hash, and a `NOTICE.md` entry. Methods from papers are implemented from the paper and credited in `NOTICE.md`.
 - **Port the community's best, and stay true to it.** For each job (tones, clarity, sharpening, demosaicing...) use the open-source implementation the photo community regards as the best for it: darktable by default, RawTherapee (or ART) where it is the stronger tool, as with its capture sharpening (RL deconvolution) and wavelet levels. Say which you picked and why. Follow the chosen code, its presets and its curve shapes; don't invent our own band shapes, weightings or retunings. Mapping a slider onto upstream parameters is fine. If a port seems to need a deviation, stop and ask Oli first, then record what deviates and why in the file header.
-- Halation and grain default to 0 on every stock. Neutral is the default stock; an unedited photo counts as Neutral.
+- Halation and grain default to 0 on every stock. Emulsion Standard (the neutral rendering, first in the Emulsion collection) is the default for new edits and unedited photos; saved edits without a look still open as Neutral.
 - When a change can't be checked headlessly (mouse, trackpad, keyboard, menus), say so and list what Oli should try.
 
 ## How a pipeline change is made
