@@ -6,7 +6,7 @@ import { useThumb } from '../library/thumbs';
 import { lookName } from '../film/looks';
 import { STOCK } from '../film/stocks';
 import { markPhotos, type Photo } from '../library/store';
-import { FLAGS, LABEL, LABELS, stars, type Flag } from '../library/marks';
+import { FLAGS, LABEL, LABELS, labelTitle, stars, type Flag } from '../library/marks';
 
 export const recipeLabel = (photo: Photo) => photo.recipe ? (photo.recipe.lookEnabled ? (photo.recipe.lookSnapshot?.name ?? lookName(photo.recipe.pack, photo.recipe.stock)) : 'Neutral') : 'Original';
 
@@ -126,7 +126,7 @@ export function MarkControls({ photo, advance = false }: { photo: Photo | null; 
             className={`mark-btn swatch-btn${photo?.label === l.id ? ' on' : ''}`}
             aria-label={`${l.name} tag`}
             aria-pressed={photo?.label === l.id}
-            title={`${l.name} (${l.key})`}
+            title={labelTitle(l)}
             onClick={() => markPhotos({ label: l.id }, advance)}
           >
             <span style={{ background: l.hex }} />

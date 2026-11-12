@@ -113,7 +113,7 @@ pub struct Saved {
     /// Stars, 0 to 5; 0 is unrated.
     #[serde(default)]
     pub rating: u8,
-    /// A colour tag: red, yellow, green or blue.
+    /// A colour tag: red, yellow, green, blue or purple.
     #[serde(default)]
     pub label: Option<String>,
     /// The cull flag, `pick` or `reject`; a reject is shared through XMP as Rating -1.

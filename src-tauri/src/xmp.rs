@@ -38,7 +38,7 @@ const PHOTOSHOP: &str = xmp_ns::PHOTOSHOP;
 const IPTC: &str = xmp_ns::IPTC_CORE;
 
 /// Lightroom's default label set, in Emulsion's order.
-const LABELS: &[(&str, &str)] = &[("red", "Red"), ("yellow", "Yellow"), ("green", "Green"), ("blue", "Blue")];
+const LABELS: &[(&str, &str)] = &[("red", "Red"), ("yellow", "Yellow"), ("green", "Green"), ("blue", "Blue"), ("purple", "Purple")];
 
 /// Where one IPTC field lives in XMP, as Lightroom Classic's Metadata panel writes it.
 #[derive(Clone, Copy)]
@@ -595,13 +595,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let img = dir.path().join("a.nef");
         fs::write(&img, b"x").unwrap();
-        // A Lightroom sidecar: develop settings, a keyword hierarchy, a purple label, a reject.
+        // A Lightroom sidecar: develop settings, a keyword hierarchy, a custom label, a reject.
         fs::write(
             dir.path().join("a.xmp"),
             r#"<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
 <rdf:Description rdf:about="" xmlns:xmp="http://ns.adobe.com/xap/1.0/" xmlns:crs="http://ns.adobe.com/camera-raw-settings/1.0/"
  xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:lr="http://ns.adobe.com/lightroom/1.0/"
- xmp:Rating="-1" xmp:Label="Purple" crs:Exposure2012="+0.35">
+ xmp:Rating="-1" xmp:Label="To Print" crs:Exposure2012="+0.35">
 <dc:subject><rdf:Bag><rdf:li>Places</rdf:li><rdf:li>Kent</rdf:li><rdf:li>Dog</rdf:li></rdf:Bag></dc:subject>
 <lr:hierarchicalSubject><rdf:Bag><rdf:li>Places|Kent</rdf:li><rdf:li>Animals|Dog</rdf:li></rdf:Bag></lr:hierarchicalSubject>
 </rdf:Description></rdf:RDF></x:xmpmeta>"#,
@@ -609,8 +609,8 @@ mod tests {
         .unwrap();
         let found = read_sidecar(&img, true).unwrap();
         assert_eq!((found.values.rating, found.values.reject), (0, true), "a reject reads as a reject flag");
-        assert_eq!(found.values.label, None, "Purple is not an Emulsion label");
-        // Drop Dog, add a title: the reject, Purple and the develop settings stay.
+        assert_eq!(found.values.label, None, "a custom Lightroom label is not an Emulsion label");
+        // Drop Dog, add a title: the reject, the custom label and the develop settings stay.
         assert_eq!(found.values.meta.keywords, vec!["Places|Kent", "Animals|Dog"], "Lightroom's paths are the keywords");
         let mut want = found.values.clone();
         want.meta.keywords = vec!["Places|Kent".into()];
@@ -618,15 +618,20 @@ mod tests {
         write(&img, &want).unwrap();
         let text = fs::read_to_string(dir.path().join("a.xmp")).unwrap();
         assert!(text.contains("Exposure2012") && text.contains("+0.35"), "{text}");
-        assert!(text.contains("Purple") && text.contains("-1"), "{text}");
+        assert!(text.contains("To Print") && text.contains("-1"), "{text}");
         assert!(text.contains("Places|Kent") && !text.contains("Animals|Dog") && !text.contains(">Dog<"), "{text}");
         assert!(text.contains("MetadataDate"), "{text}");
         assert_eq!(read_sidecar(&img, true).unwrap().values.meta.get("title"), "Harbour");
-        // A label replaces Purple; the reject stays until it is cleared.
+        // A label replaces the custom one; the reject stays until it is cleared.
         want.label = Some("red".into());
         write(&img, &want).unwrap();
         let text = fs::read_to_string(dir.path().join("a.xmp")).unwrap();
-        assert!(text.contains("Red") && !text.contains("Purple") && text.contains("-1"), "{text}");
+        assert!(text.contains("Red") && !text.contains("To Print") && text.contains("-1"), "{text}");
+        // Purple, Lightroom's fifth colour, is written and read back as itself.
+        want.label = Some("purple".into());
+        write(&img, &want).unwrap();
+        assert!(fs::read_to_string(dir.path().join("a.xmp")).unwrap().contains("Purple"));
+        assert_eq!(read_sidecar(&img, true).unwrap().values.label.as_deref(), Some("purple"));
     }
 
     #[test]

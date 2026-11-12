@@ -20,7 +20,7 @@ const SECTIONS: { title: string; rows: Row[] }[] = [
     [`${MOD}A`, 'Select all'],
     ['P  X  U', 'Pick / reject / unflag'],
     ['0 – 5', 'Rating'],
-    [LABELS.map(l => l.key).join(' '), `Colour label (${LABELS.map(l => l.name.toLowerCase()).join(', ')})`],
+    [LABELS.filter(l => l.key).map(l => l.key).join(' '), `Colour label (${LABELS.filter(l => l.key).map(l => l.name.toLowerCase()).join(', ')})`],
     ['⇧ with a mark key', 'Mark and go to the next photo'],
     ['B', 'Add to target collection'],
     [`${MOD}'`, 'Create virtual copy'],

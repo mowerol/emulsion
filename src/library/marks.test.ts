@@ -44,7 +44,8 @@ describe('ratings, colour tags and flags', () => {
 
   it('drops anything unexpected from a sidecar, and reads an old heart as a pick', () => {
     expect(normalizeMarks(4, 'green', 'reject')).toEqual({ rating: 4, label: 'green', flag: 'reject' });
-    expect(normalizeMarks(9, 'purple', 'yes')).toEqual({ rating: 5, label: null, flag: null });
+    expect(normalizeMarks(9, 'orange', 'yes')).toEqual({ rating: 5, label: null, flag: null });
+    expect(normalizeMarks(2, 'purple', null)).toEqual({ rating: 2, label: 'purple', flag: null });
     expect(normalizeMarks(undefined, null, undefined)).toEqual(NO_MARKS);
     expect(normalizeMarks(3, null, undefined, true)).toEqual({ rating: 3, label: null, flag: 'pick' });
     expect(normalizeMarks(3, null, 'reject', true)).toEqual({ rating: 3, label: null, flag: 'reject' });

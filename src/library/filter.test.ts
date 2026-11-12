@@ -59,7 +59,7 @@ describe('library filter', () => {
   });
 
   it('reads a saved filter, dropping anything unexpected', () => {
-    expect(normalizeFilter({ edit: 'edited', minRating: 9, flags: ['reject', 'none', 'maybe'], labels: ['blue', 'purple'] })).toEqual({
+    expect(normalizeFilter({ edit: 'edited', minRating: 9, flags: ['reject', 'none', 'maybe'], labels: ['blue', 'orange'] })).toEqual({
       edit: 'edited', minRating: 5, flags: ['none', 'reject'], labels: ['blue'], keyword: '',
     });
     // Saved before flags replaced hearts.

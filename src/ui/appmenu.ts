@@ -8,7 +8,7 @@ import { CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu } from '@tau
 import {
   isLibraryLoupe, setLibraryView, setLoupeFullscreen, shown as shownPhotos, activePhoto, addToTargetCollection, markPhotos, setCompare, setFoldJpegs, setStageColor, setView, sourcePhotos, STAGE_COLORS, targets, useApp, type Photo, type State,
 } from '../library/store';
-import { FLAGS, LABELS, type Flag } from '../library/marks';
+import { FLAGS, LABELS, labelTitle, type Flag } from '../library/marks';
 import { targetCollection, useCatalog } from '../library/catalog';
 import { activeTool, chooseTool, TOOLS, useTools, type ToolId } from './tools';
 import { retouchMode, useRetouchUi } from './retouchui';
@@ -269,7 +269,7 @@ export async function installAppMenu(run: (id: string) => void): Promise<() => v
     ] }),
     await Submenu.new({ text: 'Rating', items: await Promise.all(RATINGS.map(r =>
       check(`rating:${r}`, `${r === 0 ? 'No Rating' : r === 1 ? '1 Star' : `${r} Stars`} (${r})`))) }),
-    await Submenu.new({ text: 'Colour Label', items: await Promise.all(LABELS.map(l => check(`label:${l.id}`, `${l.name} (${l.key})`))) }),
+    await Submenu.new({ text: 'Colour Label', items: await Promise.all(LABELS.map(l => check(`label:${l.id}`, labelTitle(l)))) }),
     await check('auto-advance', 'Auto Advance'),
     await sep(),
     target,

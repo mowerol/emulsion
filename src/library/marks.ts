@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Star ratings, colour tags and cull flags, with Lightroom's keys: 0 to 5 set the stars,
-// 6 to 9 toggle red, yellow, green and blue; P picks, X rejects and U clears the flag.
+// 6 to 9 toggle red, yellow, green and blue (purple, Lightroom's fifth, has no key there either); P picks, X rejects and U clears the flag.
 // A flag is independent of stars and tags; rejecting never deletes anything. Saved in each
 // photo's sidecar; a reject is shared through XMP as Rating -1. Flags replaced hearts
 // (2026-11-11): a heart in an older sidecar or catalog reads as a pick.
@@ -10,6 +10,7 @@ export const LABELS = [
   { id: 'yellow', name: 'Yellow', key: '7', hex: '#c2a24a' },
   { id: 'green', name: 'Green', key: '8', hex: '#5e9a5a' },
   { id: 'blue', name: 'Blue', key: '9', hex: '#5a7fb8' },
+  { id: 'purple', name: 'Purple', key: null, hex: '#8f6bb3' },
 ] as const;
 export type Label = (typeof LABELS)[number]['id'];
 export const LABEL = Object.fromEntries(LABELS.map((l) => [l.id, l])) as Record<Label, (typeof LABELS)[number]>;
@@ -30,6 +31,9 @@ export interface Marks {
 }
 
 export const NO_MARKS: Marks = { rating: 0, label: null, flag: null };
+
+/** A label's name with its key, when it has one: "Red (6)", "Purple". */
+export const labelTitle = (l: (typeof LABELS)[number]) => (l.key ? `${l.name} (${l.key})` : l.name);
 
 /** Marks as read from a sidecar or catalog, with anything unexpected dropped and a heart from before flags read as a pick. */
 export function normalizeMarks(rating: unknown, label: unknown, flag: unknown, heart?: unknown): Marks {
