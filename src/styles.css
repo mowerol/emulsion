@@ -1570,7 +1570,6 @@ select { accent-color: var(--accent); }
 .library-content .cell:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; }
 .library-content .cell-img { aspect-ratio: 1; background: rgba(0,0,0,.12); border-radius: 4px; }
 .library-content .cell-num { top: 6px; left: 6px; color: var(--text2); font-weight: 500; }
-.cell-stack { position: absolute; top: 6px; right: 6px; font-size: 10px; font-weight: 600; background: rgba(0,0,0,.45); color: #fff; border-radius: 4px; padding: 1px 5px; }
 .library-content .cell-img .thumb-empty { background: transparent; }
 .library-content .cell-meta { align-items: baseline; gap: 8px; font-size: 13px; }
 .library-content .cell-name { flex: 1; min-width: 0; }

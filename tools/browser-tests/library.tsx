@@ -68,7 +68,6 @@ if (!new URLSearchParams(location.search).has('preview')) {
 try {
   assert(!document.querySelector('.topbar .folder-info'), 'Folder context duplicated in app header');
   assert(document.querySelector('.source-title')?.textContent?.includes('6 photos'), 'Source count ignores folding');
-  assert(document.querySelector('.cell-stack')?.textContent === '×2', 'Folded pair badge missing');
   const sidebar = document.querySelector<HTMLElement>('.folder-directory')!;
   const bar = document.querySelector<HTMLElement>('.library-bar')!;
   assert(sidebar.getBoundingClientRect().width === 280, 'Sidebar width');
@@ -125,7 +124,7 @@ try {
   setFilter({ minRating: 5 }); await pause();
   assert(cells().length === 0 && document.querySelector('.library-empty h2')?.textContent === 'No photos match these filters', 'Filter miss is not a real empty state');
   click('Clear filters'); await pause(); assert(cells().length === 6, 'Clear filters failed');
-  click('Fold JPEGs'); await pause(); assert(cells().length === 7 && !document.querySelector('.cell-stack'), 'Unfolding failed');
+  click('Fold JPEGs'); await pause(); assert(cells().length === 7, 'Unfolding failed');
   click('Fold JPEGs'); await pause();
   input('Thumbnail size', '300'); await pause();
   assert(localStorage.getItem('emulsion.cellSize') === '300', 'Thumbnail size not persisted');

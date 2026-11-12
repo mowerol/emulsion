@@ -192,7 +192,7 @@ export const SLIDERS: SliderDef[] = [
   { key: 'glowSize', label: 'Glow size', group: 'optics', min: 20, max: 400, step: 1, default: 100, format: v => `${v}%`, hint: 'How far the diffused light spreads.' },
   { key: 'vignette', label: 'Vignette', group: 'optics', min: 0, max: 100, step: 1 },
   { key: 'grain', label: 'Amount', group: 'grain', min: 0, max: 100, step: 1, stockKey: 'grain' },
-  { key: 'grainIso', label: 'Size', group: 'grain', min: ISO_MIN, max: ISO_MAX, step: 1, stockKey: 'grainIso', log: true, hint: 'The grain size, as the ISO of the film.', format: (v) => `ISO ${Math.round(v)}` },
+  { key: 'grainIso', label: 'Size', group: 'grain', min: ISO_MIN, max: ISO_MAX, step: 1, stockKey: 'grainIso', log: true, hint: 'The grain size, as the ISO of the film.', format: (v) => `${Math.round(v)}` },
   { key: 'grainMidtones', label: 'Mid-tones', group: 'grain', min: 0, max: 100, step: 1, default: 100, hint: 'How much the grain fades in shadows and highlights, as on a photographic print. At 0 it is even across every tone.', format: (v) => `${v}%` },
 ];
 

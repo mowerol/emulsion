@@ -42,7 +42,6 @@ const Cell = memo(function Cell({ photo, index, number, position, total, active,
     <div className="cell-img">
       <Thumb photo={photo} visible={visible} />
       <span className="cell-num">{number}</span>
-      {photo.pair && <span className="cell-stack" title="RAW + JPEG">×2</span>}
       {photo.copyId && <span className="copy-badge">Virtual copy</span>}
     </div>
     <div className="cell-meta">
