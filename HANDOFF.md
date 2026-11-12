@@ -1,5 +1,14 @@
 # Handoff
 
+**Hero re-recorded on Oli's final DSCF8579 edit (2026-11-12, committed and pushed):** Oli
+changed his edit (Blacks 0→18, Contrast 10→−1, Whites 0→1, temperature 6307→6713 K); the take's
+moves (Neg, Exposure 0.75, Shadows 19, Halation 13, Grain 31) are unchanged, so the cursor script
+was not touched. Same 13 photos copied fresh to a "Photos" RAM disk (`/dev/disk7`, can be
+ejected). The recorded end state matches his sidecar field for field. New `hero-ui.mp4/.webm` (2.7/2.4 MB)
+and poster (125 KB) in `site/public/assets/`; the header now shows the final icon tile. The
+opening frame is on the working tree's Emulsion Standard (revision 2, uncommitted retune from
+another session); re-record if that retune is dropped. Take and @2x cuts: `.scratch/hero-take-2/`.
+
 **Final app icon and site spacing (2026-11-12, committed and pushed):** Oli supplied the final
 icon, `~/Documents/emulsion-brand (1)/emulsion-logo-icon.png` (809×820; new slider shape). It is
 now `public/brand/app-icon.png`; `swift tools/generate-icons.swift` regenerated `src-tauri/icons/`
