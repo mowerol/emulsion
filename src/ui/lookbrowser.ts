@@ -23,10 +23,7 @@ export function lookChoices(): LookChoice[] {
 /** Pat David's pack is browsed by category, in this order. */
 const GMIC_CATEGORIES: [string, string][] = [
   ['Colour negative', 'Negative'],
-  ['Colour slide', 'Slide'],
   ['Black & white', 'Black & white'],
-  ['Instant consumer', 'Instant consumer'],
-  ['Instant professional', 'Instant professional'],
   ['Negative — newer', 'Negative (newer)'],
   ['Negative — older', 'Negative (older)'],
 ];

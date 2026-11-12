@@ -111,8 +111,7 @@ the library/data entries in [NOTICE.md](../NOTICE.md).
 | Asset | Source | Included |
 | --- | --- | --- |
 | t3mujinpack | João Almeida's film looks, made in darktable | 8 unchanged Hald CLUTs; MIT |
-| Pat David film collection | Pat David, also crediting Pavlov Dmitry and Michael Ezra; Cube conversion/distribution through G'MIC and YahiaAngelo | 269 unchanged Cube LUTs; CC BY-SA 4.0 asset terms, with the distributor's MIT notice retained separately |
-| PictureFX legacy collection | Marc Roovers / PictureFX; G'MIC conversion/distribution | 19 unchanged Cube LUTs; CC BY-SA 4.0; collection hidden from the normal picker |
+| Pat David film collection | Pat David, also crediting Pavlov Dmitry and Michael Ezra; Cube conversion/distribution through G'MIC and YahiaAngelo | 121 unchanged Cube LUTs (black & white and negatives); CC BY-SA 4.0 asset terms, with the distributor's MIT notice retained separately |
 | Interface icons | Lucide, through lucide-react | ISC |
 | Interface typeface | Vercel's Geist font project, through Fontsource | SIL Open Font License 1.1 |
 

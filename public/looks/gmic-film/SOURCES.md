@@ -1,6 +1,6 @@
 # G’MIC / Pat David film LUTs
 
-269 unmodified 13-point Cube files from YahiaAngelo/Film-Luts,
+121 unmodified 13-point Cube files from YahiaAngelo/Film-Luts,
 commit af957b631a304e6be94778b96cb3395de3438e9f:
 https://github.com/YahiaAngelo/Film-Luts/tree/af957b631a304e6be94778b96cb3395de3438e9f
 
@@ -16,8 +16,8 @@ values; source hashes are in src/film/lut-catalogue.json. Cube adaptations remai
 CC BY-SA 4.0. The repository’s MIT notice is retained separately and does not replace
 upstream asset terms. These assets are separate from the app’s software license.
 
-Included categories: black & white, colour slide, instant consumer/professional,
-colour negative, newer/older negative. Print and Fuji X-Trans III are excluded;
+Included categories: black & white, colour negative, newer/older negative. Colour slide
+and instant consumer/professional are left out by choice. Print and Fuji X-Trans III are excluded;
 they require separate source/input-encoding verification.
 
 Input: sRGB display RGB, matching the original collection’s documented space.

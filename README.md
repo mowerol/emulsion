@@ -13,7 +13,7 @@ Emulsion builds on the open-source photography community's work:
 - **Spektrafilm, through darktable:** the current Halation and Glow models.
 - **LibRaw and RawSpeed:** RAW decoding, camera colour matrices and crop data.
 - **RawNIND, SAM 2.1, U²-Net and LaMa:** local AI denoising, object selection, sky selection and removal; model assets are installed separately.
-- **João Almeida's t3mujinpack, Pat David / G'MIC and PictureFX:** bundled film LUT collections.
+- **João Almeida's t3mujinpack and Pat David / G'MIC:** bundled film LUT collections.
 
 See [Open-source foundations](docs/OPEN_SOURCE.md) for the feature-by-feature map,
 including file/metadata libraries, interface assets, frameworks and local experiments.

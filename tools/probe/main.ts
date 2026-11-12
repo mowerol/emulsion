@@ -2258,8 +2258,8 @@ try {
         for (const k of ['t3mujinpack:portra400', 't3mujinpack:superia400']) if (!useLookBrowser.getState().favourites.includes(k)) toggleLookFavourite(k);
         setTimeout(() => (appHost.querySelector('.look-browse-button') as HTMLElement | null)?.click(), 600);
       }
-      // &folders opens the Look browser's folder menu; &hide=slides hides Pat David's slides.
-      if (params.get('hide') === 'slides') setHiddenLookGroups(['gmic-film:Colour slide']);
+      // &folders opens the Look browser's folder menu; &hide=bw hides Pat David's black & white.
+      if (params.get('hide') === 'bw') setHiddenLookGroups(['gmic-film:Black & white']);
       if (params.has('folders')) setTimeout(() => (appHost.querySelector('.look-folders-button') as HTMLElement | null)?.click(), 1600);
       if (new URLSearchParams(location.search).has('viewmenu')) setTimeout(() => (appHost.querySelector('.image-view-toggle') as HTMLElement | null)?.click(), 500);
     }
@@ -2383,7 +2383,7 @@ if (photoArg) {
       });
     };
     check(bent, false, 'halfFloat17');
-    for (const pack of ['gmic-film', 'picturefx'] as const) {
+    for (const pack of ['gmic-film'] as const) {
       const stock = stockForPack(pack, 'portra400');
       const file = lookFile(pack, stock, 0)!;
       const lut = await loadLut(file);

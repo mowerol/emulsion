@@ -268,13 +268,7 @@ Implemented from the papers, not from code.
 - Source: [YahiaAngelo/Film-Luts](https://github.com/YahiaAngelo/Film-Luts/tree/af957b631a304e6be94778b96cb3395de3438e9f), pinned at `af957b631a304e6be94778b96cb3395de3438e9f`; original [Pat David collection](https://patdavid.net/2015/03/film-emulation-in-rawtherapee/).
 - Credits: Pat David; original collection also credits Pavlov Dmitry and Michael Ezra. G’MIC Cube conversion/distribution and YahiaAngelo repository.
 - Asset licence: CC BY-SA 4.0 for the original film collection and its Cube adaptations; the repository’s MIT notice (copyright © 2024 Yahia) is retained separately. Asset terms remain separate from app code.
-- Bundled: 269 unchanged 13-point `.cube` files in `public/looks/gmic-film/`; original collection README, repository README/MIT notice, full CC licence and source note accompany them. Print and Fuji X-Trans III collections excluded pending provenance/input verification. File hashes in `src/film/lut-catalogue.json`.
-
-### PictureFX legacy LUT collection
-- Source: [official G’MIC Cube archive](https://gmic.eu/color_presets/picturefx/picturefx_cube.zip); author-attributed [PictureFX v2 README](https://github.com/cedeber/hald-clut/blob/41cb940e6a85a5f4c18ff42f177db0f6be027a8b/HaldCLUT/PictureFX/README.txt), preserved at commit `41cb940e6a85a5f4c18ff42f177db0f6be027a8b`.
-- Credits: Marc Roovers, PictureFX / digicrea.be; G’MIC conversion/distribution.
-- Asset licence: CC BY-SA 4.0, separate from app code. Author README, full CC licence and detailed source note accompany the files in `public/looks/picturefx/`.
-- Bundled: 19 unchanged 13-point Cube conversions corresponding to the legacy README’s collection. Six additional Faux Infrared files and newer CineStill/SX-70 releases are excluded. The original author site is offline; the preserved author-written notice and independent official distribution are recorded in `docs/plans/lut-source-verification.md`. File hashes in `src/film/lut-catalogue.json`.
+- Bundled: 121 unchanged 13-point `.cube` files in `public/looks/gmic-film/` (black & white, colour negative, newer and older negative); original collection README, repository README/MIT notice, full CC licence and source note accompany them. Colour slide and instant collections left out by choice; print and Fuji X-Trans III excluded pending provenance/input verification. File hashes in `src/film/lut-catalogue.json`.
 
 ## Main dependencies
 

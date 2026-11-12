@@ -80,10 +80,9 @@ Only packs with an explicit licence ship (`public/looks`):
 
 | Pack | Licence | Source |
 | --- | --- | --- |
-| `gmic-film` (Pat David / RawTherapee film simulation, 269) | CC BY-SA 4.0 | `public/looks/gmic-film/SOURCES.md` |
-| `picturefx` (Marc Roovers, legacy 19) | CC BY-SA 4.0 | `public/looks/picturefx/SOURCES.md` |
+| `gmic-film` (Pat David / RawTherapee film simulation: B&W and negatives, 121) | CC BY-SA 4.0 | `public/looks/gmic-film/SOURCES.md` |
 | `t3mujinpack` (João Almeida, 8) | MIT | `public/looks/t3mujinpack/LICENSE.txt` |
 
-The newer PictureFX releases (CC BY-NC by default) and the CineStill/SX-70 packs are not
-bundled. `local-looks/` (Fuji X-Trans III, Fuji GFX tests, spektrafilm) is git-ignored and
+PictureFX and Pat David's slide and instant sets were dropped before the 0.1.0 beta; the
+CineStill/SX-70 packs were never bundled. `local-looks/` (Fuji X-Trans III, Fuji GFX tests, spektrafilm) is git-ignored and
 served only by the dev server.

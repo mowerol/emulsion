@@ -9,7 +9,7 @@ import catalogue from './lut-catalogue.json';
 import { LOCAL_LOOKS } from './local-looks';
 import emulsionLooks from './emulsion-looks.json';
 
-export type PackId = 'custom' | 'files' | 'emulsion-looks' | 't3mujinpack' | 'gmic-film' | 'picturefx' | 'fuji-test' | 'fuji-xtrans-iii' | 'spektrafilm';
+export type PackId = 'custom' | 'files' | 'emulsion-looks' | 't3mujinpack' | 'gmic-film' | 'fuji-test' | 'fuji-xtrans-iii' | 'spektrafilm';
 
 /** A stock's LUT in a pack: a file under public/looks/<pack>/, one per push step if it has them. */
 export interface PackLook {
@@ -94,10 +94,6 @@ export const PACKS: LookPack[] = [
   {
     id: 'gmic-film', name: 'Pat David', hint: 'Pat David’s film emulations, distributed as Cube LUTs by G’MIC and YahiaAngelo.',
     looks: bundledLooks('gmic-film'),
-  },
-  {
-    id: 'picturefx', name: 'PictureFX (legacy)', hint: 'Marc Roovers’ legacy AnalogFX, GoldFX, TechnicalFX and ZilverFX looks.',
-    looks: bundledLooks('picturefx'), hidden: true,
   },
   ...localPack('fuji-test', 'Fujifilm (local test)',
     'Ten official Fujifilm simulations adapted for Emulsion’s sRGB LUT stage. Local test versions.'),

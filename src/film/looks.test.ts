@@ -12,8 +12,8 @@ import { parseCube, tetrahedral } from '../engine/lut3d';
 
 describe('bundled look catalogues', () => {
   it('ships every advertised new look unchanged, readable by the real LUT parser', () => {
-    expect(catalogue.filter(s => s.pack === 'gmic-film')).toHaveLength(269);
-    expect(catalogue.filter(s => s.pack === 'picturefx')).toHaveLength(19);
+    expect(catalogue.filter(s => s.pack === 'gmic-film')).toHaveLength(121);
+    expect(catalogue.every(s => s.pack === 'gmic-film')).toBe(true);
     expect(new Set(catalogue.map(s => s.id)).size).toBe(catalogue.length);
     for (const row of catalogue) {
       expect(isPackId(row.pack)).toBe(true);
