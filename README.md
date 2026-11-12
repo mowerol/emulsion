@@ -1,8 +1,8 @@
 # Emulsion
 
-Film looks for digital photos. Open a folder, choose a Look, adjust its Amount and tone character, and fine-tune scanner finish, halation, glow and grain. Edits are saved in small sidecar files next to each photo; originals are never touched.
+A free, open-source photo editor for RAW and ordinary photos. Import and cull a shoot, then develop it with tone, colour and detail processing ported from darktable and RawTherapee, masks and local AI retouching, and Looks you can apply or build yourself. Edits are saved in small sidecar files next to each photo; originals are never touched.
 
-Emulsion is a desktop app: a Rust core (folders, decoding, thumbnails, sidecars, export) with a React interface and a GPU film pipeline written in GLSL.
+Emulsion is a desktop app: a Rust core (folders, decoding, thumbnails, sidecars, export) with a React interface and a GPU image pipeline written in GLSL.
 
 ## Open-source foundations
 
@@ -34,16 +34,13 @@ Version 0.1. Working today:
 - AI Noise Reduction for RAW photos in the same section: an enable switch and Amount slider, with background progress. RawNIND runs locally; full-resolution results are cached for preview and export. Requires installed model/runtime assets (see [setup](tools/denoise/README.md)).
 - Transform in the toolbar (`T`), with automatic Vertical, Horizontal or Both perspective correction (RawTherapee), manual correction and rotation, and Constrain crop to remove blank borders. Saved per photo and used in thumbnails and exports. Constrain crop and focal length are in the tool's options popover.
 - Point tone curve, master and per channel, on the final image (darktable's monotone spline), with the frame's histogram behind it.
-- Film grain ported from darktable, with lightness-dependent response and stock-speed mapping. Amount, Size and Roughness, with film speed presets from ISO 50 to 3200; each stock starts at its own ISO. Grain and halation are off (0) until turned up.
+- Film grain ported from darktable, with lightness-dependent response. Amount, Size and Roughness, with film speed presets from ISO 50 to 3200. Grain and halation are off (0) until turned up.
 - Live histogram of the developed frame (red, green, blue and luma) with clipping readouts.
-- Emulsion Standard, the default for new edits, is the first look in the official Emulsion collection. It starts from the clean neutral tone curve, with no film tint or LUT. Existing saved edits keep their look; general RAW exposure normalization remains a follow-up, using available decoder metadata without requiring users to calibrate each camera.
-- Nine film stocks (Portra 400 and 160, Gold 200, Ektar 100, Superia 400, Pro 400H, CineStill 800T, Tri-X 400, HP5 Plus), push and pull processing, four scanner profiles (Frontier, Noritsu, flatbed, straight).
+- Emulsion Standard, the default for new edits, is the first look in the built-in Emulsion collection, beside Neg, Chrome, Gold, B&W Dynamic and B&W Classic. It starts from the clean neutral tone curve, with no tint or LUT. Development builds can edit the collection's definitions in place; existing photos retain their applied versions. General RAW exposure normalization remains a follow-up, using available decoder metadata without requiring users to calibrate each camera.
 - White balance: Temperature and Tint from the RAW's as-shot setting, presets and a neutral eyedropper, by CAT16 chromatic adaptation (ported from darktable).
 - Exposure, contrast, highlights, shadows, whites, blacks, vibrance, saturation, halation, glow and vignette. Contrast, vibrance, saturation and shadows are ported from darktable's colour balance rgb; the tone curve, whites and blacks from darktable's sigmoid (with its Exposure black level for negative Blacks); highlights from darktable's tone equalizer. Halation and Glow use spektrafilm models through darktable; Vignette comes from RawTherapee.
-- Stock tiles that preview the current photo through each stock.
 - Copy settings with Cmd/Ctrl C: choose individual adjustments, Check all / Check none, and reuse the last confirmed selection. Camera profile, crop, transform, masks and Heal/Remove are available but unchecked initially. Cmd/Ctrl V pastes only the chosen settings to the selection; other adjustments and marks stay with each photo. The former Shift shortcuts still work. Undo and redo every edit (a slider drag or batch paste is one step). Compare with the original by holding `\`, with the Before button, or side by side with a draggable split. Reset any panel section on its own.
-- One Look slot with a compact selector, favourites dropdown and a full browser with Colour/B&W filters and list/grid views. Bundled film looks and your custom looks appear together; favourites and browser layout are remembered. Create and revise Looks in a dedicated editor with an optional base LUT, colour/tone controls and scanner finish. LUT strength and blend belong to that editor. Applied versions retain their appearance when library entries change or are deleted; the photo can inherit or override the scanner finish beneath Look.
-- Built-in Emulsion collection: Film Neg, Film Chrome, Film Gold, B&W Dynamic and B&W Classic. Development builds can edit these definitions in place; existing photos retain their applied versions.
+- One Look slot with a compact selector, favourites dropdown and a full browser with Colour/B&W filters and list/grid views, whose tiles preview the current photo through each look. Bundled looks, the bundled LUT packs and your custom looks appear together; favourites and browser layout are remembered. Create and revise Looks in a dedicated editor with an optional base LUT, colour/tone controls and scanner finish. LUT strength and blend belong to that editor. Applied versions retain their appearance when library entries change or are deleted; the photo can inherit or override the scanner finish beneath Look.
 - Presets save selected adjustment groups, optionally including the treatment, and apply to the selection in one undo step. Exposure and white balance are opt-in; crop, lens, camera profile and masks stay with each photo.
 - Virtual copies: keep several edits of one source photo, each with its own settings, crop, masks, stars, tags and flag. Right-click a photo in the Library, Images, filmstrip or Develop and choose **Create virtual copy**; the same menu can rename, switch or remove copies. Cmd/Ctrl `'` creates a copy of each selected frame. Copies live in the source photo's sidecar and export with distinct names. Creating, renaming and removing copies is undoable; removing a copy keeps the source file.
 - Camera RAW files through LibRaw 0.22.3, including Fujifilm X-Trans RAF and OM System/Olympus ORF. Thumbnails use the camera's embedded preview; the develop view decodes the RAW itself, white balanced as shot.
@@ -53,7 +50,7 @@ Version 0.1. Working today:
 
 Not yet: RAW highlight recovery, output colour management beyond sRGB, AVIF/HEIF, output sharpening and watermarks. See [Roadmap](#roadmap).
 
-The stock and scanner looks are approximations tuned by eye, not measured profiles. Film names are trademarks of their owners; Emulsion is not affiliated with them.
+The bundled LUT packs are their authors' renderings, made by eye rather than measured. Any film names they use are trademarks of their owners; Emulsion is not affiliated with them.
 
 ## Running it
 
@@ -144,7 +141,7 @@ Goal (agreed 2026-11-10): make Emulsion a credible replacement for Lightroom Cla
 ### Built
 
 - **Backups:** daily and pre-upgrade settings snapshots, settings export/import and restore, and checkpoint history stored in sidecars with an **Earlier edits…** restore interface. See [Architecture](docs/ARCHITECTURE.md#app-data-and-backups).
-- **Looks:** bundled film LUT packs, custom Looks and presets, scanner inheritance, applied-look snapshots, test-photo previews in Look Creator, and the built-in Emulsion collection. Measured stock characterisations remain a separate possibility below.
+- **Looks:** bundled film LUT packs, custom Looks and presets, scanner inheritance, applied-look snapshots, test-photo previews in Look Creator, and the built-in Emulsion collection.
 - **Retouch:** darktable-derived healing, cloning, fill, blur and wavelet processing; local LaMa Remove with optional model download, retry, export handling and saved patch restoration. The current Heal picker exposes Heal and Clone; Remove is a separate tool.
 - **Masks:** gradients, brush, ranges, refinement, local adjustments, SAM object selection and one-click Sky selection. Scribble selection remains deferred.
 - **Noise reduction:** profiled wavelet Luminance/Colour controls and the existing linear RawNIND AI path. Validation and additional methods remain below.
@@ -163,7 +160,7 @@ Goal (agreed 2026-11-10): make Emulsion a credible replacement for Lightroom Cla
 - **Merges:** HDR merge and panorama stitching.
 - **Output and capture:** soft proofing and print, tethered capture, a map with geotagging, publish services.
 - **AI selection:** scribble selection and SAM click-to-select for Remove. See [masks.md](docs/plans/masks.md).
-- **Look authoring and sharing:** create a Look from a photo's adjustments, look sharing/LUT baking, further spatial ingredients, linked updates and unused-asset cleanup. Additional measured film-stock characterisations are separate from the bundled creative LUT packs. See [profiles-and-presets.md](docs/plans/profiles-and-presets.md).
+- **Look authoring and sharing:** create a Look from a photo's adjustments, look sharing/LUT baking, further spatial ingredients, linked updates and unused-asset cleanup. See [profiles-and-presets.md](docs/plans/profiles-and-presets.md).
 - **WebGPU:** migrate GLSL processing to WGSL, with the longer-term possibility of sharing the pipeline with a native Rust core.
 
 ## License

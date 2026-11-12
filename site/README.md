@@ -20,7 +20,7 @@ Edit `src/site.ts`:
 - `downloadUrl` points at the releases page; switch it to `/releases/latest` once a release is published.
 - `heroVideo.webm` / `heroVideo.mp4`: the loop from `tools/marketing/hero-ui-video.sh`. To preview locally, copy the files into `public/assets/` (git ignores video there) and set e.g. `'assets/hero-ui.webm'`. For the live site, upload them as GitHub Release assets and put their full URLs here. The hero plays it muted and looping; until then it shows the Develop screenshot with a "Video placeholder" tag.
 
-Screenshot slots (the dashed boxes) use `<Shot>` in `src/components/LocalAI.tsx` and `Download.tsx`. Add an image to `public/assets/` and pass `src`, for example `<Shot src="assets/masks.webp" alt="A mask on the sky" placeholder="..." />`.
+Screenshot slots (the dashed boxes) use `<Shot>` in `src/components/Looks.tsx` (one photo through each of the six Emulsion looks, 4:5), `LocalAI.tsx` and `Download.tsx`. Add an image to `public/assets/` and pass `src`, for example `<Shot src="assets/masks.webp" alt="A mask on the sky" placeholder="..." />`.
 
 Paths into `public/` go through `asset()` in `src/site.ts`, because GitHub Pages serves the site under `/emulsion/`. Don't write `/assets/...` directly.
 

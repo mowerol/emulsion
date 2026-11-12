@@ -12,6 +12,10 @@ export default function Download() {
             <a href={site.downloadUrl} className="btn btn-dark">{site.downloadLabel}</a>
             <a href={site.githubUrl} className="btn btn-outline-dark">View on GitHub</a>
           </div>
+          <p className="cta-note">
+            Beta for Macs with Apple silicon (M1 or later). macOS asks you to allow it once on first launch:{' '}
+            <a href="#install">here’s how</a>.
+          </p>
         </div>
         <div className="cta-media">
           <Shot placeholder="Screenshot or photo: a finished edit" radius={14} />

@@ -8,8 +8,10 @@ export default function Nav() {
           Emulsion
         </a>
         <div className="nav-links">
+          <a href="#looks">Looks</a>
           <a href="#foundations">Foundations</a>
           <a href="#features">Features</a>
+          <a href="#library">Library</a>
           <a href="#faq">FAQ</a>
         </div>
         <a href="#download" className="btn btn-light btn-sm">Download</a>

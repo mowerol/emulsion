@@ -21,6 +21,8 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 html { scroll-behavior: smooth; }
+/* Anchored sections and answers land below the sticky nav. */
+[id] { scroll-margin-top: 72px; }
 body {
   margin: 0;
   background: var(--bg);
@@ -256,6 +258,16 @@ a:hover { color: #f8b86f; }
 .feature-text { padding: 32px 32px 24px; display: flex; flex-direction: column; gap: 8px; }
 .feature-media { padding: 0 16px 16px; margin-top: auto; max-width: 100%; }
 
+/* ── Looks ──────────────────────────────────────────── */
+.look-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr)); gap: 16px; margin-top: clamp(48px, 6vw, 72px); }
+.look-tile { margin: 0; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+.look-media { aspect-ratio: 4 / 5; }
+.look-name { font-size: 14px; color: var(--fg-2); }
+.look-strip + .feature-grid { margin-top: 16px; }
+
+/* ── Library ────────────────────────────────────────── */
+.library-card { flex-basis: 420px; }
+
 /* Screenshot slots */
 .shot { width: 100%; height: 100%; object-fit: cover; }
 .shot-placeholder {
@@ -277,6 +289,9 @@ a:hover { color: #f8b86f; }
 .cta-copy { flex: 1 1 420px; min-width: 0; position: relative; }
 .cta-title { font-size: clamp(40px, 6.4vw, 92px); line-height: 0.98; letter-spacing: -0.05em; font-weight: 500; margin: 0; max-width: 11ch; }
 .cta-lede { font-size: 18px; line-height: 1.55; margin: 28px 0 0; max-width: 38ch; color: #2b1a08; }
+.cta-note { font-size: 14px; line-height: 1.5; margin: 24px 0 0; max-width: 46ch; color: #5a3510; }
+.cta-note a { color: var(--bg); }
+.cta-note a:hover { color: #000; }
 .cta-media { flex: 1 1 360px; aspect-ratio: 4 / 3; position: relative; max-width: 100%; }
 .cta .shot-placeholder { background: rgba(20, 19, 18, 0.1); border-color: rgba(20, 19, 18, 0.3); color: #5a3510; }
 
