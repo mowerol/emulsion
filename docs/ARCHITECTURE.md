@@ -256,7 +256,7 @@ client sends them to the worker's copies of the stores (`provideLut`, `adoptUser
   the main thread. The browser-test runners default to it, since those pages patch
   `Engine.prototype`; the perf driver reads frames from the client in worker mode, and its
   draw counts, texture memory and pass timings need main mode.
-- **Still renders** (developed thumbnails, look tiles, photo match, perspective analysis and
+- **Still renders** (developed thumbnails, look tiles, perspective analysis and
   export) use a second engine in its own worker: `engine/stills.ts` (`StillRenderer`,
   one render or Remove crop at a time), `engine/stills.worker.ts`, and the page's handle
   `library/stillclient.ts` (`stillEngine()`). Export moves each decode into the worker, and

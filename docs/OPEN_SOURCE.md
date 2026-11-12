@@ -167,8 +167,7 @@ the optimizer's original permission notice.
 Emulsion's library/catalogue, editing workflow, undo/history, virtual copies,
 sidecar integration, saved-look system, render orchestration, caching and
 interface are primarily app-specific code built on the dependencies above.
-The reference-photo matching fitter is an Emulsion experiment reusing the
-credited darktable colour conversions and curve interpolation. Built-in Emulsion
+Built-in Emulsion
 looks are app-specific settings for these processing stages.
 
 When adding or replacing a port, update this feature map and the detailed entry

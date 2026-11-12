@@ -36,6 +36,20 @@ keywords). The README feature list is stale (film stocks, scanner profiles). Nex
 as 0.1.0 (no bump needed); Oli re-enters `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`, then tag `v0.1.0`. Committed work is not pushed until
 Oli says "push"; CI only runs from a pushed `v*` tag.
 
+**Photo match removed (2026-11-12, uncommitted):** Oli called it "a bit of a disaster" and, after a
+measured attempt to rebuild it on the look's controls, parked it for v2 ("perhaps something we do with
+spektrafilm"). The Look Creator's left column is now only the base LUT (no LUT/Photo match switch).
+Deleted: `PhotoMatchPanel.tsx`, `film/photomatch*.ts` and its worker and tests, `library/photomatch.ts`
+and test, `storePhotoMatch`, the `photo-match` browser test, its CSS, and the README/PRODUCT/NOTICE/
+OPEN_SOURCE entries. Kept so saved looks render: `photoMatch` on file LUT sources (`creative.ts`,
+`looks.ts`, `userlooks.ts`), its label in `LookLutSummary`, and its filter in `TreatmentBrowser`.
+`lookEdit.matching` in `store.ts` is now never set (left alone: another agent was editing store.ts);
+its guards in `LookCreator.tsx`, `LookTestStrip.tsx` and `moveLookEdit` can go. Findings, numbers and
+v2 ideas: [docs/plans/photo-match.md](docs/plans/photo-match.md); the attempt and its ground-truth
+harness are in ignored `.scratch/photo-match/v2-controls-attempt/`. Not checked in the app: the Look
+Creator's left column (Oli: open Build Look, check the Base LUT column and that a look saved from a
+photo match still opens and shows "Photo match").
+
 **Look Creator test photos (2026-11-11, uncommitted):** a strip under the Look Creator's preview
 (`src/ui/LookTestStrip.tsx`) shows the draft on the photo being edited plus 5 others: pins first,
 then one per other camera, then a spread over capture time (`src/library/testphotos.ts`). The

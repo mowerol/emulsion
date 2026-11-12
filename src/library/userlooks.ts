@@ -11,7 +11,6 @@ import { PACK, USER_LOOKS_DIR, customLookId, customLookOf, lookName, registerCus
 import { hasSettings, normalizeSettings, type LutSource, type ProfileSettings } from '../film/creative';
 import type { Recipe } from '../film/recipe';
 import type { StockId } from '../film/stocks';
-import { writeCube, type Clut } from '../engine/lut3d';
 
 interface CustomLookFile {
   version: number;
@@ -88,19 +87,6 @@ export async function importLutFile(path: string): Promise<string> {
   // Parsed already: keep it, so the view needn't read the file back before it can draw.
   provideLut(`${USER_LOOKS_DIR}${hash}`, lut);
   registerFileLut(hash, lookNameFromPath(path));
-  changed();
-  return hash;
-}
-
-/** Keep a photo match through the same content-addressed file store as imported LUTs. */
-export async function storePhotoMatch(lut: Clut, referenceName: string): Promise<string> {
-  const name = referenceName.slice(0, 200);
-  const bytes = new TextEncoder().encode(writeCube(lut, `Photo match: ${name.replace(/["\r\n]/g, ' ')}`));
-  // Cache the parsed file, so the preview and a later reload use identical rounded values.
-  const parsed = await readLut('match.cube', new Blob([bytes]));
-  const hash = await invoke<string>('store_look_lut', bytes, { headers: { 'x-emulsion-lut-ext': 'cube' } });
-  provideLut(`${USER_LOOKS_DIR}${hash}`, parsed);
-  registerFileLut(hash, `Match: ${name}`, name);
   changed();
   return hash;
 }

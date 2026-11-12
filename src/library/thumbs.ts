@@ -119,7 +119,7 @@ export class ThumbStore {
     if (!this.settling.has(id)) this.wanted.delete(id);
   }
 
-  /** Paths fetched for something other than a frame on screen (Develop, photo matching): never dropped. */
+  /** Paths fetched for something other than a frame on screen (Develop, tile renders): never dropped. */
   private pinned = new Set<string>();
 
   /** The camera/cached thumbnail of `path`. `onScreen` fetches (frames) leave the queue with their frame. */

@@ -24,11 +24,6 @@ assets and local experiments, see [Open-source foundations](docs/OPEN_SOURCE.md)
 
 Every port is listed here with its source, upstream licence, the upstream commit it came from, and what changed. See [docs/PORTING.md](docs/PORTING.md) for the format.
 
-### Photo matching: experimental Emulsion LUT fitting
-- Implemented in `src/film/photomatch.ts` and `photomatch.worker.ts`. Oli approved experimental fitting on 2026-11-04 and requested restoring generated LUTs after comparing them with the controls-fitting experiment. The same-photo fitting branch has been removed.
-- Reuses the already-credited darktable UCS conversions and monotone spline implementation. Emulsion's tone quantiles, per-hue chroma ratios and neutral-axis tint estimates are baked into a display-sRGB 3D LUT. Optional hue transfer aligns residual local circular hue histograms after the base tone/chroma/tint transform, preserving the fitted neutral axis, with bounded shifts, support/confidence checks, circular smoothing and a constraint preventing hue-order reversal. This is not a faithful implementation of Reinhard or darktable's color mapping module.
-- Reference and target statistics use a shared, area-averaged 192px analysis image to prevent resolution aliasing. The existing LUT stage, blend modes and intensity control are unchanged. This remains approximate palette/tone transfer, not recovery of an original grading recipe or spatial effects.
-
 ### Display scaling (Lanczos3), from darktable
 - Upstream: https://github.com/darktable-org/darktable, `src/common/interpolation.c` (`_maketaps_lanczos`, `_compute_downsampling_kernel`, `_prepare_resampling_plan`, `dt_interpolation_resample`) and the `plugins/lighttable/export/pixel_interpolator` default (lanczos3) in `data/darktableconfig.xml.in`, commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release 5.6.2)
 - Licence: GPL-3.0-or-later

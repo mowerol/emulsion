@@ -24,7 +24,7 @@ export interface PackLook {
   missing?: boolean;
   /** A custom look's hidden settings and its LUT. */
   settings?: ProfileSettings;
-  /** Reference photo's display name for a generated LUT file. */
+  /** Reference photo's display name for a LUT saved by the former photo match. */
   photoMatch?: string;
 }
 

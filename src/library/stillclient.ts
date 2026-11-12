@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The page's handle on the still renders' engine (engine/stills.ts): developed thumbnails, look
-// tiles, photo match, perspective analysis and export (with its Remove crops). It runs in a
+// tiles, perspective analysis and export (with its Remove crops). It runs in a
 // worker, started on first use, so none of its GPU work holds up the page.
 import { loadLut } from '../engine/lutstore';
 import { recipeLookFile } from '../film/looks';

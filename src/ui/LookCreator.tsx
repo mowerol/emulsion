@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The Look Creator: a full-window workspace for building a look (an optional base
-// LUT or photo match plus tone and colour settings) on the current photo. A header bar holds the
-// name and the save actions, the source chooser has its own column on the left, the
+// LUT plus tone and colour settings) on the current photo. A header bar holds the
+// name and the save actions, the LUT chooser has its own column on the left, the
 // preview sits between with test photos under it (LookTestStrip), and the look's adjustments
 // are in the panel on the right.
 import { useEffect, useRef, useState } from 'react';
@@ -16,7 +16,6 @@ import { activePhoto, editActive, endLookEdit, lookEditDirty, redo, renameLookEd
 import { LutBrowser, lutPacks, type LutCollection } from './TreatmentBrowser';
 import type { StockId } from '../film/stocks';
 import { LiveRange } from './LiveRange';
-import { PhotoMatchPanel } from './PhotoMatchPanel';
 
 const MOD = navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl+';
 const DEFAULT_NAME = 'My look';
@@ -155,13 +154,10 @@ export function LookCreatorHeader() {
   </header>;
 }
 
-/** The left column: a base LUT or a reference-photo match; both fill the same optional slot. */
+/** The left column: the look's optional base LUT. */
 export function LookLutColumn() {
   const photo = useApp(activePhoto);
   const r = photo?.recipe ?? null;
-  const photoMatch = r?.lookEnabled ? PACK[r.pack]?.looks[r.stock]?.photoMatch : undefined;
-  const [source, setSource] = useState<'lut' | 'photo'>(() => photoMatch ? 'photo' : 'lut');
-  useEffect(() => { if (photoMatch) setSource('photo'); }, [photoMatch]);
   const [collection, setCollection] = useState<LutCollection>(() => r?.lookEnabled && (r.pack === 'files' || lutPacks().some(p => p.id === r.pack)) ? r.pack : lutPacks()[0]?.id ?? 'files');
   const [query, setQuery] = useState('');
   const chips: { id: LutCollection; name: string }[] = [...lutPacks().map(p => ({ id: p.id as LutCollection, name: p.name })), { id: 'favourites', name: 'Favourites' }, { id: 'files', name: 'Imported' }];
@@ -175,23 +171,16 @@ export function LookLutColumn() {
       setCollection('files');
     } catch (e) { fail(e); }
   };
-  return <aside className="look-luts" aria-label="Look source">
+  return <aside className="look-luts" aria-label="Base LUT">
     <div className="look-luts-top">
-      <div className="look-luts-title"><h2>Look source</h2><span>Optional</span></div>
-      <div className="seg look-source-choice" role="group" aria-label="Look source type">
-        <button type="button" aria-pressed={source === 'lut'} onClick={() => setSource('lut')}>LUT</button>
-        <button type="button" aria-pressed={source === 'photo'} onClick={() => setSource('photo')}>Photo match</button>
-      </div>
-      {source === 'lut' && <>
+      <div className="look-luts-title"><h2>Base LUT</h2><span>Optional</span></div>
       <input type="search" className="look-luts-search" aria-label="Search LUTs" placeholder="Search LUTs" value={query} onChange={e => setQuery(e.target.value)} />
       <div className="look-chips" role="group" aria-label="LUT collections">
         {chips.map(c => <button key={c.id} type="button" className="look-chip" aria-pressed={!query.trim() && collection === c.id} onClick={() => { setQuery(''); setCollection(c.id); }}>{c.name}</button>)}
         <button type="button" className="look-chip" onClick={() => void importFile()}>+ Import .cube</button>
       </div>
-      </>}
     </div>
-    {source === 'photo' ? <PhotoMatchPanel photo={photo} current={photoMatch} />
-      : <LutBrowser photo={photo} collection={collection} query={query} onPick={pick => editActive(r => withLutBase(r ?? defaultRecipe(), pick ? lutBase(pick.pack, pick.id) : null), pick ? 'Base LUT' : 'Remove base LUT')} />}
+    <LutBrowser photo={photo} collection={collection} query={query} onPick={pick => editActive(r => withLutBase(r ?? defaultRecipe(), pick ? lutBase(pick.pack, pick.id) : null), pick ? 'Base LUT' : 'Remove base LUT')} />
   </aside>;
 }
 
@@ -216,9 +205,10 @@ export function LookPreviewFooter() {
   </footer>;
 }
 
-/** The right panel's first block: the selected source, its intensity and blend. */
+/** The right panel's first block: the base LUT, its intensity and blend. A look saved from the
+ * former photo match (a generated LUT file) still shows as one. */
 export function LookLutSummary({ recipe }: { recipe: Recipe }) {
-  if (!recipe.lookEnabled) return <div className="look-lut-summary look-lut-none">Choose a LUT or match a photo on the left</div>;
+  if (!recipe.lookEnabled) return <div className="look-lut-summary look-lut-none">Choose a LUT on the left</div>;
   const photoMatch = PACK[recipe.pack]?.looks[recipe.stock]?.photoMatch;
   const name = PACKS.some(p => p.id === recipe.pack) ? lookName(recipe.pack as PackId, recipe.stock) : recipe.stock;
   const set = (patch: Partial<Recipe>, label: string) => editActive(r => ({ ...(r ?? defaultRecipe()), ...patch }), label);

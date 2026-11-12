@@ -18,8 +18,7 @@ Emulsion develops photos (RAW and ordinary) through film looks. Open or import a
 ## Position
 
 - The processing is ported, with credit, from the tools the photo community rates best (darktable by default, RawTherapee where it is stronger), not invented or tuned by eye.
-- Looks are editable settings (an optional base LUT or photo match, plus colour balance rgb, tone curve, HSL and scanner finish) with one Amount, not baked LUTs.
-- Photo match builds a look from a reference photo.
+- Looks are editable settings (an optional base LUT, plus colour balance rgb, tone curve, HSL and scanner finish) with one Amount, not baked LUTs.
 - Everything runs locally on the Mac, including the optional AI tools.
 
 ## Constraints

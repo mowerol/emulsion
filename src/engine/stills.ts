@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Still renders: everything drawn apart from the develop view (developed thumbnails, the look
-// tiles, photo match's target, perspective analysis, export and its Remove crops). Their engine runs in its own worker
+// tiles, perspective analysis, export and its Remove crops). Their engine runs in its own worker
 // (stills.worker.ts) so its context creation, shader compiles and draws never block the page:
 // on the main thread a thumbnail's draw took 15-57 ms and the engine's creation 88 ms (2026-11-10,
 // in WKWebView). Without OffscreenCanvas WebGL2 the same renderer runs on the main thread.
