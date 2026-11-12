@@ -5,7 +5,8 @@ import { newEllipse, newMask } from '../film/masks';
 import { warmRecipe, warmStageOf } from './warm';
 
 describe('warmRecipe', () => {
-  const base = defaultRecipe();
+  // Neutral: every warmable stage off (Emulsion Standard's look turns on the colour equalizer).
+  const base = defaultRecipe('neutral');
 
   it('turns the stage on and leaves everything else as it was', () => {
     expect(warmRecipe(base, 'dehaze')).toEqual({ ...base, dehaze: 50 });

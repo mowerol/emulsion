@@ -20,18 +20,19 @@ describe('Emulsion built-in looks', () => {
     expect(lookFile('emulsion-looks', 'emulsion-film-neg' as StockId, 0)).toBeNull();
   });
 
-  it('starts new edits with official Emulsion Standard and preserves the clean neutral rendering', () => {
+  it('starts new edits with official Emulsion Standard, rendered with its own settings', () => {
     const fresh = defaultRecipe();
     expect(fresh).toMatchObject({ stock: 'emulsion-standard', pack: 'emulsion-looks', lookEnabled: true, lookAmount: 100, scanner: 'straight' });
     expect(lookChoices().filter(c => c.pack === 'emulsion-looks')[0]).toMatchObject({ name: 'Emulsion Standard', stock: fresh.stock, bw: false });
     expect(normalizeRecipe(JSON.parse(JSON.stringify(fresh)))).toEqual(fresh);
     const applied = withLook(defaultRecipe('neutral'), 'emulsion-looks', fresh.stock);
-    expect(applied.lookSnapshot).toMatchObject({ name: 'Emulsion Standard', revision: 1, kind: 'look' });
+    expect(applied.lookSnapshot).toMatchObject({ name: 'Emulsion Standard', revision: 2, kind: 'look' });
+    // An unedited photo shows Standard exactly as choosing it does, and Standard is not Neutral.
     for (const inputMode of [InputMode.SceneLinear, InputMode.DisplayLinear]) {
       const ctx = { width: 64, height: 64, seed: 1, inputMode, store: 1 };
       const neutral = developUniforms(defaultRecipe('neutral'), ctx);
-      expect(developUniforms(fresh, ctx)).toEqual(neutral);
-      expect(developUniforms(applied, ctx)).toEqual(neutral);
+      expect(developUniforms(fresh, ctx)).toEqual(developUniforms(applied, ctx));
+      expect(developUniforms(fresh, ctx)).not.toEqual(neutral);
     }
   });
 

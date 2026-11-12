@@ -3,11 +3,116 @@
     "id": "emulsion-standard",
     "name": "Emulsion Standard",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "settings": {
-      "colorBalance": null,
-      "curve": null,
-      "lut": null
+      "colorBalance": {
+        "midtones_Y": 0.027,
+        "midtones_H": 209.70068296718023,
+        "highlights_Y": 0.09,
+        "shadows_weight": 1.35,
+        "white_fulcrum": -1.72,
+        "highlights_weight": 0.33,
+        "chroma_shadows": -0.006,
+        "chroma_midtones": 0.052,
+        "saturation_highlights": 0.089,
+        "saturation_midtones": 0.142,
+        "saturation_shadows": 0.042,
+        "brilliance_highlights": 0.249,
+        "brilliance_midtones": 0.15,
+        "brilliance_shadows": -0.058,
+        "mask_grey_fulcrum": 0.0001,
+        "grey_fulcrum": 0.1786,
+        "contrast": 0.03,
+        "vibrance": 0.11,
+        "shadows_Y": -0.139
+      },
+      "curve": {
+        "rgb": [
+          [
+            0,
+            0
+          ],
+          [
+            0.25060360549943883,
+            0.1772199424803591
+          ],
+          [
+            0.5157102272727273,
+            0.4968136223344556
+          ],
+          [
+            0.7240854727833894,
+            0.7430097853535353
+          ],
+          [
+            1,
+            1
+          ]
+        ],
+        "r": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            1
+          ]
+        ],
+        "g": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            1
+          ]
+        ],
+        "b": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            1
+          ]
+        ]
+      },
+      "lut": null,
+      "color": {
+        "hue": [
+          0,
+          -18,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "sat": [
+          0,
+          -5,
+          0,
+          0,
+          9,
+          0,
+          0,
+          10
+        ],
+        "bright": [
+          30,
+          -14,
+          0,
+          0,
+          0,
+          -1,
+          0,
+          0
+        ]
+      }
     }
   },
   {
