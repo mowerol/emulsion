@@ -58,6 +58,7 @@ export class ThumbStore {
   private latest = new Map<string, ThumbJob>();
   private removalEpoch = new Map<string, number>();
   private developing = false;
+  private pauses = 0;
   private failed = new Set<string>();
   private listeners = new Set<() => void>();
   private version = 0;
@@ -136,6 +137,7 @@ export class ThumbStore {
           const o = { blob, url: URL.createObjectURL(blob) };
           this.originals.set(path, o);
           this.emit();
+          void this.pump();
           return o;
         } catch (err) {
           if (!(err instanceof ThumbCancelled)) this.failed.add(path);
@@ -156,6 +158,19 @@ export class ThumbStore {
   private settling = new Map<string, ReturnType<typeof setTimeout>>();
   /** Frames last asked for unedited: their first edit is a drag starting, so it settles too. */
   private unedited = new Set<string>();
+
+  /** Give the selected photo's first decode the drive before starting more edited
+   * thumbnails. Embedded JPEG fetches continue. Releases may overlap on navigation. */
+  pauseDevelopment(): () => void {
+    this.pauses++;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      this.pauses--;
+      if (!this.pauses) void this.pump();
+    };
+  }
 
   /**
    * Ask for the thumbnails of a frame that is on screen. A frame that already
@@ -194,9 +209,11 @@ export class ThumbStore {
     if (this.developing) return;
     this.developing = true;
     try {
-      while (this.wanted.size) {
-        // Frames still being edited wait for their edits to pause.
-        const next = [...this.wanted.entries()].find(([p]) => !this.settling.has(p));
+      while (this.wanted.size && !this.pauses) {
+        // A slow embedded-preview read must not hold up other ready frames,
+        // including Remove thumbnails whose camera originals are hidden.
+        // original() resumes the queue when the missing bytes arrive.
+        const next = [...this.wanted.entries()].find(([id, job]) => !this.settling.has(id) && this.originals.has(job.path));
         if (!next) break;
         const [id, job] = next;
         const path = job.path;

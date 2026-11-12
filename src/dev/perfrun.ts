@@ -619,7 +619,7 @@ export async function run(which: string) {
       const s = useApp.getState();
       // The scratch folder is new, so the app asks how to import it: browse it (sync).
       if (s.choosingImport && s.folder && !s.loading) importFolderPhotos({ mode: 'sync' });
-      if (i % 20 === 10 && s.view !== 'develop' && s.photos.length) { useApp.setState({ active: 0 }); key('Enter')(); }
+      if (i % 20 === 10 && s.view !== 'develop' && s.photos.length) useApp.setState({ active: 0, view: 'develop' });
       await wait(100);
     }
     if (!useApp.getState().developSize) throw Error(`no photo developed (view ${useApp.getState().view}, ${useApp.getState().photos.length} photos)`);

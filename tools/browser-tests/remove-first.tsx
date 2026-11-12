@@ -42,9 +42,13 @@ window.Worker = class extends RealWorker {
   }
 } as typeof Worker;
 const W = 600, H = 400, fullW = 1200, fullH = 800;
-function payload() {
-  const bytes = new ArrayBuffer(32 + W * H * 8), dv = new DataView(bytes);
-  [W, H, InputMode.SceneLinear, 0, 0, 0, fullW, fullH].forEach((v, i) => dv.setUint32(i * 4, v, true));
+const missing = new URLSearchParams(location.search).has('missing');
+let generated = false;
+let inferences = 0;
+function payload(full = false) {
+  const w = full ? fullW : W, h = full ? fullH : H;
+  const bytes = new ArrayBuffer(32 + w * h * 8), dv = new DataView(bytes);
+  [w, h, InputMode.SceneLinear, 0, 0, 0, fullW, fullH].forEach((v, i) => dv.setUint32(i * 4, v, true));
   const values = new Uint16Array(bytes, 32);
   for (let i = 0; i < values.length; i += 4) values.set([0x3400, 0x3800, 0x3000, 0x3c00], i);
   return bytes;
@@ -62,14 +66,15 @@ let waiting: (() => void)[] = [], lookups = 0, work = 0, hold = true;
 let embedded: ArrayBuffer;
 (window as any).__TAURI_INTERNALS__ = { transformCallback: () => 1, invoke: async (command: string, args: any) => {
   if (command === 'thumbnail') return embedded;
-  if (command === 'load_image') return payload();
+  if (command === 'load_image') return payload(missing && args.maxEdge > 2560);
   if (command === 'plugin:event|listen') return 1;
   if (command === 'remove_cached_patch') {
     lookups++;
     assert(args.key === request.key, `Thumbnail/Develop used a different patch identity: ${args.key} vs ${request.key}`);
     if (hold) await new Promise<void>(r => waiting.push(r));
-    return patch.slice().buffer;
+    return missing && !generated ? new ArrayBuffer(0) : patch.slice().buffer;
   }
+  if (command === 'remove_inpaint' && missing) { inferences++; generated = true; return patch.slice().buffer; }
   if (command === 'remove_inpaint' || command === 'capture_info') { work++; throw Error('Restoring a saved removal must not regenerate'); }
 } };
 async function main() {
@@ -106,6 +111,7 @@ async function main() {
     root.render(null); await new Promise(r => setTimeout(r, 150)); thumbs.clear();
   }
   assert(!work, 'A cached removal was regenerated');
-  document.body.dataset.result = 'PASS: first Develop frame and thumbnail contain the completed removal, no embedded-original flash while cache reads wait; repeated after engine disposal and thumbnail clear; matching source version/cache key; no inference';
+  assert(inferences === (missing ? 1 : 0), `Unexpected Remove inference count: ${inferences}`);
+  document.body.dataset.result = `PASS: first Develop frame and thumbnail contain the completed removal, no embedded-original flash while cache reads wait; repeated after engine disposal and thumbnail clear; matching source version/cache key; ${missing ? 'missing patch rebuilt once, then restored' : 'no inference'}`;
 }
 main().catch(error => { document.body.dataset.result = `FAIL: ${String(error)}; frames=${JSON.stringify(frames)}; lookups=${lookups}; states=${JSON.stringify(useRemoveUi.getState().states)}; stage=${document.querySelector(".stage-error")?.textContent}; thumb=${!!document.querySelector("#saved-thumb img")}`; });

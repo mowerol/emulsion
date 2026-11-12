@@ -1,5 +1,101 @@
 # Handoff
 
+**Sluggish controls, scrolling and file switching (2026-11-12):** Oli
+reported the whole Emulsion interface felt slow, specifically controls/scrolling,
+then clicking between files. Do not explain this solely as external-drive latency.
+Live measurements: Mac has 16 GB RAM, ~15 GB used and ~18 GB swap in use; Capture
+One ~4.9 GB, Lightroom ~4.0 GB, two OM RAW Quick Look processes ~3 GB. Emulsion's
+WebContent sample showed **2.6 GB current / 8.7 GB peak** footprint, ~2.1 GB graphics
+allocation; native process ~207 MB / 2.1 GB peak. Both sampled idle during capture.
+Latest collection trace (22,352 photos) took 8.17 s to refresh, with ~4.9 s of detected
+main-thread stalls across the trace. System pressure compounds application work.
+
+Confirmed UI bottleneck: Develop's `Images.tsx` mounted **every** shown tile,
+thumbnail subscription and IntersectionObserver, unlike Library and Loupe's rail.
+Changing the active file or a recipe also recreated the full collection's JSX.
+It now uses existing `useViewport`/`rowWindow`/`scrollNearest` to mount nearby rows
+only. Row height is measured, columns resize normally, marks have a reserved track
+to keep the row pitch constant, and spacers preserve the full scroll range. Active
+navigation reveals the photo; manual scrolling doesn't snap back to the active tile.
+Existing tile selection/context-menu indices remain global photo indices.
+
+Regression `src/ui/Images.test.ts` initially failed with 1,200 mounted tiles where
+fewer than 80 were expected; it now passes, including far navigation and manual
+scrolling at 1/2/3 columns. `images-grid scale` browser check exercises 20,000 photos,
+last/first navigation, all three column counts, marked/unmarked row heights and
+manual scrolling: **at most 36 mounted tiles**. Screenshot inspected:
+`.scratch/images-windowed.png`. Full JS suite passed (872 at that run), followed
+by two extra column cases (10 focused Images/virtual tests pass). Typecheck and
+production build pass. No native changes for this UI fix. The unrelated preexisting
+brand margin in styles.css and ongoing emulsion-looks tuning are preserved.
+
+**Oli confirmed the fix in the app:** “ok immediately seeing speed again.” This is
+qualitative confirmation, not a WKWebView FPS measurement or proof that the separate
+collection-refresh stalls are eliminated. Read-only profiles:
+`.scratch/slowdown-{native,webcontent}.sample`; build/test logs prefixed `slowdown-`.
+
+**First-open preview delay (follow-up, 2026-11-12):** Oli clarified
+that “Loading preview” is slow on a photo's first open, with Japan `DSCF2529.RAF`
+as the example. Cold external-drive reads are substantial and variable: a normal
+sequential read of adjacent `DSCF2530.RAF` (56.4 MB) took 9.98 s; `DSCF0008.RAF`
+(59.3 MB) took 23.38 s with macOS F_NOCACHE and 9.07 s with ordinary reads, versus
+0.034/0.018 s for the same bytes on the internal disk. 2529's full native decode
+took 9.34 s; once cached, its 1536 px preview took 0.36/0.29 s. A separate real
+preview test on 2531 took 1.93 s, then 0.59 s. These are diagnostics, not a measured
+before/after application speedup; the original intermittent UI delay isn't fully
+reproduced by a warmed file.
+
+Confirmed and fixed competing work: `photo-opening` now holds a foreground RAW
+read and asks for a ready edited thumbnail. Before the fix its RAW decode starts
+against the selected photo's read (FAIL). `ThumbStore.pauseDevelopment` now defers
+queued edited-thumbnail jobs during the active preview decode; embedded JPEG fetches
+continue, and an already-running native decode cannot be interrupted. Develop releases
+the pause on success, failure or navigation; overlapping releases are idempotent.
+The test passes in both main and worker modes, including resumption afterward.
+No metadata batching or processing algorithm changes were made. Native drive wait
+remains; do not describe all first-open delay as solved.
+
+Diagnostics kept: ignored `decode::tests::preview_decode_timing` (set
+`EMULSION_RAW_SAMPLE` to a read-only RAW, `cargo test preview_decode_timing -- --ignored
+--nocapture`). `tools/perf/inapp.mjs` could not enter Develop since Enter now opens
+Loupe, and synthetic Enter targets window (its `closest` call throws); `perfrun.ts`
+now sets Develop directly. The scratch RAF then opened successfully in WKWebView;
+decoded metadata publication cost ~10 ms there with one active photo. Temporary
+`[DEBUG-preview]` logs were removed. Full `npm run check` passes: 871 JS tests,
+130 Rust tests, 20 ignored; browser opening, saved Remove and missing-patch rebuild
+checks pass. Timing artifacts: `.scratch/japan-2529-{native,preview}.log`,
+`.scratch/japan-2531-preview.log`, `.scratch/first-open-baseline-2.log`.
+
+**Photo opening / blank Remove thumbnails (2026-11-12):** Oli reported
+photos stuck opening in **Develop** and thumbnails appearing only after other edited
+thumbnails caught up; example `PA070671.ORF` in Portugal has a saved Remove spot.
+Two reproducible stalls are fixed: `Develop.tsx` now starts the real decode alongside
+the embedded-thumbnail request, rather than waiting for the thumbnail fetch queue;
+late JPEG decodes cannot replace an already displayed RAW, and canceled RAW loads
+do not publish metadata or upload pixels. `ThumbStore.pump` only selects jobs whose
+original bytes have arrived, and `original` wakes it on arrival, so one slow embedded
+read no longer blocks a ready Remove thumbnail (whose camera original stays hidden).
+No processing algorithms or saved edits changed.
+
+Regressions observed failing before their fixes: `node tools/browser-tests/realtime.mjs
+photo-opening 15` (RAW decode never started behind four held thumbnail reads), and
+`npx vitest run src/library/thumbs-remove.test.ts -t 'restores a ready Remove'`
+(ready Remove thumbnail stayed undefined behind an earlier held read). Both pass.
+`photo-opening` also tests a late JPEG completion, and passes in main and worker modes.
+`remove-first` passes with saved patches and its new `missing` query (one full-resolution
+rebuild, then a cached return; no original flash). `npm run check` passes: 871 JS tests,
+130 Rust tests, typecheck and build; 19 native tests ignored.
+
+The reported photo was checked read-only: native half/full dimensions agree at
+5220×3912, decode succeeds (~0.44–0.55 s for 512/2000 px), and its current Remove
+patch key `1840581e8465320d5bf9eec0fec3` exists. A scratch replay of its actual decoded
+pixels, recipe, patch and capture metadata displayed both Develop and thumbnail
+in main/worker Chrome (~0.6–0.7 s, excluding native reads). Captured debug assets are
+in ignored `.scratch/remove-replay/`; temporary native probe and diagnostic test
+were removed. The original intermittent delay on this specific photo was not
+reproduced. Remaining real-app check: Cmd+R, reopen PA070671.ORF in Develop while a
+large folder's thumbnails are loading, and check scrolling to other edited photos.
+
 **Tone curve (2026-11-12, uncommitted):** `src/ui/CurveEditor.tsx`. Delete/Backspace remove the
 *selected* point: clicking or adding a point selects it (filled) and focuses the graph, which owns
 the keys (arrows move it, Escape lets it go) and stops them reaching the photo shortcuts.

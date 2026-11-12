@@ -4,7 +4,8 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { defaultRecipe } from '../../src/film/recipe';
-import { useApp } from '../../src/library/store';
+import { setActive, useApp } from '../../src/library/store';
+import { thumbs } from '../../src/library/thumbs';
 import { Images } from '../../src/ui/Images';
 import { setWorkspace } from '../../src/ui/workspace';
 import '../../src/styles.css';
@@ -22,20 +23,51 @@ async function jpeg(seed: number) {
   return null;
 } };
 
-const photos = Array.from({ length: 10 }, (_, i) => ({ path: `/p${i}.jpg`, name: `DSCF${4100 + i}.jpg`, rel: `DSCF${4100 + i}.jpg`, size: 1, modified: 1,
+const scale = new URLSearchParams(location.search).has('scale');
+const photos = Array.from({ length: scale ? 20000 : 10 }, (_, i) => ({ path: `/p${i}.jpg`, name: `DSCF${4100 + i}.jpg`, rel: `DSCF${4100 + i}.jpg`, size: 1, modified: 1,
   recipe: i % 2 ? defaultRecipe() : null, seed: 1, white: null, rating: i % 3, label: null, heart: i === 2, raw: false, pair: null }));
 useApp.setState({ photos, active: 0, selected: new Set([photos[0].path]), view: 'develop', folder: { root: '/', name: 'Test', unreadable: 0 } } as any);
 setWorkspace({ layout: 'workflow', group: 'develop', imageColumns: 3 });
+// Layout checks need camera JPEGs only, with no speculative GPU development.
+thumbs.pauseDevelopment();
 createRoot(document.getElementById('root')!).render(<div style={{ display: 'grid', gridTemplateColumns: '264px', height: '100vh' }}><Images /></div>);
 
-setTimeout(() => {
-  const fail = (m: string) => { document.body.dataset.result = `FAIL: ${m}`; };
+const pause = () => new Promise(resolve => setTimeout(resolve, 50));
+const assert = (ok: unknown, why: string) => { if (!ok) throw Error(why); };
+async function until(test: () => unknown, why: string) {
+  for (let i = 0; i < 100; i++) { if (test()) return; await pause(); }
+  throw Error(why);
+}
+async function main() {
+  await until(() => document.querySelector('.images-row'), 'Images rows did not mount');
+  await pause();
   const grid = document.querySelector<HTMLElement>('.images-grid.cols-3');
-  if (!grid) return fail('grid is not three columns');
-  const tracks = getComputedStyle(grid).gridTemplateColumns.split(' ').length;
-  if (tracks !== 3) return fail(`grid has ${tracks} columns`);
+  assert(grid, 'grid is not three columns');
+  const tracks = getComputedStyle(grid!.querySelector('.images-row')!).gridTemplateColumns.split(' ').length;
+  assert(tracks === 3, `grid has ${tracks} columns`);
   const pencils = document.querySelectorAll('.image-frame-edited').length;
-  if (pencils !== 5) return fail(`${pencils} pencils for 5 edited photos`);
-  if (document.querySelector('.image-frame-look')) return fail('look line still shown');
-  document.body.dataset.result = 'PASS: three columns, a pencil per edited photo, no look line';
-}, 1500);
+  let maxMounted = grid!.querySelectorAll('.image-frame').length;
+  if (!scale) assert(pencils === 5, `${pencils} pencils for 5 edited photos`);
+  assert(!document.querySelector('.image-frame-look'), 'look line still shown');
+  if (scale) {
+    for (const columns of [1, 2, 3] as const) {
+      setWorkspace({ imageColumns: columns }); await pause();
+      setActive(photos.length - 1);
+      await until(() => grid!.querySelector(`[data-index="${photos.length - 1}"]`), 'Last frame did not mount');
+      await pause();
+      const tile = grid!.querySelector(`[data-index="${photos.length - 1}"]`)!.getBoundingClientRect();
+      const bounds = grid!.getBoundingClientRect();
+      assert(tile.top >= bounds.top - 1 && tile.bottom <= bounds.bottom + 1, `Last frame clipped at ${columns} columns`);
+      maxMounted = Math.max(maxMounted, grid!.querySelectorAll('.image-frame').length);
+      assert(maxMounted < 100, 'Mounted the whole collection');
+      grid!.scrollTop = 0;
+      await until(() => grid!.querySelector('[data-index="0"]'), 'Manual scrolling did not mount the first row');
+      assert(grid!.scrollTop === 0 && useApp.getState().active === photos.length - 1, 'Manual scrolling snapped back to active');
+      const heights = [...grid!.querySelectorAll('.images-row')].map(row => row.getBoundingClientRect().height);
+      maxMounted = Math.max(maxMounted, grid!.querySelectorAll('.image-frame').length);
+      assert(Math.max(...heights) - Math.min(...heights) < .1, 'Marks changed the row pitch');
+    }
+  }
+  document.body.dataset.result = `PASS: three columns, edited pencils, no look line${scale ? `; 20,000 photos, at most ${maxMounted} mounted tiles; first/last navigation and manual scroll pass at 1/2/3 columns; marks preserve row height` : ''}`;
+}
+main().catch(error => { document.body.dataset.result = `FAIL: ${String(error)}`; });

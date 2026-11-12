@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { usePhotoContextMenu, type PhotoContextHandler } from './PhotoMenu';
 import { photoId, photoName } from '../library/copies';
-import { memo, useEffect, useRef } from 'react';
+import { memo, useLayoutEffect, useRef, useState } from 'react';
 import { setActive, setFilter, sourcePhotos, useApp, useShown, type Photo } from '../library/store';
 import { NO_FILTER, isFiltering } from '../library/filter';
 import { FilterBar } from './FilterBar';
@@ -13,6 +13,7 @@ import { ChevronDown, Pencil } from 'lucide-react';
 import { setPrefs, usePrefs } from './prefs';
 import { LABEL } from '../library/marks';
 import { EDIT_FILTERS, FLAG_FILTERS, type Filter } from '../library/filter';
+import { rowWindow, scrollNearest, useViewport } from './virtual';
 
 /** The active filters as short chips, shown while the filters are folded away. */
 function FilterChips({ filter }: { filter: Filter }) {
@@ -46,10 +47,38 @@ export function Images() {
   const shown = useShown();
   const sourceCount = sourcePhotos(useApp.getState()).length;
   const ref = useRef<HTMLDivElement>(null);
+  const first = useRef<HTMLDivElement>(null);
+  const viewport = useViewport(ref, 'y');
+  // Offscreen tiles still owned thumbnail subscriptions and observers when merely
+  // hidden. Keep only nearby rows mounted, including for very large collections.
+  const [layout, setLayout] = useState({ pitch: 160, gap: 8, pad: 10 });
+  const rows = Math.ceil(shown.length / columns);
+  const win = rowWindow(rows, layout.pitch, Math.max(0, viewport.pos - layout.pad), viewport.size || 800, viewport.size || 800);
+  useLayoutEffect(() => {
+    const el = ref.current, row = first.current;
+    if (!el || !row) return;
+    const measure = () => {
+      const height = row.getBoundingClientRect().height;
+      if (!height) return;
+      const css = getComputedStyle(el), gap = parseFloat(css.rowGap) || 0, pad = parseFloat(css.paddingTop) || 0;
+      const pitch = height + gap;
+      setLayout(old => old.pitch === pitch && old.gap === gap && old.pad === pad ? old : { pitch, gap, pad });
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(row);
+    return () => observer.disconnect();
+  });
+  useLayoutEffect(() => {
+    const el = ref.current, at = shown.indexOf(active);
+    if (el && at >= 0 && el.clientHeight > 0) {
+      const top = layout.pad + Math.floor(at / columns) * layout.pitch;
+      scrollNearest(el, 'y', top, top + layout.pitch - layout.gap);
+    }
+  }, [active, shown, columns, layout, viewport.size]);
   const filtersOpen = usePrefs(p => p.filtersOpen);
   const setFiltersOpen = (filtersOpen: boolean) => setPrefs({ filtersOpen });
   const filtering = isFiltering(filter);
-  useEffect(() => { ref.current?.querySelector<HTMLElement>(`[data-index="${active}"]`)?.scrollIntoView({ block: 'nearest' }); }, [active, filter, columns]);
   return <aside className="images-pane" aria-label="Images">
     <header className="images-head">
       <button type="button" className="images-title" aria-expanded={filtersOpen} aria-controls="images-filters" onClick={() => setFiltersOpen(!filtersOpen)}
@@ -61,8 +90,15 @@ export function Images() {
       <ImageViewOptions />
     </header>
     {filtersOpen ? <div id="images-filters" className="images-filters"><FilterBar summary={false} /></div> : <FilterChips filter={filter} />}
-    <div ref={ref} className={`images-grid cols-${columns}`} style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
-      {shown.map(index => <ImageFrame contextMenu={context.open} key={photoId(photos[index])} photo={photos[index]} index={index} active={index === active} selected={selected.has(photoId(photos[index]))} />)}
+    <div ref={ref} className={`images-grid cols-${columns}`}>
+      <div className="images-list" style={{ paddingTop: win.start * layout.pitch, paddingBottom: (rows - win.end) * layout.pitch }}>
+        {Array.from({ length: win.end - win.start }, (_, offset) => {
+          const row = win.start + offset;
+          return <div className="images-row" key={row} ref={offset === 0 ? first : undefined} style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}>
+            {shown.slice(row * columns, (row + 1) * columns).map(index => <ImageFrame contextMenu={context.open} key={photoId(photos[index])} photo={photos[index]} index={index} active={index === active} selected={selected.has(photoId(photos[index]))} />)}
+          </div>;
+        })}
+      </div>
       {!shown.length && <p className="hint">No photos match.</p>}
     </div>
     <footer>{shown.length} shown · {selected.size} selected</footer>

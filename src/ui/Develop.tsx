@@ -294,11 +294,13 @@ export function Develop() {
     return source;
   };
 
-  // Load the active photo: the cached thumbnail first, then the preview.
+  // Load the preview independently of the embedded thumbnail. Thumbnail reads from
+  // a slow folder can occupy every fetch slot; they must not hold up the RAW decode.
   useEffect(() => {
     const engine = engineRef.current;
     if (!engine || !path) return;
     let cancelled = false;
+    const resumeThumbnails = thumbs.pauseDevelopment();
     if (loadedRef.current?.path !== path) setZoom(FIT);
     // A full-resolution decode still running for the previous photo is no longer wanted.
     fullLoadRef.current = null;
@@ -308,8 +310,8 @@ export function Develop() {
       if (cancelled) engine.release(source);
       else swapSource(path, source, res);
     };
-    (async () => {
-      let previewShown = false;
+    let previewShown = false;
+    const embedded = (async () => {
       try {
         const cached = cachedSource(sourceKey(path, 'preview', wantsNoise));
         if (cached) {
@@ -319,6 +321,8 @@ export function Develop() {
           const orig = await thumbs.original(path);
           if (!cancelled && loadedRef.current?.path !== path) {
             const src = await engine.uploadBlob(orig.blob, useApp.getState().photos.find((p) => p.path === path)?.white ?? null);
+            // The RAW may have finished while the browser decoded the embedded JPEG.
+            if (cancelled || loadedRef.current?.path === path) { engine.release(src); return; }
             swap(src, 'thumb');
             previewShown = true;
           }
@@ -326,6 +330,8 @@ export function Develop() {
       } catch {
         /* fall through to the decode */
       }
+    })();
+    (async () => {
       try {
         // Until the photo's size is known, the most it can be shown at when it fits the stage.
         const r = boxRef.current?.getBoundingClientRect();
@@ -337,6 +343,7 @@ export function Develop() {
           return;
         }
         const img = await loadCachedImage(path, edge, wantsNoise);
+        if (cancelled) return;
         if (img.white) setPhotoWhite(path, img.white);
         setPhotoLens(path, img.lens ?? null);
         setPhotoCamera(path, img.camera ?? null);
@@ -344,6 +351,9 @@ export function Develop() {
         previewAsked.set(source, edge);
         swap(source, 'preview');
       } catch (err) {
+        resumeThumbnails();
+        // If decoding failed, retain the embedded-preview fallback and its quality notice.
+        await embedded;
         if (cancelled) return;
         // When only the decode failed, the preview stays on screen and edits apply
         // to it, so say so, and leave the message up long enough to read.
@@ -352,10 +362,13 @@ export function Develop() {
         setDecodeFailed(path);
         if (previewShown) showToast(`${why} You're editing the preview saved in the file, at lower quality.`, undefined, 9000);
         else showToast(`Could not open this photo. ${why}`);
+      } finally {
+        resumeThumbnails();
       }
     })();
     return () => {
       cancelled = true;
+      resumeThumbnails();
     };
   }, [path, wantsNoise, swapSource, engineReady]);
 

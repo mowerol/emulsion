@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-const mocks = vi.hoisted(() => ({ render: vi.fn(), cached: vi.fn() }));
+const mocks = vi.hoisted(() => ({ render: vi.fn(), cached: vi.fn(), thumbnail: vi.fn() }));
 vi.mock('../backend/api', () => ({
-  thumbnail: vi.fn(async () => new Blob(['original'])),
+  thumbnail: mocks.thumbnail,
   loadImage: vi.fn(async () => ({ width: 600, height: 400, data: new Uint16Array(0) })), captureInfo: vi.fn(), logToTerminal: vi.fn(),
   removeCachedPatch: mocks.cached,
 }));
@@ -20,6 +20,7 @@ const recipe = { ...defaultRecipe(), retouch: [newCircleSpot([.5, .5], 'remove',
 let release!: (pixels: Uint8Array | null) => void;
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.thumbnail.mockResolvedValue(new Blob(['original']));
   mocks.cached.mockImplementation(() => new Promise(resolve => { release = resolve; }));
 });
 afterEach(() => { thumbs.clear(); });
@@ -27,6 +28,22 @@ afterEach(() => { thumbs.clear(); });
 it('does not show an original thumbnail while the saved removal is restoring', async () => {
   await thumbs.original('/saved.raf');
   expect(thumbs.url('/saved.raf', recipe)).toBeUndefined();
+});
+
+it('restores a ready Remove thumbnail while an earlier photo waits for its embedded preview', async () => {
+  let finish!: (blob: Blob) => void;
+  mocks.thumbnail.mockImplementation((path: string) => path === '/slow.raf'
+    ? new Promise<Blob>(resolve => { finish = resolve; }) : Promise.resolve(new Blob(['original'])));
+  mocks.cached.mockResolvedValue(new Uint8Array(512 * 512 * 4));
+  await thumbs.original('/saved.raf');
+  thumbs.want('/slow.raf', defaultRecipe(), 1, null, true);
+  thumbs.want('/saved.raf', recipe, 1, null, true);
+  try {
+    await vi.waitFor(() => expect(thumbs.url('/saved.raf', recipe)).toBeDefined(), { timeout: 300 });
+  } finally {
+    finish(new Blob(['original']));
+    await vi.waitFor(() => expect(mocks.render).toHaveBeenCalledTimes(2));
+  }
 });
 
 it('composites the saved removal before publishing the developed thumbnail', async () => {

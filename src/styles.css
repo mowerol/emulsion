@@ -827,7 +827,10 @@ input.range:disabled { opacity: 0.35; cursor: default; }
 .images-filters .filter-stars { padding-right:8px; margin-right:6px; border-right:1px solid var(--line); }
 .images-filters .filter-labels { justify-self:end; }
 .images-filters .mark-btn { padding:2px 2px; }.images-filters .mark-btn.swatch-btn { padding:3px; }
-.images-grid { overflow-y:auto; flex:1; min-height:0; display:grid; align-content:start; gap:8px; padding:10px 10px 12px; }
+.images-grid { overflow-y:auto; flex:1; min-height:0; gap:8px; padding:10px 10px 12px; }
+.images-list, .images-row { display:grid; gap:inherit; }
+/* Equal rows keep the windowed list stable as photos with marks enter the view. */
+.images-grid .image-frame { display:grid; grid-template-rows:auto auto 14.5px; }
 .image-frame { min-width:0; border:1px solid transparent; border-radius:6px; padding:5px 5px 6px; background:none; color:var(--fg); text-align:center; cursor:pointer; display:flex; flex-direction:column; align-items:center; gap:3px; }
 .image-frame:hover { border-color:var(--line); }.image-frame.selected { background:var(--raise); border-color:var(--faint); }.image-frame.active { border-color:var(--accent); }
 .image-frame-picture { position:relative; display:block; width:100%; aspect-ratio:3/2; margin-bottom:3px; background:var(--strip); border-radius:3px; overflow:hidden; }
