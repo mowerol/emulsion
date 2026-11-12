@@ -230,6 +230,12 @@ a:hover { color: #f8b86f; }
 .built-on { padding-top: clamp(64px, 8vw, 104px); }
 .built-on-row { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 14px 40px; padding: 26px 0; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
 .built-on-name { font-size: clamp(18px, 2vw, 24px); font-weight: 500; letter-spacing: -0.02em; color: var(--fg-2); }
+/* One row when it fits; below that, label, names and link each take a line, names left-aligned. */
+.built-on-names { display: contents; }
+@media (max-width: 900px) {
+  .built-on-row { flex-direction: column; align-items: flex-start; gap: 14px; padding: 24px 0; }
+  .built-on-names { display: flex; flex-wrap: wrap; gap: 6px 28px; }
+}
 
 /* ── Why Emulsion ───────────────────────────────────── */
 .why-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr)); gap: 40px 48px; margin-top: clamp(48px, 6vw, 80px); }
@@ -269,7 +275,17 @@ a:hover { color: #f8b86f; }
 .look-chip { font: inherit; font-size: 14px; font-weight: 500; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--line-strong); background: transparent; color: var(--muted); cursor: pointer; transition: background 0.2s, color 0.2s, border-color 0.2s; }
 .look-chip:hover { color: var(--fg); border-color: rgba(255, 255, 255, 0.24); }
 .look-chip[aria-pressed='true'] { background: var(--fg); border-color: var(--fg); color: var(--bg); }
-.look-viewer + .feature-grid { margin-top: 32px; }
+.look-viewer + .look-grid + .feature-grid { margin-top: 32px; }
+.look-grid { display: none; margin-top: 40px; }
+.look-grid .look-picker-label { margin: 0 0 14px; }
+.look-grid-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 18px 10px; }
+.look-tile { margin: 0; }
+.look-tile img { width: 100%; aspect-ratio: 3 / 2; object-fit: cover; border-radius: 10px; background: var(--surface-2); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08); }
+.look-tile figcaption { margin-top: 8px; font-size: 14px; font-weight: 500; color: var(--fg-2); }
+@media (max-width: 640px) {
+  .look-viewer { display: none; }
+  .look-grid { display: block; }
+}
 
 /* ── Library ────────────────────────────────────────── */
 .library-card { flex-basis: 420px; }
@@ -363,6 +379,29 @@ a:hover { color: #f8b86f; }
 .footer-links a { color: var(--subtle); text-decoration: none; }
 .footer-links a:hover { color: var(--fg); }
 .footer-links .mono { font-size: 12px; letter-spacing: 0.06em; }
+
+/* ── Phones ─────────────────────────────────────────── */
+/* Paired buttons stack at one width rather than wrapping to two; cards and the Download banner
+   give their text the room desktop padding took. */
+@media (max-width: 520px) {
+  .btn-row { flex-direction: column; align-items: stretch; }
+  .btn-row .btn { justify-content: center; }
+  .hero-copy .btn-row { align-self: stretch; }
+  /* Each sentence of the title keeps its own line down to 320 px. */
+  .hero-title { font-size: min(11vw, 44px); }
+  .feature-pad { padding: 24px; }
+  .feature-text { padding: 24px 24px 20px; }
+  .feature-media { padding: 0 12px 12px; }
+  .cta { padding: 36px 24px; border-radius: 22px; }
+  .cta-lede { font-size: 17px; }
+}
+/* Touch: small controls get a 44 px target. */
+@media (pointer: coarse) {
+  .look-chip { padding: 11px 16px; }
+  .btn-sm { padding: 11px 16px; }
+  /* A taller target without moving the layout. */
+  .quiet-link, .footer-links a { padding: 12px 0; margin: -12px 0; }
+}
 
 /* ── Reduced motion ─────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {

@@ -60,6 +60,26 @@ export default function Looks() {
         </figcaption>
       </figure>
 
+      {/* Phones: the looks side by side instead of the switcher, too small there to compare one at a time. */}
+      <div className="look-grid">
+        <p className="look-picker-label">The same photo and edit; only the look changes.</p>
+        <ul className="look-grid-list">
+          {shown.map(l => (
+            <li key={l.img}>
+              <figure className="look-tile">
+                <img
+                  src={asset(`assets/looks/${l.img}-1200.webp`)}
+                  alt={`The cemetery photo in ${l.name}.`}
+                  loading="lazy"
+                  decoding="async"
+                />
+                <figcaption>{l.name}</figcaption>
+              </figure>
+            </li>
+          ))}
+        </ul>
+      </div>
+
       <div className="feature-grid">
         <article data-reveal className="card feature feature-pad">
           <h3 className="h3 h3-sm">Build your own</h3>
