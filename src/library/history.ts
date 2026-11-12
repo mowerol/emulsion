@@ -131,7 +131,7 @@ const FIELD_LABELS: Partial<Record<keyof Recipe, string>> = {
 /** A short name for a change to one recipe, for the undo and redo buttons. */
 export function describe(before: Recipe | null, after: Recipe | null): string {
   if (!before && after) {
-    // An unedited photo is Neutral, so name the change against that.
+    // Name the first change against the new-photo default.
     const keys = keysChanged(defaultRecipe(), after);
     return keys.length === 0 || keys.includes('stock') ? STOCK[after.stock].name : describe(defaultRecipe(), after);
   }

@@ -141,7 +141,7 @@ export async function exportPhotos(
     const [iw, ih] = [img.width, img.height];
     // Moved to the worker, not copied: nothing here keeps the decode.
     const src = engine.upload(img, p.path, true);
-    // An unedited photo exports as Neutral at its defaults, default sharpening included.
+    // An unedited photo exports with Emulsion Standard, default sharpening included.
     const recipe = p.recipe ?? defaultRecipe();
     // Everything after the upload is guarded, so a failed capture or profile still frees the source and its targets.
     try {

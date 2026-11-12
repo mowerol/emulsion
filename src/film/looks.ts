@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Look packs: sets of LUTs that render the stocks, applied on top of the camera profile's
-// rendering. New edits default to t3mujinpack.
+// rendering. New edits start with Emulsion Standard in the Emulsion collection.
 
 import type { Push, Recipe } from './recipe';
 import type { ProfileSettings } from './creative';
@@ -108,6 +108,7 @@ export const PACKS: LookPack[] = [
 ];
 
 export const PACK: Record<PackId, LookPack> = Object.fromEntries(PACKS.map((p) => [p.id, p])) as Record<PackId, LookPack>;
+/** The legacy film pack and sidecar fallback; new-photo defaults are chosen in defaultRecipe. */
 export const DEFAULT_PACK: PackId = 't3mujinpack';
 export const isPackId = (v: unknown): v is PackId => typeof v === 'string' && Object.prototype.hasOwnProperty.call(PACK, v);
 

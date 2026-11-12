@@ -7,6 +7,7 @@ import { isStockId, type StockId } from './stocks';
 import { cbCommit, colorBalanceRgb } from '../engine/colorbalance';
 import { lookChoices } from '../ui/lookbrowser';
 import { lutSourceOf } from '../library/userlooks';
+import { developUniforms, InputMode } from '../engine/params';
 
 describe('Emulsion built-in looks', () => {
   it('stores each look in the form a saved look is read back in', () => {
@@ -15,8 +16,23 @@ describe('Emulsion built-in looks', () => {
       expect(isStockId(l.id), l.id).toBe(true);
       expect(normalizeSettings(l.settings), l.name).toEqual(l.settings);
     }
-    expect(BUILTIN_LOOKS.map((l) => l.name)).toEqual(['Emulsion Neg', 'Emulsion Chrome', 'Emulsion Gold', 'B&W Dynamic', 'B&W Classic']);
+    expect(BUILTIN_LOOKS.map((l) => l.name)).toEqual(['Emulsion Standard', 'Emulsion Neg', 'Emulsion Chrome', 'Emulsion Gold', 'B&W Dynamic', 'B&W Classic']);
     expect(lookFile('emulsion-looks', 'emulsion-film-neg' as StockId, 0)).toBeNull();
+  });
+
+  it('starts new edits with official Emulsion Standard and preserves the clean neutral rendering', () => {
+    const fresh = defaultRecipe();
+    expect(fresh).toMatchObject({ stock: 'emulsion-standard', pack: 'emulsion-looks', lookEnabled: true, lookAmount: 100, scanner: 'straight' });
+    expect(lookChoices().filter(c => c.pack === 'emulsion-looks')[0]).toMatchObject({ name: 'Emulsion Standard', stock: fresh.stock, bw: false });
+    expect(normalizeRecipe(JSON.parse(JSON.stringify(fresh)))).toEqual(fresh);
+    const applied = withLook(defaultRecipe('neutral'), 'emulsion-looks', fresh.stock);
+    expect(applied.lookSnapshot).toMatchObject({ name: 'Emulsion Standard', revision: 1, kind: 'look' });
+    for (const inputMode of [InputMode.SceneLinear, InputMode.DisplayLinear]) {
+      const ctx = { width: 64, height: 64, seed: 1, inputMode, store: 1 };
+      const neutral = developUniforms(defaultRecipe('neutral'), ctx);
+      expect(developUniforms(fresh, ctx)).toEqual(neutral);
+      expect(developUniforms(applied, ctx)).toEqual(neutral);
+    }
   });
 
   it('renders B&W Classic as Pat David’s Ilford HP5 Plus 400, unchanged', () => {

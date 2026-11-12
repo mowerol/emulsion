@@ -13,7 +13,7 @@ export const referenceName = (path: string) => path.split(/[\\/]/).pop()?.slice(
 
 /** Preserve the photo's camera rendering and exposure, excluding the look being authored. */
 export function photoMatchBase(r: Recipe): Recipe {
-  return { ...defaultRecipe(), exposure: r.exposure, wb: r.wb, lens: r.lens };
+  return { ...defaultRecipe('neutral'), exposure: r.exposure, wb: r.wb, lens: r.lens };
 }
 
 export async function readReference(path: string): Promise<{ image: MatchImage; blob: Blob }> {

@@ -210,7 +210,7 @@ export function sliderDefault(def: SliderDef, stock: StockId): number {
 }
 
 /** The stock new edits start from. */
-export const DEFAULT_STOCK: StockId = 'neutral';
+export const DEFAULT_STOCK: StockId = 'emulsion-standard';
 
 export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId = 'straight'): Recipe {
   const s = STOCK[stock];
@@ -220,7 +220,7 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
     profiledDenoise: 'auto',
     lookEnabled: stock !== 'neutral',
     stock,
-    pack: DEFAULT_PACK,
+    pack: PACK['emulsion-looks'].looks[stock] ? 'emulsion-looks' : DEFAULT_PACK,
     lookAmount: 100,
     lookBlend: 'normal',
     push: 0,
@@ -270,7 +270,9 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
  * halation stay as they are, and a first edit starts from the defaults.
  */
 export function withStock(recipe: Recipe | null, stock: StockId): Recipe {
-  return { ...(recipe ?? defaultRecipe()), stock, lookSnapshot: undefined, lookEnabled: stock !== 'neutral' };
+  const base = recipe ?? defaultRecipe();
+  const pack = PACK[base.pack].looks[stock] ? base.pack : PACK['emulsion-looks'].looks[stock] ? 'emulsion-looks' : DEFAULT_PACK;
+  return { ...base, pack, stock, lookSnapshot: undefined, lookEnabled: stock !== 'neutral' };
 }
 
 /** Reset the sliders, keeping stock, development, scanner, crop, masks and retouching. */
@@ -333,7 +335,7 @@ function normalizeWhiteBalance(input: unknown): WhiteBalance | null {
 
 /**
  * Turn anything read from a sidecar into a valid recipe, or `null` when it is
- * not a recipe at all. Unknown stocks fall back to the default stock; missing or
+ * not a recipe at all. Unknown stocks fall back to Neutral; missing or
  * out-of-range values fall back to defaults or are clamped.
  */
 export function normalizeRecipe(input: unknown): Recipe | null {
@@ -345,7 +347,9 @@ export function normalizeRecipe(input: unknown): Recipe | null {
   const user = resolveUserLook(o.pack, o.stock);
   const pack: PackId = user?.pack ?? (isPackId(o.pack) ? o.pack : DEFAULT_PACK);
   const supplied = !!user || (isStockId(o.stock) && isPackId(o.pack) && !!PACK[pack].looks[o.stock]);
-  const stock: StockId = user?.stock ?? (supplied ? o.stock as StockId : DEFAULT_STOCK);
+  // Saved edits keep the old neutral fallback. The new-photo default must not select a look
+  // for a sidecar that never had one, or replace an unavailable/retired stock with Standard.
+  const stock: StockId = user?.stock ?? (supplied ? o.stock as StockId : 'neutral');
   const scanner: ScannerId = isScannerId(o.scanner) ? o.scanner : 'frontier';
   const base = defaultRecipe(stock, scanner);
   const push = typeof o.push === 'number' && [-1, 0, 1, 2].includes(o.push) ? (o.push as Push) : 0;

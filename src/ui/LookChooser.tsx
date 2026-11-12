@@ -30,7 +30,7 @@ function LookRow({ item, selected, favourite, thumb, placeholder, onPick, onDele
   </div>;
 }
 /** The photo without its look, which every look's preview starts from. */
-const withoutLook = (r: Recipe): Recipe => ({ ...r, pack: defaultRecipe().pack, stock: defaultRecipe().stock, lookEnabled: false, lookSnapshot: undefined, lookAmount: 100, scannerFromLook: true });
+const withoutLook = (r: Recipe): Recipe => ({ ...r, pack: defaultRecipe('neutral').pack, stock: 'neutral', lookEnabled: false, lookSnapshot: undefined, lookAmount: 100, scannerFromLook: true });
 
 /**
  * The browser's groups. In the grid view each look is previewed on the current photo (as

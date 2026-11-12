@@ -3,6 +3,7 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { TreatmentControls } from '../../src/ui/TreatmentControls';
 import { registerCustomLook } from '../../src/film/looks';
+import { getSetting } from '../../src/library/appsettings';
 const deleted: string[]=[];
 (window as any).__TAURI_INTERNALS__={invoke:async(cmd:string,args:any)=>{if(cmd==='thumbnail')throw Error('Synthetic fixture has no image');if(cmd==='delete_custom_look')deleted.push(args.id);}};
 const photo={path:'/review.jpg',name:'Review',rel:'Review.jpg',size:1,modified:1,recipe:null,seed:1,white:null,rating:0,label:null,heart:false,raw:false,pair:null};
@@ -14,9 +15,12 @@ const click=(label:string)=>{const b=document.querySelector<HTMLButtonElement>(`
 const query=(value:string)=>{const input=document.querySelector<HTMLInputElement>('input[aria-label="Search looks"]')!;Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value')!.set!.call(input,value);input.dispatchEvent(new Event('input',{bubbles:true}));};
 const assert=(ok:unknown,msg:string)=>{if(!ok)throw Error(msg);};
 setTimeout(async()=>{try{
+ assert(document.querySelector('.look-selector strong')?.textContent==='Emulsion Standard','Unedited photo did not start with Emulsion Standard');
  assert(!document.querySelector('[aria-label="Treatment type"]')&&!document.querySelector('[aria-label="LUT blend"]'),'Raw LUT controls leaked into photo UI');
  click('Browse all looks');await pause();
  assert(document.querySelector('[role="dialog"]'),'Browser did not open');
+ const standard=[...document.querySelectorAll('.look-row-pick')].find(b=>b.textContent?.trim()==='Emulsion Standard');
+ assert(standard?.getAttribute('aria-pressed')==='true'&&standard.closest('.look-browser-group')?.querySelector('summary')?.textContent?.startsWith('Emulsion '),'Standard must be selected in the official Emulsion collection');
  assert([...document.querySelectorAll('.look-row-pick')].some(b=>b.textContent==='Imported LUT'),'Former LUT entry is absent from Looks');
  click('Add My warm look to favourites');await pause();
  assert(document.querySelector('.look-browser-group')?.querySelector('summary')?.textContent?.includes('Favourites'),'Favourites group missing');
@@ -27,7 +31,7 @@ setTimeout(async()=>{try{
  assert([...document.querySelectorAll('.look-row-pick')].some(b=>b.textContent==='Agfa Apx 100'),'B&W catalogue category is not recognised');
  click('All');click('Grid view');await pause();
  assert(document.querySelector('.look-entries.grid'),'Grid mode missing');
- assert(JSON.parse(localStorage.getItem('emulsion.lookBrowser')!).view==='grid','View preference not persisted');
+ assert((getSetting('emulsion.lookBrowser') as {view?:string})?.view==='grid','View preference not persisted');
  const manage=document.querySelector<HTMLElement>('[aria-label="Manage Imported LUT"]')!;manage.click();await pause();
  const row=manage.closest('.look-row')!;row.querySelector<HTMLButtonElement>('.look-row-menu-items button:last-child')!.click();await pause();
  row.querySelectorAll<HTMLButtonElement>('.look-delete-confirm button')[1].click();await pause();assert(!deleted.length,'Cancel deleted a look');
@@ -39,5 +43,5 @@ setTimeout(async()=>{try{
  query('Portra 400');await pause();assert(document.querySelector('.look-quick-item')?.textContent?.includes('Portra 400'),'Quick search does not include bundled looks');
  document.querySelector('.look-quick-menu')!.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}));await pause();
  assert(!document.querySelector('.look-quick-menu'),'Escape did not close quick picker');
- document.body.dataset.result='PASS: Looks-only UI, favourites persistence, browser and quick search, Colour/B&W filters, saved list/grid choice, cancel/delete, Escape close';
+ document.body.dataset.result='PASS: Emulsion Standard default and official collection, Looks-only UI, favourites persistence, browser and quick search, Colour/B&W filters, saved list/grid choice, cancel/delete, Escape close';
 }catch(e){document.body.dataset.result=`FAIL: ${String(e)}`;}},500);

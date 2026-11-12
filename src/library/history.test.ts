@@ -67,7 +67,7 @@ suite('history', () => {
   });
 
   it('names changes', () => {
-    expect(describe(null, r0)).toBe('Neutral');
+    expect(describe(null, r0)).toBe('Emulsion Standard');
     expect(describe(null, defaultRecipe('gold200'))).toBe('Gold 200');
     expect(describe(null, r(0.5))).toBe('Exposure');
     expect(describe(r0, null)).toBe('Reset photo');

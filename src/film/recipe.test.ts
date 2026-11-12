@@ -62,7 +62,7 @@ describe('recipes', () => {
     const r = { ...defaultRecipe('portra400'), exposure: 0.5, halation: 70, grain: 40, grainIso: 1600 };
     const s = withStock(r, 'trix400');
     expect(s).toEqual({ ...r, stock: 'trix400', lookEnabled: true });
-    expect(withStock(null, 'ektar100')).toEqual({ ...defaultRecipe(), stock: 'ektar100', lookEnabled: true });
+    expect(withStock(null, 'ektar100')).toEqual({ ...defaultRecipe(), stock: 'ektar100', pack: 't3mujinpack', lookEnabled: true });
     expect(withStock(null, 'ektar100').grainIso).toBe(defaultRecipe().grainIso);
   });
 
@@ -160,12 +160,15 @@ describe('crop in recipes', () => {
 });
 
 describe('camera base and optional creative look', () => {
-  it('starts new edits from a straight scanner and no LUT', () => {
-    expect(defaultRecipe()).toMatchObject({ lookEnabled: false, stock: 'neutral', scanner: 'straight' });
+  it('starts new edits from Emulsion Standard with a straight scanner', () => {
+    expect(defaultRecipe()).toMatchObject({ lookEnabled: true, stock: 'emulsion-standard', pack: 'emulsion-looks', scanner: 'straight' });
+    expect(defaultRecipe('neutral')).toMatchObject({ lookEnabled: false, stock: 'neutral', pack: 't3mujinpack' });
+    expect(defaultRecipe('portra400')).toMatchObject({ lookEnabled: true, stock: 'portra400', pack: 't3mujinpack' });
   });
   it('keeps existing LUTs and retires parametric stock selections', () => {
     expect(normalizeRecipe({ stock: 'portra400', pack: 't3mujinpack' })).toMatchObject({ lookEnabled: true, scanner: 'frontier' });
     expect(normalizeRecipe({ stock: 'pro400h' })).toMatchObject({ lookEnabled: false, stock: 'neutral', pack: 't3mujinpack' });
+    expect(normalizeRecipe({ stock: 'neutral', pack: 't3mujinpack', exposure: 0.5 })).toMatchObject({ lookEnabled: false, stock: 'neutral', pack: 't3mujinpack', exposure: 0.5 });
   });
   it('drops the retired camera profile choice from older sidecars', () => {
     const r = normalizeRecipe({ ...defaultRecipe(), profile: `dcp:${'a'.repeat(64)}`, autoProfile: 'a'.repeat(64) });

@@ -12,7 +12,7 @@ import type { StockId } from '../film/stocks';
 const empty: ProfileSettings = { colorBalance: null, curve: null, lut: null };
 function begin(photo: Photo, id: string, name: string, settings: ProfileSettings) {
   const original = photo.recipe ?? defaultRecipe();
-  const neutral = { ...defaultRecipe(), lookEnabled: false, lens: original.lens, wb: original.wb, exposure: original.exposure };
+  const neutral = { ...defaultRecipe('neutral'), lens: original.lens, wb: original.wb, exposure: original.exposure };
   startLookEdit(photoId(photo), id, name, recipeFromSettings(neutral, settings));
 }
 export function TreatmentControls({ photo }: { photo: Photo }) {

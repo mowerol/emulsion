@@ -726,12 +726,25 @@ input.range:disabled { opacity: 0.35; cursor: default; }
 .grade-wheel canvas { width:100%; height:100%; border-radius:50%; }
 .grade-wheel-center { position:absolute; left:50%; top:50%; width:4px; height:4px; border-radius:50%; background:#555; transform:translate(-50%,-50%); pointer-events:none; }
 .grade-wheel-dot { position:absolute; width:12px; height:12px; border:2px solid white; border-radius:50%; box-shadow:0 0 0 1px #111; transform:translate(-50%,-50%); pointer-events:none; }
-.grade-row { display:grid; grid-template-columns:90px minmax(0,1fr) 62px; gap:8px; align-items:center; font-size:11px; }
+.grade-row { display:grid; grid-template-columns:104px minmax(0,1fr) 62px; gap:8px; align-items:center; font-size:11px; }
 .grade-row input { min-width:0; width:100%; accent-color:var(--accent); }
 .grade-row input.number { padding:3px; background:var(--bg); color:var(--fg); border:1px solid var(--line); border-radius:3px; }
 .grade-details { border-top:1px solid var(--line); padding-top:10px; }
 .grade-details summary { cursor:pointer; font-size:12px; font-weight:600; margin-bottom:12px; }
 .grade-details .grade-row { margin:10px 0; }
+.colour-grading .hint { margin:0; color:var(--text3); line-height:1.5; }
+.grade-range-preview { margin:0 0 12px; color:var(--text3); }
+.grade-details > .seg { margin-bottom:12px; }
+.grade-range-preview figcaption { display:flex; justify-content:space-between; gap:8px; font-size:11px; }
+.grade-range-preview figcaption span { color:var(--text); }
+.grade-range-preview svg { display:block; width:100%; height:58px; margin-top:6px; overflow:visible; }
+.grade-range-preview path { fill:none; stroke:currentColor; stroke-width:1.5; vector-effect:non-scaling-stroke; }
+.grade-range-preview .grade-range-fill { fill:rgb(var(--tint) / 0.09); stroke:none; }
+.grade-range-preview .grade-range-grey { stroke:var(--border); stroke-width:1; stroke-dasharray:2 3; }
+.grade-range-preview .grade-range-other { opacity:0.3; }
+.grade-range-preview .grade-range-selected { color:var(--text); stroke-width:2; }
+.grade-range-axis { position:relative; display:flex; justify-content:space-between; font-size:10px; }
+.grade-range-axis span:nth-child(2) { position:absolute; left:60%; transform:translateX(-50%); }
 
 .lens-toggle { display:flex; align-items:center; gap:8px; font-size:12px; }
 .lens-toggle input { accent-color:var(--accent); }

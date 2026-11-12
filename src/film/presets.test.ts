@@ -32,7 +32,8 @@ it('treatment can explicitly clear a look and presets retain the captured revisi
   unregisterCustomLook(id);
   expect(profileSettingsFor(normalizeRecipe(recipe))).toEqual(before);
   expect(recipeLookFile(recipe)).toBe(`user-looks/${'a'.repeat(64)}`);
-  expect(applyPreset(preset(['Treatment']), recipe)).toMatchObject({ lookEnabled: false, lookSnapshot: undefined });
+  const clear = { ...preset(['Treatment']), recipe: defaultRecipe('neutral') };
+  expect(applyPreset(clear, recipe)).toMatchObject({ lookEnabled: false, lookSnapshot: undefined });
   delete PACK.custom.looks[stock];
 });
 it('hydrates old references from archived definitions and rejects malformed preset files', () => {

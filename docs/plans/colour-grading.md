@@ -47,3 +47,54 @@ Layout mock-up: `tools/probe/grading-mockup.html`, served through Vite at `/tool
 - `?gradingpanel` on Chrome Metal: worst relative GPU/reference difference 0.0001281 (0.01281%), no WebGL errors. Cases cover wheels, by-tone changes and mask/fulcrum changes, with LUT-active recipe uniforms. SwiftShader's software precision is lower (0.00478 relative); Metal is the relevant hardware check.
 - Actual panel screenshot: `docs/plans/colour-grading-panel.png`. Percentage controls display percentages; stored values retain upstream units. The full app's feel and real-photo grading still need Oli's assessment.
 - Advanced styles remain deferred; no fitting or new LUT sourcing performed.
+
+## Usability follow-up (2026-11-11)
+
+Oli reported that By tone Shadows/Midtones seemed ineffective. A browser check through the actual
+controls, look draft, saved settings and GPU output found that all twelve by-tone controls work,
+both from defaults and with Emulsion Neg's settings. The UI did have two independent range
+selectors: choosing Midtones for the wheel left By tone editing Shadows. An initial revision
+linked the groups to one selector above the wheel. Oli found that inconvenient for the lower
+controls, so each group now has its own local range selector again, named Tint range and Colour
+and brightness range for accessibility. The range graph follows the lower group's selection.
+Browser checks verify that either group can change range without switching the other.
+
+The UI calls wheel chroma **Tint amount**, wheel luminance **Lightness**, by-tone chroma
+**Colourfulness**, brilliance **Brightness**, and mask grey fulcrum **Tone split**. Parameter names,
+stored values and rendering maths stay compatible. The Colour & brightness group draws the actual
+grading masks over scene luminance, highlighting the selected range. It responds to Tone split
+and fall-off changes. This graph applies to the by-tone adjustments; the midtone wheel's power
+operation has broader reach, called out separately in the UI.
+
+Validation: `npm run build`, `npm test` (852 pass, one skipped),
+`node tools/browser-tests/treatment-filters.mjs grading-tones`, and
+`node tools/browser-tests/realtime.mjs grading-tones 30 builtin` (Metal). Browser checks exercise
+every slider, numeric reset, saved-settings round-trip and range-graph updates. The local-selector
+check failed against the single-selector revision. A rendered 340 px control area was inspected.
+
+Oli also reports brightness/contrast differences between Fuji and OM-3 RAWs with the same look.
+The decoder currently applies one `BASELINE_GAIN` (1.8) to all cameras. Different incoming
+luminance also changes how much of the image falls
+inside each grading mask. This is an investigation lead, not a measured diagnosis of those photos.
+Matching camera JPEG brightness would also include each JPEG's own tone
+curve and style. No camera gain or creative look values were changed in this follow-up.
+
+### Standard rendering direction (Oli, 2026-11-11)
+
+The solution must scale across cameras without Emulsion maintaining hand-tuned exposure offsets
+or users having to photograph calibration targets for each body. The earlier suggestion to
+calibrate Fuji and OM-3 individually is superseded.
+
+Use the RAW decoder's existing camera support for sensor levels, white balance and colour
+conversion; investigate any defined exposure/baseline metadata before proposing corrections.
+Emulsion should apply one shared scene-referred rendering before creative looks. Camera-specific
+input data supplied by files or upstream decoder databases is still necessary; it is separate
+from authoring an Emulsion look per camera. Metadata availability and semantics must be checked,
+and missing values must have a deterministic fallback. Do not assume this can guarantee identical
+results from all cameras or undo intentional exposure compensation automatically.
+
+Optional Auto Exposure can use one image-analysis algorithm across cameras, but changes brightness
+according to image content. Keep it a separate decision from input normalization so a dark scene
+can stay dark. Matched RAW pairs are useful validation data, not a prerequisite for implementing
+the general pipeline. Emulsion Standard currently names the existing neutral rendering; this
+normalization work is not implemented yet.

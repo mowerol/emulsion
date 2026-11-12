@@ -265,7 +265,7 @@ export const WHITE_FULCRUM = 1;
 
 // The luminance masks, at darktable's defaults: middle grey 0.1845 and fall-offs of 1,
 // which darktable's commit_params turns into weights of 2 + 2 * fall-off.
-const MASK_POWER = 0.4101205819200422;
+export const MASK_POWER = 0.4101205819200422;
 /** The mask's middle grey, on the scale the masks work on (Y to the power 0.41, grey near 50%). */
 export const MASK_GREY_FULCRUM = Math.pow(0.1845, MASK_POWER);
 export const SHADOWS_WEIGHT = 4;
