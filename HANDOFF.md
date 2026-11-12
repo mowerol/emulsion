@@ -1,5 +1,30 @@
 # Handoff
 
+**Beta release preparation (2026-11-12):** corrected `docs/release-notes/0.1.0.md` and the
+README's built Looks list: Photo Match is removed; Look Creator test-photo previews and saving
+copies are available. Committed the pending Chrome revision 20 tuning and original header
+spacing adjustment with those corrections. `npm run check` passes (874 frontend tests, 130 Rust
+tests, 20 ignored; typecheck and production build). Oli confirmed another session owns the
+website; leave its site, Pages workflow, branding and header redesign changes to that session.
+No push or release tag created. Next release steps: actual DMG installation/first-use checks,
+then push/tag and publish the draft. Both updater signing secret names exist on GitHub; CI
+has not yet run, so their values have not been validated by a release build.
+
+**Marketing site in the repo (2026-11-12):** the landing page (React + Vite, from Oli's brand
+folder) now lives in `site/` with its own `package.json`, and `.github/workflows/pages.yml` builds
+and deploys it to GitHub Pages at mowerol.github.io/emulsion when `site/**` changes on main. Vite
+`base` is `/emulsion/`, so paths into `public/` go through `asset()` in `site/src/site.ts`. To do:
+set the repo's Pages source to GitHub Actions; upload the hero loop as a Release asset (no video in
+git) and set `heroVideo.webm`/`.mp4` to its URLs; switch `downloadUrl` to `/releases/latest` once a release
+is published; fill the `<Shot>` screenshot placeholders.
+
+**App header matches the site's brand (2026-11-12):** the top bar shows the app-icon tile
+(`public/brand/logo-tile.png`) and "Emulsion" as Geist 600 text, replacing the flat mark and the
+wordmark SVG (see `docs/BRANDING.md`). The hero was re-recorded with the new header the same day
+(one take; the 13 photos are the Emulsion Faves RAFs DSCF0151–DSCF1554 from 2025/JAPAN plus
+2025/DSCF8579.RAF, with their sidecars). The loop files in `site/public/assets/` are git-ignored
+and still need hosting as a Release asset before the live site can play them.
+
 **Website hero video (2026-11-12, Oli approved):** the hero shows the real app with a scripted
 real cursor (Oli's brief: the whole UI, the cursor working the sliders). On DSCF8579.RAF (Emulsion
 Faves) it builds his edit: Choose look › Emulsion Neg, Exposure +0.75, scroll, Shadows +19, Refine,

@@ -1,0 +1,9 @@
+node_modules
+dist
+*.tsbuildinfo
+.DS_Store
+
+# Hero video is hosted as a Release asset, not in git
+public/assets/*.mp4
+public/assets/*.webm
+public/assets/*.mov

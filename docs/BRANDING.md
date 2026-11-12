@@ -3,17 +3,14 @@
 The artwork comes from Oli's `emulsion-brand (1)` kit (2026-11-11). Runtime assets live
 in `public/brand`; the app does not depend on the original Documents folder.
 
-- `mark.svg`: the supplied `emulsion-icon-color.svg`, with its canvas cropped to
-  the artwork for use at small sizes. The paths and orange (`#DF7318`) are unchanged in
-  the file, but the header uses it as a CSS mask filled with `--accent` (`#E8913A`), so
-  the mark matches the Export button (Oli, 2026-11-11).
-- `wordmark.svg`: the supplied `emulsion-wordmark-color.svg`, also cropped. The
-  header uses it as a CSS mask: paper (`#FAFAFA`) on mid-grey/dark themes, ink
-  (`#36393F`) on the light theme. Its custom lettering stays vector at every scale.
+- `logo-tile.png`: the app-icon tile at 128 px (the same file as the website's
+  `site/public/assets/emulsion-logo.png`), shown at 22 px in the header.
 - `app-icon.png`: an exact copy of the supplied `logo/icon-app.png`, including its
   shading and transparent edges. It also serves as the browser favicon.
 
-The header uses a 24px mark and 17px wordmark, with an 8px gap. The photo editor's
+The header matches the website's lockup (Oli, 2026-11-12): the tile, then "Emulsion" as text in
+Geist 600 at 15px, coloured by the theme's `--fg`, with an 8px gap. It replaced the flat orange
+mark and the custom-lettered wordmark SVG. The photo editor's
 neutral theme surfaces remain separate from the logo palette so the surround continues to support colour judgement.
 
 To regenerate desktop icons on macOS after replacing the supplied app icon, run:

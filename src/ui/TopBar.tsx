@@ -48,9 +48,9 @@ export function TopBar() {
   }, []);
   return <>
     <header className={`topbar${s.view === 'library' ? ' topbar-library' : ''}${importing ? ' topbar-import' : ''}`}>
-      <div className="brand" role="img" aria-label="Emulsion">
-        <span className="brand-mark" aria-hidden="true" />
-        <span className="brand-wordmark" aria-hidden="true" />
+      <div className="brand">
+        <img className="brand-mark" src="/brand/logo-tile.png" alt="" draggable={false} />
+        <span className="brand-name">Emulsion</span>
       </div>
       {importing ? <>
         <span className="chrome-divider" />
