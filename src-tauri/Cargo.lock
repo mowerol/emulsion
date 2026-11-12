@@ -1121,6 +1121,7 @@ dependencies = [
  "natord",
  "objc2",
  "objc2-app-kit",
+ "objc2-foundation",
  "ort",
  "percent-encoding",
  "rayon",

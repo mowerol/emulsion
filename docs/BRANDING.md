@@ -28,3 +28,7 @@ canvas is contained within square desktop outputs without stretching. The macOS 
 development icon retain the existing optical size: an 848px tile centered on a
 1024px transparent canvas. All generated assets are checked in. Rebuild and
 relaunch the native app to see the new Dock/Finder icon.
+
+On macOS, debug builds (`npm run tauri dev`) use `src-tauri/dev-icon.png`, the same tile
+with a blue **DEV** badge. The generator above regenerates it too. `dev_icon.rs` installs it
+when the native app is ready; release builds use the regular bundled icon.

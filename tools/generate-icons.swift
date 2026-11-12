@@ -1,6 +1,7 @@
 #!/usr/bin/env swift
 // Run from the repository root: swift tools/generate-icons.swift
 import CoreGraphics
+import AppKit
 import Foundation
 import ImageIO
 import UniformTypeIdentifiers
@@ -92,4 +93,25 @@ for target in try files.contentsOfDirectory(at: icons, includingPropertiesForKey
     let data = try Data(contentsOf: generated)
     try data.write(to: target, options: .atomic)
 }
+
+// The debug app keeps the brand tile, with a blue DEV badge large enough for the Dock.
+// Keep it outside icons/: that directory is the generated release asset set above.
+let badge = CGRect(x: 570, y: 82, width: 390, height: 210)
+context.setFillColor(CGColor(srgbRed: 0.035, green: 0.23, blue: 0.62, alpha: 1))
+context.addPath(CGPath(roundedRect: badge, cornerWidth: 48, cornerHeight: 48, transform: nil))
+context.fillPath()
+NSGraphicsContext.saveGraphicsState()
+NSGraphicsContext.current = NSGraphicsContext(cgContext: context, flipped: false)
+let label = NSAttributedString(string: "DEV", attributes: [
+    .font: NSFont.systemFont(ofSize: 145, weight: .black),
+    .foregroundColor: NSColor.white
+])
+let labelSize = label.size()
+label.draw(at: CGPoint(x: badge.midX - labelSize.width / 2, y: badge.midY - labelSize.height / 2))
+NSGraphicsContext.restoreGraphicsState()
+let devIcon = root.appendingPathComponent("src-tauri/dev-icon.png")
+let devDestination = CGImageDestinationCreateWithURL(devIcon as CFURL, UTType.png.identifier as CFString, 1, nil)!
+CGImageDestinationAddImage(devDestination, context.makeImage()!, nil)
+guard CGImageDestinationFinalize(devDestination) else { fatalError("Could not write development icon") }
 print("Desktop icons regenerated; the visible macOS tile is \(Int(tileSize)) px and centered on a 1024 px canvas.")
+print("Development icon regenerated with a blue DEV badge.")

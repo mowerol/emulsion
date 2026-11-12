@@ -10,6 +10,8 @@ mod capture;
 mod catalog;
 mod commands;
 mod decode;
+#[cfg(all(debug_assertions, target_os = "macos"))]
+mod dev_icon;
 pub mod denoise;
 pub mod inpaint;
 mod inpaint_cache;
@@ -151,6 +153,8 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building Emulsion")
         .run(|app, event| match event {
+            #[cfg(all(debug_assertions, target_os = "macos"))]
+            tauri::RunEvent::Ready => dev_icon::install(),
             tauri::RunEvent::Exit => { noise_cache::shutdown(); ai_masks::shutdown(); sky_commands::shutdown(); inpaint_commands::shutdown(); }
             #[cfg(any(target_os = "macos", target_os = "ios"))]
             tauri::RunEvent::Opened { urls } => {

@@ -1,5 +1,19 @@
 # Handoff
 
+**Development Dock icon and release build (2026-11-12):** macOS debug builds
+install `src-tauri/dev-icon.png` (orange tile with a blue DEV badge) at `RunEvent::Ready`, after
+Tauri installs its default. `dev_icon.rs` is excluded from release builds. The existing Swift
+icon generator regenerates the badge too; production icon files are unchanged. Native tests:
+132 passed, 20 ignored; the dev app rebuilt and restarted. The generated badge was inspected.
+
+Oli's local `npm run release` built the app/DMG but failed signing the updater: an empty password
+was incorrect. That attempt left `release/` empty; the `.app.tar.gz.sig` in the native bundle directory is
+from the older build and must not be distributed with the new archive. Started GitHub Actions
+workflow_dispatch on clean pushed `39e4406` using the configured signing secrets:
+https://github.com/mowerol/emulsion/actions/runs/43328816907. GitHub reported macOS ARM
+runner capacity constraints; Oli cancelled the run before it started. workflow_dispatch produces
+artifacts, not a draft/public release. No version tag or release was published.
+
 **Library folder-switch freeze (2026-11-12):** Reproduced in an isolated,
 visible WKWebView mounting the real Library with 22,000 catalog photos and switches between
 two 3,000-file RAW/JPEG folders. Held scan IPC separates cached display from refresh; thumbnail
