@@ -14,6 +14,22 @@ export const site = {
     mp4: 'assets/hero-ui.mp4',
     poster: 'assets/hero-ui-poster.jpg',
   },
+
+  // The Local masks card: AI object masks picking out three cows, a screen recording cropped to
+  // 16:9 with its end crossfaded into the opening frame. H.264 only (AV1 came out larger on this
+  // grainy clip). Hosted like the hero video: git ignores the .mp4, so it is a Release asset live.
+  masksVideo: {
+    mp4: 'assets/masks.mp4',
+    poster: 'assets/masks-poster.jpg',
+  },
+
+  // The Noise reduction card's before/after slider: the same square crop (1700 px of the original, scaled to 1200) of an
+  // ISO 12800 OM-3 file (PA191727) with noise reduction off and on (WebP, q85, in public/assets).
+  // Leave either empty to show the placeholder.
+  noiseCompare: {
+    before: 'assets/nr-before.webp',
+    after: 'assets/nr-after.webp',
+  },
 };
 
 /** A file in public/ as a URL that works under the site's base path (/emulsion/ on GitHub Pages).

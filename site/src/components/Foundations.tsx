@@ -3,14 +3,32 @@ import { site } from '../site.ts';
 const sources = [
   {
     name: 'darktable',
-    role: 'Colour, tone and local editing',
-    items: ['Colour balance', 'Tone mapping', 'Highlights and shadows', 'Profiled noise reduction', 'Retouching', 'Masks'],
+    role: 'Colour, tone, noise and local editing',
+    items: [
+      'Colour balance',
+      'Tone mapping',
+      'Highlights and shadows',
+      'Clarity and texture',
+      'Colour equalizer',
+      'Haze removal',
+      'Profiled and AI noise reduction',
+      'Lens correction',
+      'Masks and AI object selection',
+      'Retouching',
+      'Grain',
+    ],
   },
   {
     name: 'RawTherapee',
     role: 'Detail and geometry',
-    items: ['Richardson–Lucy capture sharpening', 'Automatic perspective correction'],
+    items: ['Richardson–Lucy capture sharpening', 'Sharpening', 'Vignette', 'Automatic perspective correction'],
     note: 'Perspective correction also has roots in darktable.',
+  },
+  {
+    name: 'Spektrafilm',
+    role: 'Film optics',
+    items: ['Halation and glow'],
+    note: 'Ported through darktable’s implementation.',
   },
   {
     name: 'LibRaw',

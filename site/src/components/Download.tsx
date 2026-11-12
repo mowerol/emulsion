@@ -1,5 +1,4 @@
 import { site } from '../site.ts';
-import Shot from './Shot.tsx';
 
 export default function Download() {
   return (
@@ -16,9 +15,6 @@ export default function Download() {
             Beta for Macs with Apple silicon (M1 or later). macOS asks you to allow it once on first launch:{' '}
             <a href="#install">here’s how</a>.
           </p>
-        </div>
-        <div className="cta-media">
-          <Shot placeholder="Screenshot or photo: a finished edit" radius={14} />
         </div>
       </div>
     </section>

@@ -3,10 +3,13 @@
 The artwork comes from Oli's `emulsion-brand (1)` kit (2026-11-11). Runtime assets live
 in `public/brand`; the app does not depend on the original Documents folder.
 
-- `logo-tile.png`: the app-icon tile at 128 px (the same file as the website's
-  `site/public/assets/emulsion-logo.png`), shown at 22 px in the header.
-- `app-icon.png`: an exact copy of the supplied `logo/icon-app.png`, including its
+- `app-icon.png`: an exact copy of the final icon Oli supplied on 2026-11-12,
+  `emulsion-logo-icon.png` (809×820, replacing the kit's `logo/icon-app.png`), including its
   shading and transparent edges. It also serves as the browser favicon.
+- `logo-tile.png`: the app-icon tile at 128 px (the same file as the website's
+  `site/public/assets/emulsion-logo.png`), shown at 22 px in the header. It and the site's
+  512 px `site/public/favicon.png` are `app-icon.png` cropped to its visible tile (alpha ≥ 50%),
+  centred on a square and scaled with Lanczos.
 
 The header matches the website's lockup (Oli, 2026-11-12): the tile, then "Emulsion" as text in
 Geist 600 at 15px, coloured by the theme's `--fg`, with an 8px gap. It replaced the flat orange

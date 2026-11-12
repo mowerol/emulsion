@@ -1,5 +1,34 @@
 # Handoff
 
+**Final app icon and site spacing (2026-11-12, committed and pushed):** Oli supplied the final
+icon, `~/Documents/emulsion-brand (1)/emulsion-logo-icon.png` (809×820; new slider shape). It is
+now `public/brand/app-icon.png`; `swift tools/generate-icons.swift` regenerated `src-tauri/icons/`
+(icns, dev icon, ico, Appx tiles); the 128 px header tile (`public/brand/logo-tile.png` =
+`site/public/assets/emulsion-logo.png`) and the site's 512 px favicon are it cropped to its visible
+tile. See docs/BRANDING.md. The brand kit's own `logo/icon-app.png` is still the old mark. Recorded
+site media (hero loop and poster, masks clip, `emulsion-develop.webp`) still show the old 22 px
+header tile; re-record if that matters. Not checked in the app: the Dock icon after relaunch (macOS
+may cache the old one). Site, same session: sections are closer (`.sec` padding
+`clamp(72px, 9vw, 128px)`, was 96/13vw/176), and the Download banner's image slot is gone (Oli tried
+a Look Creator screenshot there and found it too short). The site commit carries the other site
+session's Looks switcher, noise-reduction compare and masks card too. `masks.mp4` is git-ignored,
+so the live masks card shows its poster until the clip is a Release asset (like the hero loop).
+Not committed (other sessions' work in progress): `src/backend/api.ts` and its test,
+`src/library/stillclient.ts`, `src/engine/warm.test.ts`, `src/film/emulsion-looks.json` and
+`builtin-looks.test.ts`, the README roadmap link and the RAW highlight recovery plan/research.
+
+**Site Looks switcher (2026-11-12, committed with the icon):** the Looks section's six 4:5 placeholders are
+now one 3:2 photo with look chips (`collection` in `site/src/components/Looks.tsx`; images in
+`site/public/assets/looks/<id>-1200|2400.webp`, from Oli's full-size exports in
+`~/Documents/emulsion-brand (1)/marketing-photos/Emulsion exports`, DSCF8412 and its copies).
+Standard (Copy 2, a custom look named Emulsion Standard), Neg (the original), Chrome
+(Copy 1) and Gold (Copy 3) are in; B&W Dynamic and B&W Classic (Copies 4–5) still need exporting,
+then add their images and `img` ids. Looks without an image are left out.
+
+Known, Oli said not to fix for now: the hero/perf tools leave scratch imports in his catalog
+(the "Photos / 2025" RAM-disk import shows 13 Unreadable photos), and Sync can't remove missing
+photos once a folder's drive is gone.
+
 **AI Noise Reduction model download (2026-11-12, uncommitted):** beta users had no way to get
 the RawNIND model (only `tools/denoise/setup.py`), and ticking AI Noise Reduction without it
 dropped the photo to its embedded preview with an error. Now `noise_cache.rs` pins darktable-ai's
@@ -370,8 +399,9 @@ Completed in this conversation, currently uncommitted:
   12px 30px-tall buttons). Probe:
   `?sectionheads=topbar&view=<library|develop>`.
 - **Emulsion Standard** is first in the official Emulsion collection and the default for new edits.
-  It currently uses the existing clean neutral rendering (no added colour balance, curve or LUT),
-  without new camera normalization. Saved legacy recipes keep their prior look/neutral fallback.
+  Its settings (2026-11-12, revision 2) are Oli's own custom "Emulsion Standard" look (revision 15
+  in his app data, `looks/6ee77537-….json`): colour balance, an RGB curve and colour equalizer
+  moves. Before that it was empty, i.e. the neutral rendering. No new camera normalization. Saved legacy recipes keep their prior look/neutral fallback.
   Photo matching, perspective analysis and look-authoring bases explicitly use Neutral.
 - Colour grading: clearer labels, an actual tonal-mask graph, and **independent local range tabs**
   for the wheel and Colour & brightness. The intermediate single-selector design was rejected

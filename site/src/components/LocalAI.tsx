@@ -1,3 +1,5 @@
+import { site } from '../site.ts';
+import Compare from './Compare.tsx';
 import Shot from './Shot.tsx';
 
 export default function LocalAI() {
@@ -25,7 +27,12 @@ export default function LocalAI() {
             </p>
           </div>
           <div className="feature-media" style={{ aspectRatio: '16 / 9' }}>
-            <Shot placeholder="Screenshot: a mask on the sky with its overlay visible" />
+            <Shot
+              video={site.masksVideo.mp4 || undefined}
+              src={site.masksVideo.poster}
+              alt="Clicking three cows in a field with the AI object mask: each one fills with the yellow mask overlay."
+              placeholder="Screen recording: AI object masks picked out with a click"
+            />
           </div>
         </article>
 
@@ -33,11 +40,21 @@ export default function LocalAI() {
           <div className="feature-text">
             <h3 className="h3">Noise reduction and sharpening</h3>
             <p className="body body-sm">
-              Clean up high-ISO files with AI-powered noise reduction and recover fine detail with capture sharpening.
+              Clean up high-ISO files with AI-powered noise reduction and recover fine detail with capture sharpening. Below: ISO 12800 on a Micro Four Thirds sensor.
             </p>
           </div>
           <div className="feature-media" style={{ aspectRatio: '1 / 1' }}>
-            <Shot placeholder="100% crop: high-ISO file before and after" />
+            {site.noiseCompare.before && site.noiseCompare.after ? (
+              <Compare
+                before={site.noiseCompare.before}
+                after={site.noiseCompare.after}
+                alt="A close crop of a dog's face shot at ISO 12800 on a Micro Four Thirds camera: heavy colour noise on one side of the divider, clean fur on the other."
+                beforeLabel="Original"
+                afterLabel="Noise reduced"
+              />
+            ) : (
+              <Shot placeholder="Before/after slider: a 100% crop of a high-ISO file, noise reduction off and on" />
+            )}
           </div>
         </article>
 
