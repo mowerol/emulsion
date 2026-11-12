@@ -31,5 +31,9 @@ async function start() {
   );
   // Dev only: `node tools/perf/inapp.mjs` starts the app with VITE_PERF to time it in the real window.
   if (import.meta.env.VITE_PERF) void import('./dev/perfrun').then((m) => m.run(import.meta.env.VITE_PERF));
+  // Dev only: `node tools/marketing/hero-stills.mjs` exports a photo through every Emulsion look.
+  if (import.meta.env.VITE_HERO) void import('./dev/herorun').then((m) => m.run(import.meta.env.VITE_HERO));
+  // Dev only: `node tools/marketing/hero-ui.mjs` records the hero take with a scripted cursor.
+  if (import.meta.env.VITE_HERO_UI) void import('./dev/heroui').then((m) => m.run(import.meta.env.VITE_HERO_UI));
 }
 void start();

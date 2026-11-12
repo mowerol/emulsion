@@ -1,5 +1,23 @@
 # Handoff
 
+**Website hero video (2026-11-12, Oli approved):** the hero shows the real app with a scripted
+real cursor (Oli's brief: the whole UI, the cursor working the sliders). On DSCF8579.RAF (Emulsion
+Faves) it builds his edit: Choose look › Emulsion Neg, Exposure +0.75, scroll, Shadows +19, Refine,
+Halation 13, Grain 31, every value landing exactly, 31 s loop. `node tools/marketing/hero-ui.mjs
+<folder> <photo> survey|take <out>` runs a second dev app (port 1430) with its content at 1232 × 770
+(16:10; the Dock caps the height on a 1440 × 900 screen); `src/dev/heroui.ts` (`VITE_HERO_UI`) opens
+the photo in Develop on the starting edit (his edit on Emulsion Standard with those four at 0), resets
+the panel tab and scroll, and streams the controls' layout; `tools/marketing/hero-cursor.swift` posts
+real mouse events (eased arcs, scrubs past each value and back) while ffmpeg records ProRes, then
+`tools/marketing/hero-ui-video.sh <take-raw.mov> <out>` cuts the loop at 1920 × 1200 and 2464 × 1540,
+60 fps, H.264 + AV1. Use a folder on a RAM disk named Photos (`hdiutil attach -nomount
+ram://1638400`, `diskutil erasevolume HFS+ Photos <dev>`, folder `2025/`) so the breadcrumb reads
+"Photos / 2025"; each run records the folder as a catalog import. Ghostty needs Accessibility and
+Screen Recording. Lessons: a background process can't activate an app on macOS 14+, so the cursor
+clicks the window's title bar; ffmpeg runs with `-t 90` and is stopped on any failure (an orphaned
+recorder once wrote 59 GB). An earlier photo-only loop (stills through each look:
+`hero-stills.mjs` + `src/dev/herorun.ts`, `hero-video.sh`) missed the brief but remains for stills.
+
 **Sluggish controls, scrolling and file switching (2026-11-12):** Oli
 reported the whole Emulsion interface felt slow, specifically controls/scrolling,
 then clicking between files. Do not explain this solely as external-drive latency.
