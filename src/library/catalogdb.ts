@@ -125,42 +125,51 @@ export async function freezeCatalogDb() {
  * remembers the new state.
  */
 export class CatalogDiff {
-  private rows = new Map<string, { root: string; key: Key; ref: object; json: string; pos: number }>();
-  private roots = new Set<string>();
+  /** Each root's rows, and the array they were read from: a root whose array is the same object is skipped. */
+  private roots = new Map<string, { photos: PhotoLike[]; rows: Map<string, { key: Key; ref: object; json: string; pos: number }> }>();
   private kv = new Map<string, unknown>();
 
   seed(folders: Record<string, PhotoLike[]>, kv: Record<string, unknown>) {
-    this.rows.clear();
-    this.roots = new Set(Object.keys(folders));
-    for (const [root, photos] of Object.entries(folders)) photos.forEach((p, pos) => {
-      const key = keyOf(root, p);
-      this.rows.set(rowId(key), { root, key, ref: p, json: JSON.stringify(stripPair(p)), pos });
-    });
+    this.roots.clear();
+    for (const [root, photos] of Object.entries(folders)) {
+      const rows = new Map<string, { key: Key; ref: object; json: string; pos: number }>();
+      photos.forEach((p, pos) => {
+        const key = keyOf(root, p);
+        rows.set(rowId(key), { key, ref: p, json: JSON.stringify(stripPair(p)), pos });
+      });
+      this.roots.set(root, { photos, rows });
+    }
     this.kv = new Map(Object.entries(kv));
   }
 
+  /**
+   * The catalog is the whole library and an edit changes one photo in the few roots that hold it
+   * (catalog.ts keeps the other roots' arrays), so only roots with a new array are compared:
+   * comparing every row took 30 ms per save with 80,000 of them.
+   */
   diff(folders: Record<string, PhotoLike[]>, kv: Record<string, unknown>): CatalogChange | null {
     const change: Required<Pick<CatalogChange, 'rootsAdded' | 'rootsRemoved' | 'upserts' | 'deletes'>> & { kv: Record<string, unknown> } =
       { rootsAdded: [], rootsRemoved: [], upserts: [], deletes: [], kv: {} };
-    const roots = new Set(Object.keys(folders));
-    for (const root of roots) if (!this.roots.has(root)) change.rootsAdded.push(root);
-    for (const root of this.roots) if (!roots.has(root)) change.rootsRemoved.push(root);
-    const next = new Map<string, { root: string; key: Key; ref: object; json: string; pos: number }>();
-    for (const [root, photos] of Object.entries(folders)) photos.forEach((p, pos) => {
-      const key = keyOf(root, p);
-      const id = rowId(key);
-      const was = this.rows.get(id);
-      if (next.has(id)) return; // listed twice in one folder: the first wins, as on load
-      if (was && was.ref === p && was.pos === pos) { next.set(id, was); return; }
-      const json = was?.ref === p ? was.json : JSON.stringify(stripPair(p));
-      const row = { root, key, ref: p, json, pos };
-      next.set(id, row);
-      if (!was || was.json !== json || was.pos !== pos) change.upserts.push({ ...key, pos, data: json });
-    });
-    for (const [id, was] of this.rows) if (!next.has(id) && roots.has(was.root)) change.deletes.push(was.key);
+    for (const root of Object.keys(folders)) if (!this.roots.has(root)) change.rootsAdded.push(root);
+    for (const root of [...this.roots.keys()]) if (!Object.prototype.hasOwnProperty.call(folders, root)) { change.rootsRemoved.push(root); this.roots.delete(root); }
+    for (const [root, photos] of Object.entries(folders)) {
+      const before = this.roots.get(root);
+      if (before?.photos === photos) continue;
+      const next = new Map<string, { key: Key; ref: object; json: string; pos: number }>();
+      photos.forEach((p, pos) => {
+        const key = keyOf(root, p);
+        const id = rowId(key);
+        const was = before?.rows.get(id);
+        if (next.has(id)) return; // listed twice in one folder: the first wins, as on load
+        if (was && was.ref === p && was.pos === pos) { next.set(id, was); return; }
+        const json = was?.ref === p ? was.json : JSON.stringify(stripPair(p));
+        next.set(id, { key, ref: p, json, pos });
+        if (!was || was.json !== json || was.pos !== pos) change.upserts.push({ ...key, pos, data: json });
+      });
+      if (before) for (const [id, was] of before.rows) if (!next.has(id)) change.deletes.push(was.key);
+      this.roots.set(root, { photos, rows: next });
+    }
     for (const [k, v] of Object.entries(kv)) if (this.kv.get(k) !== v) change.kv[k] = v;
-    this.rows = next;
-    this.roots = roots;
     this.kv = new Map(Object.entries(kv));
     const empty = !change.rootsAdded.length && !change.rootsRemoved.length && !change.upserts.length && !change.deletes.length && !Object.keys(change.kv).length;
     return empty ? null : change;

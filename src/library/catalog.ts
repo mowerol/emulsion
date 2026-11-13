@@ -128,7 +128,18 @@ export function queueEdits(photos: Photo[]) {
   for (const p of photos) families.set(p.path, [...(families.get(p.path) ?? []), p]);
   for (const [path, family] of families) pendingEdits.set(path, family);
   clearTimeout(editsTimer);
-  editsTimer = setTimeout(flushEdits, EDITS_SETTLE_MS);
+  editsTimer = setTimeout(settleEdits, EDITS_SETTLE_MS);
+}
+// A pause inside a drag is not the end of it: writing then (20-30 ms across a large library, with
+// everything that lists it) dropped frames as the slider moved on. Wait for the pointer to lift.
+let pointerHeld = false;
+if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+  window.addEventListener('pointerdown', () => { pointerHeld = true; }, true);
+  for (const type of ['pointerup', 'pointercancel', 'blur']) window.addEventListener(type, () => { pointerHeld = false; }, true);
+}
+function settleEdits() {
+  if (pointerHeld) { editsTimer = setTimeout(settleEdits, EDITS_SETTLE_MS); return; }
+  flushEdits();
 }
 export function flushEdits() {
   clearTimeout(editsTimer);
@@ -139,9 +150,19 @@ export function flushEdits() {
   writeEdits(photos);
 }
 
+/**
+ * Every photo in the library, once each (a photo is cached under each root that holds it). The
+ * answer is kept while the folder cache is the same object: the sidebar, the top bar, the folder
+ * tree and saving each ask after every change, and a library of 20,000 photos took 6 ms a time.
+ * Callers must not change the array returned.
+ */
+let allPhotos: { folders: Catalog['folders']; photos: Photo[] } | null = null;
 export function catalogPhotos(catalog?: Catalog): Photo[] {
   if (!catalog) { flushEdits(); catalog = useCatalog.getState(); }
-  return [...new Map(Object.values(catalog.folders).flat().map(p => [photoId(p), p])).values()];
+  if (allPhotos?.folders === catalog.folders) return allPhotos.photos;
+  const photos = [...new Map(Object.values(catalog.folders).flat().map(p => [photoId(p), p])).values()];
+  allPhotos = { folders: catalog.folders, photos };
+  return photos;
 }
 export function cacheFolder(root: string, photos: Photo[]) {
   useCatalog.setState(s => ({ folders: { ...s.folders, [root]: photos.map(p => p.pair ? { ...p, pair: null } : p) } }));

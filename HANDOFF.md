@@ -1,5 +1,71 @@
 # Handoff
 
+**0.1.2 prepared (2026-11-12, 23:20), not yet released:** version bumped in package.json,
+tauri.conf.json, Cargo.toml and both lock files; `docs/release-notes/0.1.2.md` written; the slider
+fixes below and the other session's favourites default (the six Emulsion looks for anyone with
+no saved favourites, `lookbrowser-preferences.test.ts`) are committed. Oli tried a local bundle
+of the fixes in his real folder ("working a lot better") and is running `npm run release` himself
+(it prompts for the updater key password). Not pushed. After the build: publish the six files in
+`release/` as v0.1.2 (docs/RELEASING.md).
+
+**Slider lag in a large library (2026-11-12, late night; committed in 0.1.2, `npm run check` passes: 904 JS, 132 Rust).**
+Oli's lag was reproduced and is not a release-build problem: the release binary, bare or as a real
+bundle launched through LaunchServices, times the same as dev (58–60 fps controls, ~45 fps photo)
+*in the conditions every timing run used: an empty catalog and a one-photo folder*. Oli's dev and
+release apps both reopen `/Volumes/Oli External/Photos`: 22,362 photos open, and a catalog of
+79,516 rows (the same photos under 35 nested roots). There a release drag ran at **21–23 fps on
+the photo and 40–42 fps on the controls**, main thread blocked ~800 ms/s. Why dev felt fine to
+him is not explained (same code, same catalog); it was not measured in his dev window.
+After the fixes, same conditions, release: **38–43 fps photo, 54–59 fps controls**, ~420 ms/s
+blocked (what a one-photo folder gives; the rest is WebKit style/layout, the "next speed task"
+below). Causes, all main-thread work per slider frame that grew with the library:
+- `persistSources` replaced `candidates` (the import list) on every edit: a second store update
+  per frame, and TopBar's `useImportPhotos` then rebuilt the whole catalog list (5.7 ms) and, in
+  a big folder, folded 22,000 candidates into pairs (120 ms). Now an edit that keeps the same
+  frames waits 250 ms (`flushCandidates`, called before anything reads the list's photos); the
+  top bar lists nothing outside Import; the catalog-wide path set depends on the catalog only.
+- `shown()` was built from scratch ~4 times a frame (4 ms each), and zustand's `useShallow`
+  compared all 22,000 indices on every store update once its copy was another array. `shown()`
+  and `sourceMembership` now keep their answer through an edit that changes none of what they
+  read (`src/library/photolist.ts`: `changedPlaces`, `overPhotos`), return the same array while
+  the contents are the same, and `useShown` is a plain selector. The keyword tree's metas, the
+  filter bar's match count and keyword list use `overPhotos` too.
+- `catalogPhotos()` is kept per `folders` object (every reader rebuilt 79,516 → 22,362 per change);
+  `CatalogDiff.diff` skips roots whose array is unchanged (30 ms per save → the edited roots);
+  catalog writes wait while a pointer is held (`settleEdits`), so a pause inside a drag no longer
+  costs 30–50 ms when the slider moves on.
+- Tests: `photolist.test.ts`, five new in `catalog.test.ts`, one in `catalogdb.test.ts`.
+
+**Timing runs must use real conditions now:** `CATALOG=real FILL=22000 PACKAGED=1 node
+tools/perf/inapp.mjs <photo> controls 400` (`CATALOG=real` copies Oli's library.db into the perf
+identifier `app.emulsion.slider-perf`, which currently holds that copy; `FILL` adds n small JPEGs
+to the scratch folder). `PERF_BINARY=src-tauri/target/release/emulsion` reruns without rebuilding.
+A run fails with "did not gain focus" if another window takes the front.
+
+**Still open (slider):** (1) The background full-resolution decode's ~208 MB answer lands on the
+main thread: one 70–270 ms freeze if a slider is held when it arrives (once per photo, ~1–2 s
+after opening it), then a 75–165 ms `upload` clone once idle. It is no longer *started* under a
+held pointer; starting it only after a pause was tried and moved the landing into the next drag,
+so it starts at once again. A real fix has the worker fetch it (a Rust URI scheme protocol; the
+worker cannot `invoke`), and needs Oli's go-ahead: it changes who owns decoded pixels
+(`decodedImages`, zoom's foreground load) and WebKit may still route the bytes through the main
+thread in chunks. (2) After a release, the catalog flush still blocks 35–60 ms once (writeEdits
+over all rows, `diskChanges` index, keyword metas). (3) Per edit, ~2.5 ms of JS still scales
+with the folder (`photos.map`, `persistSources` filters, the catalog subscriber).
+Not checked in the app by hand: Import (the chooser's tiles and both Import buttons), Sync
+Folder, virtual copies in the import list, a filter with a smart collection open, and zooming
+after a drag. Oli should try those and a real drag in his 22,000-photo folder.
+
+**0.1.1 released (2026-11-12, 21:40):** https://github.com/mowerol/emulsion/releases/tag/v0.1.1,
+Latest, six assets from Oli's local `npm run release` of `17f1ee2`; DMG checksum OK, app 0.1.1
+with the fixed CSP, `releases/latest/download/latest.json` reports 0.1.1. Oli confirmed the
+in-app update from 0.1.0 installs and works: the first real end-to-end test of the updater. The tag started
+redundant CI run `43353267092`; its `gh release create --draft` will fail on the existing tag
+(harmless). Cancelling it was blocked by Claude's permissions. `gh release create --target`
+needs a branch or full hash (a short hash gave 422). The other session's favourites change
+(`src/ui/lookbrowser.ts`, `lookbrowser-preferences.test.ts`) was stashed for the build and
+restored, still uncommitted.
+
 **0.1.1 (2026-11-12, night): LUT looks and slider lag in 0.1.0.** Two causes, both verified.
 (1) The release CSP (`tauri.conf.json`; `tauri dev` has `devCsp: null`) had no `'self'` in
 `connect-src`, so lutstore's XMLHttpRequest for every bundled LUT was blocked. The main thread

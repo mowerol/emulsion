@@ -9,6 +9,7 @@ import { create } from 'zustand';
 import { useMemo } from 'react';
 import { retagKeywords } from '../backend/api';
 import { getSetting, setSetting } from './appsettings';
+import { overPhotos } from './photolist';
 import { cacheEdits, catalogPhotos, useCatalog } from './catalog';
 import { editMeta, showToast, useApp, type Photo } from './store';
 import { keywordLabel, keywordName, keywordTree, keywordWithin, movedKeyword, normalizeMeta, retagMeta, tidyKeywords, tidyPath, type KeywordNode, type PhotoMeta } from './meta';
@@ -66,11 +67,31 @@ function byMetas<T>(make: (metas: (PhotoMeta | undefined)[]) => T) {
 const openMetas = byMetas(metas => metas);
 const cachedMetas = byMetas(metas => metas);
 
+// Each list's metas, read again only when a photo's meta (or which frames are copies) changed.
+const sourceMetas = (photos: Photo[]) => photos.filter(p => !p.copyId).map(p => p.meta);
+const sameMeta = (a: Photo, b: Photo) => a.meta === b.meta && a.copyId === b.copyId;
+const shownMetas = overPhotos(sourceMetas, sameMeta);
+const hiddenMetas = overPhotos(sourceMetas, sameMeta);
+
+let listedOpen: { shown: unknown; hidden: unknown; metas: (PhotoMeta | undefined)[] } | null = null;
+function openPhotoMetas(s: { photos: Photo[]; hidden: Photo[] }) {
+  const shown = shownMetas(s.photos), hidden = hiddenMetas(s.hidden);
+  if (listedOpen?.shown !== shown || listedOpen.hidden !== hidden) listedOpen = { shown, hidden, metas: openMetas([...shown, ...hidden]) };
+  return listedOpen.metas;
+}
+
+/** The catalog's metas, listed again only when the folder cache changed (each render asks, and it is the whole library). */
+let listedMetas: { folders: unknown; metas: (PhotoMeta | undefined)[] } | null = null;
+function catalogMetas(folders: Record<string, Photo[]>) {
+  if (listedMetas?.folders !== folders) listedMetas = { folders, metas: cachedMetas(catalogPhotos({ folders } as Parameters<typeof catalogPhotos>[0]).filter(p => !p.copyId).map(p => p.meta)) };
+  return listedMetas.metas;
+}
+
 /** The library's keyword hierarchy, with how many photos have each keyword. */
 export function useKeywordTree(): KeywordNode[] {
   // Each selector returns the same array while no meta changed, so a slider drag rebuilds nothing.
-  const open = useApp(s => openMetas([...s.photos, ...s.hidden].filter(p => !p.copyId).map(p => p.meta)));
-  const cached = useCatalog(s => cachedMetas(Object.values(s.folders).flat().filter(p => !p.copyId).map(p => p.meta)));
+  const open = useApp(openPhotoMetas);
+  const cached = useCatalog(s => catalogMetas(s.folders));
   const made = useKeywordList(s => s.made);
   return useMemo(() => {
     const s = useApp.getState();
@@ -90,7 +111,7 @@ const pathsOf = byMetas(metas => {
 });
 
 /** Every keyword (and parent) the given photos have, sorted, as a stable array while their metas don't change. */
-export const keywordPaths = (photos: Photo[]) => pathsOf(photos.map(p => p.meta));
+export const keywordPaths = overPhotos((photos: Photo[]) => pathsOf(photos.map(p => p.meta)), (a, b) => a.meta === b.meta);
 
 /** Every keyword in the library, as paths, for typing suggestions. */
 export function knownKeywords(): string[] {

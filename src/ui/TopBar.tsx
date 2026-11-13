@@ -30,7 +30,7 @@ export function TopBar() {
   const disk = root ? disks[`${root}\0${recursive}`] : undefined;
   const added = root ? diskChanges(root, disk?.listing, recursive).added.length : 0;
   const importer = useImporter();
-  const { fresh } = useImportPhotos();
+  const { fresh } = useImportPhotos(importing);
   const selected = fresh.filter(p => importer.picked.has(p.path) || !!p.pair && importer.picked.has(p.pair));
   useEffect(() => {
     if (!root || importing || s.source?.type !== 'folder') return;

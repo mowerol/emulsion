@@ -4,7 +4,7 @@ import { captureLook } from '../film/looks';
 // selection, and which view is showing.
 
 import { create } from 'zustand';
-import { useShallow } from 'zustand/react/shallow';
+import { changedPlaces } from './photolist';
 import { useRef } from 'react';
 import type { Histogram } from '../engine/histogram';
 import type { Xy } from '../engine/whitebalance';
@@ -16,7 +16,7 @@ import { libraryEntries, membership as folderMembership, parentFolder, withinFol
 import { defaultRecipe, normalizeRecipe, type Recipe } from '../film/recipe';
 import { applyCopiedSettings, DEFAULT_COPY_GROUPS, normalizeCopyGroups, type CopiedSettings, type CopyGroup } from '../film/copysettings';
 import { FULL, isFull, type Crop } from '../film/crop';
-import { NO_FILTER, normalizeFilter, passes, rangeWithin, shownIndices, stepWithin, type Filter } from './filter';
+import { NO_FILTER, isFiltering, normalizeFilter, passes, rangeWithin, shownIndices, stepWithin, type Filter } from './filter';
 import { seedFor } from '../engine/engine';
 import { flushSaves, savePhoto } from './sidecars';
 import { findPairs, foldPairs } from './pairs';
@@ -364,6 +364,7 @@ let importReturn: State | null = null;
 
 export async function openFolder(path: string, importing = false) {
   if (get().lookEdit) return showToast('Save or cancel the look draft first');
+  flushCandidates();
   const previousState = get();
   const request = ++folderRequest;
   finishCrop(true);
@@ -523,6 +524,7 @@ function fillNewPhotos(root: string, paths: string[]) {
 }
 
 export function importFolderPhotos(choice: FolderImport, name?: string) {
+  flushCandidates();
   const { folder, candidates, photos, hidden } = get();
   if (!folder || get().loading) return;
   // Imports are additive snapshots. "sync" is accepted for old callers, never persisted.
@@ -547,6 +549,7 @@ export function importFolderPhotos(choice: FolderImport, name?: string) {
 /** Enter Import without losing the Library source/selection that Cancel returns to. */
 export async function startImport(path = get().folder?.root) {
   if (!path || get().lookEdit) return;
+  flushCandidates();
   if (!importReturn) { finishCrop(true); importReturn = get(); }
   set({ choosingImport: true, view: 'library', loupeFullscreen: false });
   const opened = await openFolder(path, true);
@@ -555,6 +558,7 @@ export async function startImport(path = get().folder?.root) {
   return opened;
 }
 export function chooseImport(choosingImport: boolean) {
+  flushCandidates();
   if (choosingImport) {
     if (!importReturn) importReturn = get();
     set({ choosingImport: true, view: 'library', loupeFullscreen: false });
@@ -610,6 +614,7 @@ export async function syncFolderPhotos(root: string, options: { add: string[]; r
       saveFolderImport(path, { mode: 'selected', paths: [] });
     }
   }
+  flushCandidates();
   const scopeChoice = folderMembership(root);
   if (scopeChoice?.mode === 'selected') {
     const next = { ...scopeChoice, includeSubfolders: options.recursive };
@@ -766,37 +771,58 @@ export function setSelectedOnly(selectedOnly: boolean) { set({ selectedOnly }); 
  * large library took most of a second per click when each of them ran them again (2026-11-11).
  * Callers must not change the arrays returned.
  */
-let membership: { photos: Photo[]; source: SourceSelection | null; imports: unknown; collections: unknown; indices: number[]; members: Photo[] } | null = null;
-function sourceMembership(s: State) {
+interface Membership {
+  photos: Photo[]; source: SourceSelection | null; imports: unknown; collections: unknown;
+  matches: (photo: Photo) => boolean;
+  /** A folder shows all it holds: the members are the photos themselves. */
+  all: boolean;
+  indices: number[];
+  /** Listed when first asked for (sourcePhotos). */
+  members: Photo[] | null;
+}
+let membership: Membership | null = null;
+function sourceMembership(s: State): Membership {
   const { imports, collections } = useCatalog.getState();
   const m = membership;
-  if (m && m.photos === s.photos && m.source === s.source && m.imports === imports && m.collections === collections) return m;
+  if (m && m.source === s.source && m.imports === imports && m.collections === collections) {
+    if (m.photos === s.photos) return m;
+    const changed = m.all ? (m.photos.length === s.photos.length ? [] : null) : changedPlaces(m.photos, s.photos);
+    // The same members in the same places: only the photo objects are new.
+    if (changed && changed.every(i => m.matches(s.photos[i]) === m.matches(m.photos[i]))) return membership = { ...m, photos: s.photos, members: null };
+  }
+  const all = !s.source || s.source.type === 'folder';
   const matches = sourceMatcher(s.source);
   const indices = s.photos.flatMap((p, i) => matches(p) ? [i] : []);
-  return membership = { photos: s.photos, source: s.source, imports, collections, indices, members: indices.map(i => s.photos[i]) };
+  return membership = { photos: s.photos, source: s.source, imports, collections, matches, all, indices, members: null };
 }
 export const sourceIndices = (s: State = get()) => sourceMembership(s).indices;
-export const sourcePhotos = (s: State = get()) => sourceMembership(s).members;
+export const sourcePhotos = (s: State = get()) => {
+  const m = sourceMembership(s);
+  return m.members ??= m.all ? m.photos : m.indices.map(i => m.photos[i]);
+};
 
 // Keep the catalog current as edits, marks, versions and decoded camera metadata arrive.
 // Only the sources whose photos changed (a drag changes one), queued until edits settle (catalog.ts).
 useApp.subscribe((s, old) => {
   if ((s.photos === old.photos && s.hidden === old.hidden) || s.loading || s.lookEdit) return;
-  const now = [...s.photos, ...s.hidden], before = [...old.photos, ...old.hidden];
-  if (now.length !== before.length) return queueEdits(now);
+  if (s.photos.length !== old.photos.length || s.hidden.length !== old.hidden.length) return queueEdits([...s.photos, ...s.hidden]);
   const paths = new Set<string>();
-  for (let i = 0; i < now.length; i++) if (now[i] !== before[i]) { paths.add(now[i].path); paths.add(before[i].path); }
-  if (paths.size) queueEdits(now.filter(p => paths.has(p.path)));
+  for (const [now, before] of [[s.photos, old.photos], [s.hidden, old.hidden]]) {
+    if (now !== before) for (let i = 0; i < now.length; i++) if (now[i] !== before[i]) { paths.add(now[i].path); paths.add(before[i].path); }
+  }
+  if (paths.size) queueEdits([...s.photos.filter(p => paths.has(p.path)), ...s.hidden.filter(p => paths.has(p.path))]);
 });
 
 /** Shared by Library, Develop's Images pane and the classic filmstrip. */
 /**
- * The shown photos' indices. Compared by value, so an edit (or a histogram update) that leaves
- * the list as it was doesn't re-render the grid; catalogue changes re-render through useCatalog.
+ * The shown photos' indices: the same array while they are the same (see `shown`), so an edit (or
+ * a histogram update) that leaves the list as it was doesn't re-render the grid; catalogue changes
+ * re-render through useCatalog. Not zustand's useShallow: once its own copy was another array of
+ * the same indices it compared all of them on every store update, 3 ms a time with 22,000.
  */
 export function useShown() {
   useSourceDefinitions();
-  return useApp(useShallow(s => shown(s)));
+  return useApp(shown);
 }
 
 const sameExceptRecipe = (a: Photo, b: Photo) => {
@@ -871,11 +897,32 @@ export function setActive(index: number, mode: 'single' | 'toggle' | 'range' | '
   }
 }
 
-/** Indices of the photos the grid and the strip show. */
+/**
+ * Indices of the photos the grid and the strip show. The last answer is kept: the Images pane, the
+ * filmstrip, the menu and every arrow key ask on each store update. It stands while its inputs are
+ * the same objects, and through an edit that leaves the edited photos shown or hidden as they were
+ * (changedPlaces). Callers must not change the array returned.
+ */
+let shownList: { photos: Photo[]; filter: Filter; active: number; selectedOnly: boolean; selected: Set<string>; missingPaths: State['missingPaths']; scope: number[]; list: number[] } | null = null;
 export const shown = (s: State = get()) => {
-  const scope = new Set(sourceIndices(s));
-  const active = s.photos[s.active] && photoId(s.photos[s.active]) === s.filterExcludedActive ? -1 : s.active;
-  return shownIndices(s.photos, s.filter, active).filter(i => scope.has(i) && (!s.selectedOnly || s.selected.has(photoId(s.photos[i]))) && (!s.missingPaths || s.missingPaths.has(s.photos[i].path)));
+  const membership = sourceMembership(s);
+  const scope = membership.indices;
+  // The active photo is kept whatever the filter says, so it only matters while one is on.
+  const active = !isFiltering(s.filter) || (s.photos[s.active] && photoId(s.photos[s.active]) === s.filterExcludedActive) ? -1 : s.active;
+  const kept = (p: Photo, i: number) => (passes(p, s.filter) || i === active) && (!s.selectedOnly || s.selected.has(photoId(p))) && (!s.missingPaths || s.missingPaths.has(p.path));
+  const c = shownList;
+  if (c && c.filter === s.filter && c.active === active && c.selectedOnly === s.selectedOnly && c.selected === s.selected && c.missingPaths === s.missingPaths && c.scope === scope) {
+    if (c.photos === s.photos) return c.list;
+    const changed = changedPlaces(c.photos, s.photos);
+    if (changed && changed.every(i => kept(s.photos[i], i) === kept(c.photos[i], i))) { c.photos = s.photos; return c.list; }
+  }
+  const inScope = membership.all ? null : new Set(scope);
+  let list = shownIndices(s.photos, s.filter, active).filter(i => (!inScope || inScope.has(i)) && (!s.selectedOnly || s.selected.has(photoId(s.photos[i]))) && (!s.missingPaths || s.missingPaths.has(s.photos[i].path)));
+  // The same photos as before (a click changes the selection, not what is shown): the same array,
+  // so useShown's readers are not drawn again.
+  if (c && c.list.length === list.length && c.list.every((v, i) => v === list[i])) list = c.list;
+  shownList = { photos: s.photos, filter: s.filter, active, selectedOnly: s.selectedOnly, selected: s.selected, missingPaths: s.missingPaths, scope, list };
+  return list;
 };
 
 /** Move through the shown photos; a grid row down is `delta` = columns. */
@@ -979,16 +1026,53 @@ function persistSources(ids: string[], checkpoint = false) {
     if (!family.some(p => !p.copyId)) continue;
     savePhoto({ path, ...savedFrames(family) }, checkpoint);
     // Import management must retain versions created or removed since the last scan.
-    if (!get().candidates.some(p => p.path === path)) continue;
-    let inserted = false;
-    const candidates = get().candidates.flatMap(p => {
-      if (p.path !== path) return [p];
-      if (inserted) return [];
-      inserted = true;
-      return family;
-    });
-    set({ candidates });
+    const listed = get().candidates.filter(p => p.path === path);
+    if (!listed.length) continue;
+    // The same frames with new settings (every frame of a slider drag) wait for the edits to
+    // settle: a second store update per frame re-ran everything that reads the import list.
+    if (listed.length === family.length && listed.every((p, i) => photoId(p) === photoId(family[i]))) {
+      staleCandidates.add(path);
+      clearTimeout(candidatesTimer);
+      candidatesTimer = setTimeout(flushCandidates, CANDIDATES_SETTLE_MS);
+      continue;
+    }
+    staleCandidates.delete(path);
+    set({ candidates: withFamilies(get().candidates, new Map([[path, family]])) });
   }
+}
+
+/** Sources whose frames in the import list have older settings than the open photos. */
+const staleCandidates = new Set<string>();
+let candidatesTimer: ReturnType<typeof setTimeout> | undefined;
+const CANDIDATES_SETTLE_MS = 250;
+/** Each listed source's frames replaced by its family, in the source's place. */
+function withFamilies(candidates: Photo[], families: Map<string, Photo[]>) {
+  const inserted = new Set<string>();
+  return candidates.flatMap(p => {
+    const family = families.get(p.path);
+    if (!family) return [p];
+    if (inserted.has(p.path)) return [];
+    inserted.add(p.path);
+    return family;
+  });
+}
+/** Bring the import list up to date with edits that were waiting (before anything reads its photos). */
+export function flushCandidates() {
+  clearTimeout(candidatesTimer);
+  candidatesTimer = undefined;
+  if (!staleCandidates.size) return;
+  const paths = new Set(staleCandidates);
+  staleCandidates.clear();
+  const editing = get().lookEdit;
+  const families = new Map<string, Photo[]>();
+  for (const p of [...get().photos, ...get().hidden]) {
+    if (!paths.has(p.path)) continue;
+    families.set(p.path, [...(families.get(p.path) ?? []), editing?.path === photoId(p) ? { ...p, recipe: editing.original } : p]);
+  }
+  // A folder opened since then lists its own photos; a family without its source isn't saved either.
+  for (const [path, family] of families) if (!family.some(p => !p.copyId)) families.delete(path);
+  const candidates = get().candidates;
+  if (candidates.some(p => families.has(p.path))) set({ candidates: withFamilies(candidates, families) });
 }
 
 const familyOf = (path: string) => [...get().photos, ...get().hidden].filter(p => p.path === path);

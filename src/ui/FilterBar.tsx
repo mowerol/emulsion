@@ -1,13 +1,21 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { memo } from 'react';
-import { setFilter, sourcePhotos, useApp } from '../library/store';
-import { EDIT_FILTERS, FLAG_FILTERS, NO_FILTER, isFiltering, matchCount } from '../library/filter';
+import { setFilter, sourcePhotos, useApp, type Photo } from '../library/store';
+import { overPhotos } from '../library/photolist';
+import { EDIT_FILTERS, FLAG_FILTERS, NO_FILTER, isFiltering, matchCount, passes, type Filter } from '../library/filter';
 import { LABELS } from '../library/marks';
 import { Star } from 'lucide-react';
 import { useSourceDefinitions } from '../library/catalog';
 import { FlagIcon, Segmented } from './common';
 import { keywordPaths } from '../library/keywords';
 import { keywordName } from '../library/meta';
+
+// How many photos match, counted again only when the filter or a photo's answer to it changes.
+let counted: { filter: Filter; count: (photos: Photo[]) => number } | null = null;
+function countMatching(photos: Photo[], filter: Filter) {
+  if (counted?.filter !== filter) counted = { filter, count: overPhotos(list => matchCount(list, filter), (a, b) => passes(a, filter) === passes(b, filter)) };
+  return counted.count(photos);
+}
 
 /** What the Library grid and the filmstrip show: edited or not, stars and up, flags (any of picked,
  *  unflagged, rejected, as Lightroom's three flag toggles), colour tags.
@@ -17,7 +25,7 @@ export const FilterBar = memo(function FilterBar({ summary = true, showCount = t
   useSourceDefinitions();
   // Counts, not the photo list, so an edit that leaves them as they were doesn't re-render the bar.
   const scopedCount = useApp(s => sourcePhotos(s).length);
-  const matching = useApp(s => matchCount(sourcePhotos(s), s.filter));
+  const matching = useApp(s => countMatching(sourcePhotos(s), s.filter));
   const on = isFiltering(filter);
   // The same array while no photo's keywords change, so a slider drag doesn't re-render the bar.
   const keywords = useApp(s => keywordPaths(sourcePhotos(s)));

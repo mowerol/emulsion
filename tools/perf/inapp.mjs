@@ -2,15 +2,18 @@
 // Times the real app: starts `npm run tauri dev` (WKWebView, the real window on this screen) on a
 // scratch copy of a photo, lets src/dev/perfrun.ts drive it, prints its result and quits.
 // The window has to stay visible while it runs (macOS throttles hidden webviews).
-// Usage: [PROD=1|PACKAGED=1|PACKAGED=debug] node tools/perf/inapp.mjs <photo> [which=all|sliders|combo|clicks,...] [timeout s]
+// Usage: [PROD=1|PACKAGED=1|PACKAGED=debug] [CATALOG=real] [FILL=22000] node tools/perf/inapp.mjs <photo> [which=all|sliders|combo|clicks,...] [timeout s]
 // PROD=1 times a production build of the interface (`vite build`, served by `vite preview`) in the
 // same dev shell: the controls bar is judged on production React (Oli, 2026-11-10).
 // PACKAGED=1 uses the release binary with embedded assets and release CSP; PACKAGED=debug
 // uses a debug binary with the same asset origin/policy. PERF_BINARY reuses a built driver.
 // Timings use a separate app identifier so test imports never enter the user's catalog.
+// CATALOG=real first copies the user's library catalog into that identifier's folder (CATALOG=<file>
+// copies another library.db, CATALOG=empty removes it); otherwise the last run's is used. An empty
+// catalog hides whatever costs grow with the library: a slider drag was 25% slower on 22,000 photos.
 import { spawn, execFile } from 'node:child_process';
-import { copyFile, mkdtemp } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
+import { copyFile, link, mkdir, mkdtemp, rm } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
@@ -19,7 +22,25 @@ if (!photo) throw new Error('Usage: inapp.mjs <photo> [which] [timeout s]');
 // A scratch folder, so the run's edits go to scratch sidecars, never the photo's own.
 const dir = await mkdtemp(join(process.env.PERF_TMP ?? tmpdir(), 'emulsion-perf-'));
 for (const p of photo.split(',')) await copyFile(p, join(dir, basename(p)));
+// FILL=<n> adds n small JPEGs beside the photos (hard links to one file, sorted after them): the
+// open folder's size is the other thing an empty run hides. Oli works in a 22,000-photo folder.
+if (Number(process.env.FILL) > 0) {
+  const tile = join(dir, 'zz-fill-00000.jpg');
+  await promisify(execFile)('sips', ['-s', 'format', 'jpeg', '-Z', '64', new URL('../../public/brand/logo-tile.png', import.meta.url).pathname, '--out', tile]);
+  for (let i = 1; i < Number(process.env.FILL); i++) await link(tile, join(dir, `zz-fill-${String(i).padStart(5, '0')}.jpg`));
+}
 // Its own port, so it can run beside a `tauri dev` already open on 1420.
+if (process.env.CATALOG) {
+  const support = join(homedir(), 'Library/Application Support');
+  const to = join(support, 'app.emulsion.slider-perf');
+  await mkdir(to, { recursive: true });
+  for (const f of ['library.db', 'library.db-wal', 'library.db-shm']) await rm(join(to, f), { force: true });
+  if (process.env.CATALOG !== 'empty') {
+    const from = process.env.CATALOG === 'real' ? join(support, 'app.emulsion.desktop/library.db') : resolve(process.env.CATALOG);
+    // A consistent copy even while the app has the catalog open.
+    await promisify(execFile)('sqlite3', [`file:${from}?mode=ro`, `.backup '${join(to, 'library.db')}'`]);
+  }
+}
 const port = process.env.PERF_PORT ?? '1430';
 // DIST=<dir> serves an interface already built there (`VITE_PERF=<which> vite build`), e.g. an
 // older commit's, against today's Rust: how a slowdown is bisected to the commit that made it.

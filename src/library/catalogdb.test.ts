@@ -131,6 +131,17 @@ describe('CatalogDiff', () => {
     void b1;
   });
 
+  // An edit changes one photo in the roots that hold it; the rest of an 80,000-row catalog is not read again.
+  test('a folder whose list is unchanged is not compared again', async () => {
+    const { d, folders, kv, a1 } = await setup();
+    let read = 0;
+    const watched = new Proxy(folders['/b'], { get(target, key, self) { if (key === 'forEach') read++; return Reflect.get(target, key, self); } });
+    d.seed({ ...folders, '/b': watched }, kv);
+    const change = d.diff({ '/a': [{ ...a1, rating: 5 }, folders['/a'][1]], '/b': watched }, kv)!;
+    expect(change.upserts).toHaveLength(1);
+    expect(read).toBe(1);
+  });
+
   test('a photo removed from a folder is deleted', async () => {
     const { d, folders, kv, a1 } = await setup();
     const change = d.diff({ ...folders, '/a': [a1] }, kv)!;

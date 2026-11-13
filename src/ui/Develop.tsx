@@ -530,8 +530,19 @@ export function Develop() {
         if (ok && !cancelled && engineRef.current === engine && loadedRef.current?.path === path) engine.prepareCapture(source);
       });
     };
-    const cancel = prepareFullImage(path, src.fullW, src.fullH, engine.maxTextureSize, ready);
-    return () => { cancelled = true; clearTimeout(uploadTimer); cancel(); };
+    // The decode's ~200 MB answer arrives on the main thread (70-250 ms with nothing drawn), so it
+    // is not started under a held pointer. It starts at once otherwise: begun as the photo opens
+    // it usually lands before the first slider is touched, and waiting for a pause after each
+    // edit moved the landing into the next drag instead (measured 2026-11-12). One already
+    // running when a drag begins still lands in it; only its upload can wait then.
+    let cancel = () => {};
+    let startTimer: ReturnType<typeof setTimeout> | undefined;
+    const start = () => {
+      if (pointerHeld.current) { startTimer = setTimeout(start, 100); return; }
+      cancel = prepareFullImage(path, src.fullW, src.fullH, engine.maxTextureSize, ready);
+    };
+    start();
+    return () => { cancelled = true; clearTimeout(startTimer); clearTimeout(uploadTimer); cancel(); };
     // Recipe changes cancel stale callbacks and request preparation for the current settings.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, wantsNoise, sizeKnown, loadedVersion, recipe, decodeFailed]);

@@ -243,3 +243,89 @@ it('keeps every virtual copy of an edited source in the catalog', async () => {
   expect(family).toHaveLength(2);
   expect(family.filter(p => p.recipe?.exposure === 2)).toHaveLength(1);
 });
+
+// Found on a 22,362-photo library (79,516 catalog rows) on 2026-11-12: every frame of a slider
+// drag replaced the import list (persistSources), a second store update per frame, and the top
+// bar's import list then walked the whole catalog again: 5.7 ms a frame, the photo at 34 fps
+// instead of 45. With an empty catalog (every timing run until then) it cost nothing.
+it('updates the store once per frame of a drag, and the import list when the drag settles', async () => {
+  vi.useFakeTimers();
+  try {
+    await importFolder('/one', ['a.orf', 'b.orf']);
+    const listed = useApp.getState().candidates;
+    expect(listed.map(p => p.path)).toContain('/one/a.orf');
+    let updates = 0;
+    const stop = useApp.subscribe(() => { updates++; });
+    for (let i = 1; i <= 60; i++) editActive(r => ({ ...(r ?? defaultRecipe()), exposure: i / 20 }), 'Exposure', { key: 'exposure', continuous: true });
+    stop();
+    expect(updates).toBe(60);
+    expect(useApp.getState().candidates).toBe(listed);
+    vi.advanceTimersByTime(1000);
+    const edited = useApp.getState().photos.find(p => p.recipe)!;
+    expect(useApp.getState().candidates.find(p => p.path === edited.path)).toBe(edited);
+  } finally { vi.useRealTimers(); }
+});
+
+it('lists a new virtual copy for import management at once', async () => {
+  await importFolder('/one', ['a.orf']);
+  selectAll();
+  createVirtualCopies();
+  expect(useApp.getState().candidates.filter(p => p.path === '/one/a.orf')).toHaveLength(2);
+});
+
+it('brings the import list up to date before an import reads it', async () => {
+  await importFolder('/one', ['a.orf']);
+  editActive(r => ({ ...(r ?? defaultRecipe()), exposure: 1.5 }));
+  importFolderPhotos({ mode: 'selected', paths: ['/one/a.orf'] });
+  expect(useApp.getState().candidates[0].recipe?.exposure).toBe(1.5);
+  expect(useApp.getState().photos[0].recipe?.exposure).toBe(1.5);
+});
+
+it('lists the whole library once while the catalog is unchanged', async () => {
+  await importFolder('/one', ['a.orf']);
+  const all = catalogPhotos();
+  expect(catalogPhotos()).toBe(all);
+  expect(catalogPhotos(useCatalog.getState())).toBe(all);
+  editActive(r => ({ ...(r ?? defaultRecipe()), exposure: 1 }));
+  expect(catalogPhotos()).not.toBe(all);
+  expect(catalogPhotos().find(p => p.path === '/one/a.orf')?.recipe?.exposure).toBe(1);
+});
+
+// In a folder of 22,000 photos (the one Oli works in) the shown list was built from scratch about
+// four times per frame of a drag, ~4 ms each, and the photo ran at 22 fps instead of 45.
+it('keeps the shown and source lists through a drag, and renews them when an edit changes them', async () => {
+  await importFolder('/drag', ['a.orf', 'b.orf', 'c.orf']);
+  const all = shown(), members = sourceIndices();
+  expect(all).toEqual([0, 1, 2]);
+  for (let i = 1; i <= 5; i++) editActive(r => ({ ...(r ?? defaultRecipe()), exposure: i / 20 }), 'Exposure', { key: 'exposure', continuous: true });
+  expect(shown()).toBe(all);
+  expect(sourceIndices()).toBe(members);
+  expect(sourcePhotos()[0].recipe?.exposure).toBe(0.25);
+  // The same photos after a click: still the same array, so the grid is not drawn again.
+  useApp.setState({ selected: new Set(['/drag/b.orf']) });
+  expect(shown()).toBe(all);
+  // Unedited only: the edited photo goes.
+  setFilter({ edit: 'unedited' });
+  expect(shown()).toEqual([1, 2]);
+  const unedited = shown();
+  // Editing the active photo keeps it in view (it never vanishes from under an edit)...
+  expect(useApp.getState().active).toBe(1);
+  editActive(r => ({ ...(r ?? defaultRecipe()), exposure: 1 }));
+  expect(shown()).toBe(unedited);
+  // ...and an edit that takes another photo out of the filter is seen at once.
+  useApp.setState(s => ({ photos: s.photos.map((p, i) => i === 2 ? { ...p, recipe: defaultRecipe() } : p) }));
+  expect(shown()).toEqual([1]);
+});
+
+it('keeps a collection\'s members through an edit, and drops a photo an edit takes out of a smart one', async () => {
+  await importFolder('/smart', ['a.orf', 'b.orf', 'c.orf']);
+  saveCollection({ id: 'plain', name: 'Unedited', type: 'smart', rules: [{ field: 'edited', value: false }], createdAt: 1 });
+  await selectSource({ type: 'collection', id: 'plain' });
+  const members = sourceIndices();
+  expect(sourcePhotos().map(p => p.name)).toEqual(['a.orf', 'b.orf', 'c.orf']);
+  useApp.setState(s => ({ photos: s.photos.map((p, i) => i === 1 ? { ...p, rating: 3 } : p) }));
+  expect(sourceIndices()).toBe(members);
+  expect(sourcePhotos()[1].rating).toBe(3);
+  useApp.setState(s => ({ photos: s.photos.map((p, i) => i === 1 ? { ...p, recipe: defaultRecipe() } : p) }));
+  expect(sourcePhotos().map(p => p.name)).toEqual(['a.orf', 'c.orf']);
+});
