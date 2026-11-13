@@ -2,13 +2,17 @@
 // Times the real app: starts `npm run tauri dev` (WKWebView, the real window on this screen) on a
 // scratch copy of a photo, lets src/dev/perfrun.ts drive it, prints its result and quits.
 // The window has to stay visible while it runs (macOS throttles hidden webviews).
-// Usage: [PROD=1] node tools/perf/inapp.mjs <photo> [which=all|sliders|combo|clicks,...] [timeout s]
+// Usage: [PROD=1|PACKAGED=1|PACKAGED=debug] node tools/perf/inapp.mjs <photo> [which=all|sliders|combo|clicks,...] [timeout s]
 // PROD=1 times a production build of the interface (`vite build`, served by `vite preview`) in the
 // same dev shell: the controls bar is judged on production React (Oli, 2026-11-10).
+// PACKAGED=1 uses the release binary with embedded assets and release CSP; PACKAGED=debug
+// uses a debug binary with the same asset origin/policy. PERF_BINARY reuses a built driver.
+// Timings use a separate app identifier so test imports never enter the user's catalog.
 import { spawn, execFile } from 'node:child_process';
 import { copyFile, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
+import { promisify } from 'node:util';
 
 const [photo, which = 'all', limit = '300'] = process.argv.slice(2);
 if (!photo) throw new Error('Usage: inapp.mjs <photo> [which] [timeout s]');
@@ -19,16 +23,31 @@ for (const p of photo.split(',')) await copyFile(p, join(dir, basename(p)));
 const port = process.env.PERF_PORT ?? '1430';
 // DIST=<dir> serves an interface already built there (`VITE_PERF=<which> vite build`), e.g. an
 // older commit's, against today's Rust: how a slowdown is bisected to the commit that made it.
-const out = process.env.PROD && !process.env.DIST ? await mkdtemp(join(tmpdir(), 'emulsion-perf-dist-')) : null;
+const packaged = process.env.PACKAGED;
+const out = (process.env.PROD || packaged) && !process.env.DIST && !process.env.PERF_BINARY ? await mkdtemp(join(tmpdir(), 'emulsion-perf-dist-')) : null;
 const serve = process.env.DIST
   ? `npx vite preview --outDir ${process.env.DIST} --port ${port} --strictPort`
   : out
   ? `npx vite build --logLevel warn --outDir ${out} --emptyOutDir && npx vite preview --outDir ${out} --port ${port} --strictPort`
   : `npx vite --port ${port} --strictPort`;
-const config = JSON.stringify({ build: { devUrl: `http://localhost:${port}`, beforeDevCommand: serve } });
-const child = spawn('npx', ['tauri', 'dev', '--config', config], {
+const config = JSON.stringify({ identifier: 'app.emulsion.slider-perf', build: { devUrl: `http://localhost:${port}`, beforeDevCommand: serve } });
+const env = { ...process.env, VITE_PERF: which, EMULSION_OPEN_FOLDER: dir };
+let command = 'npx', args = ['tauri', 'dev', '--config', config];
+if (process.env.PERF_BINARY) {
+  command = resolve(process.env.PERF_BINARY);
+  args = [];
+} else if (packaged) {
+  const run = promisify(execFile);
+  if (out) await run('npx', ['vite', 'build', '--logLevel', 'warn', '--outDir', out, '--emptyOutDir'], { env });
+  const bundleConfig = JSON.stringify({ identifier: 'app.emulsion.slider-perf', build: { frontendDist: resolve(process.env.DIST ?? out), beforeBuildCommand: '' } });
+  console.log(`Building ${packaged === 'debug' ? 'debug' : 'release'} app with bundled assets and release CSP (isolated perf catalog)`);
+  await run('npx', ['tauri', 'build', '--no-bundle', ...(packaged === 'debug' ? ['--debug'] : []), '--config', bundleConfig], { env, maxBuffer: 8 * 1024 * 1024 });
+  command = resolve(`src-tauri/target/${packaged === 'debug' ? 'debug' : 'release'}/emulsion`);
+  args = [];
+}
+const child = spawn(command, args, {
   cwd: new URL('../..', import.meta.url).pathname, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
-  env: { ...process.env, VITE_PERF: which, EMULSION_OPEN_FOLDER: dir },
+  env,
 });
 // The photo's budget while a control is dragged (Oli, 2026-11-10: the controls must pass their own
 // bar below; the applied change over the photo aims for 40 fps), and no freeze over 50 ms.

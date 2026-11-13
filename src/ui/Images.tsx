@@ -54,6 +54,9 @@ export function Images() {
   const [layout, setLayout] = useState({ pitch: 160, gap: 8, pad: 10 });
   const rows = Math.ceil(shown.length / columns);
   const win = rowWindow(rows, layout.pitch, Math.max(0, viewport.pos - layout.pad), viewport.size || 800, viewport.size || 800);
+  const hasRows = win.end > win.start;
+  // Observe the current first row across recipe edits. Re-reading layout on every edit
+  // flushes WebKit's pending style work in the middle of a slider's React commit.
   useLayoutEffect(() => {
     const el = ref.current, row = first.current;
     if (!el || !row) return;
@@ -68,7 +71,7 @@ export function Images() {
     const observer = new ResizeObserver(measure);
     observer.observe(row);
     return () => observer.disconnect();
-  });
+  }, [columns, win.start, hasRows]);
   useLayoutEffect(() => {
     const el = ref.current, at = shown.indexOf(active);
     if (el && at >= 0 && el.clientHeight > 0) {

@@ -10,6 +10,7 @@ import { Images } from './Images';
 import { useApp, type Photo } from '../library/store';
 import { NO_FILTER } from '../library/filter';
 import { useWorkspace } from './workspace';
+import { defaultRecipe } from '../film/recipe';
 let host: HTMLDivElement, root: Root;
 beforeEach(() => {
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true);
@@ -28,6 +29,13 @@ beforeEach(() => {
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
 });
 afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+it('does not synchronously measure unchanged image rows on each slider edit', async () => {
+  await act(async () => root.render(createElement(Images)));
+  const measure = vi.mocked(HTMLElement.prototype.getBoundingClientRect);
+  measure.mockClear();
+  await act(async () => useApp.setState(s => ({ photos: s.photos.map((p, i) => i ? p : { ...p, recipe: { ...defaultRecipe(), exposure: 1 } }) })));
+  expect(measure).not.toHaveBeenCalled();
+});
 it.each([1, 2, 3] as const)('mounts only nearby frames and reveals distant navigation at %i columns', async columns => {
   useWorkspace.setState({ imageColumns: columns });
   await act(async () => root.render(createElement(Images)));

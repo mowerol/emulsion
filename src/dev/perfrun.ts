@@ -333,6 +333,11 @@ function watchMainThread() {
   const client = perfClient as unknown as { receive: (m: unknown) => void } | null;
   const receive = client?.receive;
   if (client && receive) client.receive = (m) => { const t = performance.now(); try { receive.call(client, m); } finally { add('worker', t); } };
+  const uploading = perfClient, upload = uploading?.upload;
+  if (uploading && upload) uploading.upload = (...args) => {
+    const t = performance.now();
+    try { return upload.apply(uploading, args); } finally { add('upload', t); }
+  };
   return {
     input: add,
     /** Stop, and split the blocked stretches `[end - ms, end]` by what overlapped them. */
@@ -341,6 +346,7 @@ function watchMainThread() {
       window.setTimeout = timeout; window.setInterval = interval;
       observer.disconnect();
       if (client && receive) client.receive = receive;
+      if (uploading && upload) uploading.upload = upload;
       const by: Record<string, number> = {};
       let blocked = 0, covered = 0;
       const split = (b: { end: number; ms: number }) => {
@@ -369,7 +375,7 @@ function watchMainThread() {
       const render = spans.filter(x => x.kind === 'render').map(x => x.end - x.t);
       const frameCount = Math.max(1, spans.filter(x => x.kind === 'render').length);
       const mutations = Object.entries(changed).sort((a, b) => b[1] - a[1]).slice(0, 15).map(([k, n]) => `${k} ×${+(n / frameCount).toFixed(2)}/frame`);
-      return { mutations, renderMsPerFrame: { median: median(render), p90: p90(render), max: render.length ? Math.round(Math.max(...render)) : null },
+      return { mutations, uploads: spans.filter(x => x.kind === 'upload').length, renderMsPerFrame: { median: median(render), p90: p90(render), max: render.length ? Math.round(Math.max(...render)) : null },
         blockedMsPerSec: per(blocked), inBlocksMsPerSec: Object.fromEntries(Object.entries(by).map(([k, v]) => [k, per(v)])),
         otherMsPerSec: per(blocked - covered), jsMsPerSec: Object.fromEntries(Object.entries(all).map(([k, v]) => [k, per(v)])), worst };
     },
@@ -398,6 +404,7 @@ async function gesture(steps: number, fire: (i: number) => void | Promise<void>,
   const still = watchMainThread();
   await wait(1000);
   const idleMainThread = still.stop([], 1);
+  await focusWindow();
   beats.length = 0; beatAt.length = 0; lastBeat = performance.now();
   rafLoop();
   const watch = watchMainThread();
@@ -612,7 +619,7 @@ export async function run(which: string) {
   }
   // VITE_PERF_DETAIL=log times the trial detail order (ui/detailorder.ts).
   setDetailOrder(import.meta.env.VITE_PERF_DETAIL === 'log' ? 'log' : 'darktable');
-  const out: Record<string, unknown> = { which, detailOrder: import.meta.env.VITE_PERF_DETAIL ?? 'darktable', dpr: devicePixelRatio, ua: navigator.userAgent.replace(/.*AppleWebKit\/(\S+).*/, 'WebKit $1') };
+  const out: Record<string, unknown> = { which, production: import.meta.env.PROD, origin: location.origin, detailOrder: import.meta.env.VITE_PERF_DETAIL ?? 'darktable', dpr: devicePixelRatio, ua: navigator.userAgent.replace(/.*AppleWebKit\/(\S+).*/, 'WebKit $1') };
   try {
     await focusWindow();
     for (let i = 0; i < 600 && !(useApp.getState().view === 'develop' && useApp.getState().developSize); i++) {
@@ -697,6 +704,14 @@ export async function run(which: string) {
       eng.gpu.free(exact);
     }
 
+    if (only.includes('controls')) {
+      setSliders({ texture: 0, dehaze: 0, clarity: 0 });
+      for (let i = 0; i < 3; i++) {
+        const result = await sliderDrag('exposure', 'develop');
+        out[`exposure${i + 1}`] = result;
+        if (result.ui.mainThread.uploads) throw Error('Background image upload interrupted the held slider');
+      }
+    }
     if (want('sliders')) {
       setSliders({ texture: 0, dehaze: 0, clarity: 0 });
       out.exposure = await sliderDrag('exposure', 'develop');

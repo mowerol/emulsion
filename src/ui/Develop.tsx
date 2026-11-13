@@ -115,14 +115,21 @@ export function Develop() {
   const boxRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<DevelopClient | null>(null);
+  const pointerHeld = useRef(false);
+  const uploadAfter = useRef(0);
   // The engine follows the pointer itself (a held pointer drafts slow frames and defers exact
   // renders, engine/developloop.ts); it is told of every press and release in the window.
   useEffect(() => {
     const down = (e: PointerEvent) => {
+      pointerHeld.current = true;
       const brush = useMaskUi.getState().tool?.kind === 'brush' && e.target instanceof Element && !!e.target.closest('svg.mask-overlay');
       engineRef.current?.pointer(true, brush);
     };
-    const up = () => engineRef.current?.pointer(false);
+    const up = () => {
+      pointerHeld.current = false;
+      uploadAfter.current = performance.now() + VIEW_SETTLE_MS * 2;
+      engineRef.current?.pointer(false);
+    };
     window.addEventListener('pointerdown', down, true);
     window.addEventListener('pointerup', up, true);
     window.addEventListener('pointercancel', up, true);
@@ -496,9 +503,15 @@ export function Develop() {
     const engine = engineRef.current;
     if (!engine || !path || !src || !sizeKnown || loaded?.res !== 'preview' || wantsNoise || decodeFailed === path) return;
     if (Math.max(src.w, src.h) >= Math.max(src.fullW, src.fullH)) return;
+    uploadAfter.current = performance.now() + VIEW_SETTLE_MS * 2;
     let cancelled = false;
+    let uploadTimer: ReturnType<typeof setTimeout> | undefined;
     const ready = (img: Parameters<typeof engine.upload>[0]) => {
       if (cancelled || engineRef.current !== engine || loadedRef.current?.path !== path) return;
+      // Cloning a full RAW into the worker can block the UI for >100 ms. Keep this
+      // speculative upload out of a drag and its exact release render.
+      const wait = pointerHeld.current ? 100 : uploadAfter.current - performance.now();
+      if (wait > 0) { uploadTimer = setTimeout(() => ready(img), wait); return; }
       // The measurement switch keeps the previous decode-only path for comparisons.
       if (import.meta.env.VITE_CAPTURE_CACHE === '0' || sharpening <= 0 || img.mode !== InputMode.SceneLinear) return;
       const key = sourceKey(path, 'full', false);
@@ -518,7 +531,7 @@ export function Develop() {
       });
     };
     const cancel = prepareFullImage(path, src.fullW, src.fullH, engine.maxTextureSize, ready);
-    return () => { cancelled = true; cancel(); };
+    return () => { cancelled = true; clearTimeout(uploadTimer); cancel(); };
     // Recipe changes cancel stale callbacks and request preparation for the current settings.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [path, wantsNoise, sizeKnown, loadedVersion, recipe, decodeFailed]);
