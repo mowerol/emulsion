@@ -179,15 +179,17 @@ void emu_omp_root(void) {
 int emu_raw_decode(const char *path, int half, EmuRawInfo *info, void **out, const unsigned short **pixels,
                    char *err, size_t errlen) {
 #ifdef LIBRAW_USE_OPENMP
-  // Keep headroom for the webview and other native work. This setting belongs
-  // to the current blocking worker; LibRaw's teams inherit it for this decode.
+  // Full X-Trans demosaicing benefits from the efficiency cores too. Keep small
+  // preview decodes at four threads and bound full-size work to eight. This
+  // setting belongs to the blocking worker and is restored after the decode.
   struct DecodeThreads {
     int previous;
-    DecodeThreads() : previous(omp_get_max_threads()) {
-      omp_set_num_threads(previous > 4 ? 4 : previous);
+    DecodeThreads(bool preview) : previous(omp_get_max_threads()) {
+      const int limit = preview ? 4 : 8;
+      omp_set_num_threads(previous > limit ? limit : previous);
     }
     ~DecodeThreads() { omp_set_num_threads(previous); }
-  } threads;
+  } threads(half != 0);
 #endif
   LibRaw *raw = new (std::nothrow) LibRaw(0);
   if (!raw) return LIBRAW_UNSUFFICIENT_MEMORY;

@@ -1,0 +1,1150 @@
+{
+  "date": "2026-11-13",
+  "sourceCommit": "1542f9a",
+  "fixture": "1OKK6434.RAF (scratch copies)",
+  "runs": {
+    "productionFrontendEarly": {
+      "which": "zoomdetail",
+      "production": true,
+      "origin": "http://localhost:1430",
+      "detailOrder": "darktable",
+      "dpr": 2,
+      "ua": "WebKit 605.1.15",
+      "canvas": "1552x1036",
+      "window": "1440x780",
+      "photo": {
+        "W": 6246,
+        "H": 4170
+      },
+      "engine": "worker",
+      "zoomDetail": {
+        "viewingPauseMs": 0,
+        "sharpMs": 5759,
+        "firstRenderMs": 5634,
+        "firstRenderCpuMs": 21,
+        "firstFrameMs": 82,
+        "preparation": {
+          "steps": 189,
+          "cpuMs": 361.00000000000637,
+          "elapsedMs": 973.9999999999991,
+          "resumeMs": 612.9999999999927,
+          "maxStepMs": 30,
+          "capture": {
+            "builds": 1,
+            "hits": 1,
+            "steps": 95,
+            "cpuMs": 6.000000000001819,
+            "elapsedMs": 297,
+            "thresholdMs": 0
+          }
+        },
+        "captureCache": {
+          "generation": 0,
+          "ready": false,
+          "preparing": false,
+          "steps": 0,
+          "buildMs": 0,
+          "retainedMiB": 0
+        },
+        "memory": {
+          "retainedMiB": 2584.569190979004,
+          "peakMiB": 2584.569190979004
+        },
+        "uploadCpuMs": null,
+        "screenGapMax": 267
+      }
+    },
+    "packagedReleaseEarly": {
+      "which": "zoomdetail",
+      "production": true,
+      "origin": "tauri://localhost",
+      "detailOrder": "darktable",
+      "dpr": 2,
+      "ua": "WebKit 605.1.15",
+      "canvas": "1552x1036",
+      "window": "1440x780",
+      "photo": {
+        "W": 6246,
+        "H": 4170
+      },
+      "engine": "worker",
+      "zoomDetail": {
+        "viewingPauseMs": 0,
+        "sharpMs": 5082,
+        "firstRenderMs": 4960,
+        "firstRenderCpuMs": 20,
+        "firstFrameMs": 93,
+        "preparation": {
+          "steps": 184,
+          "cpuMs": 307.99999999999,
+          "elapsedMs": 899.9999999999991,
+          "resumeMs": 592.0000000000091,
+          "maxStepMs": 39.99999999999909,
+          "capture": {
+            "builds": 1,
+            "hits": 1,
+            "steps": 95,
+            "cpuMs": 3.999999999998181,
+            "elapsedMs": 272.0000000000009,
+            "thresholdMs": 0
+          }
+        },
+        "captureCache": {
+          "generation": 0,
+          "ready": false,
+          "preparing": false,
+          "steps": 0,
+          "buildMs": 0,
+          "retainedMiB": 0
+        },
+        "memory": {
+          "retainedMiB": 2584.569190979004,
+          "peakMiB": 2584.569190979004
+        },
+        "uploadCpuMs": null,
+        "screenGapMax": 372
+      }
+    },
+    "packagedReleaseAfterSixSeconds": {
+      "which": "zoomprepared",
+      "production": true,
+      "origin": "tauri://localhost",
+      "detailOrder": "darktable",
+      "dpr": 2,
+      "ua": "WebKit 605.1.15",
+      "canvas": "1552x1036",
+      "window": "1440x780",
+      "photo": {
+        "W": 6246,
+        "H": 4170
+      },
+      "engine": "worker",
+      "zoomDetail": {
+        "viewingPauseMs": 6000,
+        "sharpMs": 1318,
+        "firstRenderMs": 1218,
+        "firstRenderCpuMs": 19,
+        "firstFrameMs": 59,
+        "preparation": {
+          "steps": 177,
+          "cpuMs": 322.9999999999927,
+          "elapsedMs": 953,
+          "resumeMs": 630.0000000000073,
+          "maxStepMs": 44,
+          "capture": {
+            "builds": 1,
+            "hits": 3,
+            "steps": 95,
+            "cpuMs": 4,
+            "elapsedMs": 280.9999999999982,
+            "thresholdMs": 0
+          }
+        },
+        "captureCache": {
+          "generation": 1,
+          "ready": false,
+          "preparing": true,
+          "steps": 13,
+          "buildMs": 0,
+          "retainedMiB": 397.42767333984375
+        },
+        "memory": {
+          "retainedMiB": 4919.234256744385,
+          "peakMiB": 4919.234256744385
+        },
+        "uploadCpuMs": null,
+        "screenGapMax": 30
+      }
+    },
+    "renderBatch16Discarded": {
+      "which": "zoomprepared",
+      "production": true,
+      "origin": "tauri://localhost",
+      "detailOrder": "darktable",
+      "dpr": 2,
+      "ua": "WebKit 605.1.15",
+      "canvas": "1552x1036",
+      "window": "1440x780",
+      "photo": {
+        "W": 6246,
+        "H": 4170
+      },
+      "engine": "worker",
+      "zoomDetail": {
+        "viewingPauseMs": 6000,
+        "sharpMs": 1266,
+        "firstRenderMs": 1194,
+        "firstRenderCpuMs": 23,
+        "firstFrameMs": 33,
+        "preparation": {
+          "steps": 177,
+          "cpuMs": 327.9999999999927,
+          "elapsedMs": 872,
+          "resumeMs": 544.0000000000073,
+          "maxStepMs": 40.99999999999818,
+          "capture": {
+            "builds": 1,
+            "hits": 3,
+            "steps": 95,
+            "cpuMs": 3.999999999998181,
+            "elapsedMs": 255.99999999999818,
+            "thresholdMs": 0
+          }
+        },
+        "captureCache": {
+          "generation": 1,
+          "ready": false,
+          "preparing": true,
+          "steps": 14,
+          "buildMs": 0,
+          "retainedMiB": 397.42767333984375
+        },
+        "memory": {
+          "retainedMiB": 4919.234256744385,
+          "peakMiB": 4919.234256744385
+        },
+        "uploadCpuMs": null,
+        "screenGapMax": 25
+      }
+    },
+    "packagedEightThreads": {
+      "which": "zoomdetail",
+      "production": true,
+      "origin": "tauri://localhost",
+      "detailOrder": "darktable",
+      "dpr": 2,
+      "ua": "WebKit 605.1.15",
+      "canvas": "1552x1036",
+      "window": "1440x780",
+      "photo": {
+        "W": 6246,
+        "H": 4170
+      },
+      "engine": "worker",
+      "zoomDetail": {
+        "viewingPauseMs": 0,
+        "sharpMs": 4204,
+        "firstRenderMs": 4087,
+        "firstRenderCpuMs": 14,
+        "firstFrameMs": 76,
+        "preparation": {
+          "steps": 189,
+          "cpuMs": 417.99999999999545,
+          "elapsedMs": 1271,
+          "resumeMs": 853.0000000000045,
+          "maxStepMs": 56,
+          "capture": {
+            "builds": 1,
+            "hits": 1,
+            "steps": 95,
+            "cpuMs": 1,
+            "elapsedMs": 313,
+            "thresholdMs": 0
+          }
+        },
+        "captureCache": {
+          "generation": 0,
+          "ready": false,
+          "preparing": false,
+          "steps": 0,
+          "buildMs": 0,
+          "retainedMiB": 0
+        },
+        "memory": {
+          "retainedMiB": 2584.569190979004,
+          "peakMiB": 2584.569190979004
+        },
+        "uploadCpuMs": null,
+        "screenGapMax": 263
+      }
+    },
+    "packagedFourThreadControl": {
+      "which": "zoomdetail",
+      "production": true,
+      "origin": "tauri://localhost",
+      "detailOrder": "darktable",
+      "dpr": 2,
+      "ua": "WebKit 605.1.15",
+      "canvas": "1552x1036",
+      "window": "1440x780",
+      "photo": {
+        "W": 6246,
+        "H": 4170
+      },
+      "engine": "worker",
+      "zoomDetail": {
+        "viewingPauseMs": 0,
+        "sharpMs": 5103,
+        "firstRenderMs": 4944,
+        "firstRenderCpuMs": 23,
+        "firstFrameMs": 133,
+        "preparation": {
+          "steps": 184,
+          "cpuMs": 314.99999999999636,
+          "elapsedMs": 1038,
+          "resumeMs": 723.0000000000036,
+          "maxStepMs": 35,
+          "capture": {
+            "builds": 1,
+            "hits": 1,
+            "steps": 95,
+            "cpuMs": 2,
+            "elapsedMs": 326,
+            "thresholdMs": 0
+          }
+        },
+        "captureCache": {
+          "generation": 0,
+          "ready": false,
+          "preparing": false,
+          "steps": 0,
+          "buildMs": 0,
+          "retainedMiB": 0
+        },
+        "memory": {
+          "retainedMiB": 2584.569190979004,
+          "peakMiB": 2584.569190979004
+        },
+        "uploadCpuMs": null,
+        "screenGapMax": 290
+      }
+    },
+    "packagedEightThreadsRepeat": {
+      "which": "zoomdetail",
+      "production": true,
+      "origin": "tauri://localhost",
+      "detailOrder": "darktable",
+      "dpr": 2,
+      "ua": "WebKit 605.1.15",
+      "canvas": "1552x1036",
+      "window": "1440x780",
+      "photo": {
+        "W": 6246,
+        "H": 4170
+      },
+      "engine": "worker",
+      "zoomDetail": {
+        "viewingPauseMs": 0,
+        "sharpMs": 3808,
+        "firstRenderMs": 3742,
+        "firstRenderCpuMs": 21,
+        "firstFrameMs": 26,
+        "preparation": {
+          "steps": 189,
+          "cpuMs": 370.0000000000091,
+          "elapsedMs": 1140,
+          "resumeMs": 769.9999999999909,
+          "maxStepMs": 36,
+          "capture": {
+            "builds": 1,
+            "hits": 1,
+            "steps": 95,
+            "cpuMs": 2,
+            "elapsedMs": 338.0000000000009,
+            "thresholdMs": 0
+          }
+        },
+        "captureCache": {
+          "generation": 0,
+          "ready": false,
+          "preparing": false,
+          "steps": 0,
+          "buildMs": 0,
+          "retainedMiB": 0
+        },
+        "memory": {
+          "retainedMiB": 2584.569190979004,
+          "peakMiB": 2584.569190979004
+        },
+        "uploadCpuMs": null,
+        "screenGapMax": 183
+      }
+    },
+    "productionControlsEightThreads": {
+      "which": "controls",
+      "production": true,
+      "origin": "http://localhost:1430",
+      "detailOrder": "darktable",
+      "dpr": 2,
+      "ua": "WebKit 605.1.15",
+      "canvas": "1552x1036",
+      "window": "1440x780",
+      "photo": {
+        "W": 6246,
+        "H": 4170
+      },
+      "engine": "worker",
+      "exposure1": {
+        "fps": 43.7,
+        "latencyMs": 58,
+        "latencyP90": 68,
+        "settleMs": 47,
+        "durationMs": 2107,
+        "visible": "visible",
+        "focused": true,
+        "valid": true,
+        "interruptions": [],
+        "ui": {
+          "fps": 55.1,
+          "gapMax": 172,
+          "gapsOver25": 5,
+          "staleFrames": 0,
+          "mainBlockMax": 130,
+          "mainLongMsPerSec": 78,
+          "engineMainMsPerSec": 0,
+          "sendMsPerSec": 2,
+          "sendMax": 1,
+          "mainThread": {
+            "mutations": [
+              "aside[Controls].panel > input.range attributes:name \u00d711.86/frame",
+              "aside[Controls].panel > input.range attributes:type \u00d75.93/frame",
+              "input[Look amount].range > input[Look amount].range attributes:name \u00d72.05/frame",
+              "input[Exposure value].slider-value > input[Exposure value].slider-value attributes:name \u00d72.05/frame",
+              "aside[Controls].panel > input.range attributes:value \u00d71.42/frame",
+              "input[Look amount].range > input[Look amount].range attributes:type \u00d71.03/frame",
+              "input[Exposure value].slider-value > input[Exposure value].slider-value attributes:type \u00d71.03/frame",
+              "input[Exposure value].slider-value > input[Exposure value].slider-value attributes:value \u00d71.03/frame",
+              "aside[Controls].panel > input.range attributes:aria-valuetext \u00d71.03/frame",
+              "div[Photo actions].action-bar > span.action-count characterData \u00d70.05/frame",
+              "aside[Controls].panel > h2 childList \u00d70.03/frame",
+              "aside[Controls].panel > div.slider attributes:class \u00d70.03/frame",
+              "button[Undo].icon-btn > button[Undo].icon-btn attributes:data-tip \u00d70.01/frame"
+            ],
+            "uploads": 0,
+            "renderMsPerFrame": {
+              "median": 3,
+              "p90": 4,
+              "max": 23
+            },
+            "blockedMsPerSec": 78,
+            "inBlocksMsPerSec": {
+              "input": 0,
+              "worker": 0
+            },
+            "otherMsPerSec": 78,
+            "jsMsPerSec": {
+              "input": 12,
+              "raf": 33,
+              "store": 105,
+              "worker": 2,
+              "render": 191,
+              "timer": 0
+            },
+            "worst": [
+              {
+                "ms": 130,
+                "atMs": 845,
+                "input": 1,
+                "other": 129
+              },
+              {
+                "ms": 35,
+                "atMs": 1414,
+                "worker": 0,
+                "other": 35
+              }
+            ]
+          },
+          "release": {
+            "mainBlockMax": 84,
+            "worst": [
+              {
+                "ms": 84,
+                "atMs": 365,
+                "upload": 82,
+                "timer": 82,
+                "other": 2
+              },
+              {
+                "ms": 26,
+                "atMs": 241,
+                "raf": 0,
+                "store": 1,
+                "render": 1,
+                "other": 25
+              }
+            ],
+            "jsMsPerSec": {
+              "worker": 0,
+              "raf": 0,
+              "render": 27,
+              "timer": 183,
+              "store": 4,
+              "upload": 183
+            }
+          },
+          "idle": {
+            "renderMsPerFrame": {
+              "median": 0,
+              "p90": 1,
+              "max": 5
+            },
+            "jsMsPerSec": {
+              "raf": 1,
+              "render": 34,
+              "timer": 0
+            }
+          }
+        },
+        "gpuFrameMs": 40,
+        "denoiseBuilds": 0,
+        "denoiseCpuMs": 0,
+        "denoiseSizes": [],
+        "regions": [
+          null
+        ],
+        "pending": {
+          "live": 91
+        },
+        "renderCpuMs": 20,
+        "handlerMs": 0.1,
+        "worstHandlerMs": 5,
+        "screenGapMedian": 17,
+        "screenGapP90": 17,
+        "screenGapMax": 172,
+        "gapsOver50": 1,
+        "dragGapMax": 172,
+        "releaseGapMax": 21,
+        "madeMB": 0,
+        "madeTextures": 0,
+        "texMB": 0,
+        "readbacks": "",
+        "releaseFrames": "14.00000000000091/15",
+        "preparationCount": 0,
+        "preparationFrames": [],
+        "worstGapAt": "49/138",
+        "first": "37/62 24/47 22/43 21/43",
+        "perFrame": ""
+      },
+      "exposure2": {
+        "fps": 48.8,
+        "latencyMs": 58,
+        "latencyP90": 67,
+        "settleMs": 35,
+        "durationMs": 1928,
+        "visible": "visible",
+        "focused": true,
+        "valid": true,
+        "interruptions": [],
+        "ui": {
+          "fps": 60.2,
+          "gapMax": 18,
+          "gapsOver25": 0,
+          "staleFrames": 0,
+          "mainBlockMax": 11,
+          "mainLongMsPerSec": 0,
+          "engineMainMsPerSec": 0,
+          "sendMsPerSec": 2,
+          "sendMax": 1,
+          "mainThread": {
+            "mutations": [
+              "aside[Controls].panel > input.range attributes:name \u00d711.57/frame",
+              "aside[Controls].panel > input.range attributes:type \u00d75.78/frame",
+              "input[Look amount].range > input[Look amount].range attributes:name \u00d72/frame",
+              "input[Exposure value].slider-value > input[Exposure value].slider-value attributes:name \u00d72/frame",
+              "aside[Controls].panel > input.range attributes:value \u00d71.39/frame",
+              "input[Look amount].range > input[Look amount].range attributes:type \u00d71/frame",
+              "input[Exposure value].slider-value > input[Exposure value].slider-value attributes:type \u00d71/frame",
+              "input[Exposure value].slider-value > input[Exposure value].slider-value attributes:value \u00d71/frame",
+              "aside[Controls].panel > input.range attributes:aria-valuetext \u00d71/frame"
+            ],
+            "uploads": 0,
+            "renderMsPerFrame": {
+              "median": 3,
+              "p90": 4,
+              "max": 5
+            },
+            "blockedMsPerSec": 0,
+            "inBlocksMsPerSec": {},
+            "otherMsPerSec": 0,
+            "jsMsPerSec": {
+              "input": 9,
+              "raf": 32,
+              "store": 98,
+              "worker": 3,
+              "render": 180
+            },
+            "worst": []
+          },
+          "release": {
+            "mainBlockMax": 40,
+            "worst": [
+              {
+                "ms": 40,
+                "atMs": 249,
+                "timer": 26,
+                "other": 14
+              }
+            ],
+            "jsMsPerSec": {
+              "store": 4,
+              "worker": 2,
+              "timer": 57,
+              "raf": 2,
+              "render": 37
+            }
+          },
+          "idle": {
+            "renderMsPerFrame": {
+              "median": 1,
+              "p90": 1,
+              "max": 2
+            },
+            "jsMsPerSec": {
+              "raf": 1,
+              "render": 38
+            }
+          }
+        },
+        "gpuFrameMs": 39,
+        "denoiseBuilds": 0,
+        "denoiseCpuMs": 0,
+        "denoiseSizes": [],
+        "regions": [
+          null
+        ],
+        "pending": {
+          "live": 93
+        },
+        "renderCpuMs": 19,
+        "handlerMs": 0.07,
+        "worstHandlerMs": 1,
+        "screenGapMedian": 17,
+        "screenGapP90": 17,
+        "screenGapMax": 51,
+        "gapsOver50": 1,
+        "dragGapMax": 18,
+        "releaseGapMax": 51,
+        "madeMB": 0,
+        "madeTextures": 0,
+        "texMB": 0,
+        "readbacks": "",
+        "releaseFrames": "12.000000000001819/19",
+        "preparationCount": 0,
+        "preparationFrames": [],
+        "worstGapAt": "131/142",
+        "first": "54/80 24/49 22/43 19/39",
+        "perFrame": ""
+      },
+      "exposure3": {
+        "fps": 49.3,
+        "latencyMs": 56,
+        "latencyP90": 64,
+        "settleMs": 47,
+        "durationMs": 1928,
+        "visible": "visible",
+        "focused": true,
+        "valid": true,
+        "interruptions": [],
+        "ui": {
+          "fps": 60.2,
+          "gapMax": 18,
+          "gapsOver25": 0,
+          "staleFrames": 0,
+          "mainBlockMax": 10,
+          "mainLongMsPerSec": 0,
+          "engineMainMsPerSec": 0,
+          "sendMsPerSec": 3,
+          "sendMax": 1,
+          "mainThread": {
+            "mutations": [
+              "aside[Controls].panel > input.range attributes:name \u00d711.67/frame",
+              "aside[Controls].panel > input.range attributes:type \u00d75.83/frame",
+              "input[Look amount].range > input[Look amount].range attributes:name \u00d72.02/frame",
+              "input[Exposure value].slider-value > input[Exposure value].slider-value attributes:name \u00d72.02/frame",
+              "aside[Controls].panel > input.range attributes:value \u00d71.4/frame",
+              "input[Look amount].range > input[Look amount].range attributes:type \u00d71.01/frame",
+              "input[Exposure value].slider-value > input[Exposure value].slider-value attributes:type \u00d71.01/frame",
+              "input[Exposure value].slider-value > input[Exposure value].slider-value attributes:value \u00d71.01/frame",
+              "aside[Controls].panel > input.range attributes:aria-valuetext \u00d71.01/frame",
+              "div[Photo actions].action-bar > span.action-count characterData \u00d70.04/frame",
+              "aside[Controls].panel > h2 childList \u00d70.02/frame",
+              "aside[Controls].panel > div.slider attributes:class \u00d70.02/frame"
+            ],
+            "uploads": 0,
+            "renderMsPerFrame": {
+              "median": 3,
+              "p90": 3,
+              "max": 4
+            },
+            "blockedMsPerSec": 0,
+            "inBlocksMsPerSec": {},
+            "otherMsPerSec": 0,
+            "jsMsPerSec": {
+              "input": 7,
+              "raf": 27,
+              "store": 83,
+              "worker": 2,
+              "render": 160
+            },
+            "worst": []
+          },
+          "release": {
+            "mainBlockMax": 0,
+            "worst": [],
+            "jsMsPerSec": {
+              "worker": 0,
+              "raf": 0,
+              "render": 35,
+              "timer": 0,
+              "store": 2
+            }
+          },
+          "idle": {
+            "renderMsPerFrame": {
+              "median": 1,
+              "p90": 1,
+              "max": 2
+            },
+            "jsMsPerSec": {
+              "raf": 3,
+              "render": 41
+            }
+          }
+        },
+        "gpuFrameMs": 39,
+        "denoiseBuilds": 0,
+        "denoiseCpuMs": 0,
+        "denoiseSizes": [],
+        "regions": [
+          null
+        ],
+        "pending": {
+          "live": 94
+        },
+        "renderCpuMs": 19,
+        "handlerMs": 0.05,
+        "worstHandlerMs": 3,
+        "screenGapMedian": 17,
+        "screenGapP90": 17,
+        "screenGapMax": 33,
+        "gapsOver50": 0,
+        "dragGapMax": 18,
+        "releaseGapMax": 33,
+        "madeMB": 0,
+        "madeTextures": 0,
+        "texMB": 0,
+        "readbacks": "",
+        "releaseFrames": "11.999999999998181/16",
+        "preparationCount": 0,
+        "preparationFrames": [],
+        "worstGapAt": "130/142",
+        "first": "56/86 29/54 23/45 21/41",
+        "perFrame": ""
+      }
+    },
+    "productionControlsFourThreads": {
+      "which": "controls",
+      "production": true,
+      "origin": "http://localhost:1430",
+      "detailOrder": "darktable",
+      "dpr": 2,
+      "ua": "WebKit 605.1.15",
+      "canvas": "1552x1036",
+      "window": "1440x780",
+      "photo": {
+        "W": 6246,
+        "H": 4170
+      },
+      "engine": "worker",
+      "exposure1": {
+        "fps": 44.9,
+        "latencyMs": 58,
+        "latencyP90": 71,
+        "settleMs": 41,
+        "durationMs": 2004,
+        "visible": "visible",
+        "focused": true,
+        "valid": true,
+        "interruptions": [],
+        "ui": {
+          "fps": 57.4,
+          "gapMax": 120,
+          "gapsOver25": 1,
+          "staleFrames": 0,
+          "mainBlockMax": 82,
+          "mainLongMsPerSec": 41,
+          "engineMainMsPerSec": 0,
+          "sendMsPerSec": 1,
+          "sendMax": 1,
+          "mainThread": {
+            "mutations": [
+              "aside[Controls].panel > input.range attributes:name \u00d711.55/frame",
+              "aside[Controls].panel > input.range attributes:type \u00d75.77/frame",
+              "input[Look amount].range > input[Look amount].range attributes:name \u00d71.98/frame",
+              "input[Exposure value].slider-value > input[Exposure value].slider-value attributes:name \u00d71.98/frame",
+              "aside[Controls].panel > input.range attributes:value \u00d71.4/frame",
+              "input[Look amount].range > input[Look amount].range attributes:type \u00d70.99/frame",
+              "input[Exposure value].slider-value > input[Exposure value].slider-value attributes:type \u00d70.99/frame",
+              "input[Exposure value].slider-value > input[Exposure value].slider-value attributes:value \u00d70.99/frame",
+              "aside[Controls].panel > input.range attributes:aria-valuetext \u00d70.99/frame",
+              "div[Photo actions].action-bar > span.action-count characterData \u00d70.02/frame",
+              "aside[Controls].panel > h2 childList \u00d70.01/frame",
+              "aside[Controls].panel > div.slider attributes:class \u00d70.01/frame",
+              "button[Undo].icon-btn > button[Undo].icon-btn attributes:data-tip \u00d70.01/frame"
+            ],
+            "uploads": 0,
+            "renderMsPerFrame": {
+              "median": 3,
+              "p90": 4,
+              "max": 8
+            },
+            "blockedMsPerSec": 41,
+            "inBlocksMsPerSec": {},
+            "otherMsPerSec": 41,
+            "jsMsPerSec": {
+              "input": 9,
+              "raf": 17,
+              "store": 81,
+              "worker": 3,
+              "render": 170
+            },
+            "worst": [
+              {
+                "ms": 82,
+                "atMs": 1478,
+                "other": 82
+              }
+            ]
+          },
+          "release": {
+            "mainBlockMax": 127,
+            "worst": [
+              {
+                "ms": 127,
+                "atMs": 358,
+                "raf": 0,
+                "render": 0,
+                "upload": 112,
+                "timer": 124,
+                "other": 3
+              },
+              {
+                "ms": 19,
+                "atMs": 241,
+                "other": 19
+              }
+            ],
+            "jsMsPerSec": {
+              "worker": 2,
+              "raf": 0,
+              "render": 10,
+              "timer": 255,
+              "store": 4,
+              "upload": 230
+            }
+          },
+          "idle": {
+            "renderMsPerFrame": {
+              "median": 0,
+              "p90": 9,
+              "max": 19
+            },
+            "jsMsPerSec": {
+              "raf": 0,
+              "render": 125,
+              "timer": 0
+            }
+          }
+        },
+        "gpuFrameMs": 40,
+        "denoiseBuilds": 0,
+        "denoiseCpuMs": 0,
+        "denoiseSizes": [],
+        "regions": [
+          null
+        ],
+        "pending": {
+          "live": 89
+        },
+        "renderCpuMs": 20,
+        "handlerMs": 0.08,
+        "worstHandlerMs": 1,
+        "screenGapMedian": 17,
+        "screenGapP90": 17,
+        "screenGapMax": 120,
+        "gapsOver50": 1,
+        "dragGapMax": 120,
+        "releaseGapMax": 35,
+        "madeMB": 0,
+        "madeTextures": 0,
+        "texMB": 0,
+        "readbacks": "",
+        "releaseFrames": "13/14",
+        "preparationCount": 0,
+        "preparationFrames": [],
+        "worstGapAt": "87/136",
+        "first": "37/64 25/49 22/43 20/41",
+        "perFrame": ""
+      },
+      "exposure2": {
+        "fps": 42.3,
+        "latencyMs": 58,
+        "latencyP90": 69,
+        "settleMs": 235,
+        "durationMs": 2008,
+        "visible": "visible",
+        "focused": true,
+        "valid": true,
+        "interruptions": [],
+        "ui": {
+          "fps": 53.8,
+          "gapMax": 152,
+          "gapsOver25": 2,
+          "staleFrames": 0,
+          "mainBlockMax": 36,
+          "mainLongMsPerSec": 42,
+          "engineMainMsPerSec": 0,
+          "sendMsPerSec": 4,
+          "sendMax": 2,
+          "mainThread": {
+            "mutations": [
+              "aside[Controls].panel > input.range attributes:name \u00d711.98/frame",
+              "aside[Controls].panel > input.range attributes:type \u00d75.99/frame",
+              "input[Look amount].range > input[Look amount].range attributes:name \u00d72/frame",
+              "input[Exposure value].slider-value > input[Exposure value].slider-value attributes:name \u00d72/frame",
+              "aside[Controls].panel > input.range attributes:value \u00d71.5/frame",
+              "input[Look amount].range > input[Look amount].range attributes:type \u00d71/frame",
+              "input[Exposure value].slider-value > input[Exposure value].slider-value attributes:type \u00d71/frame",
+              "input[Exposure value].slider-value > input[Exposure value].slider-value attributes:value \u00d71/frame",
+              "aside[Controls].panel > input.range attributes:aria-valuetext \u00d71/frame",
+              "div[Photo actions].action-bar > span.action-count characterData \u00d70.04/frame",
+              "aside[Controls].panel > h2 childList \u00d70.02/frame",
+              "aside[Controls].panel > div.slider attributes:class \u00d70.02/frame"
+            ],
+            "uploads": 0,
+            "renderMsPerFrame": {
+              "median": 3,
+              "p90": 4,
+              "max": 62
+            },
+            "blockedMsPerSec": 42,
+            "inBlocksMsPerSec": {
+              "worker": 0,
+              "input": 4
+            },
+            "otherMsPerSec": 38,
+            "jsMsPerSec": {
+              "input": 9,
+              "raf": 19,
+              "store": 73,
+              "worker": 5,
+              "render": 190,
+              "timer": 0
+            },
+            "worst": [
+              {
+                "ms": 36,
+                "atMs": 1615,
+                "worker": 0,
+                "input": 1,
+                "other": 35
+              },
+              {
+                "ms": 30,
+                "atMs": 1680,
+                "other": 30
+              },
+              {
+                "ms": 19,
+                "atMs": 1659,
+                "input": 7,
+                "other": 12
+              }
+            ]
+          },
+          "release": {
+            "mainBlockMax": 54,
+            "worst": [
+              {
+                "ms": 54,
+                "atMs": 242,
+                "raf": 0,
+                "render": 52,
+                "store": 1,
+                "other": 1
+              },
+              {
+                "ms": 21,
+                "atMs": 377,
+                "other": 21
+              }
+            ],
+            "jsMsPerSec": {
+              "worker": 2,
+              "raf": 0,
+              "render": 97,
+              "timer": 0,
+              "store": 3
+            }
+          },
+          "idle": {
+            "renderMsPerFrame": {
+              "median": 0,
+              "p90": 1,
+              "max": 2
+            },
+            "jsMsPerSec": {
+              "raf": 2,
+              "render": 16
+            }
+          }
+        },
+        "gpuFrameMs": 39,
+        "denoiseBuilds": 0,
+        "denoiseCpuMs": 0,
+        "denoiseSizes": [],
+        "regions": [
+          null
+        ],
+        "pending": {
+          "live": 85
+        },
+        "renderCpuMs": 19,
+        "handlerMs": 0.08,
+        "worstHandlerMs": 7,
+        "screenGapMedian": 17,
+        "screenGapP90": 17,
+        "screenGapMax": 152,
+        "gapsOver50": 3,
+        "dragGapMax": 152,
+        "releaseGapMax": 53,
+        "madeMB": 0,
+        "madeTextures": 0,
+        "texMB": 0,
+        "readbacks": "",
+        "releaseFrames": "18/24",
+        "preparationCount": 0,
+        "preparationFrames": [],
+        "worstGapAt": "96/145",
+        "first": "54/86 31/56 24/47 22/47",
+        "perFrame": ""
+      },
+      "exposure3": {
+        "fps": 43.4,
+        "latencyMs": 57,
+        "latencyP90": 65,
+        "settleMs": 78,
+        "durationMs": 1935,
+        "visible": "visible",
+        "focused": true,
+        "valid": true,
+        "interruptions": [],
+        "ui": {
+          "fps": 59.9,
+          "gapMax": 18,
+          "gapsOver25": 0,
+          "staleFrames": 0,
+          "mainBlockMax": 14,
+          "mainLongMsPerSec": 0,
+          "engineMainMsPerSec": 0,
+          "sendMsPerSec": 5,
+          "sendMax": 1,
+          "mainThread": {
+            "mutations": [
+              "aside[Controls].panel > input.range attributes:name \u00d711.57/frame",
+              "aside[Controls].panel > input.range attributes:type \u00d75.78/frame",
+              "input[Look amount].range > input[Look amount].range attributes:name \u00d72/frame",
+              "input[Exposure value].slider-value > input[Exposure value].slider-value attributes:name \u00d72/frame",
+              "aside[Controls].panel > input.range attributes:value \u00d71.39/frame",
+              "input[Look amount].range > input[Look amount].range attributes:type \u00d71/frame",
+              "input[Exposure value].slider-value > input[Exposure value].slider-value attributes:type \u00d71/frame",
+              "input[Exposure value].slider-value > input[Exposure value].slider-value attributes:value \u00d71/frame",
+              "aside[Controls].panel > input.range attributes:aria-valuetext \u00d71/frame"
+            ],
+            "uploads": 0,
+            "renderMsPerFrame": {
+              "median": 2,
+              "p90": 3,
+              "max": 9
+            },
+            "blockedMsPerSec": 0,
+            "inBlocksMsPerSec": {},
+            "otherMsPerSec": 0,
+            "jsMsPerSec": {
+              "input": 7,
+              "raf": 20,
+              "store": 72,
+              "render": 159,
+              "worker": 2
+            },
+            "worst": []
+          },
+          "release": {
+            "mainBlockMax": 18,
+            "worst": [
+              {
+                "ms": 18,
+                "atMs": 250,
+                "timer": 10,
+                "other": 8
+              }
+            ],
+            "jsMsPerSec": {
+              "store": 6,
+              "timer": 23,
+              "worker": 0,
+              "raf": 2,
+              "render": 12
+            }
+          },
+          "idle": {
+            "renderMsPerFrame": {
+              "median": 0,
+              "p90": 1,
+              "max": 2
+            },
+            "jsMsPerSec": {
+              "raf": 1,
+              "render": 25
+            }
+          }
+        },
+        "gpuFrameMs": 39,
+        "denoiseBuilds": 0,
+        "denoiseCpuMs": 0,
+        "denoiseSizes": [],
+        "regions": [
+          null
+        ],
+        "pending": {
+          "live": 84
+        },
+        "renderCpuMs": 19,
+        "handlerMs": 0.05,
+        "worstHandlerMs": 2,
+        "screenGapMedian": 17,
+        "screenGapP90": 17,
+        "screenGapMax": 28,
+        "gapsOver50": 0,
+        "dragGapMax": 18,
+        "releaseGapMax": 28,
+        "madeMB": 0,
+        "madeTextures": 0,
+        "texMB": 0,
+        "readbacks": "",
+        "releaseFrames": "13/48",
+        "preparationCount": 0,
+        "preparationFrames": [],
+        "worstGapAt": "131/145",
+        "first": "58/85 26/49 22/42 20/41",
+        "perFrame": ""
+      }
+    }
+  },
+  "nativeProbe": {
+    "description": "Isolated optimized LibRaw camera-RGB probe, same RAW output settings. Per-process OpenMP thread count; hashes cover 16-bit camera RGB, before Rust conversion/metadata. First eight observations are RAF; last two are ORF. Times are milliseconds; not app latency.",
+    "observations": [
+      "threads=4 open=3 unpack=478 process=5961 total=6475 sha256=d94efd2cefbe14cfa2af5cad1750beb10309e53fd7321d896857b9e8da62b9f4",
+      "threads=6 open=1 unpack=273 process=4750 total=5057 sha256=d94efd2cefbe14cfa2af5cad1750beb10309e53fd7321d896857b9e8da62b9f4",
+      "threads=8 open=1 unpack=264 process=3717 total=4012 sha256=d94efd2cefbe14cfa2af5cad1750beb10309e53fd7321d896857b9e8da62b9f4",
+      "threads=4 open=1 unpack=287 process=4351 total=4669 sha256=d94efd2cefbe14cfa2af5cad1750beb10309e53fd7321d896857b9e8da62b9f4",
+      "threads=8 open=1 unpack=226 process=3555 total=3811 sha256=d94efd2cefbe14cfa2af5cad1750beb10309e53fd7321d896857b9e8da62b9f4",
+      "threads=4 open=1 unpack=287 process=4348 total=4666 sha256=d94efd2cefbe14cfa2af5cad1750beb10309e53fd7321d896857b9e8da62b9f4",
+      "threads=6 open=1 unpack=214 process=3884 total=4129 sha256=d94efd2cefbe14cfa2af5cad1750beb10309e53fd7321d896857b9e8da62b9f4",
+      "threads=8 open=1 unpack=223 process=3501 total=3755 sha256=d94efd2cefbe14cfa2af5cad1750beb10309e53fd7321d896857b9e8da62b9f4",
+      "threads=4 open=4 unpack=393 process=231 total=661 sha256=7a7050d7887dbbe5ab8fda63258e8ae776ac6ac3758ccd44fc1899c6e013e06a",
+      "threads=8 open=1 unpack=401 process=208 total=650 sha256=7a7050d7887dbbe5ab8fda63258e8ae776ac6ac3758ccd44fc1899c6e013e06a"
+    ]
+  }
+}

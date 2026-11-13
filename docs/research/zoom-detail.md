@@ -429,3 +429,101 @@ its first zoom, which became stale when the previous session removed the 750 ms 
 delay. It now asserts stable Fit/no loading badge and exactly one decode shared by preparation
 and foreground zoom; its subsequent decode-lifetime, source-swap and release/settle checks remain.
 Both changed browser tests pass standalone TypeScript checks.
+
+## Packaged release recheck (2026-11-13)
+
+Oli reported another long first-zoom wait and requested a production-bundle check.
+Measured unchanged source at `1542f9a`, on scratch copies of `1OKK6434.RAF`
+(6246 × 4170), worker engine, WKWebView, DPR 2, 1552 × 1036 canvas.
+Texture, Clarity and Dehaze are off in this scenario; default capture sharpening remains on.
+The early case adds no viewing pause after the driver's normal initial settling.
+These are individual fresh-process observations, with warm OS caches, not p95 results.
+
+```sh
+PROD=1 node tools/perf/inapp.mjs ~/Pictures/1OKK6434.RAF zoomdetail 180
+PACKAGED=1 node tools/perf/inapp.mjs ~/Pictures/1OKK6434.RAF zoomdetail 240
+PACKAGED=1 node tools/perf/inapp.mjs ~/Pictures/1OKK6434.RAF zoomprepared 240
+```
+
+| Build / viewing pause | Z to sharp detail | Detail preparation elapsed | Worst screen gap |
+| --- | ---: | ---: | ---: |
+| Production frontend, development native shell / no added pause | 5759 ms | 974 ms | 267 ms |
+| Bundled release, `tauri://localhost` / no added pause | 5082 ms | 900 ms | 372 ms |
+| Bundled release, `tauri://localhost` / six-second pause | 1318 ms | 953 ms | 30 ms |
+
+All three fail the existing 1000 ms sharpness budget. The visible status covers
+both full-source loading and exact-detail preparation. These timings do not
+isolate native decoding from transfer, upload and capture-metadata arrival.
+The viewing-pause comparison supports getting full-source work done earlier as
+one opportunity; about one second of foreground detail preparation remains.
+The paused run's background capture cache was still preparing at the sharp frame
+(13 steps, generation 1), so a six-second pause does not establish ready-cache performance.
+No decoder or scheduler changes were made in this investigation.
+
+The existing `node tools/browser-tests/realtime.mjs zoom-full-res 45` regression
+passes, including shared in-flight decoding, navigation, stable Fit during
+preparation and reuse on zoom. Background decode preparation already exists;
+it is bounded to 256 MiB decoded payloads and excludes speculative noise reduction.
+Larger photos therefore have a separate opportunity, subject to the memory cost
+of preparing them. The prepared run retained about 4919 MiB of logical GPU textures
+at its sharp frame; that is neither process RSS nor a measured allocation peak.
+
+Raw results: [first-zoom-production-2026-11-13.json](app-performance/first-zoom-production-2026-11-13.json).
+
+## Faster full-resolution decoding (2026-11-13)
+
+Full-size LibRaw decoding now admits up to eight OpenMP threads; half-size previews
+retain the four-thread cap. An existing lower OpenMP setting is respected and the
+calling worker's setting is restored after decoding. Demosaic, precision, colour,
+default denoise and sharpening settings are unchanged.
+
+An isolated optimized LibRaw probe compared four, six and eight threads on the same
+26 MP RAF. Repeat four-thread decodes took 4669 / 4666 ms; eight-thread decodes
+took 4012 / 3811 / 3755 ms. All camera-RGB output hashes match. A Bayer ORF also
+matches at four and eight threads. These hashes cover the demosaiced 16-bit pixels,
+before Rust colour conversion and metadata; these native timings exclude the UI.
+The complete probe observations, including its slower initial samples, are in the
+raw results above.
+
+The decisive check used one release binary, production bundled assets, the worker
+engine and the same photo/canvas as the preceding recheck. `OMP_NUM_THREADS=4`
+provided the four-thread control without changing shaders or rebuilding the app:
+
+| Full-size decoder | Z to sharp detail | Worst screen gap |
+| --- | ---: | ---: |
+| Four-thread control | 5103 ms | 290 ms |
+| Eight threads | 4204 ms | 263 ms |
+| Eight threads, repeat | 3808 ms | 183 ms |
+
+This is an 18–25% reduction in these early-zoom observations, not a p95 claim.
+All still fail the existing 1000 ms goal. They can be reproduced with:
+
+```sh
+OMP_NUM_THREADS=4 PACKAGED=1 node tools/perf/inapp.mjs ~/Pictures/1OKK6434.RAF zoomdetail 240
+PACKAGED=1 node tools/perf/inapp.mjs ~/Pictures/1OKK6434.RAF zoomdetail 240
+```
+
+Production-frontend `controls` runs also checked three Exposure drags during/after
+opening, in the development native shell. Both settings still fail the strict UI
+budget during early loading: eight threads had a 172 ms worst screen gap on the
+first drag; four threads had 120 / 152 ms gaps on the first two drags. Later controls
+ran at approximately 60 fps with 18 ms maximum gaps and no stale values. These
+individual observations do not establish hitch-free loading or a latency distribution.
+
+A foreground preparation batch increase from four to sixteen passes, with the
+same four-millisecond CPU budget, was tried first and reverted: prepared zoom was
+1266 ms versus 1318 ms, insufficient evidence of a useful gain. The final change
+only changes the native decoder's full-size thread cap. No installed app was replaced.
+
+Validation: the native suite passes (132 tests, 20 optional tests ignored), as do
+the real-photo `half_size_reports_the_full_size` regression on both RAWs and
+`libraw_survives_threads_that_exit` (300 rounds). The real-time `zoom-full-res`
+browser regression also passes. Existing early-load UI budget failures remain
+documented above.
+
+A normal local release app was rebuilt with
+`npx tauri build --bundles app --config '{"bundle":{"createUpdaterArtifacts":false}}'`
+at `src-tauri/target/release/bundle/macos/Emulsion.app`. Its normal desktop identifier,
+arm64 architecture, ad-hoc signature and system-only dynamic dependencies verify;
+OpenMP remains linked statically. Normal production assets contain no performance
+driver. Updater publishing artifacts were omitted for this local trial.
