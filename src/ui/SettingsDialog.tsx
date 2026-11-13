@@ -112,7 +112,7 @@ function Sheet({ onClose }: { onClose: () => void }) {
 
       <section aria-labelledby="settings-updates">
         <h3 id="settings-updates">Updates</h3>
-        <Row label="Check for updates automatically" hint="Once a day, a little after Emulsion opens">
+        <Row label="Check for updates automatically" hint="A little after Emulsion opens">
           <input type="checkbox" aria-label="Check for updates automatically" checked={updates.automatic} onChange={e => setUpdateSettings({ automatic: e.target.checked })} />
         </Row>
         <div className="settings-actions">

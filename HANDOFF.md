@@ -7,6 +7,9 @@ no saved favourites, `lookbrowser-preferences.test.ts`) are committed. Oli tried
 of the fixes in his real folder ("working a lot better") and is running `npm run release` himself
 (it prompts for the updater key password). Not pushed. After the build: publish the six files in
 `release/` as v0.1.2 (docs/RELEASING.md).
+Updates: the automatic check now runs ~8 s after every launch (was at most once a day), still
+silent unless a version is offered and still honouring Skip. Installed 0.1.1 apps keep the
+once-a-day rule, so they may take up to a day to offer 0.1.2; Emulsion › Check for Updates… asks at once.
 
 **Slider lag in a large library (2026-11-12, late night; committed in 0.1.2, `npm run check` passes: 904 JS, 132 Rust).**
 Oli's lag was reproduced and is not a release-build problem: the release binary, bare or as a real

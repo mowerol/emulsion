@@ -3,9 +3,9 @@
 // mowerol/emulsion for latest.json, which names the newest version and its signed Emulsion.app.tar.gz. Downloads are
 // checked against the public key in tauri.conf.json before anything is replaced.
 //
-// Emulsion › Check for Updates… always asks. Released builds also ask by themselves, a little
-// after launch and at most once a day, unless the person turned that off in Settings; a version
-// they chose to skip isn't offered by those automatic checks again (a manual check still offers it).
+// Emulsion › Check for Updates… always asks. Released builds also ask by themselves a little
+// after every launch, unless the person turned that off in Settings; a version they chose to
+// skip isn't offered by those automatic checks again (a manual check still offers it).
 import { create } from 'zustand';
 import { getSetting, setSetting } from './appsettings';
 import { isTauri } from '../backend/api';
@@ -30,10 +30,13 @@ export function normalizeUpdates(v: unknown): UpdateSettings {
   };
 }
 
-const DAY = 86_400_000;
-/** Whether an automatic check should run now: on, and none in the last day. */
-export function autoCheckDue(s: UpdateSettings, now = Date.now()): boolean {
-  return s.automatic && (s.lastCheck === null || now - s.lastCheck >= DAY || now < s.lastCheck);
+/**
+ * Whether an automatic check should run at this launch: whenever it is on. It ran at most once
+ * a day until 0.1.2, so someone who had opened the app that day was not told of a fix released
+ * since (Oli, 2026-11-12: an update should be apparent on opening). One small request a launch.
+ */
+export function autoCheckDue(s: UpdateSettings): boolean {
+  return s.automatic;
 }
 
 /** Whether a found version is offered: always when asked, otherwise unless it was skipped. */

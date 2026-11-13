@@ -10,17 +10,12 @@ describe('update settings', () => {
 });
 
 describe('automatic checks', () => {
-  const DAY = 86_400_000;
-  it('run once a day while on', () => {
+  it('run at every launch while on, however recent the last one', () => {
     expect(autoCheckDue({ ...UPDATE_DEFAULTS })).toBe(true);
-    expect(autoCheckDue({ ...UPDATE_DEFAULTS, lastCheck: 1000 }, 1000 + DAY - 1)).toBe(false);
-    expect(autoCheckDue({ ...UPDATE_DEFAULTS, lastCheck: 1000 }, 1000 + DAY)).toBe(true);
+    expect(autoCheckDue({ ...UPDATE_DEFAULTS, lastCheck: Date.now() - 1000 })).toBe(true);
   });
   it('never run when off', () => {
     expect(autoCheckDue({ ...UPDATE_DEFAULTS, automatic: false })).toBe(false);
-  });
-  it('run when the clock went backwards', () => {
-    expect(autoCheckDue({ ...UPDATE_DEFAULTS, lastCheck: 10 * DAY }, 5 * DAY)).toBe(true);
   });
 });
 
