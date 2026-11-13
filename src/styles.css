@@ -318,7 +318,8 @@ body:has(.library-fullscreen) { min-width: 0; }
 .develop { flex: 1; display: grid; grid-template-rows: minmax(0, 1fr) auto; min-width: 0; }
 .stage { position: relative; background: var(--stage); padding: 24px; display: flex; min-height: 0; }
 .stage-box { position: relative; flex: 1; min-width: 0; min-height: 0; display: grid; place-items: center; }
-.view { display: block; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); }
+/* contain: while a zoom changes the canvas's size, a frame of the other size keeps its shape (Develop.tsx). */
+.view { display: block; object-fit: contain; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); }
 .stage-error { max-width: 46ch; color: var(--muted); text-align: center; }
 .badge { position: absolute; top: 32px; left: 32px; background: var(--scrim); padding: 4px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
 .stage-status { position: absolute; bottom: 8px; left: 24px; font-size: 12px; color: var(--muted); }

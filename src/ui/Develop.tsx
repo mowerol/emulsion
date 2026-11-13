@@ -106,6 +106,15 @@ const dpr = () => Math.min(window.devicePixelRatio || 1, 2);
 /** A workspace colour as the engine's display-encoded RGB, painted around the photo while it is straightened. */
 const rgb = (hex: string): [number, number, number] => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255) as [number, number, number];
 
+/**
+ * The longest the canvas keeps a larger box while waiting for the frame at a smaller size. Long
+ * enough for the slowest first frame measured (500 ms, a zoom out as the photo's full resolution
+ * arrives in the worker): shrinking before that frame crops the previous one, a second step.
+ */
+const SIZE_WAIT_MS = 1500;
+/** Screen frames the smaller frame is given to appear before its box shrinks round it. */
+const SIZE_SETTLE_FRAMES = 2;
+
 export function Develop() {
   const editingLook = useApp(s => !!s.lookEdit);
   // The Look Creator has its own layout around the preview, whichever layout the editor uses.
@@ -114,6 +123,7 @@ export function Develop() {
   const masksOpen = useWorkspace(s => s.layout !== 'workflow' || s.group === 'masks');
   const boxRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<DevelopClient | null>(null);
   const pointerHeld = useRef(false);
   const uploadAfter = useRef(0);
@@ -446,12 +456,37 @@ export function Develop() {
   useEffect(() => setZoom(FIT), [cropKey, cropping]);
 
   // Size the canvas to the layout; its pixel size is the engine's to set (it may own the canvas).
+  // The frame drawn at a new size reaches the screen 30-85 ms after the layout changes (measured
+  // in the app, worker engine), and not in step with this thread: the worker's frame is shown
+  // without it. Stretched to its box, the frame of the other size showed as a second zoom (Oli,
+  // 2026-11-13). So `.view` is `object-fit: contain` (a frame smaller than its box sits in it at
+  // its own shape, the stage round it) and the larger of the two boxes is the one in effect
+  // while they differ: a box that grows does so at once, round the previous frame; one that
+  // shrinks waits until the smaller frame has been on screen for SIZE_SETTLE_FRAMES. Between Fit
+  // and a zoom one side of both boxes is the stage's, so the photo keeps its place and scale.
+  // WebKit gives the placeholder canvas the worker's new width and height, which is what is
+  // waited for; SIZE_WAIT_MS bounds the wait when no frame comes (a look still loading).
+  const cssW = current?.cssW, cssH = current?.cssH, pxW = current?.pxW, pxH = current?.pxH;
   useLayoutEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas || !current) return;
-    canvas.style.width = `${current.cssW}px`;
-    canvas.style.height = `${current.cssH}px`;
-  });
+    const canvas = canvasRef.current, wrap = wrapRef.current;
+    if (!canvas || !wrap || cssW === undefined) return;
+    const apply = () => {
+      for (const el of [canvas, wrap]) {
+        el.style.width = `${cssW}px`;
+        el.style.height = `${cssH}px`;
+      }
+    };
+    const shrinks = canvas.width * canvas.height > pxW! * pxH!;
+    if (!shrinks || !canvas.style.width || canvas.style.visibility === 'hidden') { apply(); return; }
+    const started = performance.now();
+    let settled = 0;
+    let id = requestAnimationFrame(function check() {
+      if (canvas.width === pxW && canvas.height === pxH) settled++;
+      if (settled > SIZE_SETTLE_FRAMES || performance.now() - started > SIZE_WAIT_MS) apply();
+      else id = requestAnimationFrame(check);
+    });
+    return () => cancelAnimationFrame(id);
+  }, [cssW, cssH, pxW, pxH]);
 
 
   // The preview follows the size the photo is shown at (previewsize.ts): when a zoom, crop or
@@ -889,7 +924,7 @@ export function Develop() {
       >
         {menu && <StageMenu x={menu.x} y={menu.y} onClose={closeMenu} />}
         <div className="stage-box" ref={boxRef}>
-          <div className={`view-wrap${cropping ? ' cropping' : ''}`} style={current ? { width: current.cssW, height: current.cssH } : undefined}>
+          <div className={`view-wrap${cropping ? ' cropping' : ''}`} ref={wrapRef}>
           <canvas
             ref={canvasRef}
             className="view"

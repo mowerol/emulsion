@@ -1,17 +1,136 @@
 # Handoff
 
-**0.1.2 prepared (2026-11-12, 23:20), not yet released:** version bumped in package.json,
-tauri.conf.json, Cargo.toml and both lock files; `docs/release-notes/0.1.2.md` written; the slider
-fixes below and the other session's favourites default (the six Emulsion looks for anyone with
-no saved favourites, `lookbrowser-preferences.test.ts`) are committed. Oli tried a local bundle
-of the fixes in his real folder ("working a lot better") and is running `npm run release` himself
-(it prompts for the updater key password). Not pushed. After the build: publish the six files in
-`release/` as v0.1.2 (docs/RELEASING.md).
+**Zoom on a click still looks wrong to Oli: OPEN, handed to another agent (2026-11-13; committed, `npm run check` passes).**
+State when handed over: after the four passes below Oli said zooming in is "really better", then,
+on a bundle with the fourth pass, "I'm still seeing the issues" (he did not say which; before
+that it was zooming out, in the bundled build, with dev "good"). Nothing here was confirmed by
+his eyes for zoom out. Start by getting a slowed screen recording of a zoom out from him (his
+earlier frames were what found the second pass), and test in a bundle
+(`npx tauri build --bundles app`, `src-tauri/target/release/bundle/macos/Emulsion.app`), not dev.
+What is established: `object-fit` works on the worker's canvas in WKWebView; the page-side trace
+(canvas `width`/`height` against its box after every paint) is in step in both directions in a
+packaged build at real scale. What is not: what the compositor shows in between, and whether
+his complaint is the box at all rather than (a) or (b) at the end of the fourth pass.
+The history:
+Oli: a click to 100% "does two choppy zooms in one". Measured in the perf app (worker engine,
+`1OKK6432.RAF`): `Develop.tsx` resized the canvas's CSS box in a layout effect at once, and the
+frame drawn at the new size reached the screen 30-85 ms later, so the previous frame was shown
+stretched into the new shape first (1552x1036 pixels in a 1552x1158 box, and the reverse zooming
+out). Now the canvas and `.view-wrap` (sized through `wrapRef`, no longer a React style) keep
+their box until the placeholder canvas's `width`/`height` equal the layout's: WebKit updates those
+with the worker's frame, and a `requestAnimationFrame` check applies the box before that frame
+paints. `SIZE_WAIT_MS` (400) bounds the wait; a hidden or not-yet-sized canvas is sized at once.
+After: box and pixels change in the same painted frame, in and out, four of four zooms.
+- **Second pass, same day:** Oli still saw a stretch in a bundle and sent frames from a recording:
+  the 100% frame (soft, the moving one) squeezed into the Fit box, with the zoom-out cursor. The
+  worker's frame reaches the screen without the main thread, so with that thread busy (his real
+  folder) it can show before the rAF check resizes the box; the idle perf app never showed it.
+  Now the canvas also sets `object-fit` for the wait and for the resize: a frame that isn't the
+  box's size is cropped (`cover`) or has the stage round it (`contain`), never stretched; between
+  Fit and a zoom one side is the stage's in both, so the photo keeps its scale.
+  Verified in WKWebView: with the canvas's box forced to 0.6 and 1.25 of its height, `fill`
+  squashed the photo, `cover` cropped it and `contain` left the stage round it (window-only
+  captures, `screencapture -l <window id>` of the perf app; a whole-screen capture photographed
+  Oli's browser and was deleted: never capture his whole screen).
+- **Third pass (zoom out, "bundle only"):** traced clicks in a packaged build at real scale
+  (`PACKAGED=1 CATALOG=real FILL=22000`). Box and frame change together and the first Fit frame
+  comes 41-133 ms after the click, also when the click lands while the sharp 100% frame is being
+  prepared, except **the first zoom out after the photo's full resolution arrives: 385-508 ms**
+  (three runs of three; the worker is busy with the new source). There the 400 ms limit fired
+  first and the box shrank round the zoomed frame, then the Fit frame came: two steps.
+  `SIZE_WAIT_MS` is now 1500, so that case is one late change. The stall itself is not fixed
+  and not explained beyond "after the source swap" (seqs skipped, first frame `moving` on the
+  6246 px source); it belongs with open slider item (1) below. No stretch was reproduced on
+  zoom out; if Oli still sees one, a slowed recording of the zoom out is the evidence to get.
+- **Fourth pass:** Oli, on a bundle with the above: "really better zooming in, still a bit weird
+  zooming back out". The two directions were not alike: with frame and box out of step, a zoom
+  in showed the larger frame cropped in the Fit box or the Fit frame inside the larger box (no
+  visible change), a zoom out could show the zoomed frame cropped to the Fit box. Now `.view` is
+  always `object-fit: contain` (styles.css) and the larger box is in effect while they differ: a
+  growing box is applied at once, a shrinking one after the smaller frame has had
+  `SIZE_SETTLE_FRAMES` (2) screen frames, bounded by `SIZE_WAIT_MS`. This supersedes the
+  cover/contain switching described above. **A guess, not a measurement**: what the compositor
+  shows between the worker's frame and this thread's resize cannot be read from the page, and
+  the page-side trace was already in step. If zoom out is still odd, the other candidates seen
+  in the trace are (a) the stall when the full resolution lands in the worker during the zoom
+  (worker blocked up to 487 ms, `upload` 133 ms, first Fit frame at 385-508 ms) and (b) the Fit
+  view being drawn four times in ~1.7 s after a zoom out, from different sources (moving and
+  settled on the 2560 px preview, the 1664 px preview decoded for Fit, then the 6246 px full).
+  A temporary worker log that showed this: time each `handle` message, an 8 ms `setInterval`
+  heartbeat recording gaps over 40 ms, and both appended to the frame stat's `pending`.
+- Not kept: the `zoomtrace` scenario used to measure it (in `perfrun.ts`: press Z, then after
+  every paint record `canvas.width x height` against `getBoundingClientRect() * dpr`, reading
+  after `await wait(0)` so the read follows the frame's own rAF callbacks).
+- Still there by design: the soft frame first (the preview standing in while the view moves),
+  then the sharp one 180 ms+ later, ~1.3 s for the first full-resolution frame.
+- Oli to try (not checkable headlessly beyond the trace above): click and Z to 100% and back,
+  pinch from Fit past the stage's size, the crop tool (enter, drag a handle, Enter), mask and
+  heal overlays while zooming (they sit in the wrap, which now lags the layout by a frame or
+  two), resizing the window and the side panel.
+
+**Where the remaining drag lag is (2026-11-13; investigation only, no code kept).**
+Oli asked to start on prod performance, then to keep only this record: the source tree is as
+committed at `125d86c`. The findings:
+- **The "rendering step" is not style or layout.** `sample` of the WebContent and GPU processes
+  during an Exposure drag at real scale (release build, `CATALOG=real FILL=22000`): of the main
+  thread's busy time about half (~310 ms/s) is *blocked waiting on the GPU process*, in
+  `RenderLayerBacking::updateConfiguration → PlaceholderRenderingContext::setContentsToLayer →
+  tryCopyToLayer → RemoteImageBufferProxy::ensureBackend / flushDrawingContext`, plus the same
+  `tryCopyToLayer` from `PlaceholderRenderingContextSource::setPlaceholderBuffer`'s main-thread
+  task. Style resolution was 8 of 1,552 samples, layout ~25, paint ~47. In the GPU process the
+  WebGL thread spends the drag in `GraphicsContextGLCocoa::readCompositedResults →
+  readPixelsForPaintResults → glReadPixels`: **WebKit shows a worker's WebGL canvas by reading the
+  drawing buffer back every frame**, and the worker's RemoteRenderingBackend queue sits in
+  `cacheNativeImageFromSharedNativeImage` until that frame is done, so the page's calls for the
+  previous frame wait behind the next one (9 ms median, 18 ms p90, the old `renderMsPerFrame`).
+  The `[type='checkbox']` rules added to styles.css on 11 Nov are not a cause (dropping every
+  `[type` rule changed nothing).
+- **A slow drag is free:** 13 value changes a second left the main thread blocked 24 ms/s.
+- **Main-thread engine** (`VITE_ENGINE=main`, no readback): photo 48–58 fps (worker 37–44), blocked
+  11–148 ms/s (worker 373–460), GPU 17 ms a frame (worker 22). But the controls then run at the
+  photo's rate (Texture 49, Dehaze 52 fps alone) and at 50% Capture Sharpening holds them to
+  **4.7 fps** (photo 3.1), which is why the worker exists. Not a switch to flip.
+- **Deferred presentation, tried and removed:** the worker drew the finished frame into an RGBA8
+  target (`toScreen`), blitted it to the canvas from a 1 ms fence poll once the frame's fence
+  signalled, and kept `idle()` false until one task after the blit (WebKit commits the canvas in
+  its own task; the loop retried through a callback, not `raf`, which paced it to 30 fps).
+  Blocked 373–460 → 0–95 ms/s, controls 56–60 fps with fewer frames over 25 ms, but **photo
+  37–44 → 30–38 fps and latency 32 → 43–50 ms**: WebKit's commit of a worker frame takes 8–10 ms
+  by itself (measured per frame: draw → GPU done 19–20 ms, → committed 8–10, → next frame 1),
+  and it no longer overlaps the next frame's GPU work. It was never checked by eye.
+- **What limits both:** GPU time per frame. A plain Exposure drag at fit is ~17 ms: five
+  `ceP` passes (the look's colour equalizer, after exposure in darktable's order, so redone per
+  change), `src`, `develop`, and the screen draw, plus WebKit's ~5–9 ms to present from a worker.
+- **Directions, Oli to choose:** (a) leave the worker as shipped (controls ~58 fps, photo ~40);
+  (b) cheaper frames while a pointer is held (the `pace`/draft scale in developloop.ts only
+  engages after slow frames; a held-drag draft would cut GPU time and the readback together);
+  (c) a main-thread canvas for the light develop pass with heavy stages kept off it (largest
+  gain, 53–58 fps photo measured, and a real redesign: sources would live in two contexts).
+- **To repeat the sampling** (the driver changes were not kept): give `perfrun.ts` a scenario
+  that logs `PERF-TRACE-DRAG` and then runs one long Exposure `sliderDrag` (z100trace is the
+  model), and on that cue run `sample <pid> 9 5 -file out.txt` on the newest
+  `com.apple.WebKit.WebContent` or `com.apple.WebKit.GPU` process. The drag must change the value
+  every frame to show the cost: Exposure's step is 0.05, so 1,500 steps over one sweep changes it
+  only 13 times a second; repeat the 240-step sweep instead. `perfrun.ts` throws in main mode
+  (`VITE_ENGINE=main`): its `regions` line does `JSON.parse` of an undefined `f.region`; filter
+  those frames first. `VITE_PERF_DROP_CSS` does not report how many rules it dropped.
+- Each timing run rebuilt `src-tauri/target/release/emulsion` with a `VITE_PERF` interface; it is
+  not the 0.1.2 release binary any more.
+
+**0.1.2 released (2026-11-12, 23:20):** https://github.com/mowerol/emulsion/releases/tag/v0.1.2,
+"Emulsion 0.1.2 (beta)", Latest, on `125d86c` (pushed), six assets from Oli's local
+`npm run release`. Verified: DMG checksum, public `releases/latest/download/latest.json` is
+byte-identical to the local one and reports 0.1.2, the public updater archive's hash matches the
+local file, the DMG URL returns 200. It carries the slider fixes below, the favourites default
+(the six Emulsion looks for anyone with no saved favourites) and the update check at every
+launch. Oli tried a local bundle of the slider fixes in his real folder ("working a lot
+better"). Not checked: the built DMG opened, or the in-app update from 0.1.1 to 0.1.2. The tag
+will have started a redundant CI run whose draft step fails on the existing tag (harmless).
 Updates: the automatic check now runs ~8 s after every launch (was at most once a day), still
 silent unless a version is offered and still honouring Skip. Installed 0.1.1 apps keep the
 once-a-day rule, so they may take up to a day to offer 0.1.2; Emulsion › Check for Updates… asks at once.
 
-**Slider lag in a large library (2026-11-12, late night; committed in 0.1.2, `npm run check` passes: 904 JS, 132 Rust).**
+**Slider lag in a large library (2026-11-12, late night; released in 0.1.2, `npm run check` passes: 904 JS, 132 Rust).**
 Oli's lag was reproduced and is not a release-build problem: the release binary, bare or as a real
 bundle launched through LaunchServices, times the same as dev (58–60 fps controls, ~45 fps photo)
 *in the conditions every timing run used: an empty catalog and a one-photo folder*. Oli's dev and
