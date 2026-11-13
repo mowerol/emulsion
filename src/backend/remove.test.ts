@@ -45,7 +45,9 @@ it('rejects a truncated patch instead of letting it enter the retouch step', asy
 it('restores a cached patch using only its key and reports a miss without inference', async () => {
   const patch = new Uint8Array(N * 4).fill(91);
   native.mockResolvedValueOnce(patch.buffer).mockResolvedValueOnce(new ArrayBuffer(0));
-  expect(await removeCachedPatch(KEY)).toEqual(patch);
+  const restored = await removeCachedPatch(KEY);
+  expect(restored?.length).toBe(patch.length);
+  expect(restored?.every((value, i) => value === patch[i])).toBe(true);
   expect(await removeCachedPatch(KEY)).toBeNull();
   expect(native.mock.calls).toEqual([
     ['remove_cached_patch', { key: KEY }], ['remove_cached_patch', { key: KEY }],
