@@ -1,5 +1,39 @@
 # Handoff
 
+**0.1.1 (2026-11-12, night): LUT looks and slider lag in 0.1.0.** Two causes, both verified.
+(1) The release CSP (`tauri.conf.json`; `tauri dev` has `devCsp: null`) had no `'self'` in
+`connect-src`, so lutstore's XMLHttpRequest for every bundled LUT was blocked. The main thread
+marked it failed, but the worker's mirror only receives loaded LUTs, so `engine.waiting` held
+every frame forever: the look never showed and sliders stopped updating the photo. Found by
+building the interface into a debug app (`tauri build --debug --no-bundle` with `frontendDist`
+pointed at a `VITE_PERF=lutlook` build): no frames for 30 s, fine with `csp: null`, one
+`securitypolicyviolation` for the `.cube`. Test: `src/engine/lutstore-csp.test.ts`.
+**Still open:** a LUT that fails to load still freezes the worker; it should render without it
+and warn (send failures through AssetSync). (2) Every edit copied all open photos into the
+catalog (`cacheEdits` per `useApp` change), rebuilding every root of the whole library, and each
+catalog reader (LibrarySources' `catalogPhotos`, folder tree, saving) redid the library per
+frame: Exposure drag blocked the main thread 834 ms/s with Oli's 79,516-photo catalog (mostly
+perf-run imports). Now only changed families are queued (`queueEdits`) and written once edits
+settle (250 ms) or when anything reads the catalog (`catalogPhotos()`, `cacheEdits`,
+`flushCatalog`, pagehide); untouched roots keep their arrays. Tests in `catalog.test.ts`. With
+the per-edit copy off: photo 17.9 → 30.5 fps, controls 34.7 → 52.6 fps, 834 → 511 ms/s.
+Oli: "not ideal but good enough". **Remaining (every library size):** with an empty catalog a
+drag still blocks ~420–500 ms/s: ~600 ms/s `store` (React's sync re-renders after setState)
+and ~600 ms/s rendering; the Controls panel's inputs re-render each frame. Next speed task.
+Tools: `inapp.mjs` takes `DIST=<dir>` (a prebuilt `VITE_PERF` interface, e.g. an older
+commit's, on today's Rust) for bisecting; `perfrun.ts` has a `lutlook` scenario. An empty
+catalog for a timing run: `HOME=<tmp> CARGO_HOME=~/.cargo RUSTUP_HOME=~/.rustup`.
+
+**Launch posts and notarisation (2026-11-12, evening):** Oli is announcing the 0.1.0 beta
+on r/darktable, r/fujifilm and fotoapp.co. `spctl` rejects the installed
+`/Applications/Emulsion.app`: it is ad-hoc signed (`TeamIdentifier=not set`) with no stapled
+ticket, so downloaders on Sequoia+ must use System Settings › Privacy & Security › Open
+Anyway (the posts say so). Next release task to offer: Developer ID signing and notarisation
+in `npm run release` (needs a paid Apple Developer account). Only the denoise port is tested
+against darktable's own output (`denoiseprofile.test.ts` fixture); other ports are tested
+against upstream presets, curves and kernels, so `darktable-cli` reference renders for the
+main modules would back a "checked against the original" claim.
+
 **0.1.0 beta released (2026-11-12):** https://github.com/mowerol/emulsion/releases/tag/v0.1.0
 is public and Latest, with the six local release assets from `19844e4`. Oli installed the DMG
 and confirmed folder switching, Develop, saving and export work. The DMG checksum, app code

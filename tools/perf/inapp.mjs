@@ -17,8 +17,12 @@ const dir = await mkdtemp(join(process.env.PERF_TMP ?? tmpdir(), 'emulsion-perf-
 for (const p of photo.split(',')) await copyFile(p, join(dir, basename(p)));
 // Its own port, so it can run beside a `tauri dev` already open on 1420.
 const port = process.env.PERF_PORT ?? '1430';
-const out = process.env.PROD ? await mkdtemp(join(tmpdir(), 'emulsion-perf-dist-')) : null;
-const serve = out
+// DIST=<dir> serves an interface already built there (`VITE_PERF=<which> vite build`), e.g. an
+// older commit's, against today's Rust: how a slowdown is bisected to the commit that made it.
+const out = process.env.PROD && !process.env.DIST ? await mkdtemp(join(tmpdir(), 'emulsion-perf-dist-')) : null;
+const serve = process.env.DIST
+  ? `npx vite preview --outDir ${process.env.DIST} --port ${port} --strictPort`
+  : out
   ? `npx vite build --logLevel warn --outDir ${out} --emptyOutDir && npx vite preview --outDir ${out} --port ${port} --strictPort`
   : `npx vite --port ${port} --strictPort`;
 const config = JSON.stringify({ build: { devUrl: `http://localhost:${port}`, beforeDevCommand: serve } });

@@ -726,6 +726,39 @@ export async function run(which: string) {
       out.denoiseOffExposure = await sliderDrag('exposure', 'develop');
       setSliders({ profiledDenoise: 'auto' });
     }
+    if (only.includes('lutlook')) {
+      // Picking a look: how long until a frame with it is on screen, for LUT looks (cold and
+      // again) beside a built-in look, then Exposure dragged with a LUT look on.
+      const { PACK, stocksForPack, withLook, recipeLookFile } = await import('../film/looks');
+      const picks: [string, string][] = [
+        ['emulsion-looks', stocksForPack('emulsion-looks' as never)[1]?.id],
+        ['gmic-film', stocksForPack('gmic-film' as never)[0]?.id],
+        ['gmic-film', stocksForPack('gmic-film' as never)[5]?.id],
+        ['t3mujinpack', stocksForPack('t3mujinpack' as never)[0]?.id],
+        ['gmic-film', stocksForPack('gmic-film' as never)[0]?.id],
+      ];
+      const looks: unknown[] = [];
+      for (const [pack, stock] of picks) {
+        if (!stock || !PACK[pack as never]) { looks.push({ pack, missing: true }); continue; }
+        await settle(500, 30000);
+        const client = perfClient!;
+        let shownAt = 0;
+        const prev = client.onFrame;
+        client.onFrame = (f) => {
+          prev?.(f);
+          const r = client.recipeOf(f.seq) as Recipe | null;
+          if (!shownAt && r?.stock === stock && r?.pack === pack) shownAt = performance.now();
+        };
+        const t0 = performance.now();
+        editActive(r => withLook(r ?? defaultRecipe(), pack as never, stock as never));
+        while (!shownAt && performance.now() - t0 < 20000) await wait(10);
+        client.onFrame = prev;
+        looks.push({ pack, stock, file: recipeLookFile(activePhoto()!.recipe!), shownMs: shownAt ? Math.round(shownAt - t0) : 'never' });
+      }
+      out.lutLooks = looks;
+      await settle(1000, 30000);
+      out.lutExposure = await sliderDrag('exposure', 'develop');
+    }
     if (only.includes('look')) {
       // The Look Creator with its test photos: drags with the strip rendering beside the
       // preview, how long the strip takes to catch up after a drag, and the same drags folded.

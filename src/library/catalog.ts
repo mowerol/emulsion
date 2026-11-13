@@ -104,14 +104,43 @@ useCatalog.subscribe((state, previous) => {
 });
 /** Save anything waiting now and wait for it (before quitting or backing up). */
 export function flushCatalog(): Promise<void> {
+  flushEdits();
   return persist(useCatalog.getState());
 }
 // Flush before the WebView closes, including immediately after an import.
 if (typeof window !== 'undefined') window.addEventListener('pagehide', () => {
+  flushEdits();
   void persist(useCatalog.getState());
 });
 
-export function catalogPhotos(catalog = useCatalog.getState()): Photo[] {
+/**
+ * Edits on their way to the catalog, by source path (each a whole family: the source and its
+ * virtual copies). The catalog is the whole library, and a slider drag edits a photo every frame;
+ * copying each frame in made every catalog reader (sidebar counts, collections, saving) redo the
+ * whole library per frame. They arrive once the edits settle, or as soon as anything reads it.
+ */
+const pendingEdits = new Map<string, Photo[]>();
+let editsTimer: ReturnType<typeof setTimeout> | undefined;
+const EDITS_SETTLE_MS = 250;
+export function queueEdits(photos: Photo[]) {
+  if (!photos.length) return;
+  const families = new Map<string, Photo[]>();
+  for (const p of photos) families.set(p.path, [...(families.get(p.path) ?? []), p]);
+  for (const [path, family] of families) pendingEdits.set(path, family);
+  clearTimeout(editsTimer);
+  editsTimer = setTimeout(flushEdits, EDITS_SETTLE_MS);
+}
+export function flushEdits() {
+  clearTimeout(editsTimer);
+  editsTimer = undefined;
+  if (!pendingEdits.size) return;
+  const photos = [...pendingEdits.values()].flat();
+  pendingEdits.clear();
+  writeEdits(photos);
+}
+
+export function catalogPhotos(catalog?: Catalog): Photo[] {
+  if (!catalog) { flushEdits(); catalog = useCatalog.getState(); }
   return [...new Map(Object.values(catalog.folders).flat().map(p => [photoId(p), p])).values()];
 }
 export function cacheFolder(root: string, photos: Photo[]) {
@@ -119,18 +148,32 @@ export function cacheFolder(root: string, photos: Photo[]) {
 }
 /** Update entire source families, including added/removed virtual copies, in every cached root. */
 export function cacheEdits(photos: Photo[]) {
+  flushEdits();
+  writeEdits(photos);
+}
+/** Roots without any of the families keep their arrays, and nothing is written if nothing changed. */
+function writeEdits(photos: Photo[]) {
+  if (!photos.length) return;
   const families = new Map<string, Photo[]>();
   for (const p of photos) families.set(p.path, [...(families.get(p.path) ?? []), p]);
-  useCatalog.setState(s => ({ folders: Object.fromEntries(Object.entries(s.folders).map(([root, old]) => {
-    const inserted = new Set<string>();
-    return [root, old.flatMap(p => {
-      const family = families.get(p.path);
-      if (!family) return [p];
-      if (inserted.has(p.path)) return [];
-      inserted.add(p.path);
-      return family;
-    })];
-  })) }));
+  useCatalog.setState(s => {
+    let changed = false;
+    const folders = Object.fromEntries(Object.entries(s.folders).map(([root, old]) => {
+      if (!old.some(p => families.has(p.path))) return [root, old];
+      const inserted = new Set<string>();
+      const next = old.flatMap(p => {
+        const family = families.get(p.path);
+        if (!family) return [p];
+        if (inserted.has(p.path)) return [];
+        inserted.add(p.path);
+        return family;
+      });
+      if (next.length === old.length && next.every((p, i) => p === old[i])) return [root, old];
+      changed = true;
+      return [root, next];
+    }));
+    return changed ? { folders } : s;
+  });
 }
 export function recordImport(name: string, destinationPath: string, photoIds: string[], sourceDevice = 'Local folder') {
   const session: ImportSession = { id: crypto.randomUUID(), name, importedAt: Date.now(), sourceDevice, destinationPath, photoIds: [...new Set(photoIds)], viewed: false };

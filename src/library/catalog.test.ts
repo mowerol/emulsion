@@ -6,7 +6,7 @@ vi.mock('../backend/api', () => ({
 }));
 import { scanFolder, writeSidecar, type ScanResult } from '../backend/api';
 import { addToCollection, cacheFolder, catalogPhotos, localDay, matchesRules, migrateCollection, saveCollection, sourceMatches, useCatalog } from './catalog';
-import { closeFolder, importFolderPhotos, markPhotos, openFolder, selectAll, selectSource, setFilter, setFoldJpegs, setSelectedOnly, shown, sourceIndices, sourcePhotos, step, undo, useApp, type Photo } from './store';
+import { closeFolder, createVirtualCopies, editActive, importFolderPhotos, markPhotos, openFolder, selectAll, selectSource, setFilter, setFoldJpegs, setSelectedOnly, shown, sourceIndices, sourcePhotos, step, undo, useApp, type Photo } from './store';
 import { defaultRecipe } from '../film/recipe';
 import { compareFolders } from './folders';
 import { NO_FILTER } from './filter';
@@ -203,4 +203,43 @@ it('writes only the selected virtual copy while retaining its original and sibli
   const saved = folders['/copy-save'].entries[0];
   expect(saved.rating).toBe(0);
   expect(saved.copies?.[0].rating).toBe(4);
+});
+
+// A slider drag edits the active photo every frame. The catalog holds the whole library (every
+// folder ever opened), so rewriting it per frame cost work across all of it, even with a
+// one-photo folder open: 0.1.0's drags blocked the main thread ~830 ms/s with a 79,516-photo
+// catalog. Edits now reach the catalog once they settle, and only the changed sources.
+it('lets a drag reach the catalog once it settles, touching only the edited source', async () => {
+  vi.useFakeTimers();
+  try {
+    const library = Array.from({ length: 5000 }, (_, i) => ({ path: `/library/${i}.jpg`, name: `${i}.jpg`, recipe: null }) as unknown as Photo);
+    cacheFolder('/library', library);
+    await importFolder('/one', ['a.orf']);
+    const big = useCatalog.getState().folders['/library'];
+    let writes = 0;
+    const stop = useCatalog.subscribe(() => { writes++; });
+    for (let i = 1; i <= 60; i++) editActive(r => ({ ...(r ?? defaultRecipe()), exposure: i / 20 }), 'Exposure', { key: 'exposure', continuous: true });
+    expect(writes).toBe(0);
+    vi.advanceTimersByTime(1000);
+    stop();
+    expect(writes).toBe(1);
+    expect(useCatalog.getState().folders['/library']).toBe(big);
+    expect(catalogPhotos().find(p => p.path === '/one/a.orf')?.recipe?.exposure).toBe(3);
+  } finally { vi.useRealTimers(); }
+});
+
+it('reads pending edits before anything uses the catalog', async () => {
+  await importFolder('/one', ['a.orf']);
+  editActive(r => ({ ...(r ?? defaultRecipe()), exposure: 1.5 }));
+  expect(catalogPhotos().find(p => p.path === '/one/a.orf')?.recipe?.exposure).toBe(1.5);
+});
+
+it('keeps every virtual copy of an edited source in the catalog', async () => {
+  await importFolder('/one', ['a.orf']);
+  selectAll();
+  createVirtualCopies();
+  editActive(r => ({ ...(r ?? defaultRecipe()), exposure: 2 }));
+  const family = catalogPhotos().filter(p => p.path === '/one/a.orf');
+  expect(family).toHaveLength(2);
+  expect(family.filter(p => p.recipe?.exposure === 2)).toHaveLength(1);
 });

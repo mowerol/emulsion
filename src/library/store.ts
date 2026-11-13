@@ -24,7 +24,7 @@ import { cleanCopyName, expandCopies, photoId, savedFrames } from './copies';
 import { applyMark, describeMark, hasMark, normalizeMarks, sameMarks, type Flag, type Label, type MarkKey, type Marks } from './marks';
 import { History, MERGE_MS, describe, type Change, type Step } from './history';
 import * as trace from '../dev/trace';
-import { addToCollection, cacheEdits, cacheFolder, catalogPhotos, recordImport, sourceMatcher, sourceMatches, targetCollection, useCatalog, useSourceDefinitions, viewImport, type SourceSelection } from './catalog';
+import { addToCollection, cacheEdits, cacheFolder, catalogPhotos, queueEdits, recordImport, sourceMatcher, sourceMatches, targetCollection, useCatalog, useSourceDefinitions, viewImport, type SourceSelection } from './catalog';
 
 export interface Photo {
   capture?: { camera: string | null; date: string | null };
@@ -779,8 +779,14 @@ export const sourceIndices = (s: State = get()) => sourceMembership(s).indices;
 export const sourcePhotos = (s: State = get()) => sourceMembership(s).members;
 
 // Keep the catalog current as edits, marks, versions and decoded camera metadata arrive.
+// Only the sources whose photos changed (a drag changes one), queued until edits settle (catalog.ts).
 useApp.subscribe((s, old) => {
-  if ((s.photos !== old.photos || s.hidden !== old.hidden) && !s.loading && !s.lookEdit) cacheEdits([...s.photos, ...s.hidden]);
+  if ((s.photos === old.photos && s.hidden === old.hidden) || s.loading || s.lookEdit) return;
+  const now = [...s.photos, ...s.hidden], before = [...old.photos, ...old.hidden];
+  if (now.length !== before.length) return queueEdits(now);
+  const paths = new Set<string>();
+  for (let i = 0; i < now.length; i++) if (now[i] !== before[i]) { paths.add(now[i].path); paths.add(before[i].path); }
+  if (paths.size) queueEdits(now.filter(p => paths.has(p.path)));
 });
 
 /** Shared by Library, Develop's Images pane and the classic filmstrip. */
