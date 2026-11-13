@@ -1,5 +1,22 @@
 # Handoff
 
+**Zoom presentation race: fixed in the recorded release test; Oli tried the rebuilt production
+app and said "way better" (2026-11-13).** This supersedes the four sizing attempts immediately below. Oli clarified that
+both directions glitch, "almost like a border appears top and bottom". A window-only release
+recording reproduced floating canvas shadows and a frame briefly squeezed/expanded into the
+other zoom's rectangle despite `object-fit: contain`. The worker now transfers completed
+ImageBitmaps and their dimensions; the main thread installs pixels, backing size and CSS box
+in one task. Removed `SIZE_WAIT_MS`, rAF polling and settle-frame guesses. Recorded test at
+real catalog/folder scale: 40 floating-border frames before, zero after, with transition images
+also inspected. Explicit canvas width/height updates are essential; the intermediate candidate
+without them had persistent letterboxing. `npm run check` passes (904 JS, 132 Rust), as do the
+new worker/GPU `zoom-presentation` browser test and existing `zoom-full-res` regression.
+Controls remain about 58.5–59.9 fps in the isolated run, with occasional 45–61 ms frames;
+this is not a complete slider/performance fix. Details, commands, evidence and limits:
+[zoom presentation report](docs/research/zoom-presentation.md). No release published.
+Normal production app rebuilt at `src-tauri/target/release/bundle/macos/Emulsion.app` for Oli
+to try; local packaging succeeded with updater artifacts disabled (private signing key absent).
+
 **Zoom on a click still looks wrong to Oli: OPEN, handed to another agent (2026-11-13; committed, `npm run check` passes).**
 State when handed over: after the four passes below Oli said zooming in is "really better", then,
 on a bundle with the fourth pass, "I'm still seeing the issues" (he did not say which; before
@@ -11,6 +28,12 @@ What is established: `object-fit` works on the worker's canvas in WKWebView; the
 (canvas `width`/`height` against its box after every paint) is in step in both directions in a
 packaged build at real scale. What is not: what the compositor shows in between, and whether
 his complaint is the box at all rather than (a) or (b) at the end of the fourth pass.
+**Oli, after the commit: "definitely just a prod thing too"**: the bundle shows it, the dev app
+does not. What differs in a bundle: the release Rust binary (decodes land sooner), production
+React, the `tauri://` asset origin and the release CSP. My inference, not tested: timing, i.e.
+the full-resolution decode or the Fit preview's re-decode landing during the zoom out in release
+and after it in dev, which points at candidates (a) and (b) rather than the box. Compare the
+worker log described at the end of the fourth pass between `PACKAGED=1` and a dev run.
 The history:
 Oli: a click to 100% "does two choppy zooms in one". Measured in the perf app (worker engine,
 `1OKK6432.RAF`): `Develop.tsx` resized the canvas's CSS box in a layout effect at once, and the

@@ -77,8 +77,8 @@ const recipeId = (r: Recipe | null) => {
   return id;
 };
 /**
- * The engine on each canvas: in worker mode a canvas can be handed over only once, so a remount
- * (React's StrictMode runs effects twice) takes the same client back, and disposal waits a tick.
+ * The engine on each canvas: a remount (React's StrictMode runs effects twice) takes the same
+ * client back, and disposal waits a tick, keeping its worker and presentation context alive.
  */
 const clients = new WeakMap<HTMLCanvasElement, { client: DevelopClient; dispose: number }>();
 
@@ -105,15 +105,6 @@ function flushHistogram() {
 const dpr = () => Math.min(window.devicePixelRatio || 1, 2);
 /** A workspace colour as the engine's display-encoded RGB, painted around the photo while it is straightened. */
 const rgb = (hex: string): [number, number, number] => [1, 3, 5].map((i) => parseInt(hex.slice(i, i + 2), 16) / 255) as [number, number, number];
-
-/**
- * The longest the canvas keeps a larger box while waiting for the frame at a smaller size. Long
- * enough for the slowest first frame measured (500 ms, a zoom out as the photo's full resolution
- * arrives in the worker): shrinking before that frame crops the previous one, a second step.
- */
-const SIZE_WAIT_MS = 1500;
-/** Screen frames the smaller frame is given to appear before its box shrinks round it. */
-const SIZE_SETTLE_FRAMES = 2;
 
 export function Develop() {
   const editingLook = useApp(s => !!s.lookEdit);
@@ -243,7 +234,16 @@ export function Develop() {
         warn: (message) => logToTerminal('warn', message),
         histogram: showHistogram,
         sharpening: setSharpeningDetail,
-        presented: setPresentedPhoto,
+        presented: (photo, width, height) => {
+          // The bitmap has just been installed, in this same task. Size its box before the
+          // browser can paint it; neither pixels nor CSS can race ahead of the other.
+          for (const el of [canvas, wrapRef.current]) {
+            if (!el) continue;
+            el.style.width = `${width / dpr()}px`;
+            el.style.height = `${height / dpr()}px`;
+          }
+          setPresentedPhoto(photo);
+        },
         removals: (states, photo) => {
           useRemoveUi.setState({ states, photo });
           if (states.length && states.every(s => s.status === 'ready')) thumbs.removalsReady(photo.split('\0')[0]);
@@ -454,40 +454,6 @@ export function Develop() {
   // A new crop changes what the zoom refers to, so start from the whole frame.
   const cropKey = JSON.stringify(recipe?.crop ?? null);
   useEffect(() => setZoom(FIT), [cropKey, cropping]);
-
-  // Size the canvas to the layout; its pixel size is the engine's to set (it may own the canvas).
-  // The frame drawn at a new size reaches the screen 30-85 ms after the layout changes (measured
-  // in the app, worker engine), and not in step with this thread: the worker's frame is shown
-  // without it. Stretched to its box, the frame of the other size showed as a second zoom (Oli,
-  // 2026-11-13). So `.view` is `object-fit: contain` (a frame smaller than its box sits in it at
-  // its own shape, the stage round it) and the larger of the two boxes is the one in effect
-  // while they differ: a box that grows does so at once, round the previous frame; one that
-  // shrinks waits until the smaller frame has been on screen for SIZE_SETTLE_FRAMES. Between Fit
-  // and a zoom one side of both boxes is the stage's, so the photo keeps its place and scale.
-  // WebKit gives the placeholder canvas the worker's new width and height, which is what is
-  // waited for; SIZE_WAIT_MS bounds the wait when no frame comes (a look still loading).
-  const cssW = current?.cssW, cssH = current?.cssH, pxW = current?.pxW, pxH = current?.pxH;
-  useLayoutEffect(() => {
-    const canvas = canvasRef.current, wrap = wrapRef.current;
-    if (!canvas || !wrap || cssW === undefined) return;
-    const apply = () => {
-      for (const el of [canvas, wrap]) {
-        el.style.width = `${cssW}px`;
-        el.style.height = `${cssH}px`;
-      }
-    };
-    const shrinks = canvas.width * canvas.height > pxW! * pxH!;
-    if (!shrinks || !canvas.style.width || canvas.style.visibility === 'hidden') { apply(); return; }
-    const started = performance.now();
-    let settled = 0;
-    let id = requestAnimationFrame(function check() {
-      if (canvas.width === pxW && canvas.height === pxH) settled++;
-      if (settled > SIZE_SETTLE_FRAMES || performance.now() - started > SIZE_WAIT_MS) apply();
-      else id = requestAnimationFrame(check);
-    });
-    return () => cancelAnimationFrame(id);
-  }, [cssW, cssH, pxW, pxH]);
-
 
   // The preview follows the size the photo is shown at (previewsize.ts): when a zoom, crop or
   // layout change leaves it too small or far larger than needed, decode it again at the new size

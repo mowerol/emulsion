@@ -135,7 +135,7 @@ export type FromLoop =
   | { type: 'removeCached'; id: number; key: string }
   | { type: 'removeCapture'; id: number; path: string; width: number; height: number }
   | { type: 'removeState'; photo: string; states: RemoveState[] }
-  | { type: 'presented'; photo: string }
+  | { type: 'presented'; photo: string; width: number; height: number; bitmap?: ImageBitmap }
   | { type: 'ready'; maxTextureSize: number; timeOrigin: number }
   | { type: 'error'; message: string }
   | { type: 'warn'; message: string }
@@ -541,7 +541,7 @@ export class DevelopLoop {
         const t0 = performance.now();
         engine.render(source, st.recipe, renderOpts);
         this.presentedPhoto = st.histogramFor;
-        this.post({ type: 'presented', photo: st.histogramFor });
+        this.post({ type: 'presented', photo: st.histogramFor, width: st.width, height: st.height });
         if (this.stats) this.frameStat(st.seq, t0, source, !!draft, preparationStat.steps ? { ...preparationStat, capture: { ...engine.captureWork } } : undefined,
           [...(live ? ['live'] : []), ...(moving ? ['moving'] : []), ...(draft ? ['draft'] : []), ...engine.inexactParts]);
         this.sharpening(false);

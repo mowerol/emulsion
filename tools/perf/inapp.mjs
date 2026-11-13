@@ -70,6 +70,7 @@ const child = spawn(command, args, {
   cwd: new URL('../..', import.meta.url).pathname, detached: true, stdio: ['ignore', 'pipe', 'pipe'],
   env,
 });
+if (which.split(',').includes('zoomtrace')) console.log(`PERF-APP-PID ${child.pid}`);
 // The photo's budget while a control is dragged (Oli, 2026-11-10: the controls must pass their own
 // bar below; the applied change over the photo aims for 40 fps), and no freeze over 50 ms.
 const FPS = Number(process.env.PERF_FPS ?? 40), FREEZE = Number(process.env.PERF_FREEZE ?? 50);

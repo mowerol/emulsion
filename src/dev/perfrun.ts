@@ -651,6 +651,38 @@ export async function run(which: string) {
     const only = which.split(',');
     const want = (k: string) => only.includes('all') || only.includes(k);
 
+    if (only.includes('zoomtrace')) {
+      if (!canvas) throw Error('No develop canvas');
+      // Capture the compositor alongside this trace: page-side dimensions alone cannot tell
+      // whether WebKit displayed the worker's frame before or after the CSS box changed.
+      logToTerminal('info', 'PERF-TRACE-READY');
+      await wait(Number(import.meta.env.VITE_PERF_TRACE_WAIT ?? 4000));
+      const started = performance.now();
+      const samples: { t: number; pixels: number[]; box: number[]; zoom: string | null }[] = [];
+      let sampling = true;
+      const sample = async () => {
+        while (sampling) {
+          await nextPaint();
+          await wait(0);
+          const box = canvas.getBoundingClientRect();
+          samples.push({ t: Math.round(performance.now() - started), pixels: [canvas.width, canvas.height],
+            box: [box.x, box.y, box.width, box.height], zoom: document.querySelector('.tool-zoom-value')?.textContent ?? null });
+        }
+      };
+      const sampled = sample();
+      const changes = [];
+      for (const pause of [100, 500, 2000]) {
+        for (const direction of ['in', 'out']) {
+          changes.push({ t: Math.round(performance.now() - started), direction });
+          key('z')();
+          await wait(direction === 'in' ? pause : 2200);
+        }
+      }
+      sampling = false;
+      await sampled;
+      out.zoomTrace = { changes, samples, frames };
+    }
+
     if (only.includes('capturecompare')) {
       if (!perfClient?.local) throw Error('capturecompare requires VITE_ENGINE=main');
       setSliders({ texture: 0, dehaze: 0, clarity: 0, sharpen: 0 });

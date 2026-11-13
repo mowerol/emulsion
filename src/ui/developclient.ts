@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The develop view's handle on its engine (engine/developloop.ts). By default the engine runs in
-// a worker on the canvas's OffscreenCanvas, so the controls keep the display's pace whatever the
+// a worker on its own OffscreenCanvas, so the controls keep the display's pace whatever the
 // photo costs (docs/research/engine-worker.md); `mode: 'main'` runs the same loop on this thread
 // (localStorage `emulsion.engine` = `main`, or no OffscreenCanvas WebGL2), which the perf driver's
 // engine-level scenarios also use.
@@ -20,7 +20,7 @@ export type { SourceRef } from '../engine/developloop';
 export type EngineMode = 'worker' | 'main';
 
 export interface ClientEvents {
-  presented?: (photo: string) => void;
+  presented?: (photo: string, width: number, height: number) => void;
   error: (message: string) => void;
   warn: (message: string) => void;
   histogram: (path: string, data: Histogram) => void;
@@ -54,6 +54,8 @@ export class DevelopClient {
   readonly mode: EngineMode;
   readonly maxTextureSize: number;
   private worker: Worker | null = null;
+  private presentation: ImageBitmapRenderingContext | null = null;
+  private closed = false;
   private loop: DevelopLoop | null = null;
   private keys = 0;
   private seq = 0;
@@ -81,15 +83,16 @@ export class DevelopClient {
     this.maxTextureSize = maxTextureSize;
   }
 
-  /** Start the engine on `canvas`; in worker mode the canvas is handed over for good. */
+  /** Start the engine; worker frames are presented on this canvas with their dimensions. */
   static start(canvas: HTMLCanvasElement, events: ClientEvents, mode = engineMode(), stats = !!(import.meta as { env?: Record<string, string> }).env?.VITE_PERF): DevelopClient {
     if (mode === 'worker') {
       const c = new DevelopClient('worker', probeMaxTexture(), events);
-      const off = canvas.transferControlToOffscreen();
+      c.presentation = canvas.getContext('bitmaprenderer');
+      if (!c.presentation) throw Error('Image bitmap presentation is not available.');
       c.worker = new Worker(new URL('../engine/develop.worker.ts', import.meta.url), { type: 'module' });
       c.worker.onmessage = (e: MessageEvent<FromLoop>) => c.receive(e.data);
       c.worker.onerror = (e) => events.error(`The develop engine stopped. ${e.message}`);
-      c.worker.postMessage({ type: 'init', canvas: off, stats }, [off]);
+      c.worker.postMessage({ type: 'init', stats });
       c.stats = stats;
       if (stats) perfClient = c;
       return c;
@@ -116,8 +119,20 @@ export class DevelopClient {
   }
 
   private receive(m: FromLoop) {
+    if (this.closed) {
+      if (m.type === 'presented') m.bitmap?.close();
+      return;
+    }
     switch (m.type) {
-      case 'presented': this.events.presented?.(m.photo); break;
+      case 'presented':
+        if (m.bitmap) {
+          const canvas = this.presentation!.canvas;
+          if (canvas.width !== m.width) canvas.width = m.width;
+          if (canvas.height !== m.height) canvas.height = m.height;
+          this.presentation!.transferFromImageBitmap(m.bitmap);
+        }
+        this.events.presented?.(m.photo, m.width, m.height);
+        break;
       case 'removeState': this.events.removals?.(m.states, m.photo); break;
       case 'removeCached':
       case 'removeInfer':
@@ -265,6 +280,7 @@ export class DevelopClient {
   }
 
   dispose() {
+    this.closed = true;
     this.send({ type: 'dispose' });
     for (const r of this.requests.values()) r.reject(new Error('engine closed'));
     this.requests.clear();
