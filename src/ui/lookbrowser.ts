@@ -48,7 +48,9 @@ const KEY = 'emulsion.lookBrowser' as const;
 const strings = (v: unknown) => Array.isArray(v) ? v.filter((k: unknown): k is string => typeof k === 'string') : [];
 function read(): BrowserPreferences {
   const p = getSetting(KEY) as { favourites?: unknown; view?: unknown; hiddenGroups?: unknown } | null | undefined;
-  return { favourites: strings(p?.favourites), view: p?.view === 'grid' ? 'grid' : 'list', hiddenGroups: strings(p?.hiddenGroups) };
+  const favourites = Array.isArray(p?.favourites) ? strings(p.favourites)
+    : stocksForPack('emulsion-looks').map(stock => choiceKey('emulsion-looks', stock.id));
+  return { favourites, view: p?.view === 'grid' ? 'grid' : 'list', hiddenGroups: strings(p?.hiddenGroups) };
 }
 export const useLookBrowser = create<BrowserPreferences>(() => read());
 function save(next: BrowserPreferences) {
