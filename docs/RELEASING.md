@@ -25,7 +25,7 @@ no notarisation. Testers allow it once in System Settings › Privacy & Security
 ## Updates
 
 `tauri-plugin-updater`. Emulsion › Check for Updates… (and Settings › Updates › Check Now…)
-always asks; released builds also ask about 8 s after launch, at most once a day, unless
+always asks; released builds also ask about 8 s after every launch, unless
 Settings › Updates turns that off. The sheet offers Install and Relaunch, Remind Me Later and
 Skip This Version (automatic checks then stay quiet about that version). Installing downloads
 the tarball, checks its signature against `plugins.updater.pubkey` in `tauri.conf.json`,
