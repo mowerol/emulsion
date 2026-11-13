@@ -1,5 +1,16 @@
 # Handoff
 
+**0.1.0 beta released (2026-11-12):** https://github.com/mowerol/emulsion/releases/tag/v0.1.0
+is public and Latest, with the six local release assets from `19844e4`. Oli installed the DMG
+and confirmed folder switching, Develop, saving and export work. The DMG checksum, app code
+signature and updater archive signature were verified; the public DMG returns HTTP 200 and the
+public `releases/latest/download/latest.json` matches the verified local manifest.
+The signing problem below was resolved when Oli recalled the password entered during key
+generation (the prompt had been mistaken for a Mac password prompt). The existing key works;
+preserve it and its password so installed apps can verify future updates. Publishing the tag
+triggered redundant build `43335525349`; cancellation was requested because the tested local
+artifacts were already published. The earlier manual run was cancelled during runner shortages.
+
 **Development Dock icon and release build (2026-11-12):** macOS debug builds
 install `src-tauri/dev-icon.png` (orange tile with a blue DEV badge) at `RunEvent::Ready`, after
 Tauri installs its default. `dev_icon.rs` is excluded from release builds. The existing Swift
