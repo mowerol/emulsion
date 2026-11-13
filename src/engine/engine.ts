@@ -1,4 +1,5 @@
 import { removeSetup, type RemoveContext } from './removequeue';
+import { prepareHeal } from './healkernel';
 import type { PatchRequest } from './remove';
 import noiseShader from './shaders/noise.frag.glsl?raw';
 import { RESAMPLE_MIN_SCALE, resampledSize } from './resample';
@@ -463,12 +464,12 @@ export class Engine {
    *  remakes it, as its key no longer matches. */
   private mapsHeld = false;
   /** Whether the last screen render was live and narrowed a map, so an exact one is owed. */
-  get inexact() { return this.regionLive || this.regionClarityScaled || this.regionFromPreview || this.mapsHeld || this.profiledOwed; }
+  get inexact() { return this.regionLive || this.regionClarityScaled || this.regionFromPreview || this.mapsHeld || this.profiledOwed || this.retouchOwed; }
   /** The last region admission decision, for the perf driver: why a zoomed view fell back to the whole photo. */
   regionStat: { admitted: boolean; reach: number; margin: number; visibleShare: number; share: number; kept: boolean; stages: Record<string, number> } | null = null;
   /** Which parts of `inexact` hold, for the perf driver's settle diagnosis. */
   get inexactParts() {
-    const parts = { regionLive: this.regionLive, regionClarityScaled: this.regionClarityScaled, regionFromPreview: this.regionFromPreview, mapsHeld: this.mapsHeld, profiledOwed: this.profiledOwed };
+    const parts = { regionLive: this.regionLive, regionClarityScaled: this.regionClarityScaled, regionFromPreview: this.regionFromPreview, mapsHeld: this.mapsHeld, profiledOwed: this.profiledOwed, retouchOwed: this.retouchOwed };
     return (Object.keys(parts) as (keyof typeof parts)[]).filter(k => parts[k]);
   }
   /**
@@ -476,6 +477,8 @@ export class Engine {
    * yet (a photo just opened, a region just made): the refining render builds it in steps.
    */
   private profiledOwed = false;
+  /** A Heal/Clone source edit still shows its last patch while the worker makes the new one. */
+  private retouchOwed = false;
   /** This render's denoise (profiled) builds, for the perf driver: sizes made (× the reduction). */
   profiledWork = { builds: 0, cpuMs: 0, sizes: [] as string[] };
   /**
@@ -525,6 +528,7 @@ export class Engine {
   private dehazeGfP: Program;
 
   constructor(canvas: HTMLCanvasElement | OffscreenCanvas) {
+    void prepareHeal();
     this.gpu = new Gpu(canvas);
     this.noiseP = this.gpu.program(SHADERS.vertex, noiseShader);
     this.lensP = this.gpu.program(SHADERS.vertex, SHADERS.lenscorrect);
@@ -2578,10 +2582,21 @@ export class Engine {
 
   useRetouchWorker(worker: Worker, onDone: () => void) {
     this.retouchAsync = { worker, onDone, job: null };
-    worker.onmessage = (e: MessageEvent<{ id: number; px: Float32Array }>) => {
+    // A failed worker used to leave its job occupied forever, so every later source edit
+    // kept showing the old patch. The next redraw can calculate it in place instead.
+    const failed = () => {
+      if (this.retouchAsync?.worker !== worker) return;
+      this.retouchAsync = null;
+      worker.terminate();
+      onDone();
+    };
+    worker.onerror = (event) => { event.preventDefault(); failed(); };
+    worker.onmessageerror = failed;
+    worker.onmessage = (e: MessageEvent<{ id: number; px: Float32Array } | { id: number; error: string }>) => {
       const a = this.retouchAsync;
       const job = a?.job;
       if (!a || !job || job.id !== e.data.id) return;
+      if ('error' in e.data) { failed(); return; }
       a.job = null;
       if (!job.released) {
         const lane = this.L;
@@ -2678,6 +2693,7 @@ export class Engine {
     // A stand-in made before a completed Remove arrived would resurrect the object.
     // Apply changed patch pixels in this submission instead of publishing that stand-in.
     if (a && stand && stand.removeKey === removeKey) {
+      this.retouchOwed = true;
       if (!a.job) {
         const id = ++this.retouchJobs;
         a.job = { id, src, spots: key, removeKey, k, region, lane: this.L, released: false };
@@ -2698,6 +2714,7 @@ export class Engine {
    */
   render(src: Source, recipe: Recipe | null, opts: Parameters<Engine['renderSteps']>[2]): void {
     this.profiledOwed = false;
+    this.retouchOwed = false;
     this.profiledWork = { builds: 0, cpuMs: 0, sizes: [] };
     this.drain(this.renderSteps(src, recipe, opts));
   }
@@ -3626,6 +3643,7 @@ export class Engine {
   *prepareFrame(src: Source, recipe: Recipe | null, opts: Parameters<Engine['render']>[2]): Generator<void> {
     this.captureWork = { builds: 0, hits: 0, steps: 0, cpuMs: 0, elapsedMs: 0, thresholdMs: 0 };
     this.profiledOwed = false;
+    this.retouchOwed = false;
     const steps = this.renderSteps(src, recipe, { ...opts, live: false, moving: false, draft: undefined, prepare: 'frame' });
     let complete = false;
     try {

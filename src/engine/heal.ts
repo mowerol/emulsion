@@ -6,7 +6,11 @@
 // early stop, so the iterations happen in the same order. It runs on the CPU, as darktable's own
 // OpenCL path does (dt_heal_cl reads the buffers back and calls dt_heal). Sums are in doubles
 // where darktable's are in floats, so the stop can fall one iteration apart.
+// The hot loop also runs as tools/heal-wasm/kernel.rs when its compiled kernel is ready;
+// reference tests require identical pixels and stopping iterations to this TS fallback.
 // SPDX-License-Identifier: GPL-3.0-or-later
+
+import { compiledLaplace } from './healkernel';
 
 /** darktable's default for retouch's max_heal_iter. */
 export const MAX_HEAL_ITER = 2000;
@@ -161,6 +165,8 @@ function laplace(red: Float32Array, black: Float32Array, width: number, height: 
   const w = Math.fround((2 - 1 / (0.1575 * Math.sqrt(nmask) + 0.8)) * 0.25);
   const epsilon = Math.fround(0.1 / 255);
   const exit = Math.fround(epsilon * epsilon * w * w);
+  const compiled = compiledLaplace(red, black, subwidth, height, redRuns, blackRuns, w, exit, maxIter);
+  if (compiled !== null) return compiled;
   for (let iter = 0; iter < maxIter; iter++) {
     let err = iteration(black, red, height, subwidth, blackRuns, blackRuns.length >> 1, 1, w);
     err += iteration(red, black, height, subwidth, redRuns, redRuns.length >> 1, 0, w);

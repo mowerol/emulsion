@@ -79,6 +79,14 @@ async function main() {
   assert(useRetouchUi.getState().on, 'Q did not pick up the Heal tool');
   assert(heal.getAttribute('aria-pressed') === 'true', 'The Heal button is not shown as held');
   assert(document.querySelector('.retouch-bar'), 'No Heal options row');
+  assert(useRetouchUi.getState().shape === 'brush', 'Heal did not default to Brush');
+  const algorithm = (label: string) => Array.from(document.querySelectorAll<HTMLButtonElement>('.retouch-bar .tool-seg[aria-label="Spot tool"] button')).find(b => b.textContent === label)!;
+  algorithm('Clone').click(); await wait(50);
+  assert(useRetouchUi.getState().shape === 'brush' && useRetouchUi.getState().settings.tool === 'clone', 'Clone did not keep the default Brush');
+  algorithm('Heal').click(); await wait(50);
+  // Choose Circle explicitly for the circle-specific placement, drag and scrolling checks.
+  document.querySelector<HTMLButtonElement>('.retouch-bar button[aria-label^="Circle:"]')!.click();
+  await wait(50);
 
   const capture = document.querySelector('.retouch-overlay .mask-capture')!;
   assert(capture, 'No overlay to click on');

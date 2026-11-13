@@ -74,9 +74,9 @@ const readEachStroke = () => { try { return localStorage.getItem(EACH_STROKE_KEY
 
 export const useRetouchUi = create<RetouchUi>(() => ({
   on: false,
-  kept: { heal: { tool: 'heal', shape: 'circle', scale: 0 }, remove: { tool: 'remove', shape: 'brush', scale: 0 } },
+  kept: { heal: { tool: 'heal', shape: 'brush', scale: 0 }, remove: { tool: 'remove', shape: 'brush', scale: 0 } },
   settings: { ...SPOT_DEFAULTS },
-  shape: 'circle',
+  shape: 'brush',
   circle: { ...CIRCLE_DEFAULTS },
   ellipse: { ...ELLIPSE_DEFAULTS, radius: [...ELLIPSE_DEFAULTS.radius] },
   brush: { ...SPOT_BRUSH_DEFAULTS },

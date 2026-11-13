@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { heal } from './heal';
+import { prepareHeal } from './healkernel';
 import fixture from './fixtures/heal-reference.json';
 
 // The fixture is darktable's own heal.c run on these stamps (tools/heal-reference).
@@ -33,5 +35,29 @@ describe('heal (darktable heal.c)', () => {
     // A harmonic fill of a linear ramp is the ramp.
     expect(dest[4 * (4 * w + 4)]).toBeCloseTo(0.5, 3);
     expect(dest[4 * (4 * w + 3)]).toBeCloseTo(3 / 8, 3);
+  });
+});
+
+describe('compiled heal loop', () => {
+  const cases = fixture.cases.map(c => ({ ...c, src: Float32Array.from(c.src), dest: Float32Array.from(c.dest), mask: Float32Array.from(c.mask) }));
+  // Include alpha differences, disconnected masks, edges and odd/even row strides.
+  for (const w of [1, 2, 15, 16, 47, 48]) for (const maxIter of [0, 5, 2000]) {
+    const h = 13, src = new Float32Array(w * h * 4), dest = src.slice(), mask = new Float32Array(w * h);
+    for (let i = 0; i < src.length; i++) { src[i] = Math.sin(i * .71) * .3; dest[i] = Math.cos(i * .31) * .2; }
+    for (let i = 0; i < mask.length; i++) mask[i] = i % 7 ? 1 : 0;
+    cases.push({ name: `${w}px, ${maxIter} sweeps`, w, h, src, dest, mask, maxIter, out: [] });
+  }
+  const expected: { pixels: Float32Array; sweeps: number }[] = [];
+  beforeAll(async () => {
+    for (const c of cases) {
+      const pixels = c.dest.slice();
+      expected.push({ pixels, sweeps: heal(c.src, pixels, c.mask, c.w, c.h, c.maxIter) });
+    }
+    expect(await prepareHeal(readFileSync(new URL('./heal.wasm', import.meta.url)))).toBe(true);
+  });
+  for (const [i, c] of cases.entries()) it(`matches TS pixels and stopping iteration exactly: ${c.name}`, () => {
+    const pixels = c.dest.slice();
+    expect(heal(c.src, pixels, c.mask, c.w, c.h, c.maxIter)).toBe(expected[i].sweeps);
+    expect(pixels).toEqual(expected[i].pixels);
   });
 });
