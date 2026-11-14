@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { useSyncExternalStore } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../backend/ipc';
 import { isTauri } from '../backend/api';
 import { normalizePreset, type Preset } from '../film/presets';
 import { getSetting, setSetting } from './appsettings';

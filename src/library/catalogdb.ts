@@ -9,7 +9,7 @@
 // Saving sends only what changed: rows are compared with what was last written, by reference first
 // and then by their JSON, so an edit to one photo writes one row. Writes go out in order, one
 // transaction each.
-import { Channel, invoke } from '@tauri-apps/api/core';
+import { Channel, invoke } from '../backend/ipc';
 import { isTauri } from '../backend/api';
 import { getSetting, setSetting } from './appsettings';
 import { saveFailed, saveRecovered } from './saveissues';

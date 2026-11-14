@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { create } from 'zustand';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../backend/ipc';
 import { isTauri } from '../backend/api';
 import { storedCatalog } from './catalogdb';
 

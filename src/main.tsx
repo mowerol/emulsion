@@ -2,11 +2,14 @@
 import '@fontsource-variable/geist/wght.css';
 import './styles.css';
 import { logToTerminal } from './backend/api';
+import { installTrail, reportError, watchStore } from './backend/trail';
 import { loadAppSettings } from './library/appsettings';
 import { loadCatalogDb } from './library/catalogdb';
 
-window.addEventListener('error', (e) => logToTerminal('error', `${e.message} at ${e.filename}:${e.lineno}`));
-window.addEventListener('unhandledrejection', (e) => logToTerminal('error', `Unhandled: ${String(e.reason)}`));
+// Errors go to the log with their stack and the action trail (backend/trail.ts).
+installTrail();
+window.addEventListener('error', (e) => reportError('Script error', e.error ?? `${e.message} at ${e.filename}:${e.lineno}:${e.colno}`));
+window.addEventListener('unhandledrejection', (e) => reportError('Unhandled promise rejection', e.reason));
 
 // The settings file is read before any store that keeps its state there (favourites, camera
 // profile defaults) is imported, so they start from it. Then custom looks are listed before
@@ -29,11 +32,17 @@ async function start() {
     const { message } = await import('@tauri-apps/plugin-dialog');
     await message(`Emulsion couldn't open its library catalog, so the library starts empty and nothing is saved to it this time.\n\n${String(e)}\n\nYour original photos have not been changed and no catalog data has been replaced. To bring the catalog back, choose Emulsion › Restore Catalog from Backup…`, { title: 'Library catalog unavailable', kind: 'error' }).catch(() => {});
   });
-  const [React, ReactDOM, { default: App }, { refreshPresets }, { refreshUserLooks }] = await Promise.all([
-    import('react'), import('react-dom/client'), import('./App'), import('./library/presets'), import('./library/userlooks'),
+  const [React, ReactDOM, { default: App }, { refreshPresets }, { refreshUserLooks }, { useApp }] = await Promise.all([
+    import('react'), import('react-dom/client'), import('./App'), import('./library/presets'), import('./library/userlooks'), import('./library/store'),
   ]);
+  watchStore(useApp);
   await refreshUserLooks().then(() => refreshPresets()).catch((e) => logToTerminal('error', `Saved treatments: ${String(e)}`));
-  ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
+  // React reports with the component stack; an uncaught error unmounts the whole interface.
+  ReactDOM.createRoot(document.getElementById('root') as HTMLElement, {
+    onUncaughtError: (error, info) => reportError('React error (the interface stopped)', error, info.componentStack),
+    onCaughtError: (error, info) => reportError('React error (caught by a boundary)', error, info.componentStack),
+    onRecoverableError: (error, info) => reportError('React error (recovered)', error, info.componentStack, 'warn'),
+  }).render(
     <React.StrictMode>
       <App />
     </React.StrictMode>,

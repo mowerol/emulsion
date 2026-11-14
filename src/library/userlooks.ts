@@ -4,7 +4,7 @@
 // that uses it. It is made by importing a LUT, duplicating a system look, or from a photo's settings.
 
 import { useSyncExternalStore } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../backend/ipc';
 import { isTauri } from '../backend/api';
 import { lutFormat, provideLut, readLut } from '../engine/lutstore';
 import { PACK, USER_LOOKS_DIR, customLookId, customLookOf, lookName, registerCustomLook, registerFileLut, unregisterCustomLook, type PackId, legacyLooks, profileSettingsFor } from '../film/looks';

@@ -3,7 +3,7 @@
 // file, import such a file, restore one of the daily snapshots (src-tauri/src/app_data.rs), and
 // show the snapshots in Finder. A restore or import merges into the data folder, after backing up
 // what was there, and reloads the window so every store reads the result.
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../backend/ipc';
 import { ask, message, open, save } from '@tauri-apps/plugin-dialog';
 import { flushAppSettings, freezeAppSettings } from './appsettings';
 import { flushSaves } from './sidecars';

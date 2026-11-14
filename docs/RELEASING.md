@@ -13,8 +13,10 @@ no notarisation. Testers allow it once in System Settings › Privacy & Security
 3. Commit. The script refuses uncommitted changes (`--dirty` for trial builds only).
 4. Either
    - **locally:** `npm run release` → in `release/`: `Emulsion-<version>-arm64.dmg`, `.sha256`,
-     `INSTALL.txt`, and the updater's `Emulsion-<version>-arm64.app.tar.gz`, `.sig` and
-     `latest.json`; or
+     `INSTALL.txt`, the updater's `Emulsion-<version>-arm64.app.tar.gz`, `.sig` and
+     `latest.json`, and `Emulsion-<version>-arm64-sourcemaps.tar.gz`, the interface's source maps
+     (not in the app; `tools/diagnostics/symbolicate.mjs` uses them to read stacks in testers'
+     logs); or
    - **on GitHub:** push a tag `v<version>`. `.github/workflows/release.yml` runs the
      checks and the same script on a macOS runner and attaches all of those to a **draft**
      GitHub release. It can also be run from the

@@ -59,7 +59,8 @@ jobs:
             { printf '\n\n'; cat "docs/release-notes/${GITHUB_REF_NAME#v}.md"; } >> notes.md
           gh release create "$GITHUB_REF_NAME" --draft \
             --title "Emulsion ${GITHUB_REF_NAME#v} (beta)" --notes-file notes.md \
-            release/*.dmg release/*.sha256 release/*.app.tar.gz release/*.app.tar.gz.sig release/latest.json
+            release/*.dmg release/*.sha256 release/*.app.tar.gz release/*.app.tar.gz.sig release/latest.json \
+            release/*-sourcemaps.tar.gz
 
       - uses: actions/upload-artifact@v4
         with:

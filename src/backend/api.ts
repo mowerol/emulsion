@@ -2,7 +2,7 @@ import { noiseJob } from '../library/noise';
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Typed calls into the Rust core (src-tauri/src/commands.rs).
 
-import { Channel, invoke } from '@tauri-apps/api/core';
+import { Channel, invoke } from './ipc';
 import type { HalfImage } from '../engine/engine';
 import type { InputMode } from '../engine/params';
 

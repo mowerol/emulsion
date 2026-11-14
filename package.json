@@ -25,6 +25,7 @@
     "zustand": "^5.0.16"
   },
   "devDependencies": {
+    "@jridgewell/trace-mapping": "^0.3.31",
     "@tauri-apps/cli": "^2",
     "@types/node": "^26.6.6",
     "@types/react": "^19.1.8",

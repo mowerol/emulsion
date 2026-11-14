@@ -2,7 +2,7 @@
 // The look packs' LUT files, loaded on first use and kept, so switching back is instant.
 
 import { useSyncExternalStore } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../backend/ipc';
 import { type Clut, parse3dl, parseCube, parseHald } from './lut3d';
 import { USER_LOOKS_DIR } from '../film/looks';
 

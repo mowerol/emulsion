@@ -7,7 +7,7 @@
 //
 // Read synchronously once `loadAppSettings` has run (main.tsx waits for it before importing the
 // app). Writes are debounced and go to Rust as one object.
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../backend/ipc';
 import { isTauri } from '../backend/api';
 
 /** Keys kept in settings.json. Each was in localStorage before, and is moved from there once. */

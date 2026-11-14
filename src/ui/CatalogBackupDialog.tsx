@@ -6,7 +6,8 @@
 // asks Rust to quit (src-tauri/src/quit.rs).
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { create } from 'zustand';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../backend/ipc';
+import { markCleanExit } from '../backend/trail';
 import { flushAppSettings } from '../library/appsettings';
 import { flushCatalog } from '../library/catalog';
 import { BACKUP_FREQUENCIES, backUpCatalog, restoreCatalog, showCatalogBackups, backupDue, backupFolder, chooseBackupFolder, setBackupSettings, sizeLabel, useCatalogBackup, type BackupFrequency } from '../library/catalogbackup';
@@ -44,6 +45,7 @@ export async function requestQuit() {
     quitting = false;
     return;
   }
+  markCleanExit('quitting');
   await invoke('quit_now');
 }
 
@@ -68,6 +70,7 @@ export async function saveAndRelaunch() {
     quitting = false;
     return;
   }
+  markCleanExit('relaunching after an update');
   await invoke('relaunch_now');
 }
 

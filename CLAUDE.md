@@ -38,6 +38,10 @@ Results are the JSON in `<pre id="result">`. Swap `--dump-dom` for `--screenshot
 
 Headless Chrome understates what Oli feels: the app runs in WKWebView on his Retina screen. `node tools/perf/inapp.mjs <photo,...> [sliders,again,combo,zoom,zoom100,clicks|all]` starts a second dev app on port 1430 (beside his on 1420) on scratch copies of the photos, `src/dev/perfrun.ts` drives real slider drags and clicks in it, and it prints per-drag fps, GPU ms per frame, latency, the worst screen freeze, the passes per frame, and PASS/FAIL against 45 fps and 100 ms. A window opens on Oli's screen for ~30 s (it must stay visible). Each run records its scratch folder as an import in the library catalog.
 
+### Reading a crash
+
+`~/Library/Logs/app.emulsion.desktop/Emulsion.log` (Help › Show Log in Finder). Each interface error there comes with its stack, React component stack, the calls still waiting on Rust, and the last steps from the action trail (`src/backend/trail.ts`: clicks, keys, slider values, state changes, IPC; paths are replaced by session-local ids like `file#3.cr3`). A session that ended without quitting (killed for memory, crashed) has its last steps logged at the next launch. `node tools/diagnostics/symbolicate.mjs [log] [--maps dir]` maps minified frames back to source using the build's source maps (`sourcemaps/<build id>/` locally; for a release, the `-sourcemaps.tar.gz` on its GitHub release). App calls into Rust go through `src/backend/ipc.ts`, not `@tauri-apps/api/core`.
+
 ## Running
 
 `source ~/.cargo/env` before cargo or `npm run tauri dev` (Rust is installed with rustup). The dev app relaunches itself when Rust changes (the open folder has to be reopened) and hot-reloads the interface; after engine or shader changes, Oli presses Cmd+R in the window.

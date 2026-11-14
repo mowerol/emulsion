@@ -39,5 +39,8 @@ tools/probe/dist
 # Release builds (tools/release/build.sh)
 /release/
 
+# Source maps of each build, kept out of the app (tools/vite/sourcemaps.ts)
+/sourcemaps/
+
 # Working notes for Oli and the agents, kept local (see CLAUDE.md)
 /HANDOFF.md

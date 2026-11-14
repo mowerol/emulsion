@@ -6,8 +6,9 @@
 #   npm run release -- --skip-checks # skip `npm run check` (CI runs it as its own step)
 #
 # Output: release/Emulsion-<version>-arm64.dmg, its .sha256, INSTALL.txt for testers, and the
-# updater's files: Emulsion-<version>-arm64.app.tar.gz, its .sig and latest.json (see
-# docs/RELEASING.md). The update signing key comes from TAURI_SIGNING_PRIVATE_KEY (its text or a
+# updater's files: Emulsion-<version>-arm64.app.tar.gz, its .sig and latest.json, and the
+# interface's source maps, Emulsion-<version>-arm64-sourcemaps.tar.gz (see docs/RELEASING.md).
+# The update signing key comes from TAURI_SIGNING_PRIVATE_KEY (its text or a
 # path), else ~/.tauri/emulsion-updater.key; its password from TAURI_SIGNING_PRIVATE_KEY_PASSWORD,
 # else a prompt. Release notes for the updater come from docs/release-notes/<version>.md.
 # Ad-hoc signing (tauri.conf.json: signingIdentity "-") needs no Apple account. The hardened
@@ -122,6 +123,14 @@ for pack in dist/looks/*/; do
 done
 echo "LUTs: $(ls dist/looks | tr '\n' ' ')— each with its licence"
 
+# Source maps stay out of the app (tools/vite/sourcemaps.ts moves them to sourcemaps/<build id>/).
+[[ -z "$(find dist -name '*.map')" ]] || fail "source maps left in dist"
+BUILD_ID=$(cat sourcemaps/LATEST 2>/dev/null || true)
+[[ "$BUILD_ID" == "$VERSION+$(git rev-parse --short=12 HEAD)"* ]] || fail "source maps are for '$BUILD_ID', not this commit"
+[[ -n "$(find "sourcemaps/$BUILD_ID" -name '*.js.map')" ]] || fail "no source maps for $BUILD_ID"
+grep -rqF "$BUILD_ID" dist/assets || fail "the interface doesn't carry its build id $BUILD_ID"
+echo "source maps: $BUILD_ID, kept out of the app"
+
 # --- Package ---------------------------------------------------------------------------------
 step "Packaging"
 mkdir -p release
@@ -131,6 +140,8 @@ cp "$DMG_BUILT" "release/$NAME.dmg"
 COMMIT=$(git rev-parse --short HEAD)
 [[ $DIRTY == 1 && -n "$(git status --porcelain)" ]] && COMMIT="$COMMIT+dirty"
 sed -e "s/{{VERSION}}/$VERSION/g" -e "s/{{COMMIT}}/$COMMIT/g" tools/release/INSTALL.txt > release/INSTALL.txt
+# For tools/diagnostics/symbolicate.mjs: unpacks to <build id>/, the folder its --maps flag takes.
+tar -czf "release/$NAME-sourcemaps.tar.gz" -C sourcemaps "$BUILD_ID"
 
 # The updater's files. latest.json points at the tarball on the GitHub release v<version>,
 # where the release workflow uploads it.

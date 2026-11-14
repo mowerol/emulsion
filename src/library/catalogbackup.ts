@@ -6,7 +6,7 @@
 // replaces the catalog with a backup after keeping the current one. The zips themselves are made
 // and checked in Rust (src-tauri/src/catalog.rs).
 import { create } from 'zustand';
-import { invoke } from '@tauri-apps/api/core';
+import { invoke } from '../backend/ipc';
 import { ask, message, open } from '@tauri-apps/plugin-dialog';
 import { isTauri } from '../backend/api';
 import { getSetting, setSetting } from './appsettings';
