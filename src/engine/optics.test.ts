@@ -13,8 +13,8 @@ describe('Spektrafilm optics', () => {
         c.weight.forEach((v, channel) => expect(DIFFUSION_BANK[k].weight[channel]).toBeCloseTo(v, 7));
       });
     }
-    for (const m of reference.halation.mixes) {
-      const actual = halationMix(m.raw as [number, number, number], m.blur as [number, number, number], m.amount * 12.5);
+    for (const version of [2, 3] as const) for (const m of (version === 2 ? reference.halation : reference.halationWeak).mixes) {
+      const actual = halationMix(m.raw as [number, number, number], m.blur as [number, number, number], m.amount * 12.5, version);
       actual.forEach((v, c) => expect(v).toBeCloseTo(m.output[c], 6));
     }
   });
@@ -22,15 +22,18 @@ describe('Spektrafilm optics', () => {
     for (const amount of [0, 1, 25, 50, 100]) for (const rgb of [[0, 0, 0], [.18, .18, .18], [3, .3, .03]] as [number, number, number][]) {
       const blur = rgb.map((x, c) => x * DIFFUSION_BANK.reduce((s, k) => s + k.weight[c], 0)) as [number, number, number];
       diffusionMix(rgb, blur, amount).forEach((v, c) => expect(v).toBeCloseTo(rgb[c], 7));
-      halationMix(rgb, rgb, amount).forEach((v, c) => expect(v).toBeCloseTo(rgb[c], 12));
+      for (const version of [2, 3] as const) halationMix(rgb, rgb, amount, version).forEach((v, c) => expect(v).toBeCloseTo(rgb[c], 12));
     }
   });
 
   it('keeps all three reflections and upstream normalization', () => {
     expect(HALATION_BANK.map(b => b.sigma)).toEqual([65, 65 * Math.sqrt(2), 65 * Math.sqrt(3)]);
     expect(HALATION_BANK.map(b => b.weight[0])).toEqual([1 / 1.75, .5 / 1.75, .25 / 1.75]);
-    expect(halationStrength(100)).toEqual([.12, .04, 0]);
-    expect(halationMix([0, 0, 0], [1, 1, 1], 100)).toEqual([.12 / 1.12, .04 / 1.04, 0]);
+    expect(halationStrength(100, 2)).toEqual([.12, .04, 0]);
+    expect(halationMix([0, 0, 0], [1, 1, 1], 100, 2)).toEqual([.12 / 1.12, .04 / 1.04, 0]);
+    expect(halationStrength(100)).toEqual([.64, .16, 0]);
+    halationMix([0, 0, 0], [1, 1, 1], 100).forEach((v, c) => expect(v).toBeCloseTo([.64 / 1.64, .16 / 1.16, 0][c], 12));
+    expect(halationStrength(12.5)).toEqual(reference.halationWeak.strength);
   });
 
   it('ramps continuously from zero and passes every upstream strength stop', () => {

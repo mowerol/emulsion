@@ -1,5 +1,25 @@
 # Handoff
 
+**Stronger Halation trial (2026-11-13; committed and pushed).** Oli agreed to try
+higher strength. New adjustments use the pinned upstream still/weak anti-halation preset
+(strength .08/.02/0 instead of .015/.005/0); Amount still maps 0–100 to upstream 0–8, size
+and three reflection bounces unchanged. At 100 the normalized blur fractions are 39.0% red
+and 13.8% green (previously 10.7%/3.8%). Start around 20–40 for a photo comparison.
+- `halationVersion: 3` selects this preset; active saved v2 edits retain still/strong and
+  unversioned edits retain the original renderer. Clear Halation to 0 and raise it again,
+  change Size, or reset Optics to adopt v3. Copy/preset groups already carry the version.
+- Added pinned-C pixel mixes for still/weak alongside the existing still/strong fixtures.
+  `npm run check` passes: 946 JS tests, 135 Rust tests (21 ignored), typecheck and build.
+  GPU optics test passes for both versions (max mix error <3e-8), existing spatial reference
+  comparisons unchanged; full-engine dark-side red sample at Amount 100: 177 → 242 (off 32).
+  Screenshot inspected: `.scratch/halation-stronger.png` (off/previous100/stronger100).
+  Uses controlled scene-linear highlights: clipped JPEG white saturates both versions through
+  the inverse tone curve, so that earlier attempted comparison could not judge strength.
+- Production app rebuilt successfully at `src-tauri/target/release/bundle/macos/Emulsion.app`
+  with updater artifacts disabled for local packaging; log `.scratch/halation-build.log`.
+  Quit and reopen that app to try it. No release or commit. No real-photo/WKWebView aesthetic
+  comparison yet.
+
 **Workspace menu, several workspaces and personal-workspace fixes (2026-11-13; implemented, not committed).**
 From Oli's mockups and reports:
 - **Menu in the top bar.** The panel's Standard/Personal `<select>` and Customize… link are gone.

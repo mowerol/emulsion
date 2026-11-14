@@ -1,6 +1,7 @@
 // Copyright (C) 2026 darktable developers.
 // Ported from darktable src/common/spektra_core.c (diffusion plan and halation bounce mix)
-// at c96cf1d0de8fff468e9eddee28621e91f83bdf1a. Halation's still/strong preset is from
+// at c96cf1d0de8fff468e9eddee28621e91f83bdf1a. Halation's still/weak preset (v3),
+// and the saved still/strong preset (v2), are from
 // spektrafilm runtime/params_builder.py at 3bb2c2d2801ff68b92019cf1dbcbb133d60832bc.
 // Film modeling powered by spektrafilm, GPLv3, © Andrea Volpato.
 // Approved deviations (Oli, 2026-11-10): working RGB instead of spectral film exposures;
@@ -57,10 +58,11 @@ export function diffusionFraction(amount: number): number {
   return .5625;
 }
 
-/** Slider 0–100 maps to upstream's 0–8 multiplier on the still/strong preset. */
-export const halationStrength = (amount: number): Vec3 => [.015, .005, 0].map(a => a * amount * .08) as Vec3;
-export const halationMix = (rgb: Vec3, blur: Vec3, amount: number): Vec3 => {
-  const a = halationStrength(amount);
+/** Slider 0–100 maps to upstream's 0–8 multiplier; v2 keeps saved still/strong edits. */
+export const halationStrength = (amount: number, version: 2 | 3 = 3): Vec3 =>
+  (version === 2 ? [.015, .005, 0] : [.08, .02, 0]).map(a => a * amount * .08) as Vec3;
+export const halationMix = (rgb: Vec3, blur: Vec3, amount: number, version: 2 | 3 = 3): Vec3 => {
+  const a = halationStrength(amount, version);
   return rgb.map((x, c) => (x + a[c] * blur[c]) / (1 + a[c])) as Vec3;
 };
 export const diffusionMix = (rgb: Vec3, blur: Vec3, amount: number): Vec3 => {

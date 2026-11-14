@@ -112,6 +112,12 @@ describe('develop uniforms', () => {
     expect(needsPasses(developUniforms({ ...r, glow: 10 }, ctx)).highlights).toBe(true);
     expect(needsPasses(developUniforms({ ...r, scanner: 'straight' }, ctx)).sharpen).toBe(false);
   });
+
+  it('uses stronger halation for new adjustments and preserves saved still/strong strength', () => {
+    const r = { ...defaultRecipe(), halation: 100 };
+    expect(developUniforms(r, ctx)).toMatchObject({ uHalModel: 3, uHalStrength: [.64, .16, 0] });
+    expect(developUniforms({ ...r, halationVersion: 2 }, ctx)).toMatchObject({ uHalModel: 2, uHalStrength: [.12, .04, 0] });
+  });
 });
 
 

@@ -57,7 +57,7 @@ def build():
     for node in ast.parse(preset_source).body:
         if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
             if node.target.id == "_HALATION_PRESETS":
-                preset = ast.literal_eval(node.value)[("still", "strong")]
+                preset = ast.literal_eval(node.value)
     assert preset is not None
     # Small shim for allocation, copy and scheduling only. All spatial maths,
     # blur branches, kernels and plan helpers below are unmodified source slices.
@@ -137,8 +137,8 @@ def image(executable, command, w, h, args, pattern):
 
 def generate(executable, preset, hashes, output):
     strengths = [0, .01, .125, .25, .5, 1, 2]
-    strength = list(preset["strength"])
-    sigma = preset["sigma_h"][0]
+    strength = list(preset[("still", "strong")]["strength"])
+    sigma = preset[("still", "strong")]["sigma_h"][0]
     plans = [
         {"strength": s, "warmth": 0, **run_json(executable, "plan", s, 0)}
         for s in strengths
@@ -170,6 +170,17 @@ def generate(executable, preset, hashes, output):
         },
         "diffusion": {"family": "black_pro_mist", "plans": plans},
         "profiles": profiles,
+    }
+    weak = preset[("still", "weak")]
+    fixture["halationWeak"] = {
+        "presetSource": fixture["halation"]["presetSource"],
+        "presetCommit": PYTHON_COMMIT, "preset": ["still", "weak"],
+        "strength": list(weak["strength"]), "firstSigmaUm": weak["sigma_h"][0],
+        "mixes": [
+            {"amount": m["amount"], "raw": m["raw"], "blur": m["blur"],
+             "output": run_json(executable, "mix", m["amount"], *weak["strength"], *m["raw"], *m["blur"])}
+            for m in mixes
+        ],
     }
     output.parent.mkdir(parents=True, exist_ok=True)
     output.write_text(json.dumps(fixture, indent=2) + "\n")

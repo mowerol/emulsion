@@ -8,10 +8,21 @@ it('preserves active legacy optics across save, edits, copy, and reset', () => {
   const restored = normalizeRecipe(JSON.parse(JSON.stringify(old)))!;
   expect(restored).toMatchObject({ halation: 40, glow: 30, halationVersion: undefined, glowVersion: undefined });
   expect(withSlider(restored, 'halation', 60).halationVersion).toBeUndefined();
-  expect(withSlider(restored, 'halationSize', 150).halationVersion).toBe(2);
-  expect(withSlider(withSlider(restored, 'halation', 0), 'halation', 30).halationVersion).toBe(2);
+  expect(withSlider(restored, 'halationSize', 150).halationVersion).toBe(3);
+  expect(withSlider(withSlider(restored, 'halation', 0), 'halation', 30).halationVersion).toBe(3);
   expect(normalizeRecipe({ glow: 0 })?.glowVersion).toBe(2);
-  expect(resetSection(restored, 'optics')).toMatchObject({ halation: 0, glow: 0, halationSize: 100, glowSize: 100, halationVersion: 2, glowVersion: 2 });
+  expect(resetSection(restored, 'optics')).toMatchObject({ halation: 0, glow: 0, halationSize: 100, glowSize: 100, halationVersion: 3, glowVersion: 2 });
+});
+
+it('preserves saved still/strong halation until cleared or resized, and saves the stronger model', () => {
+  const saved = { ...defaultRecipe(), halation: 40, halationVersion: 2 as const };
+  const restored = normalizeRecipe(JSON.parse(JSON.stringify(saved)))!;
+  expect(restored).toEqual(saved);
+  expect(withSlider(restored, 'halation', 60).halationVersion).toBe(2);
+  expect(withSlider(restored, 'halationSize', 150).halationVersion).toBe(3);
+  const fresh = withSlider(withSlider(restored, 'halation', 0), 'halation', 40);
+  expect(fresh.halationVersion).toBe(3);
+  expect(normalizeRecipe(JSON.parse(JSON.stringify(fresh)))).toEqual(fresh);
 });
 import { STOCK, STOCKS } from './stocks';
 import { SCANNERS } from './scanners';

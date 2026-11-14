@@ -29,12 +29,14 @@ async function main() {
 void main() { outColor = vec4(stageOpticsScene(vec3(.18,.12,.06),vec2(.5)),1.0); }`, SHADER_FILES));
   const recipe = { ...defaultRecipe(), halation: 100, glow: 25, sharpen: 0, captureSharpening: 0 };
   const { developUniforms } = await import('../../src/engine/params');
-  stage.set({ ...developUniforms(recipe, { width: 1, height: 1, seed: 0, inputMode: InputMode.SceneLinear, store: 1 }), uHalTex: 0, uGlowTex: 0 });
-  g.bind(0, tex.tex); g.draw(stage, out, 1, 1);
-  const actual = new Float32Array(4); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.FLOAT, actual);
-  const expected = halationMix(diffusionMix([.18, .12, .06], [.8, .6, .4], 25), [.8, .6, .4], 100);
-  const error = Math.max(...expected.map((v, c) => Math.abs(v - actual[c])));
-  assert(error < 1e-6, `GPU optics mix ${error}`); report.stageError = error;
+  for (const version of [2, 3] as const) {
+    stage.set({ ...developUniforms({ ...recipe, halationVersion: version }, { width: 1, height: 1, seed: 0, inputMode: InputMode.SceneLinear, store: 1 }), uHalTex: 0, uGlowTex: 0 });
+    g.bind(0, tex.tex); g.draw(stage, out, 1, 1);
+    const actual = new Float32Array(4); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.FLOAT, actual);
+    const expected = halationMix(diffusionMix([.18, .12, .06], [.8, .6, .4], 25), [.8, .6, .4], 100, version);
+    const error = Math.max(...expected.map((v, c) => Math.abs(v - actual[c])));
+    assert(error < 1e-6, `GPU optics v${version} mix ${error}`); report[`stageErrorV${version}`] = error;
+  }
   g.free(tex); g.free(out); gl.deleteProgram(stage.handle);
 
   // Flat HDR source: the maps must preserve all three channels, including after cache reuse.
@@ -98,7 +100,7 @@ void main(){outColor=texture(uTex,vUv);}`);
     for (let x = 0; x < pw; x++) {
       const raw = [0, 1, 2].map(c => src[((ph >> 1) * pw + x) * 4 + c]) as Vec3;
       const blur = [0, 1, 2].map(c => row[x * 4 + c]) as Vec3;
-      const ours = hal ? halationMix(raw, blur, amount) : diffusionMix(raw, blur, amount);
+      const ours = hal ? halationMix(raw, blur, amount, 2) : diffusionMix(raw, blur, amount);
       for (let c = 0; c < 3; c++) {
         if (raw[c] !== 0) continue;
         const up = p.centerRow[x][c];
@@ -135,13 +137,33 @@ void main(){outColor=texture(uTex,vUv);}`);
   }
   gl.deleteProgram(copy.handle);
 
-  const canvas = document.createElement('canvas'); canvas.width = 768; canvas.height = 512;
-  const ctx = canvas.getContext('2d')!; ctx.fillStyle = '#20242b'; ctx.fillRect(0, 0, 768, 512);
-  ctx.fillStyle = '#fff'; ctx.fillRect(250, 120, 80, 240); ctx.fillStyle = '#ff982d'; ctx.fillRect(490, 230, 35, 35);
-  const source = engine.sourceFromImage(canvas, canvas.width, canvas.height);
-  const base = { ...defaultRecipe(), sharpen: 0, captureSharpening: 0 };
+  // Controlled scene light: 16 for the white highlight, (4, 1, .125) for orange,
+  // and 1/64 for the background. A clipped JPEG white expands to effectively infinite
+  // scene light through the inverse tone curve and saturates both halo strengths.
+  const scene = new Uint16Array(768 * 512 * 4);
+  for (let y = 0; y < 512; y++) for (let x = 0; x < 768; x++) {
+    const rgb = x >= 250 && x < 330 && y >= 120 && y < 360 ? [0x4c00, 0x4c00, 0x4c00]
+      : x >= 490 && x < 525 && y >= 230 && y < 265 ? [0x4400, 0x3c00, 0x3000] : [0x2400, 0x2400, 0x2400];
+    scene.set([...rgb, 0x3c00], (y * 768 + x) * 4);
+  }
+  const source = engine.sourceFromHalf({ width: 768, height: 512, fullWidth: 768, fullHeight: 512, mode: InputMode.SceneLinear, white: null, data: scene });
+  const base = { ...defaultRecipe(), lookEnabled: false, scanner: 'straight' as const, sharpen: 0, captureSharpening: 0 };
   const plain = engine.readPixels(source, base, 768, 512, 3);
   const effects = engine.readPixels(source, { ...base, halation: 100, glow: 50 }, 768, 512, 3);
+  const previous = engine.readPixels(source, { ...base, halation: 100, halationVersion: 2 }, 768, 512, 3);
+  const stronger = engine.readPixels(source, { ...base, halation: 100 }, 768, 512, 3);
+  const edge = (200 * 768 + 248) * 4;
+  report.haloRed = { off: plain[edge], previous100: previous[edge], stronger100: stronger[edge] };
+  // Visual comparison at the same scene scale, available with SHOT=... on this harness.
+  for (const [label, pixels] of [['Off', plain], ['Previous 100', previous], ['Stronger 100', stronger]] as const) {
+    const figure = document.createElement('figure'), caption = document.createElement('figcaption');
+    caption.textContent = label; figure.append(caption);
+    const display = document.createElement('canvas'); display.width = 768; display.height = 512;
+    display.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(pixels), 768, 512), 0, 0);
+    display.style.cssText = 'width:100%;height:auto'; figure.append(display); document.body.append(figure);
+  }
+  document.body.style.cssText = 'margin:0;background:#202124;color:#ddd;display:grid;grid-template-columns:repeat(3,1fr);font:16px sans-serif';
+  assert(stronger[edge] > previous[edge] + 5, `New halation failed to strengthen the red halo: ${JSON.stringify(report.haloRed)}`);
   const moved = Math.max(...plain.slice(0, 1000).map((v, i) => Math.abs(v - effects[i])));
   assert(effects.some((v, i) => i % 4 < 3 && Math.abs(v - plain[i]) > 2), 'Full engine optics has no effect');
   report.farFieldDifference = moved;

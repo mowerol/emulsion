@@ -71,8 +71,9 @@ export interface Recipe {
   glow: number;
   halationSize: number;
   glowSize: number;
+  /** Absent: original renderer; 2: still/strong; 3: still/weak anti-halation. */
+  halationVersion?: 2 | 3;
   /** Absent preserves an active effect saved with the original renderer. */
-  halationVersion?: 2;
   glowVersion?: 2;
   vignette: number;
   grain: number;
@@ -246,7 +247,7 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
     glow: 0,
     halationSize: 100,
     glowSize: 100,
-    halationVersion: 2,
+    halationVersion: 3,
     glowVersion: 2,
     vignette: 0,
     grain: s.grain,
@@ -364,7 +365,7 @@ export function normalizeRecipe(input: unknown): Recipe | null {
     if (typeof v === 'number' && Number.isFinite(v)) out[def.key] = clamp(v, def.min, def.max);
   }
   // Only active old effects need the legacy renderer. New adjustments start with the new model.
-  out.halationVersion = o.halationVersion === 2 || out.halation === 0 ? 2 : undefined;
+  out.halationVersion = out.halation === 0 ? 3 : o.halationVersion === 2 || o.halationVersion === 3 ? o.halationVersion : undefined;
   out.glowVersion = o.glowVersion === 2 || out.glow === 0 ? 2 : undefined;
   // Sidecars from before it existed have no field: off, so they render as they did.
   out.profiledDenoise = normalizeProfiledDenoise(o.profiledDenoise);
@@ -382,7 +383,7 @@ export const recipeKey = (r: Recipe | null) => (r ? JSON.stringify(r) : 'origina
 /** Keep an active legacy effect until it is cleared, or its new size control is used. */
 export function withSlider(recipe: Recipe, key: SliderKey, value: number): Recipe {
   const out = { ...recipe, [key]: value };
-  if (key === 'halationSize' || key === 'halation' && (recipe.halation === 0 || value === 0)) out.halationVersion = 2;
+  if (key === 'halationSize' || key === 'halation' && (recipe.halation === 0 || value === 0)) out.halationVersion = 3;
   if (key === 'glowSize' || key === 'glow' && (recipe.glow === 0 || value === 0)) out.glowVersion = 2;
   return out;
 }

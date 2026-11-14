@@ -14,8 +14,8 @@ allocation, image copy and OpenMP scheduling only. It records source SHA-256 has
 in `src/engine/fixtures/optics.json`.
 
 The fixture includes Black Pro-Mist plans at strengths 0, .01, 1/8, 1/4, 1/2, 1,
-2; the named still/strong halation preset read from pinned Python source; the C
-halation pixel combine; actual C impulse and step profiles, including FIR/IIR and
+2; the named still/strong and still/weak halation presets read from pinned Python source; the C
+halation pixel combines for both presets; actual C impulse and step profiles, including FIR/IIR and
 wide-blur branches. `centerRow` is interleaved RGB expressed as an array of triplets.
 Images use an HDR `(16,8,4)` center impulse or a right-half step. `sum` covers the
 entire output image. `args` holds the positional arguments following width/height

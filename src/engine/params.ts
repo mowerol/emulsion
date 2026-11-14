@@ -180,7 +180,7 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uHal: recipe.halation / 100,
     uHalModel: recipe.halationVersion ?? 1,
     uGlowModel: recipe.glowVersion ?? 1,
-    uHalStrength: halationStrength(recipe.halation),
+    uHalStrength: halationStrength(recipe.halation, recipe.halationVersion),
     uGlowFraction: diffusionFraction(recipe.glow),
     uHalSize: recipe.halationSize,
     uGlowSize: recipe.glowSize,

@@ -3220,7 +3220,7 @@ export class Engine {
       hal = this.inject.hal ?? g.blackTexture;
       glow = this.inject.glow ?? g.blackTexture;
     } else if (ch) {
-      if (highlights && ((u.uHal as number) > 0 && u.uHalModel !== 2 || (u.uGlow as number) > 0 && u.uGlowModel !== 2)) {
+      if (highlights && ((u.uHal as number) > 0 && u.uHalModel === 1 || (u.uGlow as number) > 0 && u.uGlowModel !== 2)) {
         const { levels, pyramid } = ch;
         g.bind(0, src.tex);
         g.bind(4, teq);
@@ -3239,12 +3239,12 @@ export class Engine {
         glow = glowLevel.tex;
       }
     }
-    if (ch && ownHighlights && recipe && (u.uHalModel === 2 && recipe.halation > 0 || u.uGlowModel === 2 && recipe.glow > 0)) {
+    if (ch && ownHighlights && recipe && ((u.uHalModel as number) >= 2 && recipe.halation > 0 || u.uGlowModel === 2 && recipe.glow > 0)) {
       const [ow, oh] = opticsSize(src.w, src.h);
       const optics = ch.optics ??= new OpticsGpu(g, ow, oh);
       const key = `${this.L.stack.generation}|${pick(u, OPTICS_INPUT)}|${teqLocal}`;
       const maps = optics.render(src.tex, key, {
-        halation: u.uHalModel === 2 && recipe.halation > 0,
+        halation: (u.uHalModel as number) >= 2 && recipe.halation > 0,
         glow: u.uGlowModel === 2 && recipe.glow > 0,
         halationSize: recipe.halationSize, glowSize: recipe.glowSize, glowAmount: recipe.glow,
       }, target => {
