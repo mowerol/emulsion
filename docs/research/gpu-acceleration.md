@@ -2,7 +2,7 @@
 
 Researched 2026-11-03, after Oli said he wants more speed and would accept moving away from strict darktable ports to get it. Machine: Apple M2 (10-core GPU), macOS 26.5.1 (25F80), Command Line Tools SDK 26.5. Emulsion at bd513ff: Tauri 2.12.5, wry 0.57.1 (from `src-tauri/Cargo.lock`). No application code was changed. The scratch probes described below lived in the session scratchpad and are not in the repo.
 
-**What was measured here, and what wasn't.** Three new measurements on this Mac: (1) a plain `WKWebView` (default configuration, as wry builds it) reporting WebGPU availability, its adapter's features and limits, and the same 25-tap kernel timed in WebGL2 and in WebGPU; (2) the same kernel and several Metal Performance Shaders filters timed natively, from `MTLCommandBuffer.gpuStartTime/gpuEndTime`; (3) round trips through a `WKURLSchemeHandler`, the transport Tauri's IPC uses. None of them is the Emulsion app. In-app numbers below are quoted from [HANDOFF.md](../../HANDOFF.md) and come from `tools/perf/inapp.mjs`.
+**What was measured here, and what wasn't.** Three new measurements on this Mac: (1) a plain `WKWebView` (default configuration, as wry builds it) reporting WebGPU availability, its adapter's features and limits, and the same 25-tap kernel timed in WebGL2 and in WebGPU; (2) the same kernel and several Metal Performance Shaders filters timed natively, from `MTLCommandBuffer.gpuStartTime/gpuEndTime`; (3) round trips through a `WKURLSchemeHandler`, the transport Tauri's IPC uses. None of them is the Emulsion app. In-app numbers below are quoted from the working handoff notes and come from `tools/perf/inapp.mjs`.
 
 ## Summary
 
