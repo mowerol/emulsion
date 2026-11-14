@@ -263,6 +263,7 @@ body:has(.library-fullscreen) { min-width: 0; }
 .brand { display: flex; align-items: center; flex-shrink: 0; gap: 8px; margin-left: -2px; user-select: none; }
 .brand-mark { display: block; width: 22px; height: 22px; }
 .brand-name { font-weight: 600; font-size: 15px; letter-spacing: -0.015em; color: var(--fg); }
+.brand-dev { padding: 1px 6px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font-size: 10px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; }
 .views { display: flex; gap: 2px; background: var(--raise); border-radius: 7px; padding: 2px; }
 .views button { background: none; border: 0; border-radius: 5px; padding: 4px 12px; font-weight: 600; font-size: 13px; color: var(--muted); cursor: pointer; }
 .views button[aria-pressed='true'] { background: var(--line); color: var(--fg); }

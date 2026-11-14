@@ -52,6 +52,7 @@ export function TopBar() {
       <div className="brand">
         <img className="brand-mark" src="/brand/logo-tile.png" alt="" draggable={false} />
         <span className="brand-name">Emulsion</span>
+        {import.meta.env.DEV && <span className="brand-dev" title="Development build">Dev</span>}
       </div>
       {importing ? <>
         <span className="chrome-divider" />
