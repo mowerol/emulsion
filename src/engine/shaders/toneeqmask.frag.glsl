@@ -13,6 +13,7 @@ uniform sampler2D uSrc;
 #include "stages/dehaze.glsl"
 #include "stages/toneequalizer.glsl"
 #include "stages/colorbalance.glsl"
+#include "stages/optics.glsl"
 #include "stages/masks.glsl"
 
 uniform vec2 uTexel;

@@ -1,5 +1,22 @@
 # Handoff
 
+**Glow and Glow size per mask (2026-11-13; committed and pushed).** Oli asked for Glow on
+a mask basis and chose darktable's model (a masked instance's *result* blended by the mask, not
+a masked source). Each mask has Glow (0–100, the photo's mapping) and Glow size (20–400%, default
+100; changes nothing alone, `MaskSliderDef.setting`). It is a second spektrafilm diffusion
+instance after the photo's optics (`stageMaskGlow`, `masks.glsl`, which now needs `optics.glsl`
+included first: extract, toneeqmask and the probe's mask shader were updated). Each instance
+blurs its own input (extract `uOpticsSource` 2: photo optics plus the earlier masks' Glow) into a
+layer of a texture array on unit 13 (`OpticsGpu.renderMasked`, `MASK_GLOW_UNIT`); a layer is kept
+while its input and size are, so a mask's own amount only re-mixes. Regions take the preview's
+array. Old sidecars read Glow 0 / size 100. Checks: `npm run check` passes (949 JS, 135 Rust);
+`optics` browser test passes (stage vs `maskedDiffusionMix` 5e-8; whole-frame mask = photo Glow
+0/255; left-half mask = photo Glow inside, plain outside, 0/255; layer caching; 1.6 ms per field
+at 2048); `region-detail` passes with new `glow`/`maskedGlow` cases (whole vs region ≤1/255;
+via preview 3–5/255, same as the photo's Glow); probe clean. Not checked: in-app timing, and by
+hand (Oli): the two new sliders in a mask's Effect list, Reset sliders (size back to 100%),
+dragging Glow/Glow size on a brush or object mask over a light, and undo of those drags.
+
 **Stronger Halation trial (2026-11-13; committed and pushed).** Oli agreed to try
 higher strength. New adjustments use the pinned upstream still/weak anti-halation preset
 (strength .08/.02/0 instead of .015/.005/0); Amount still maps 0–100 to upstream 0–8, size

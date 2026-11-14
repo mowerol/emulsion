@@ -3,7 +3,8 @@
 // Highlight extraction at quarter resolution, feeding the original halation and glow
 // (.rgb: highlights with their colour, the glow source; .a: halation energy).
 // With uOpticsSource, the exposed scene light (with scanner sharpness, before colour
-// balance) that the Spektrafilm optics blur (opticsgpu.ts).
+// balance) that the Spektrafilm optics blur (opticsgpu.ts); 2, after the photo's optics and the
+// masks' Glow before uMaskGlowUpTo: a masked Glow instance's input.
 uniform sampler2D uSrc;
 
 #include "common.glsl"
@@ -13,8 +14,8 @@ uniform sampler2D uSrc;
 #include "stages/dehaze.glsl"
 #include "stages/toneequalizer.glsl"
 #include "stages/colorbalance.glsl"
-#include "stages/masks.glsl"
 #include "stages/optics.glsl"
+#include "stages/masks.glsl"
 
 uniform vec2 uTexel;
 
@@ -31,6 +32,7 @@ void main() {
     vec3 x = stageInput(texture(uSrc, uv));
     if (uOpticsSource > 0.5) x = stageSharpen(x, uv);
     x = stageMaskToneEqualizer(stageToneEqualizer(stageMaskExposure(stageExposure(stageDehaze(x, uv))), uv), uv);
+    if (uOpticsSource > 1.5) x = stageMaskGlow(stageOpticsScene(x, uv), uv);
     if (uOpticsSource > 0.5) { g += x; continue; }
     x = stageMaskColorBalance(stageColorBalance(x));
     float L = dot(x, LUMA_W);

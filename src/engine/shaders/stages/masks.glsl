@@ -5,11 +5,11 @@
 // 5.6.2). Translated from C to GLSL; mirrors src/engine/masks.ts (see there for what differs).
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
-// Needs stages/toneequalizer.glsl and stages/colorbalance.glsl included first.
+// Needs stages/toneequalizer.glsl, stages/colorbalance.glsl and stages/optics.glsl included first.
 //
 // Masks: each is a group of shapes, evaluated per source pixel, with its own masked exposure and
-// white balance (at the exposure stage), tone equalizer and colour balance instances (after the
-// photo's own). A
+// white balance (at the exposure stage), tone equalizer, glow and colour balance instances (after
+// the photo's own). A
 // mask is evaluated once, at its exposure instance (drawn × ranges × opacity, or its refined
 // raster from the mask stack), and later instances reuse that value, as darktable's raster masks
 // let one instance use another's final mask.
@@ -49,6 +49,13 @@ uniform highp sampler2DArray uMaskStack;
 uniform float uMaskObjectLayer;
 // The packed mask (slot) whose input and unrefined value the refinement tap writes, or -1.
 uniform float uMaskTap;
+// Per mask, a spektrafilm diffusion instance after the photo's optics: [diffusion fraction (0
+// off), its field's layer in uMaskGlowTex, Glow size, 0] (opticsgpu.ts makes the fields).
+uniform vec4 uMaskGlow[MAX_MASKS];
+uniform float uMaskGlowCount;
+uniform highp sampler2DArray uMaskGlowTex;
+// Only the masks before this slot apply their Glow: a masked instance's input (extract.frag).
+uniform float uMaskGlowUpTo;
 
 float maskChannel(vec4 t, int c) {
   return c == 0 ? t.r : c == 1 ? t.g : c == 2 ? t.b : t.a;
@@ -225,6 +232,22 @@ vec3 stageMaskToneEqualizer(vec3 x, vec2 uv) {
     vec4 l = uMaskLocal[i];
     if (m <= 0.0 || l.x < 0.5) continue;
     x = mix(x, x * teqGain(x, uv, l.y, uMaskTeq[i * 2], uMaskTeq[i * 2 + 1]), m);
+  }
+  return x;
+}
+
+// Masked Glow: darktable's second spektrafilm diffusion instance after the photo's optics, each
+// with its own field (blurred from its own input), blended normally by the mask.
+vec3 stageMaskGlow(vec3 x, vec2 uv) {
+  if (uMaskGlowCount < 0.5) return x;
+  int masks = int(uMaskCount + 0.5);
+  for (int i = 0; i < MAX_MASKS; i++) {
+    if (i >= masks || float(i) >= uMaskGlowUpTo) break;
+    float m = gMaskFinal[i];
+    vec4 g = uMaskGlow[i];
+    if (m <= 0.0 || g.x <= 0.0) continue;
+    vec3 diffused = (1.0 - g.x) * x + g.x * texture(uMaskGlowTex, vec3(uv, g.y)).rgb / uStore;
+    x = mix(x, diffused, m);
   }
   return x;
 }

@@ -27,7 +27,7 @@ import { profileSettingsFor } from '../film/looks';
 import { D65_XY, clampWhiteBalance, temperatureTint, whiteBalanceMatrix, whiteXy, type Xy } from './whitebalance';
 import { packRanges, packShapes } from './masks';
 import { MASK_UNIT } from './maskstack';
-import { NO_ADJUST, maskActive, type Mask } from '../film/masks';
+import { MAX_MASKS, NO_ADJUST, maskActive, type Mask } from '../film/masks';
 import { effectiveIso, zoomForIso } from './grain';
 import { EXPOSURE_BOOST, FEATHERING, SMOOTHING, bandFactors, bandGains } from './toneequalizer';
 import { clarityParams } from './locallaplacian';
@@ -68,6 +68,8 @@ export interface RenderContext {
 
 /** Texture unit of the look LUT (0-6 and 8-10 are taken; 7 is for uploads, and holds the brush mask during masked draws). */
 export const LUT_UNIT = 11;
+/** Texture unit of the masks' Glow fields, one layer per masked instance (a sampler2DArray). */
+export const MASK_GLOW_UNIT = 13;
 
 const WORKING = columnMajor(SRGB_TO_REC2020);
 const IDENTITY = [1, 0, 0, 0, 1, 0, 0, 0, 1];
@@ -203,7 +205,7 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
   };
 }
 
-const NO_MASKS: Uniforms = { uTeqTiles: 1, uMaskCount: 0, uMaskShapeCount: 0, uMaskShow: -1, uMaskStack: MASK_UNIT, uMaskTap: -1, uMaskObjectLayer: 0 };
+const NO_MASKS: Uniforms = { uTeqTiles: 1, uMaskGlowCount: 0, uMaskGlowTex: MASK_GLOW_UNIT, uMaskGlowUpTo: MAX_MASKS, uMaskCount: 0, uMaskShapeCount: 0, uMaskShow: -1, uMaskStack: MASK_UNIT, uMaskTap: -1, uMaskObjectLayer: 0 };
 
 /**
  * The masks' shapes and their adjustments. Temperature moves the photo's white by that many
@@ -224,6 +226,8 @@ export function maskUniforms(masks: Mask[], recipe: Recipe, ctx: Pick<RenderCont
   const rangeOn: number[] = [];
   const teq: number[] = [];
   const local: number[] = [];
+  const glow: number[] = [];
+  let glowLayer = 0;
   // The tone equalizer's map atlas: tile 0 is the photo's instance, then one per masked instance.
   let teqTile = 0;
   for (const i of index) {
@@ -242,11 +246,14 @@ export function maskUniforms(masks: Mask[], recipe: Recipe, ctx: Pick<RenderCont
     const teqOn = m.highlights !== 0;
     teq.push(...(teqOn ? bandFactors(bandGains(m.highlights)) : [0, 0, 0, 0, 0, 0, 0, 0]));
     local.push(teqOn ? 1 : 0, teqOn ? ++teqTile : 0, 0, 0);
+    // [diffusion fraction, its field's layer, Glow size (the field's key), 0].
+    glow.push(...(m.glow > 0 ? [diffusionFraction(m.glow), glowLayer++, m.glowSize, 0] : [0, 0, 0, 0]));
     cb.push(...(cbOn ? cbUniform(cbCommit(sliderParams(colorBalanceParams(m.contrast, m.vibrance, m.saturation, m.shadows)))) : CB_NONE));
   }
   return {
     uMaskCount: index.length, uMaskShapeCount: count, uMaskShapes: shapes, uMaskMeta: meta, uMaskWb: wb, uMaskCb: cb,
     uMaskTeq: teq, uMaskLocal: local, uTeqTiles: teqTile + 1,
+    uMaskGlow: glow, uMaskGlowCount: glowLayer, uMaskGlowTex: MASK_GLOW_UNIT, uMaskGlowUpTo: MAX_MASKS,
     uMaskRange: range, uMaskRangeOn: rangeOn, uMaskToXyz: columnMajor(REC2020_TO_XYZ), uMaskStack: MASK_UNIT, uMaskTap: -1,
     uMaskShow: index.indexOf(show),
   };
@@ -255,7 +262,7 @@ export function maskUniforms(masks: Mask[], recipe: Recipe, ctx: Pick<RenderCont
 /** Whether a recipe needs the highlight and sharpening passes at all. */
 export function needsPasses(u: Uniforms) {
   return {
-    highlights: u.uCompare !== 1 && ((u.uHal as number) > 0 || (u.uGlow as number) > 0),
+    highlights: u.uCompare !== 1 && ((u.uHal as number) > 0 || (u.uGlow as number) > 0 || (u.uMaskGlowCount as number) > 0),
     sharpen: u.uCompare !== 1 && (u.uSharp as number) !== 0,
     toneEqualizer: u.uCompare !== 1 && (u.uTeqOn === 1 || (u.uTeqTiles as number) > 1),
     clarity: u.uCompare !== 1 && u.uClarityOn === 1,

@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
 import { blendNormal, blendifFactor, maskedLightness, combine, ellipseValue, erf, gradientValue, jzczhz, maskValue, packRanges, pickStats, pickedRange, rangeUnits, packShapes, rangeParameters, rangeValue } from './masks';
-import { MAX_MASKS, fullRange, newEllipse, newGradient, newMask, normalizeMasks, type Mask } from '../film/masks';
+import { MAX_MASKS, fullRange, maskActive, newEllipse, newGradient, newMask, normalizeMasks, type Mask } from '../film/masks';
+import { diffusionFraction } from './optics';
 import { defaultRecipe, normalizeRecipe, withSettingsFrom } from '../film/recipe';
 import { InputMode, developUniforms, maskUniforms, needsPasses } from './params';
 
@@ -125,6 +126,19 @@ describe('mask recipes', () => {
     expect(normalizeRecipe({ stock: 'neutral' })!.masks).toEqual([]);
   });
 
+  it("reads a mask's Glow and Glow size, defaulting the size to the photo slider's 100%", () => {
+    const [old, set] = normalizeMasks([
+      { shapes: [{ kind: 'ellipse' }], exposure: 1 },
+      { shapes: [{ kind: 'ellipse' }], glow: 140, glowSize: 5 },
+    ]);
+    expect(old).toMatchObject({ glow: 0, glowSize: 100 });
+    expect(set).toMatchObject({ glow: 100, glowSize: 20 });
+    // Glow size alone changes nothing; Glow does.
+    const m = newMask(newEllipse(), 0);
+    expect(maskActive({ ...m, glowSize: 250 })).toBe(false);
+    expect(maskActive({ ...m, glow: 1 })).toBe(true);
+  });
+
   it('keeps each frame its own masks when settings are pasted', () => {
     const from = { ...defaultRecipe(), masks: [newMask(newGradient(), 0)] };
     expect(withSettingsFrom(from, defaultRecipe()).masks).toEqual([]);
@@ -188,6 +202,25 @@ describe('mask uniforms', () => {
     expect(needsPasses(developUniforms(defaultRecipe(), ctx)).toneEqualizer).toBe(false);
     // A shown mask that is off changes nothing.
     expect(maskUniforms([{ ...a, on: false }], defaultRecipe(), { maskShow: 0 }).uTeqTiles).toBe(1);
+  });
+});
+
+describe('masked Glow instances', () => {
+  const ctx = { width: 100, height: 100, seed: 0, inputMode: InputMode.SceneLinear, store: 1 };
+
+  it("gives each mask's Glow the photo's mapping, its size, and its own field layer in mask order", () => {
+    const a = { ...newMask(newGradient(), 0), glow: 40, glowSize: 150 };
+    const b = { ...newMask(newGradient(), 1), exposure: 1, glowSize: 300 };
+    const c = { ...newMask(newGradient(), 2), glow: 100 };
+    const u = maskUniforms([a, b, c], defaultRecipe(), {});
+    expect(u.uMaskGlow).toEqual([diffusionFraction(40), 0, 150, 0, 0, 0, 0, 0, diffusionFraction(100), 1, 100, 0]);
+    expect(u.uMaskGlowCount).toBe(2);
+    // A mask's Glow alone turns the optics passes on; its size alone does not.
+    expect(needsPasses(developUniforms({ ...defaultRecipe(), masks: [a] }, ctx)).highlights).toBe(true);
+    expect(needsPasses(developUniforms({ ...defaultRecipe(), masks: [{ ...a, glow: 0, exposure: 1 }] }, ctx)).highlights).toBe(false);
+    // A mask that is off, or only shown, has no Glow.
+    expect(maskUniforms([{ ...a, on: false }], defaultRecipe(), { maskShow: 0 }).uMaskGlowCount).toBe(0);
+    expect(developUniforms(defaultRecipe(), ctx).uMaskGlowCount).toBe(0);
   });
 });
 

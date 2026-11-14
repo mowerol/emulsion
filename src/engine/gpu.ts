@@ -112,6 +112,21 @@ export class Gpu {
 
   get blackTexture() { return this.black; }
 
+  private blackArr: WebGLTexture | null = null;
+  /** A 1 × 1 × 1 black texture array, for array samplers with nothing to read. */
+  get blackArray() {
+    if (!this.blackArr) {
+      const gl = this.gl;
+      this.blackArr = gl.createTexture()!;
+      this.scratch();
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY, this.blackArr);
+      gl.texImage3D(gl.TEXTURE_2D_ARRAY, 0, gl.RGBA8, 1, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    }
+    return this.blackArr;
+  }
+
   /**
    * Make the scratch texture unit active before creating or uploading a
    * texture. Binding a texture replaces whatever the active unit held, so doing

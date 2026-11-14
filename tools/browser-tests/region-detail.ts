@@ -58,6 +58,8 @@ async function main() {
     maskedDetail: { ...base, masks: [{ ...newMask(newGradient(), 0), exposure: .3, clarity: 30, texture: 30 }] },
     refinedMask: { ...base, clarity: 30, texture: 30, masks: [{ ...newMask(newGradient(), 0), exposure: .3, refine: { ...newMask(newGradient(), 0).refine, blur: 10, feather: 10 } }] },
     maskedDehaze: { ...base, masks: [{ ...newMask(newGradient(), 0), dehaze: 30, exposure: .2 }] },
+    glow: { ...base, glow: 60, glowSize: 150 },
+    maskedGlow: { ...base, glow: 20, masks: [{ ...newMask(newGradient(), 0), glow: 60, glowSize: 150 }, { ...newMask(newGradient([.4, .5], 180), 1), glow: 40 }] },
     maskedCombined: { ...base, clarity: 30, texture: 30, retouch, masks: [{ ...newMask(newGradient(), 0), exposure: .3, dehaze: 30, texture: 25, clarity: 20, refine: { ...newMask(newGradient(), 0).refine, blur: 10, feather: 10 } }] },
   };
   const results: Record<string, unknown> = {};

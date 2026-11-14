@@ -3,7 +3,8 @@
 // masks (src/develop/masks/). A mask is a group of shapes combined in order (darktable's group:
 // the first shape is copied, each later one is added, intersected, subtracted, summed or
 // excluded at its own opacity, and may be inverted), and carries its own adjustments, which run
-// as darktable would run a masked instance of exposure and of colour balance rgb.
+// as darktable would run a masked instance of each module (exposure, tone equalizer, contrast
+// equalizer, local contrast, haze removal, colour balance rgb, and spektrafilm's diffusion).
 //
 // Shapes are kept in source coordinates (0 to 1 over the uncropped, oriented photo, y down), as
 // darktable keeps them in input image coordinates, so cropping or straightening never moves them.
@@ -140,6 +141,10 @@ export interface MaskAdjust {
   dehaze: number;
   vibrance: number;
   saturation: number;
+  /** A masked spektrafilm diffusion instance after the photo's optics, with the photo's Glow mapping. */
+  glow: number;
+  /** Its size, as the photo's Glow size (100 is upstream's default spread). */
+  glowSize: number;
 }
 
 /** A parametric range on one channel: darktable's four blendif markers and its invert, in its slider units. */
@@ -189,6 +194,10 @@ export interface MaskSliderDef {
   min: number;
   max: number;
   step: number;
+  /** The value that changes nothing, when not 0. */
+  default?: number;
+  /** A setting of another slider's adjustment (Glow size): it changes nothing by itself. */
+  setting?: boolean;
 }
 
 export const MASK_SLIDERS: MaskSliderDef[] = [
@@ -203,13 +212,18 @@ export const MASK_SLIDERS: MaskSliderDef[] = [
   { key: 'dehaze', label: 'Dehaze', min: -100, max: 100, step: 1 },
   { key: 'vibrance', label: 'Vibrance', min: -100, max: 100, step: 1 },
   { key: 'saturation', label: 'Saturation', min: -100, max: 100, step: 1 },
+  { key: 'glow', label: 'Glow', min: 0, max: 100, step: 1 },
+  { key: 'glowSize', label: 'Glow size', min: 20, max: 400, step: 1, default: 100, setting: true },
 ];
+
+/** A mask slider's value at rest. */
+export const maskSliderDefault = (d: MaskSliderDef) => d.default ?? 0;
 
 /** How many masks, and shapes over all masks, the develop shader holds. */
 export const MAX_MASKS = 8;
 export const MAX_SHAPES = 32;
 
-export const NO_ADJUST: MaskAdjust = { exposure: 0, temperature: 0, tint: 0, contrast: 0, highlights: 0, shadows: 0, texture: 0, clarity: 0, dehaze: 0, vibrance: 0, saturation: 0 };
+export const NO_ADJUST: MaskAdjust = { exposure: 0, temperature: 0, tint: 0, contrast: 0, highlights: 0, shadows: 0, texture: 0, clarity: 0, dehaze: 0, vibrance: 0, saturation: 0, glow: 0, glowSize: 100 };
 
 let counter = 0;
 export const newId = () => `${Date.now().toString(36)}${(counter++).toString(36)}`;
@@ -233,7 +247,7 @@ export function newMask(shape: MaskShape, index: number): Mask {
 }
 
 /** Whether a mask changes anything. */
-export const maskActive = (m: Mask) => m.on && m.opacity > 0 && m.shapes.length > 0 && MASK_SLIDERS.some((d) => m[d.key] !== 0);
+export const maskActive = (m: Mask) => m.on && m.opacity > 0 && m.shapes.length > 0 && MASK_SLIDERS.some((d) => !d.setting && m[d.key] !== maskSliderDefault(d));
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -330,7 +344,7 @@ export function normalizeMasks(input: unknown): Mask[] {
     if (!list.length) continue;
     shapes += list.length;
     const m: Mask = { id: str(o.id, newId()), name: str(o.name, `Mask ${out.length + 1}`), on: o.on !== false, opacity: num(o.opacity, 100, 0, 100), shapes: list, ranges: normalizeRanges(o.ranges), refine: normalizeRefine(o.refine), ...NO_ADJUST };
-    for (const d of MASK_SLIDERS) m[d.key] = num(o[d.key], 0, d.min, d.max);
+    for (const d of MASK_SLIDERS) m[d.key] = num(o[d.key], maskSliderDefault(d), d.min, d.max);
     out.push(m);
   }
   return out;

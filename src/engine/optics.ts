@@ -70,6 +70,15 @@ export const diffusionMix = (rgb: Vec3, blur: Vec3, amount: number): Vec3 => {
   return rgb.map((x, c) => (1 - p) * x + p * blur[c]) as Vec3;
 };
 
+/**
+ * A mask's Glow: a second diffusion instance, after the photo's optics, on its own input and
+ * with its own blurred field, blended in by the mask's value as darktable's normal blend.
+ */
+export const maskedDiffusionMix = (rgb: Vec3, blur: Vec3, amount: number, mask: number): Vec3 => {
+  const mixed = diffusionMix(rgb, blur, amount);
+  return rgb.map((x, c) => x + mask * (mixed[c] - x)) as Vec3;
+};
+
 /** Approved pyramid renderer: keep the smallest components at the source's density. */
 export function componentPlan(sigma: number, width: number, height: number) {
   let level = 0;

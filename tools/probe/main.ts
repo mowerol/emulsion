@@ -214,8 +214,11 @@ function probeMasks(eng: Engine) {
   const gl = eng.gpu.gl;
   const frag = assemble(`#version 300 es
 #include "common.glsl"
+#include "stages/tone.glsl"
+#include "stages/input.glsl"
 #include "stages/toneequalizer.glsl"
 #include "stages/colorbalance.glsl"
+#include "stages/optics.glsl"
 #include "stages/masks.glsl"
 uniform vec3 uIn[64];
 uniform vec3 uCol[64];

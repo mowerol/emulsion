@@ -5,7 +5,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { CloudSun, Ellipsis } from 'lucide-react';
-import { BRUSH_DEFAULTS, MASK_MODES, MASK_SLIDERS, REFINE_SLIDERS, type EllipseShape, type GradientShape, type Mask, type MaskMode, type MaskShape, type MaskSliderDef, type ObjectShape } from '../film/masks';
+import { BRUSH_DEFAULTS, MASK_MODES, MASK_SLIDERS, REFINE_SLIDERS, maskSliderDefault, type EllipseShape, type GradientShape, type Mask, type MaskMode, type MaskShape, type MaskSliderDef, type ObjectShape } from '../film/masks';
 import { installObjectModel, newObjectSession, prepareObjectSelect, useObjectSelect } from './objectselect';
 import { formatEv, formatSigned } from '../film/recipe';
 import { MaskRanges } from './MaskRange';
@@ -37,7 +37,8 @@ function Slider({ id, label, value, min, max, step, format, onChange, onReset }:
   );
 }
 
-const fmtFor = (d: MaskSliderDef) => (d.key === 'exposure' ? formatEv : formatSigned);
+const fmtFor = (d: MaskSliderDef) =>
+  d.key === 'exposure' ? formatEv : d.key === 'glowSize' ? (v: number) => `${v}%` : d.key === 'glow' ? (v: number) => String(v) : formatSigned;
 
 function ToolButtons({ mode, label }: { mode: MaskTool['mode']; label?: string }) {
   const tool = useMaskUi((s) => s.tool);
@@ -240,7 +241,7 @@ function MaskActions({ mask }: { mask: Mask }) {
     window.addEventListener('keydown', esc, true);
     return () => { document.removeEventListener('pointerdown', outside); window.removeEventListener('keydown', esc, true); };
   }, [open]);
-  const reset = () => updateMask(mask.id, (m) => ({ ...m, ...Object.fromEntries(MASK_SLIDERS.map((d) => [d.key, 0])) }), 'Reset mask');
+  const reset = () => updateMask(mask.id, (m) => ({ ...m, ...Object.fromEntries(MASK_SLIDERS.map((d) => [d.key, maskSliderDefault(d)])) }), 'Reset mask');
   return (
     <div className="overflow mask-actions-menu" ref={ref}>
       <button type="button" className="icon-btn" aria-label="Mask actions" aria-haspopup="menu" aria-expanded={open} data-tip="Mask actions" onClick={() => setOpen(!open)}>
@@ -282,7 +283,7 @@ function MaskEditor({ mask }: { mask: Mask }) {
             onReset={() => updateMask(mask.id, (m) => ({ ...m, opacity: 100 }), 'Mask amount')} />
           {MASK_SLIDERS.map((d) => (
             <Slider key={d.key} id={`mask-${d.key}`} label={d.label} value={mask[d.key]} min={d.min} max={d.max} step={d.step} format={fmtFor(d)}
-              onChange={(v) => set(d, v, true)} onReset={() => set(d, 0, false)} />
+              onChange={(v) => set(d, v, true)} onReset={() => set(d, maskSliderDefault(d), false)} />
           ))}
         </div>
       </div>

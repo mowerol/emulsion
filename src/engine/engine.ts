@@ -22,12 +22,12 @@ import { packShapes } from './masks';
 //           └────────────────────────────────────────────── develop ─ output
 
 import type { Recipe } from '../film/recipe';
-import { OpticsGpu, opticsSize } from './opticsgpu';
+import { OpticsGpu, opticsSize, type MaskedGlow } from './opticsgpu';
 import { lensCenter, lensColourUniforms, lensSpline, lensUniforms, type LensMetadata } from './lenscorrection';
 import { geometryMatrix, hasPerspective } from './perspective';
 import { FULL, orientedSize, type Orientation, type Rect } from '../film/crop';
 import { Gpu, GpuError, Lru, type Program, type SpareSpec, type Target } from './gpu';
-import { InputMode, LUT_UNIT, colorBalanceUniforms, developUniforms, llParams, needsPasses, type Uniforms } from './params';
+import { InputMode, LUT_UNIT, MASK_GLOW_UNIT, colorBalanceUniforms, developUniforms, llParams, needsPasses, type Uniforms } from './params';
 import { maskActive } from '../film/masks';
 import { textureData } from './lut3d';
 import { type LoadedLut, loadLut, lutFor, lutPending } from './lutstore';
@@ -208,12 +208,15 @@ const uniformsOf = (file: string) => [...SHADER_FILES[file].matchAll(/uniform\s+
  */
 // Masks (exposure and colour balance) sit in both ranges; showing one as an overlay changes no map.
 // uMaskRasters stands for the stack's drawn contents (brush strokes, AI objects), which no uniform holds.
-const MASK_UNIFORMS = uniformsOf('stages/masks.glsl').filter((n) => n !== 'uMaskShow').concat('uMaskRasters');
+// The masks' Glow sits after the photo's optics (OPTICS_STAGE), not before the masks.
+const MASK_GLOW = ['uMaskGlow', 'uMaskGlowCount', 'uMaskGlowTex', 'uMaskGlowUpTo'];
+const MASK_UNIFORMS = uniformsOf('stages/masks.glsl').filter((n) => n !== 'uMaskShow' && !MASK_GLOW.includes(n)).concat('uMaskRasters');
 /** What a mask's refinement depends on: everything up to the masks' exposure instances. */
 // Haze removal's texture follows its instances (dehazeMap sets uDehazeKey), so that joins the keys.
 const BEFORE_MASKS = ['stages/input.glsl', 'stages/dehaze.glsl', 'stages/exposure.glsl'].flatMap(uniformsOf).concat('uSharp', 'uStore', 'uDehazeKey', ...MASK_UNIFORMS);
 const OPTICS_INPUT = ['stages/input.glsl', 'stages/dehaze.glsl', 'stages/exposure.glsl', 'stages/toneequalizer.glsl'].flatMap(uniformsOf).concat('uSharp', 'uStore', 'uDehazeKey', ...MASK_UNIFORMS);
-const OPTICS_STAGE = ['uHalModel', 'uGlowModel', 'uHalStrength', 'uGlowFraction', 'uHalSize', 'uGlowSize', 'uHal', 'uGlow'];
+const PHOTO_OPTICS = ['uHalModel', 'uGlowModel', 'uHalStrength', 'uGlowFraction', 'uHalSize', 'uGlowSize', 'uHal', 'uGlow'];
+const OPTICS_STAGE = [...PHOTO_OPTICS, 'uMaskGlow'];
 const BEFORE_TEXTURE = [...OPTICS_INPUT, ...OPTICS_STAGE];
 const TEXTURE_STAGE = uniformsOf('stages/texture.glsl').concat('uTextureMix');
 /** What Texture's input depends on with detail before Exposure (detaillog.ts): the input stage
@@ -225,6 +228,11 @@ const BEFORE_CLARITY = ['stages/colorbalance.glsl', 'stages/lens.glsl', 'stages/
 // uClarityScale only rescales a finished map, so it is never part of one's key.
 const CLARITY_STAGE = uniformsOf('stages/clarity.glsl').filter((n) => n !== 'uClarityScale').concat('uLl');
 const pick = (u: Uniforms, names: string[]) => JSON.stringify(names.map((n) => u[n] ?? null));
+/** The masks' Glow instances, in slot order, from their uniforms (maskUniforms). */
+const maskGlowInstances = (u: Uniforms): MaskedGlow[] => {
+  const g = (u.uMaskGlow as number[] | undefined) ?? [];
+  return Array.from({ length: g.length / 4 }, (_, slot) => ({ slot, fraction: g[slot * 4], size: g[slot * 4 + 2] })).filter((m) => m.fraction > 0);
+};
 
 /**
  * What a region render takes from the whole photo (docs/plans/roi.md), as darktable's full pipe
@@ -248,6 +256,8 @@ interface Products {
   teq?: WebGLTexture;
   hal?: WebGLTexture;
   glow?: WebGLTexture;
+  /** The masks' Glow fields (a texture array, OpticsGpu.renderMasked). */
+  maskGlow?: WebGLTexture;
   ambient?: { A0: [number, number, number]; distanceMax: number } | null;
 }
 
@@ -3128,6 +3138,7 @@ export class Engine {
     const maskClarity = maskedOf('clarity');
     let hal: WebGLTexture = g.blackTexture;
     let glow: WebGLTexture = g.blackTexture;
+    let maskGlow: WebGLTexture = g.blackArray;
     let sharp: WebGLTexture = g.blackTexture;
     // Without float targets the map would be too coarse; the stage then corrects per pixel.
     const teqLocal = passes.toneEqualizer && g.hdr && !picking;
@@ -3219,6 +3230,7 @@ export class Engine {
     if (highlights && this.inject) {
       hal = this.inject.hal ?? g.blackTexture;
       glow = this.inject.glow ?? g.blackTexture;
+      maskGlow = this.inject.maskGlow ?? g.blackArray;
     } else if (ch) {
       if (highlights && ((u.uHal as number) > 0 && u.uHalModel === 1 || (u.uGlow as number) > 0 && u.uGlowModel !== 2)) {
         const { levels, pyramid } = ch;
@@ -3239,7 +3251,8 @@ export class Engine {
         glow = glowLevel.tex;
       }
     }
-    if (ch && ownHighlights && recipe && ((u.uHalModel as number) >= 2 && recipe.halation > 0 || u.uGlowModel === 2 && recipe.glow > 0)) {
+    const maskedGlow = maskGlowInstances(u);
+    if (ch && ownHighlights && recipe && ((u.uHalModel as number) >= 2 && recipe.halation > 0 || u.uGlowModel === 2 && recipe.glow > 0 || maskedGlow.length)) {
       const [ow, oh] = opticsSize(src.w, src.h);
       const optics = ch.optics ??= new OpticsGpu(g, ow, oh);
       const key = `${this.L.stack.generation}|${pick(u, OPTICS_INPUT)}|${teqLocal}`;
@@ -3255,9 +3268,18 @@ export class Engine {
       });
       if (maps.halation) hal = maps.halation;
       if (maps.glow) glow = maps.glow;
+      // Each mask's Glow blurs its own input: the photo's optics and the earlier masks' Glow applied.
+      maskGlow = optics.renderMasked(src.tex, `${key}|${pick(u, PHOTO_OPTICS)}`, maskedGlow, (target, slot, fields) => {
+        g.bind(0, src.tex); g.bind(1, sharp); g.bind(2, hal); g.bind(3, glow); g.bind(4, teq); g.bind(DEHAZE_UNIT, dehaze);
+        g.bindArray(MASK_UNIT, maskTex);
+        g.bindArray(MASK_GLOW_UNIT, fields);
+        this.extract.set({ ...u, ...teqU, uSrc: 0, uBlurTex: 1, uHalTex: 2, uGlowTex: 3, uOpticsSource: 2, uMaskGlowUpTo: slot, uDehazeTex: DEHAZE_UNIT, uTexel: [.25 / target.w, .25 / target.h] });
+        g.draw(this.extract, target, target.w, target.h);
+      }) ?? g.blackArray;
     }
+    g.bindArray(MASK_GLOW_UNIT, maskGlow);
     if (opts.products) {
-      Object.assign(opts.products, { teq: teqLocal ? teq : undefined, hal, glow, mask: maskTex, ambient: photoDehaze ? this.dehazeAmbient(src, u) : null });
+      Object.assign(opts.products, { teq: teqLocal ? teq : undefined, hal, glow, maskGlow, mask: maskTex, ambient: photoDehaze ? this.dehazeAmbient(src, u) : null });
       opts.products.maskedAmbient = new Map(dehazeMasked.flatMap((m, i) => this.L.dhMasked[i]?.ambient ? [[m.slot, this.L.dhMasked[i].ambient!] as const] : []));
       if (!passes.clarity && !passes.texture && !maskClarity.length && !maskTexture.length && !colorDraft && !(opts.live && passes.usm)) return;
     }
@@ -3270,6 +3292,7 @@ export class Engine {
       g.bind(1, sharp);
       g.bind(2, hal);
       g.bind(3, glow);
+      g.bindArray(MASK_GLOW_UNIT, maskGlow);
       g.bind(4, teq);
       g.bind(5, curve);
       g.bind(6, clarity);

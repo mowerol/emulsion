@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
-import { componentPlan, DIFFUSION_BANK, diffusionFraction, diffusionMix, HALATION_BANK, halationMix, halationStrength } from './optics';
+import { componentPlan, DIFFUSION_BANK, diffusionFraction, diffusionMix, HALATION_BANK, halationMix, halationStrength, maskedDiffusionMix } from './optics';
 import reference from './fixtures/optics.json';
 
 describe('Spektrafilm optics', () => {
@@ -18,6 +18,15 @@ describe('Spektrafilm optics', () => {
       actual.forEach((v, c) => expect(v).toBeCloseTo(m.output[c], 6));
     }
   });
+  it("blends a mask's Glow instance normally by the mask's value", () => {
+    const rgb: [number, number, number] = [.18, .12, .06], blur: [number, number, number] = [.8, .6, .4];
+    expect(maskedDiffusionMix(rgb, blur, 60, 1)).toEqual(diffusionMix(rgb, blur, 60));
+    expect(maskedDiffusionMix(rgb, blur, 60, 0)).toEqual(rgb);
+    const full = diffusionMix(rgb, blur, 60), half = maskedDiffusionMix(rgb, blur, 60, .5);
+    half.forEach((v, c) => expect(v).toBeCloseTo((rgb[c] + full[c]) / 2, 12));
+    expect(maskedDiffusionMix(rgb, blur, 0, 1)).toEqual(rgb);
+  });
+
   it('conserves each colour on flat fields, including HDR and black', () => {
     for (const amount of [0, 1, 25, 50, 100]) for (const rgb of [[0, 0, 0], [.18, .18, .18], [3, .3, .03]] as [number, number, number][]) {
       const blur = rgb.map((x, c) => x * DIFFUSION_BANK.reduce((s, k) => s + k.weight[c], 0)) as [number, number, number];
