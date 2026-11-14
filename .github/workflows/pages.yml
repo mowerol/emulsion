@@ -1,10 +1,13 @@
 # Builds the marketing site in site/ and publishes it to GitHub Pages (mowerol.github.io/emulsion)
-# whenever site/ changes on main, or by hand. Repo setting: Pages > Source = GitHub Actions.
+# whenever site/ changes on main, or by hand. Pull requests that touch site/ get the build
+# (typecheck included) as a check, without deploying. Repo setting: Pages > Source = GitHub Actions.
 name: Site
 
 on:
   push:
     branches: [main]
+    paths: ["site/**", ".github/workflows/pages.yml"]
+  pull_request:
     paths: ["site/**", ".github/workflows/pages.yml"]
   workflow_dispatch:
 
@@ -14,7 +17,7 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: pages-${{ github.event_name == 'pull_request' && github.ref || 'deploy' }}
   cancel-in-progress: true
 
 jobs:
@@ -35,11 +38,13 @@ jobs:
       - run: npm ci
       - run: npm run build
 
-      - uses: actions/upload-pages-artifact@v3
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v3
         with:
           path: site/dist
 
   deploy:
+    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
     environment:
