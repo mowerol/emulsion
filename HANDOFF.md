@@ -1,5 +1,30 @@
 # Handoff
 
+**0.1.5 local release built and verified (2026-11-14; not published).** Oli ran
+`npm run release`. Artifacts in `release/` identify 0.1.5, built from `d662e73`.
+Verified the DMG's SHA-256 and disk-image integrity; the aarch64 bundle's strict code signature,
+arm64 architecture and Info.plist version; and the updater tarball's cryptographic signature
+against the app's configured public key using the cached minisign-verify crate. `latest.json`
+version, signature, notes and URL match the 0.1.5 files. No private key/password read.
+Fixed stale `tools/release/INSTALL.txt` wording (catalog edits, optional JSON/XMP exports and
+launch-time update checks), and regenerated `release/INSTALL.txt` preserving the build's
+`d662e73` header. This is documentation only; DMG and signed updater bytes are unchanged.
+Prepared `.scratch/release-0.1.5-notes.md` from the corrected installation text and release notes.
+GitHub still publishes v0.1.4; no v0.1.5 tag/release created by this task. Publishing/uploading
+remains the next step. `release/` also contains older artifacts: select only 0.1.5 assets.
+
+**Marketing site copy from the Reddit launch thread (2026-11-14; uncommitted).** Oli shared the
+thread and wanted the site to use the supportive comments. We agreed to make the case positively
+rather than defend the use of AI, and not to quote commenters. Changes in `site/`: Why Emulsion gets a first
+point, "The look and the editor, in one place" (the Fuji JPEG → TIFF → RAW editor two-step gap),
+with the grid now 1/2/4 columns; new `MakersNote.tsx` ("No subscription game.", first person,
+signed Oli, from his Reddit wording) between Library and Download; the "Was it vibe coded?" FAQ
+now cites the darktable/RawTherapee ports, NOTICE.md commit credits, GPU checks against
+references and ~1,100 tests (958 JS + 149 Rust). Build and typecheck pass; screenshotted at 1440
+and 820. Still to do: Oli edits the note in his own voice; rewrite the "Where are my edits
+stored?" FAQ (still says sidecars) when 0.1.5 ships; add a Fujifilm RAF/X-Trans FAQ only after
+checking real files.
+
 **0.1.5 release preparation (2026-11-13; prepared, not built/published).** Oli asked whether
 `npm run release` is ready. All app manifests and lockfiles now say 0.1.5 (0.1.4 is already the
 published release), with `docs/release-notes/0.1.5.md` covering catalog migration, optional

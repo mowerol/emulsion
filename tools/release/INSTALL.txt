@@ -16,9 +16,14 @@ without the Open Anyway option. Run this in Terminal, then open it again:
     xattr -dr com.apple.quarantine /Applications/Emulsion.app
 
 Emulsion keeps its catalog in ~/Library/Application Support/app.emulsion.desktop and,
-by default, catalog backups in ~/Pictures/Emulsion/Backups. Edits are also saved in
-.emulsion.json files beside your photos, and stars, labels and keywords in XMP sidecars.
+by default, catalog backups in ~/Pictures/Emulsion/Backups. Edits, virtual copies and
+edit history are saved in the catalog. Settings > Catalog offers optional portable
+.emulsion.json exports and XMP metadata sharing; both are off by default.
 
-Updates: Emulsion checks for a new version once a day and offers to install it
+Existing edit sidecars migrate automatically and are left untouched. Keep catalog
+backups enabled, and keep old sidecars until migration is verified and you have a
+fresh catalog backup. Older Emulsion builds cannot open the upgraded catalog.
+
+Updates: Emulsion checks shortly after launch and offers to install a new version
 (Emulsion › Check for Updates… asks at any time). Updates only work when Emulsion is in
 Applications. After an update, macOS may ask again for access to folders like Pictures.
