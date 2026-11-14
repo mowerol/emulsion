@@ -12,6 +12,7 @@ mod commands;
 mod decode;
 #[cfg(all(debug_assertions, target_os = "macos"))]
 mod dev_icon;
+mod durable;
 pub mod denoise;
 pub mod inpaint;
 mod inpaint_cache;

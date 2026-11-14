@@ -99,7 +99,7 @@ pub fn open(path: &Path) -> Result<Connection, String> {
         }
         let snapshot = Connection::open_with_flags(&backup, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| e.to_string())?;
         integrity(&snapshot)?;
-        fs::File::open(&backup).and_then(|f| f.sync_all()).map_err(|e| e.to_string())?;
+        fs::File::open(&backup).and_then(|f| crate::durable::sync(&f)).map_err(|e| e.to_string())?;
     }
     migrate(&conn)?;
     conn.pragma_update(None, "synchronous", "FULL").map_err(|e| e.to_string())?;
@@ -339,7 +339,7 @@ pub fn backup(conn: &Connection, folder: &Path, stamp: &str, test_integrity: boo
         let opts = zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated).large_file(true);
         zip.start_file(BACKUP_ENTRY, opts).map_err(|e| e.to_string())?;
         io::copy(&mut fs::File::open(&copy).map_err(|e| e.to_string())?, &mut zip).map_err(|e| e.to_string())?;
-        zip.finish().map_err(|e| e.to_string())?.sync_all().map_err(|e| e.to_string())?;
+        crate::durable::sync(&zip.finish().map_err(|e| e.to_string())?).map_err(|e| e.to_string())?;
         fs::rename(&zip_tmp, &dest).map_err(|e| e.to_string())?;
         Ok(fs::metadata(&dest).map(|m| m.len()).unwrap_or(0))
     })();
