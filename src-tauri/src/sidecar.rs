@@ -321,7 +321,7 @@ pub(crate) fn export_document(image: &Path, car: &Sidecar) -> io::Result<()> {
     let mut file = fs::File::create(&tmp)?;
     use std::io::Write;
     file.write_all(&text)?;
-    file.sync_all()?;
+    crate::durable::sync(&file)?;
     fs::rename(tmp, target)
 }
 

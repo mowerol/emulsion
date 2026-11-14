@@ -269,7 +269,7 @@ fn place_with(dir: &Path, stem: &str, ext: &str, bytes: &[u8], existing: Existin
             return Err(format!("Could not write {}: {e}", wanted.display()).into());
         }
     }
-    if let Err(e) = fs::File::open(&tmp).and_then(|f| f.sync_all()) {
+    if let Err(e) = fs::File::open(&tmp).and_then(|f| crate::durable::sync(&f)) {
         let _ = fs::remove_file(&tmp);
         return Err(io_error("write", &wanted, &e));
     }
