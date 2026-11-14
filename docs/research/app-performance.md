@@ -61,7 +61,7 @@ The dominant retained amount is exactly `640 × 427 × 16 × 7 = 30,607,360` byt
 
 At 7728×5152, seven such full-size targets alone would occupy **4,459,241,472 bytes (4.15 GiB)**. This is an arithmetic extrapolation of the formats and dimensions, not a new 40 MP allocation experiment. It makes export cleanup a priority even if interactive ROI later bounds viewport maps. Full-image exports still require an independent memory strategy.
 
-The earlier native-app WebKit terminations and ~10.4 GB process figures are **historical evidence recorded in [HANDOFF](../../HANDOFF.md)**, not freshly reproduced here. No test intentionally re-triggered the user's webview termination. The snapshot already contains lane scaffolding; the live tree subsequently added more ROI code. All lifetime findings must be rechecked after that work lands.
+The earlier native-app WebKit terminations and ~10.4 GB process figures are **historical evidence recorded in the working handoff notes**, not freshly reproduced here. No test intentionally re-triggered the user's webview termination. The snapshot already contains lane scaffolding; the live tree subsequently added more ROI code. All lifetime findings must be rechecked after that work lands.
 
 ## Scheduling, caching and native paths
 

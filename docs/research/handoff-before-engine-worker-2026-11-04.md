@@ -2,7 +2,7 @@
 
 Archived 2026-11-04. This preserves earlier feature notes, roadmap and performance
 history. Its active/resume instructions are superseded by the current
-[HANDOFF.md](../../HANDOFF.md). Continuous-zoom work is paused for the worker migration.
+handoff notes. Continuous-zoom work is paused for the worker migration.
 
 # Handoff
 

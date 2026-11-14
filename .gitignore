@@ -38,3 +38,6 @@ tools/probe/dist
 
 # Release builds (tools/release/build.sh)
 /release/
+
+# Working notes for Oli and the agents, kept local (see CLAUDE.md)
+/HANDOFF.md
