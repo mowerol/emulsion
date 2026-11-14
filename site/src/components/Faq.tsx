@@ -23,7 +23,7 @@ const faqs: Faq[] = [
   },
   {
     q: 'Where are my edits stored?',
-    a: 'In a small file next to each photo. Your originals are never modified, and if you move or back up a folder, the edits go with it.',
+    a: 'In Emulsion’s catalog, which it backs up for you; you choose how often and where in Settings. Your originals are never modified. If you’d like the edits to travel with your folders too, turn on “Also write edits beside photos” in Settings to keep a small file next to each photo.',
   },
   {
     q: 'Can I bring my photos over from Lightroom?',
