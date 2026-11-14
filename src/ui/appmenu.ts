@@ -17,6 +17,7 @@ import { CROP_OVERLAYS, setPrefs, setTheme, THEMES, usePrefs, type InterfacePref
 import { setWorkspace, useWorkspace, type WorkspacePreferences } from './workspace';
 import { firstOf, openSettings, openShortcuts, viewCommand, type ViewCommand } from './menubridge';
 import { logToTerminal, showLog } from '../backend/api';
+import { canTrash } from './RemovePhotosDialog';
 
 export const RECENT_PREFIX = 'recent:';
 const COLUMNS = [1, 2, 3] as const;
@@ -59,6 +60,8 @@ export function menuState(s: State, prefs: InterfacePreferences, workspace: Work
     'fold-jpegs': s.pairCount > 0,
     'auto-advance': free,
     'add-to-target': photo && !!targetCollection(),
+    'remove-photos': photo && !s.choosingImport,
+    'delete-photos': photo && !s.choosingImport && canTrash(),
   };
   const checked: Record<string, boolean> = {
     'view-library': s.view === 'library',
@@ -275,6 +278,9 @@ export async function installAppMenu(run: (id: string) => void): Promise<() => v
     await sep(),
     await item('read-metadata', 'Read Metadata from Files'),
     target,
+    await sep(),
+    await item('remove-photos', 'Remove from Library… (⌫)'),
+    ...canTrash() ? [await item('delete-photos', 'Delete from Disk…')] : [],
     await sep(),
     ...await Promise.all(MENU_TOOLS.map(id => check(`tool:${id}`, `${toolName(id).name} (${toolName(id).key})`))),
   ] });

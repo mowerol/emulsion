@@ -4,7 +4,7 @@ import { defaultRecipe, type Recipe } from '../film/recipe';
 import { editActive } from '../library/store';
 import { LiveRange } from './LiveRange';
 
-export function LensControls({ recipe, metadata }: { recipe: Recipe; metadata: LensMetadata | null | undefined }) {
+export function LensControls({ recipe, metadata, toolsOnly = false }: { recipe: Recipe; metadata: LensMetadata | null | undefined; toolsOnly?: boolean }) {
   const p = recipe.lens ?? LENS_DEFAULTS;
   const profile = metadata?.correction;
   const available = profile ? lensSupport(profile) : { distortion: false, ca: false, vignette: false };
@@ -22,7 +22,7 @@ export function LensControls({ recipe, metadata }: { recipe: Recipe; metadata: L
         <input type="checkbox" checked={p[key] && available[key]} disabled={!p.enabled || !available[key]} onChange={e => change({ [key]: e.target.checked })} />
         {{ distortion: profile.kind === 'dng' && profile.warp?.length === 3 ? 'Distortion & colour alignment' : 'Distortion', ca: 'Chromatic aberration', vignette: 'Vignetting' }[key]}{!available[key] && <span className="hint">Not in profile</span>}
       </label>)}
-      <details className="grade-details"><summary>Fine tune</summary>
+      {!toolsOnly && <details className="grade-details"><summary>Fine tune</summary>
         {(['distortionAmount', 'redAmount', 'blueAmount', 'vignetteAmount'] as const).filter(key => profile.kind !== 'dng' || (key !== 'redAmount' && key !== 'blueAmount')).map(key => {
           const feature = key === 'distortionAmount' ? 'distortion' : key === 'vignetteAmount' ? 'vignette' : 'ca';
           const label = { distortionAmount: 'Distortion', redAmount: 'Red CA', blueAmount: 'Blue CA', vignetteAmount: 'Vignetting' }[key];
@@ -32,7 +32,7 @@ export function LensControls({ recipe, metadata }: { recipe: Recipe; metadata: L
             <output>{Math.round(p[key]*100)}</output>
           </div>;
         })}
-      </details>
+      </details>}
     </>}
   </>;
 }

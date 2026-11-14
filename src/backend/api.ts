@@ -190,6 +190,9 @@ export interface Saved {
 /** Save a photo's sidecar; `checkpoint` keeps the edits it replaces in the sidecar's history. */
 export const writeSidecar = (path: string, saved: Saved, checkpoint = false) => invoke<void>('write_sidecar', { path, saved, checkpoint });
 
+/** Delete from Disk: each photo and its sidecars to the Trash; `error` when the photo stayed (src-tauri/src/trash.rs). */
+export const trashPhotos = (paths: string[]) => invoke<{ path: string; error: string | null }[]>('trash_photos', { paths });
+
 /** An earlier state of a photo's edits (src-tauri/src/sidecar.rs `Earlier`). */
 export interface EarlierEdit { updated: number; replaced: number; recipe: unknown | null; copies?: SavedCopy[] }
 /** Earlier states of a photo's edits, newest first. */

@@ -34,6 +34,7 @@ function writeFolded(s: Set<string>, key = KEY) {
 export function Section({
   id,
   title,
+  icon,
   summary,
   onReset,
   actions,
@@ -43,6 +44,7 @@ export function Section({
 }: {
   id: string;
   title: string;
+  icon?: ReactNode;
   summary?: string;
   /** Shown as a Reset link in the heading when the section differs from its defaults. */
   onReset?: () => void;
@@ -88,6 +90,7 @@ export function Section({
       <h2>
         <button type="button" className="section-head" aria-expanded={open} aria-controls={body} onClick={toggle} title="⌥-click to open this section alone">
           {CHEVRON}
+          {icon}
           <span className="section-title">{title}</span>
           {!open && summary && <span className="section-summary">{summary}</span>}
         </button>

@@ -35,6 +35,7 @@ mod sky;
 mod sky_commands;
 mod sidecar;
 mod thumbs;
+mod trash;
 mod user_looks;
 mod xmp;
 
@@ -109,6 +110,7 @@ pub fn run() {
             commands::read_metadata_from_files,
             commands::capture_info,
             commands::write_sidecar,
+            commands::trash_photos,
             commands::sidecar_history,
             commands::retag_keywords,
             commands::read_app_settings,

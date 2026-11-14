@@ -11,7 +11,7 @@ import { noiseJob, useNoiseJobs } from '../library/noise';
 import { LiveRange } from './LiveRange';
 import { checkNoiseModel, installNoiseModel, useNoiseModel } from './noisemodel';
 
-export function NoiseReductionControls({ recipe, path, raw }: { recipe: Recipe; path: string; raw: boolean }) {
+export function NoiseReductionControls({ recipe, path, raw, hideAmount = false }: { recipe: Recipe; path: string; raw: boolean; hideAmount?: boolean }) {
   const p = recipe.noiseReduction ?? NOISE_DEFAULTS;
   const job = useNoiseJobs(s => s.jobs[path]);
   const model = useNoiseModel();
@@ -66,14 +66,14 @@ export function NoiseReductionControls({ recipe, path, raw }: { recipe: Recipe; 
         </>}
     </div>}
     {raw ? <>
-      <div className={`slider${p.enabled ? ' changed' : ''}`}>
+      {!hideAmount && <div className={`slider${p.enabled ? ' changed' : ''}`}>
         <label htmlFor="noise-amount" onDoubleClick={() => change({ amount: NOISE_DEFAULTS.amount })}>Amount</label>
         <ValueInput id="noise-amount" value={p.amount} label="Noise reduction amount" display={String(Math.round(p.amount))} disabled={!p.enabled}
           onCommit={(text) => { const v = Number(text); if (text.trim() !== '' && Number.isFinite(v)) change({ amount: Math.min(100, Math.max(0, Math.round(v))) }); }} />
         <div className="track"><LiveRange id="noise-amount" aria-label="Noise reduction amount" min={0} max={100} step={1} value={p.amount} disabled={!p.enabled}
           onPointerDown={() => { drag.current = `noise:${crypto.randomUUID()}`; }} onPointerUp={() => { drag.current = null; }} onPointerCancel={() => { drag.current = null; }}
           onChange={(v) => change({ amount: v })} /></div>
-      </div>
+      </div>}
       {p.enabled && job?.pending && <p className="hint" role="status">{job.total ? `Reducing noise… ${Math.round(100 * job.done / job.total)}%` : 'Preparing noise reduction…'}</p>}
       {p.enabled && job?.error && !offer && <p className="hint error" role="alert">{job.error}</p>}
       <p className="hint">Reduces sensor noise before sharpening. Check fine detail at 100%.</p>

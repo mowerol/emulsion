@@ -39,6 +39,11 @@ import { ISOS } from '../engine/grain';
 import { WhiteBalanceControls } from './WhiteBalanceControls';
 import { sliderGradient } from '../engine/colorequal';
 import { LiveRange } from './LiveRange';
+import { PersonalWorkspace } from './PersonalWorkspace';
+import { WorkspaceEditor } from './WorkspaceEditor';
+import { onCustomizeWorkspace } from './WorkspaceMenu';
+import { saveControlWorkspace, useControlWorkspace } from './controlworkspace';
+import { WorkspaceIconView } from './WorkspaceIcons';
 
 /** A logarithmic slider (film speeds) runs over this many steps. */
 const LOG_STEPS = 1000;
@@ -147,7 +152,7 @@ const signed = (v: number, unit: string) => `${v > 0 ? '+' : v < 0 ? '−' : ''}
 type ColorChannel = (typeof COLOR_CHANNELS)[number]['key'];
 
 /** Colour: hue, saturation and brightness for each of the eight colours, one channel at a time or all three (Lightroom's All). */
-function ColorControls({ recipe }: { recipe: Recipe }) {
+function ColorControls({ recipe, visibleControls }: { recipe: Recipe; visibleControls?: string[] }) {
   const [view, setView] = useState<ColorChannel | 'all'>('sat');
   const color: ColorAdjust = recipe.color ?? { hue: new Array(8).fill(0), sat: new Array(8).fill(0), bright: new Array(8).fill(0) };
   const set = (channel: ColorChannel, i: number, v: number) =>
@@ -162,6 +167,7 @@ function ColorControls({ recipe }: { recipe: Recipe }) {
     return (
       <div className="sliders color-sliders" key={channel}>
         {COLOR_NODES.map((n, i) => {
+          if (visibleControls && !visibleControls.includes(`hsl:${channel}:${i}`)) return null;
           const id = `color-${channel}-${i}`;
           const v = color[channel][i];
           return (
@@ -180,12 +186,14 @@ function ColorControls({ recipe }: { recipe: Recipe }) {
       </div>
     );
   };
+  const available = COLOR_CHANNELS.filter(channel => !visibleControls || COLOR_NODES.some((_n, i) => visibleControls.includes(`hsl:${channel.key}:${i}`)));
+  const selected = view === 'all' || available.some(c => c.key === view) ? view : available[0]?.key ?? 'all';
   return (
     <>
-      <div className="color-channels"><Segmented label="Colour channel" options={[...COLOR_CHANNELS.map((c) => ({ value: c.key as ColorChannel | 'all', label: c.label })), { value: 'all', label: 'All' }]} value={view} onChange={setView} /></div>
-      {view === 'all'
-        ? COLOR_CHANNELS.map((c) => <div className="color-all-group" key={c.key}><h3 className="color-all-title">{c.label}</h3>{sliders(c.key)}</div>)
-        : sliders(view)}
+      <div className="color-channels"><Segmented label="Colour channel" options={[...available.map((c) => ({ value: c.key as ColorChannel | 'all', label: c.label })), { value: 'all', label: 'All' }]} value={selected} onChange={setView} /></div>
+      {selected === 'all'
+        ? available.map((c) => <div className="color-all-group" key={c.key}><h3 className="color-all-title">{c.label}</h3>{sliders(c.key)}</div>)
+        : sliders(selected)}
     </>
   );
 }
@@ -370,9 +378,18 @@ const SectionSlot = memo(function SectionSlot({ hidden, children }: { hidden: bo
 
 /** The stage tabs; memoised so an edit doesn't re-render their icons. */
 const ControlStages = memo(function ControlStages({ group }: { group: string }) {
-  return <nav className="control-stages" aria-label="Control stages">
+  const personal = useControlWorkspace();
+  const custom = group === 'custom';
+  return <>
+    {/* A personal workspace's tabs look like Standard's: icons, named by their tooltip. */}
+    {custom ? personal.groups.length > 1 ? <nav className="control-stages personal-group-tabs" aria-label="Personal workspace tabs">
+      {personal.groups.map(g => <button type="button" key={g.id} aria-label={g.name} data-tip={g.name} aria-pressed={personal.active === g.id} onClick={() => saveControlWorkspace({ ...personal, active: g.id })}>
+        <WorkspaceIconView name={g.icon} size={18} />
+      </button>)}
+    </nav> : null : <nav className="control-stages" aria-label="Control stages">
     {CONTROL_GROUPS.map(g => { const Icon = TAB_ICONS[g.id]; return <button type="button" key={g.id} aria-label={g.name} data-tip={g.name} aria-pressed={group === g.id} onClick={() => setWorkspace({ group: g.id })}><Icon size={18} strokeWidth={1.75} aria-hidden="true" /></button>; })}
-  </nav>;
+  </nav>}
+  </>;
 });
 
 /** Workflow's action bar, from primitives only, so a slider drag re-renders it only when the edit count changes. */
@@ -414,10 +431,16 @@ export function Panel() {
   const recipe = photo?.recipe ?? null;
   const multi = selectedCount > 1;
   const workspace = useWorkspace();
+  const personalGroup = useControlWorkspace(s => s.active);
+  const cropping = useApp(s => !!s.cropEdit);
+  const [customizing, setCustomizing] = useState<false | 'edit' | 'new'>(false);
+  const openWorkspaceEditor = useCallback((creating = false) => setCustomizing(creating ? 'new' : 'edit'), []);
+  // The top bar's workspace menu (WorkspaceMenu.tsx) asks for the editor.
+  useEffect(() => onCustomizeWorkspace(openWorkspaceEditor), [openWorkspaceEditor]);
   const editing = useApp(s => s.lookEdit);
   const controlsBody = useRef<HTMLDivElement>(null);
   const grouped = view === 'develop' && workspace.layout === 'workflow';
-  useEffect(() => { if (grouped && controlsBody.current) controlsBody.current.scrollTop = 0; }, [workspace.group, grouped, !!editing]);
+  useEffect(() => { if (grouped && controlsBody.current) controlsBody.current.scrollTop = 0; }, [workspace.group, personalGroup, grouped, !!editing]);
 
   const base = recipe ?? defaultRecipe();
   const curveSummary = useCurveSummary(recipe?.curve ?? null);
@@ -429,7 +452,8 @@ export function Panel() {
   };
 
   const classic = view === 'develop' ? ['profile', 'stock', 'presets', 'lens', 'crop', 'transform', 'adjust', 'curve', 'color', 'grading', 'masks', 'detail', 'optics', 'grain', 'noise'] : ['profile', 'stock', 'presets'];
-  const visible: readonly string[] = editing ? ['look-editor', 'look-tone', 'curve', 'color', 'grading', 'scanner'] : grouped ? CONTROL_GROUPS.find(g => g.id === workspace.group)!.sections : classic;
+  const custom = grouped && !editing && workspace.group === 'custom';
+  const visible: readonly string[] = editing ? ['look-editor', 'look-tone', 'curve', 'color', 'grading', 'scanner'] : grouped ? CONTROL_GROUPS.find(g => g.id === workspace.group)?.sections ?? [] : classic;
   /**
    * A section's Reset, offered only when the section differs from its defaults. Worked out only
    * for the sections on show (`slot`, the section's key below): hidden ones skip re-rendering,
@@ -443,6 +467,22 @@ export function Panel() {
   const rows = (keys: readonly string[]) => <div className="sliders">{keys.map(key => SLIDER[key as SliderDef['key']]).map(d => <SliderRow key={d.key} def={d} recipe={base} onChange={setSlider} />)}</div>;
   const sliderGroup = (group: SliderDef['group']) => SLIDERS.filter(d => d.group === group).map(d => d.key);
   const scanner = <ScannerFinishControls recipe={base} editor={!!editing} onChange={pickScanner} />;
+  const bodies: Record<string, ReactNode> = {
+    stock: <TreatmentControls key={photoId(photo)} photo={photo} />,
+    curve: <CurveEditor curve={base.curve} disabled={false} onChange={setCurve} />,
+    color: <ColorControls recipe={base} />,
+    grading: <ColourGradingControls recipe={base} />,
+    noise: <><ProfiledDenoiseControls recipe={base} raw={photo.raw} camera={photo.camera} /><NoiseReductionControls recipe={base} path={photo.path} raw={photo.raw} /></>,
+    lens: photo.raw ? <LensControls recipe={base} metadata={photo.lens} /> : <p className="hint">Lens corrections are available for RAW photos.</p>,
+    transform: <TransformControls recipe={base} />,
+    'wb-tools': <WhiteBalanceControls recipe={base} white={photo.white} toolsOnly />,
+    'detail-order': <DetailOrderToggle />,
+    'grain-speed': <GrainSpeed recipe={base} />,
+    'ai-noise-tools': <NoiseReductionControls recipe={base} path={photo.path} raw={photo.raw} hideAmount />,
+    'look-picker': <TreatmentControls key={photoId(photo)} photo={photo} hideAmount />,
+    'lens-tools': photo.raw ? <LensControls recipe={base} metadata={photo.lens} toolsOnly /> : <p className="hint">Lens corrections are available for RAW photos.</p>,
+    'transform-tools': <TransformControls recipe={base} toolsOnly />,
+  };
   const sections: Record<string, ReactNode> = {
     profile: <CameraColourWarning raw={photo.raw} camera={photo.camera??null} />,
     stock: !editing && <Section defaultOpen id="stock" title="Look" summary={base.lookEnabled ? base.lookSnapshot?.name ?? lookName(base.pack, base.stock) : 'None'}><TreatmentControls key={photoId(photo)} photo={photo} /></Section>,
@@ -496,10 +536,13 @@ export function Panel() {
       </>}
 
       <div className={grouped ? 'grouped-controls-body' : 'classic-controls-body'} ref={controlsBody}>
-        {ordered.map(id => <SectionSlot key={id} hidden={!visible.includes(id)}>{sections[id]}</SectionSlot>)}
+        {custom ? <><CameraColourWarning raw={photo.raw} camera={photo.camera ?? null} /><PersonalWorkspace recipe={base} context={{ white: photo.white, raw: photo.raw, lens: photo.lens, cropping }} blocks={bodies} actions={{ curve: <CurvePresetMenu curve={base.curve} onChange={setCurve} /> }} onCustomize={() => openWorkspaceEditor()}
+          renderGroup={(source, controls) => source === 'color' ? <ColorControls recipe={base} visibleControls={controls} /> : source === 'grading' ? <ColourGradingControls recipe={base} visibleControls={controls} /> : undefined} /></>
+          : ordered.map(id => <SectionSlot key={id} hidden={!visible.includes(id)}>{sections[id]}</SectionSlot>)}
         {view !== 'develop' && <p className="hint panel-note">Open Develop to fine-tune exposure, colour, halation and grain.</p>}
       </div>
 
+      {customizing && <WorkspaceEditor key={customizing} creating={customizing === 'new'} onClose={() => setCustomizing(false)} />}
       {!editing && grouped && <ActionBar undo={history.undo} redo={history.redo} clipboard={!!clipboard} multi={multi} selectedCount={selectedCount}
         total={total} hasRecipe={!!recipe} edits={editCount(recipe)} />}
       {!editing && !grouped && <div className="panel-actions">

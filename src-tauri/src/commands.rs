@@ -191,6 +191,12 @@ pub async fn write_sidecar(path: String, saved: sidecar::Saved, checkpoint: Opti
     .await
 }
 
+/// Delete from Disk: move photos and their sidecars to the Trash (trash.rs).
+#[tauri::command]
+pub async fn trash_photos(paths: Vec<String>) -> Result<Vec<crate::trash::Trashed>, String> {
+    blocking(move || Ok(crate::trash::trash_photos(&paths.iter().map(PathBuf::from).collect::<Vec<_>>()))).await
+}
+
 /// One photo's keywords after `retag_keywords`.
 #[derive(serde::Serialize)]
 pub struct Retagged {

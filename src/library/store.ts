@@ -8,7 +8,7 @@ import { changedPlaces } from './photolist';
 import { useRef } from 'react';
 import type { Histogram } from '../engine/histogram';
 import type { Xy } from '../engine/whitebalance';
-import { catalogMetadata, embeddedMetadata, isTauri, metadataFromFiles, scanFolder, whitePoints, type EmbeddedMetadata, type Entry, type ScanProgress } from '../backend/api';
+import { catalogMetadata, embeddedMetadata, isTauri, metadataFromFiles, scanFolder, trashPhotos, whitePoints, type EmbeddedMetadata, type Entry, type ScanProgress } from '../backend/api';
 import { isEmptyMeta, normalizeMeta, sameMeta, type PhotoMeta } from './meta';
 import { autoPreset, fillPreset } from './metapresets';
 import { folderImport, importedPaths, importedRoots, rememberFolder, saveFolderImport, type FolderImport } from './folders';
@@ -596,16 +596,7 @@ export async function syncFolderPhotos(root: string, options: { add: string[]; r
   if (options.knownOnly && options.recursive) set({ candidates: get().candidates.filter(p => parentFolder(p.path) === root || knownFolders.has(parentFolder(p.path))) });
   const available = new Set(get().candidates.map(p => p.path));
   const removed = new Set(get().folder?.unreadable ? [] : options.remove.filter(path => !available.has(path)));
-  if (removed.size) {
-    for (const importedRoot of importedRoots()) {
-      const choice = folderMembership(importedRoot);
-      if (choice?.mode === 'selected') saveFolderImport(importedRoot, { ...choice, paths: choice.paths.filter(path => !removed.has(path)) });
-    }
-    useCatalog.setState(c => ({ folders: Object.fromEntries(Object.entries(c.folders).map(([path, entries]) => [path, entries.filter(p => !removed.has(p.path))])),
-      imports: c.imports.map(i => ({ ...i, photoIds: i.photoIds.filter(id => !removed.has(id.split('\0')[0])) })),
-      collections: c.collections.map(c => c.type === 'manual' ? { ...c, photoIds: c.photoIds.filter(id => !removed.has(id.split('\0')[0])) } : c) }));
-    set({ photos: get().photos.filter(p => !removed.has(p.path)), hidden: get().hidden.filter(p => !removed.has(p.path)), importChoice: folderMembership(root) });
-  }
+  if (removed.size) forgetSources(removed);
   if (options.recursive) {
     const paths = new Set(get().candidates.map(p => parentFolder(p.path)));
     if (!options.knownOnly) for (const folder of options.folders ?? get().subfolders.map(f => f.path)) paths.add(folder);
@@ -1130,10 +1121,10 @@ export function createVirtualCopies() {
 }
 
 /** Remove versions only; the original frame and source file are always retained. */
-export function removeVirtualCopies() {
+export function removeVirtualCopies(frames = targets()) {
   if (get().lookEdit) return showToast('Finish editing the look first');
   finishCrop(true);
-  const copies = targets().filter(p => p.copyId);
+  const copies = frames.filter(p => p.copyId);
   const removing = new Set(copies.map(photoId));
   if (!copies.length) return;
   const changes: Change[] = [];
@@ -1149,6 +1140,79 @@ export function removeVirtualCopies() {
   set(historyState());
   persistSources([...families.keys()], true);
   showToast(copies.length === 1 ? 'Removed virtual copy' : `Removed ${copies.length} virtual copies`, { label: 'Undo', run: undo });
+}
+
+/**
+ * What Remove from Library and Delete from Disk act on: the source files of the targeted
+ * originals (with the JPEG folded into a RAW, as the frame shows them as one), and the targeted
+ * virtual copies of originals that aren't targeted, which are only removed as copies.
+ */
+export function removalTargets(s: State = get()): { sources: string[]; frames: number; pairs: number; copies: Photo[] } {
+  const frames = targets(s);
+  const originals = frames.filter(p => !p.copyId);
+  const owned = new Set(originals.map(p => p.path));
+  const pairs = originals.flatMap(p => p.pair && !owned.has(p.pair) ? [p.pair] : []);
+  return { sources: [...owned, ...new Set(pairs)], frames: originals.length, pairs: new Set(pairs).size, copies: frames.filter(p => p.copyId && !owned.has(p.path)) };
+}
+
+/**
+ * Take source files out of the library: folder memberships, the catalog's folders, import
+ * sessions and manual collections, and the photos shown. Sidecars and files are left alone.
+ * The photo after the active one becomes active, as in Lightroom.
+ */
+function forgetSources(removed: Set<string>, gone = false) {
+  for (const importedRoot of importedRoots()) {
+    const choice = folderMembership(importedRoot);
+    if (choice?.mode === 'selected') saveFolderImport(importedRoot, { ...choice, paths: choice.paths.filter(path => !removed.has(path)) });
+  }
+  useCatalog.setState(c => ({ folders: Object.fromEntries(Object.entries(c.folders).map(([path, entries]) => [path, entries.filter(p => !removed.has(p.path))])),
+    imports: c.imports.map(i => ({ ...i, photoIds: i.photoIds.filter(id => !removed.has(id.split('\0')[0])) })),
+    collections: c.collections.map(c => c.type === 'manual' ? { ...c, photoIds: c.photoIds.filter(id => !removed.has(id.split('\0')[0])) } : c) }));
+  const s = get();
+  const kept = (p: Photo) => !removed.has(p.path);
+  const photos = s.photos.filter(kept);
+  const ids = new Set(photos.map(photoId));
+  const current = s.photos[s.active];
+  let active = current && kept(current) ? photos.indexOf(current) : Math.min(s.photos.slice(0, Math.max(s.active, 0)).filter(kept).length, photos.length - 1);
+  let selected = new Set([...s.selected].filter(id => ids.has(id)));
+  if (selected.size && active >= 0 && !selected.has(photoId(photos[active]))) active = photos.findIndex(p => selected.has(photoId(p)));
+  if (!selected.size && active >= 0) selected = new Set([photoId(photos[active])]);
+  set({ photos, hidden: s.hidden.filter(kept), selected, active, anchor: active, histogram: null,
+    // Files in the Trash are no longer on disk to import again; removed ones still are.
+    candidates: gone ? s.candidates.filter(kept) : s.candidates,
+    missingPaths: s.missingPaths && new Set([...s.missingPaths].filter(path => !removed.has(path))),
+    importChoice: s.folder ? folderMembership(s.folder.root) : s.importChoice,
+    pairCount: findPairs(photos.concat(s.hidden.filter(kept)).filter(p => !p.copyId)).size,
+    view: photos.length ? s.view : 'library' });
+}
+
+const photoCount = (n: number) => `${n.toLocaleString()} ${n === 1 ? 'photo' : 'photos'}`;
+
+/** Remove from Library: sidecars stay beside the files, so importing them again brings their edits back. */
+export function removeFromLibrary(plan = removalTargets()) {
+  if (get().lookEdit) return showToast('Finish editing the look first');
+  finishCrop(true);
+  if (plan.copies.length) removeVirtualCopies(plan.copies);
+  if (!plan.sources.length) return;
+  forgetSources(new Set(plan.sources));
+  showToast(`Removed ${photoCount(plan.frames)} from the library. Their edits stay beside the files.`);
+}
+
+/** Delete from Disk: move the files and their sidecars to the Trash (src-tauri/src/trash.rs), then out of the library. */
+export async function deleteFromDisk(plan = removalTargets()) {
+  if (get().lookEdit) { showToast('Finish editing the look first'); return; }
+  finishCrop(true);
+  // A pending edit written after the move would leave a new sidecar beside nothing.
+  await flushSaves();
+  if (plan.copies.length) removeVirtualCopies(plan.copies);
+  if (!plan.sources.length) return;
+  const results = await trashPhotos(plan.sources);
+  const moved = new Set(results.filter(r => !r.error).map(r => r.path));
+  const failed = results.filter(r => r.error);
+  if (moved.size) forgetSources(moved, true);
+  const frames = plan.sources.length - plan.pairs;
+  if (!failed.length) showToast(`Moved ${photoCount(frames)} to the Trash`, undefined, 4200);
+  else showToast(`Could not move ${failed.length === 1 ? failed[0].path.split(/[\\/]/).pop() : photoCount(failed.length)} to the Trash. ${failed[0].error}`, undefined, 6000);
 }
 
 export function renameVirtualCopy(id: string, name: string) {

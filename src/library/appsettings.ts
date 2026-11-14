@@ -12,6 +12,8 @@ import { isTauri } from '../backend/api';
 
 /** Keys kept in settings.json. Each was in localStorage before, and is moved from there once. */
 export const APP_SETTING_KEYS = [
+  'emulsion.control-workspace',
+  'emulsion.control-workspaces',
   'emulsion.presetFavourites',
   'emulsion.presetCollections',
   'emulsion.lookBrowser',

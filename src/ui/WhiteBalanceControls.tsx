@@ -24,7 +24,7 @@ const fromPos = (p: number) => MIN_TEMPERATURE * (MAX_TEMPERATURE / MIN_TEMPERAT
 const kelvin = (t: number) => `${Math.round(t / 10) * 10} K`;
 const signed = (v: number) => (v > 0 ? `+${v}` : v < 0 ? `−${Math.abs(v)}` : '0');
 
-export function WhiteBalanceControls({ recipe, white }: { recipe: Recipe | null; white: Xy | null }) {
+export function WhiteBalanceControls({ recipe, white, toolsOnly = false }: { recipe: Recipe | null; white: Xy | null; toolsOnly?: boolean }) {
   const picking = useApp((s) => s.picking);
   const asShot = useMemo(() => {
     const { temperature, tint } = temperatureTint(white ?? D65_XY);
@@ -73,7 +73,7 @@ export function WhiteBalanceControls({ recipe, white }: { recipe: Recipe | null;
         </button>
       </div>
 
-      <div className="slider wb-temp">
+      {!toolsOnly && <><div className="slider wb-temp">
         <label htmlFor="wb-temp" onDoubleClick={() => recipe && set(null)} title="Double-click the name or the handle for as shot">
           Temperature
         </label>
@@ -112,6 +112,7 @@ export function WhiteBalanceControls({ recipe, white }: { recipe: Recipe | null;
         </div>
       </div>
 
+      </>}
       {!white && recipe && <p className="hint">No as-shot white balance in this file, so 6500 K is neutral.</p>}
     </div>
   );

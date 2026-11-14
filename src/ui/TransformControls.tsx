@@ -146,12 +146,12 @@ export function TransformBar() {
 }
 
 /** The panel section's controls (Classic layout). */
-export function TransformControls({ recipe }: { recipe: Recipe }) {
+export function TransformControls({ recipe, toolsOnly = false }: { recipe: Recipe; toolsOnly?: boolean }) {
   const { p, change, auto, message, off, drag } = useTransform(recipe);
   return <>
     <Segmented label="Automatic perspective correction" options={AUTO.map(({ value, label }) => ({ value, label }))} value={null} disabled={off} onChange={auto} />
     <p className="hint" role="status">{message || 'Automatically straighten converging lines, then fine-tune below.'}</p>
-    <div className="sliders">
+    {!toolsOnly && <div className="sliders">
       {ANGLES.map(({ key, label, max }) => <div className="slider" key={key}>
         <label htmlFor={`transform-${key}`} onDoubleClick={() => change({ [key]: 0 })}>{label}</label>
         <output htmlFor={`transform-${key}`}>{p[key].toFixed(1)}°</output>
@@ -160,14 +160,14 @@ export function TransformControls({ recipe }: { recipe: Recipe }) {
           onPointerUp={drag.end} onPointerCancel={drag.end} onBlur={drag.end}
           onChange={(v) => change({ [key]: v })} onDoubleClick={() => change({ [key]: 0 })} /></div>
       </div>)}
-    </div>
+    </div>}
     <label className="lens-toggle"><input type="checkbox" checked={p.autoCrop} disabled={off} onChange={e => change({ autoCrop: e.target.checked })} />Constrain crop</label>
-    <details className="grade-details"><summary>Field of view</summary>
+    {!toolsOnly && <details className="grade-details"><summary>Field of view</summary>
       <div className="grade-row"><label htmlFor="transform-focal">Focal length (35mm equivalent)</label>
         <input id="transform-focal" type="number" min={1} max={2000} step={1} value={p.focalLength} disabled={off} onChange={e => {
           const v = e.target.valueAsNumber; if (Number.isFinite(v) && v > 0) change({ focalLength: v });
         }} /></div>
       <p className="hint">Uses camera metadata when available; otherwise starts at 28mm. Set the equivalent focal length for more accurate correction.</p>
-    </details>
+    </details>}
   </>;
 }

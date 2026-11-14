@@ -1,5 +1,126 @@
 # Handoff
 
+**Workspace menu, several workspaces and personal-workspace fixes (2026-11-13; implemented, not committed).**
+From Oli's mockups and reports:
+- **Menu in the top bar.** The panel's Standard/Personal `<select>` and Customize… link are gone.
+  A panel icon button beside Export (Develop only, `ui/WorkspaceMenu.tsx`) opens "Workspace":
+  ticked Personal / Standard, a separator, "Customize workspace…" (a window event Panel listens
+  for, since the editor lives there). Arrow keys/Home/End/Escape/Tab work. Left out: the mockup's
+  "New workspace…" (one personal layout exists; needs a data-model change) and its "Starter
+  layout" label (that name already means the editor's default personal layout).
+- **Customize drag did nothing in the app, then "doesn't work well".** HTML drag and drop never
+  reaches the page in WKWebView while Tauri's `dragDropEnabled` file drop is on (as
+  `collectionDrag.ts` notes); the Chromium test passed with synthetic DragEvents. Now a pointer
+  sortable list: 4 px threshold (tab clicks still click), the held group/tab follows the pointer
+  with a shadow while the others reorder live by their middles, an expanded group closes while
+  held, the list auto-scrolls within 40 px of its edges, a group let go over another tab moves
+  there (tabs show dashed while a group is held), Escape restores the draft from before the drag.
+- **Several personal workspaces.** `controlworkspace.ts` adds `useWorkspaceLibrary`
+  (`emulsion.control-workspaces` in settings.json and backups: named layouts plus the active id).
+  The active layout is still `emulsion.control-workspace`/`useControlWorkspace`, so the panel and
+  editor are unchanged; an older single layout becomes "Personal workspace". The top-bar menu shows the
+  built-in Standard workspace first (marked "Built-in": never edited or deleted), then a Custom
+  section with the personal ones, then Customize workspace… (only while a custom one is current,
+  and it edits that one; Oli didn't want to edit another workspace from Standard) and New workspace…. New opens the editor ("New workspace", starter
+  layout, "Workspace N" name) and exists only once Create is pressed. The editor has a Workspace
+  name field and Delete workspace… (confirmed inline), for any personal workspace including the
+  last: then the library is empty (`active: ''`, kept empty when read back), the group preference
+  returns to Standard (`standardIfNone`, also at startup) and the menu offers only Standard and
+  New workspace…. Tests:
+  `src/ui/controlworkspaces.test.ts`.
+- **Personal tabs are icons with tooltips**, as Standard's: the personal tab bar now uses
+  `.control-stages` markup (`aria-label`/`data-tip` = tab name), no visible names.
+- **No icons on groups**, only tabs (Oli, twice): no group icon picker, and no icon on group
+  headings in the personal panel (as Standard) or on group rows and the library list in Customize.
+  A previously chosen group icon stays in the saved layout, unused.
+- **Narrower sliders in Personal**: a 96/56 px column override is gone, so rows use Standard's
+  80/48 px, and the value hides " EV" as Standard does.
+- **Curve preset button** sat on its own row; `PersonalWorkspace` now takes `actions` and puts it
+  in the heading of the group holding the curve, as Standard does.
+`control-workspace` browser test (needs `look=menu`/`look=single` for screenshots in `.scratch/`)
+**still fails at a check that already failed before any of this**, also with the old select:
+"A visible slider cannot edit the photo" (typing 1.25 into Exposure value after cancelling
+Customize leaves 0.65). With that one assertion skipped everything else passes, including both
+drag cases and switching through the menu. Not checked in the app (Oli): real mouse drags of
+groups and tabs in Customize (feel, auto-scroll, dropping on a tab), the top-bar menu with several
+workspaces, New/rename/delete, the curve presets menu opening from the heading.
+
+**Remove from Library / Delete from Disk (2026-11-13; implemented, not committed).**
+Oli: "we don't have a way to delete a photo from library or develop. we'll want the option remove
+from library or delete from disk". Followed Lightroom Classic: ⌫ (or Delete), the photo's
+right-click/⋯ menu and Photo › Remove from Library… / Delete from Disk… open one dialog with Cancel,
+Move to Trash and Remove from Library (the default). It acts on the targeted originals with their
+folded JPEG and virtual copies; a lone virtual copy is removed as a copy (undoable, no dialog).
+Remove keeps files and sidecars (re-import restores edits). Delete moves files to the macOS Trash
+(Put Back works) with `.emulsion.json`, darktable XMP and the stem XMP when no sibling of that stem
+remains (`src-tauri/src/trash.rs`, `NSFileManager`; extra objc2-foundation features, no new
+crate). Neither is undoable in Emulsion. Shared clean-up `forgetSources` in `store.ts` now also
+serves Sync's removal, which therefore also picks the next photo instead of leaving a stale
+active index. Details in ARCHITECTURE.md (Library membership).
+Checks: `src/library/removing.test.ts` (4), `trash.rs` tests (3, plus an ignored one that uses the
+real Trash: run once, passed, and left `emulsion-trash-test.jpg` and its `.emulsion.json` in Oli's
+Trash), browser test `node tools/browser-tests/cdp-timing.mjs remove-photos` passes in headless
+Chrome (⌫/Delete, prevented ⌫, Cancel/Escape, both actions), screenshots `.scratch/remove-dialog*.png`.
+Not checked in the real app (needs Oli): ⌫ in Library grid, Loupe and Develop (also with a Remove
+spot selected: it should delete the spot, not open the dialog), the Photo menu items, Move to Trash
+on a real RAW+JPEG pair (both files and the XMP in Finder's Trash, Put Back), a file on a read-only
+or disconnected volume (should stay in the library with an error toast).
+
+**Custom right-sidebar workspace (2026-11-13; revised to existing groups, review fix cleared).**
+Oli clarified that the first freeform slider-collection editor was the wrong model:
+users should add established editing groups to their own tabs and show/hide controls
+inside those groups. That clarification supersedes the previous implementation and
+its review. Customize now offers an Editing groups library (Look, White Balance,
+Exposure, High Dynamic Range, Tone curve, HSL, Colour wheels, Detail, Optics, Grain,
+Noise reduction, Lens corrections, Transform). Users create tabs only, then add/move
+whole groups; group headings/icons remain customizable. No arbitrary group creation
+or slider moves between groups are offered. Checkboxes plus Show all/Hide all choose
+visible controls. Hiding never changes photo edits; group resets retain hidden values.
+HSL/Colour wheels retain their native editors with visibility filtering. Existing
+standard Masks/Presets/Metadata tabs remain accessible through Standard workspace.
+Whole groups can be dragged within a tab or onto another tab; up/down and Move to tab
+are accessible alternatives. One tab has no tab strip, multiple tabs show names/icons.
+Save/Cancel/Escape and starter restore operate on an isolated draft.
+
+`workspacegroups.ts` owns group definitions; `controlworkspace.ts` stores version 2
+in the existing app-setting key `emulsion.control-workspace` (included in backups).
+The persisted `groups` array names tabs, whose `sections` have stable editing-group
+`source` IDs and visible-control lists. Old freeform layouts migrate into established
+groups, retaining tab names, selected tab and chosen controls. A previously split
+group reunites on the first tab that contained it. Unknown groups/controls survive.
+Photo recipes and processing order stay independent. Details:
+[custom control workspace](docs/plans/custom-control-workspace.md).
+
+Checks: `npm run check` passes TypeScript, 941 JS tests, production build and 135 Rust
+tests (21 optional ignored; totals include concurrent photo-removal work). A retouch
+pixel test first hit its 5s timeout while multiple browser captures ran; the full
+check passed when rerun without that browser load. Eleven model/adapter tests cover
+group membership/moves/visibility, legacy migration, malformed data, unknown groups,
+resets/dependencies. Chromium and WKWebView group fixture passes existing-group
+library/search, creating tabs, whole-group drag and cross-tab drops, names/icons and
+visibility retained on moves, checkboxes/Show all/Hide all, Save/Cancel/persistence,
+native HSL/Colour wheels visibility, hidden-value-safe resets, unique IDs and Standard
+workspace access. Current captures: `.impeccable/review/group-*.png` (isolated real UI,
+synthetic recipe/repository sample photo, no histogram data); earlier non-group captures
+show the superseded prototype. Physical drag feel, VoiceOver and real-library
+performance remain for Oli to assess. No commit/push or production rebuild requested.
+
+Fresh Impeccable review confirmed the corrected group/tab model and identified one
+keyboard gap in wheel-only grading. When Hue/Amount slider rows are hidden, the
+wheel now retains labeled native numeric inputs. Chromium/WKWebView verify editing
+both in wheel-only mode. Typecheck, 11 focused tests and production build pass after
+the correction. The reviewer's verdict pass returned `ship`, scoring that one fix
+resolved; actual VoiceOver behavior remains unmeasured. Documentation was rechecked
+against source and six final group captures; no global design-system drift repaired.
+
+**Halation range assessment (2026-11-13; discussion only).** Oli asked whether Halation
+is too subtle. The current still/strong preset means strong *anti-halation*: at Amount 100,
+the normalized blurred-channel fractions are only 10.7% red and 3.8% green. This agrees with
+the earlier optics photo assessment below (subtle even at 100). Recommendation: compare the
+existing upstream still/weak preset as a stronger slider range while keeping low values useful
+and preserving saved renders. No rendering, recipe, or control changes made; no new visual
+comparison or tests run. Oli has not yet selected a stronger preset.
+
 **Zoom presentation race: fixed in the recorded release test; Oli tried the rebuilt production
 app and said "way better" (2026-11-13).** This supersedes the four sizing attempts immediately below. Oli clarified that
 both directions glitch, "almost like a border appears top and bottom". A window-only release

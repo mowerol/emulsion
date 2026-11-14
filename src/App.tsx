@@ -25,6 +25,7 @@ import { ShortcutsDialog } from './ui/ShortcutsDialog';
 import { SettingsDialog } from './ui/SettingsDialog';
 import { CatalogBackupDialog, catalogMenuAction, requestQuit } from './ui/CatalogBackupDialog';
 import { UpdateDialog } from './ui/UpdateDialog';
+import { RemovePhotosDialog, requestRemovePhotos } from './ui/RemovePhotosDialog';
 import { checkForUpdates, scheduleAutomaticCheck } from './library/updates';
 import { Library, gridColumns } from './ui/Library';
 import { Panel } from './ui/Panel';
@@ -64,6 +65,8 @@ const MENU_ACTIONS: Record<string, () => void> = {
   'show-in-finder': () => { const p = activePhoto(); if (p) void revealItemInDir(p.path).catch(() => showToast('Could not show the photo')); },
   'copy-settings': () => openCopySettings(),
   'paste-settings': () => pasteSettings(),
+  'remove-photos': () => requestRemovePhotos('library'),
+  'delete-photos': () => requestRemovePhotos('disk'),
   'recent-clear': () => clearRecentFolders(),
 };
 
@@ -150,6 +153,10 @@ export function useShortcuts() {
       else if (k === 'd') setView('develop');
       else if (e.key === 'Enter' && s.view === 'library') { if (isLibraryLoupe(s)) setView('develop'); else setLibraryView('loupe'); }
       else if (onRange) return;
+      else if (e.key === 'Backspace' || e.key === 'Delete') {
+        // After every listener has seen the key: a tool that takes it (a Remove spot) prevents it.
+        if (!e.repeat) setTimeout(() => { if (!e.defaultPrevented && !dialogOpen()) requestRemovePhotos(); });
+      }
       else if (k === 'b') { e.preventDefault(); if (!e.repeat) addToTargetCollection(); }
       else if (markForKey(markKey(e))) {
         // X turns the frame while cropping; elsewhere it rejects.
@@ -266,6 +273,7 @@ export default function App() {
       <SettingsDialog />
       <CatalogBackupDialog />
       <UpdateDialog />
+      <RemovePhotosDialog />
       {dropping && (
         <div className="drop">
           <p>Drop a folder or photos to open them</p>

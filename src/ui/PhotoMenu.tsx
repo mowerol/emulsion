@@ -6,6 +6,7 @@ import { THEMES, setTheme, usePrefs } from './prefs';
 import { STAGE_COLORS, activePhoto, addToTargetCollection, createVirtualCopies, removeVirtualCopies, renameVirtualCopy, setActive, setStageColor, useApp } from '../library/store';
 import { targetCollection, useCatalog } from '../library/catalog';
 import { MOD } from './common';
+import { canTrash, requestRemovePhotos } from './RemovePhotosDialog';
 
 /** Photo actions shared by the grid, Images, filmstrip and Develop's workspace menu. */
 export function PhotoMenu({ x, y, onClose, workspace = false, returnFocus }: {
@@ -22,7 +23,9 @@ export function PhotoMenu({ x, y, onClose, workspace = false, returnFocus }: {
   const [renaming, setRenaming] = useState(false);
   const versions = photos.map((p, index) => ({ p, index })).filter(({ p }) => p.path === photo?.path);
   const count = selected.size > 1 ? selected.size : 1;
-  const removable = (selected.size > 1 ? photos.filter(p => selected.has(photoId(p))) : photo ? [photo] : []).filter(p => p.copyId).length;
+  const frames = selected.size > 1 ? photos.filter(p => selected.has(photoId(p))) : photo ? [photo] : [];
+  const removable = frames.filter(p => p.copyId).length;
+  const originals = frames.filter(p => !p.copyId).length;
 
   useLayoutEffect(() => {
     const menu = ref.current;
@@ -92,6 +95,15 @@ export function PhotoMenu({ x, y, onClose, workspace = false, returnFocus }: {
         <label>Copy name<input aria-label="Copy name" defaultValue={versionName(photo)} maxLength={120} onFocus={e => e.currentTarget.select()} /></label>
         <button type="submit" className="btn">Save</button>
       </form>}
+      {originals > 0 && <>
+      <div role="separator" className="menu-separator" />
+      <button type="button" role="menuitem" className="menu-item" disabled={editing} onClick={() => { onClose(); requestRemovePhotos('library'); }}>
+        {originals > 1 ? `Remove ${originals} photos from Library…` : 'Remove from Library…'}<span className="menu-shortcut">⌫</span>
+      </button>
+      {canTrash() && <button type="button" role="menuitem" className="menu-item" disabled={editing} onClick={() => { onClose(); requestRemovePhotos('disk'); }}>
+        {originals > 1 ? `Delete ${originals} photos from Disk…` : 'Delete from Disk…'}
+      </button>}
+      </>}
       {versions.length > 1 && <>
         <div role="separator" className="menu-separator" />
         <div className="menu-title">Versions</div>

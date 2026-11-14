@@ -16,7 +16,7 @@ export function begin(photo: Photo, id: string, name: string, settings: ProfileS
   // look starts from the same place whichever photo it is made on (Oli, 2026-11-12).
   startLookEdit(photoId(photo), id, name, recipeFromSettings(defaultRecipe('neutral'), settings));
 }
-export function TreatmentControls({ photo }: { photo: Photo }) {
+export function TreatmentControls({ photo, hideAmount = false }: { photo: Photo; hideAmount?: boolean }) {
   useUserLooksVersion();
   const r = photo.recipe ?? defaultRecipe();
   const entry = r.lookEnabled ? PACK[r.pack]?.looks[r.stock] : null;
@@ -24,7 +24,7 @@ export function TreatmentControls({ photo }: { photo: Photo }) {
   const selectedSettings = r.lookSnapshot?.settings ?? lookSettings(r.pack, r.stock);
   const apply = (fn: (r: Recipe) => Recipe, label = 'Change look') => editRecipes(targets().map(photoId), r => fn(r ?? defaultRecipe()), label);
   const pick = (pack: PackId, id: StockId) => apply(r => withLook(r, pack, id));
-  return <LookChooser photo={photo} recipe={r} onPick={pick}
+  return <LookChooser photo={photo} recipe={r} onPick={pick} hideAmount={hideAmount}
     onAmount={lookAmount => apply(r => ({ ...r, lookAmount }))}
     onNew={() => begin(photo, uuid(), 'My look', empty)}
     onRemove={() => apply(r => ({ ...r, lookEnabled: false, lookSnapshot: undefined }))}

@@ -447,6 +447,19 @@ and old automatic-sync memberships migrate to snapshots. Missing entries retain 
 edits until Sync explicitly removes them; removal only clears library references, never source
 files or sidecars. Collections and import-session references are cleaned at the same time.
 
+**Remove from Library and Delete from Disk** (`ui/RemovePhotosDialog.tsx`, opened by ⌫/Delete,
+the photo's right-click menu and the Photo menu) act on the targeted originals, each with the
+JPEG folded into it and all its virtual copies; targeted virtual copies whose original isn't
+targeted are only removed as copies (undoably, and without the dialog when they are all there
+is). Both go through `forgetSources` in `store.ts`, the same clean-up Sync uses, and choose the
+next photo. Remove leaves files and sidecars on disk, so importing again restores the edits.
+Delete flushes pending saves, then `trash_photos` (`src-tauri/src/trash.rs`) moves each photo
+to the macOS Trash through `NSFileManager` (Finder's Put Back works; nothing is deleted outright)
+with its `.emulsion.json`, darktable's `<name>.<ext>.xmp`, and `<stem>.xmp` only when no other
+photo of that stem stays. A photo that couldn't be moved stays in the library. Neither is on
+Emulsion's undo stack. ⌫ is deferred until every listener has seen it, so a tool that takes the
+key (a selected Remove spot, a curve point) prevents the dialog.
+
 `list_folder_photos` in `src-tauri/src/library.rs` lists supported files and modified times
 without sidecar, EXIF or preview reads. `library/disks.ts` deduplicates pending scans and compares
 listings with the imported index. Scans run on folder selection, visible folder mounting and

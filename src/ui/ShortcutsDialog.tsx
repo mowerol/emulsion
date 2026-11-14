@@ -24,6 +24,7 @@ const SECTIONS: { title: string; rows: Row[] }[] = [
     ['⇧ with a mark key', 'Mark and go to the next photo'],
     ['B', 'Add to target collection'],
     [`${MOD}'`, 'Create virtual copy'],
+    ['⌫', 'Remove from library or delete from disk…'],
   ] },
   { title: 'Edit', rows: [
     [`${MOD}Z`, 'Undo'],
