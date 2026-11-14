@@ -1083,9 +1083,12 @@ input.range:disabled { opacity: 0.35; cursor: default; }
 .look-browser-group { margin: 4px 0 16px; }
 .look-browser-group > summary { cursor: pointer; padding: 7px 8px; color: var(--muted); font-size: 13px; font-weight: 600; }
 .look-browser-group > summary span { color: var(--faint); font-weight: 400; margin-left: 5px; }
-.look-entries.list { display: flex; flex-direction: column; gap: 2px; }
+.look-entries.list { display: flex; flex-direction: column; }
 .look-row { display: flex; align-items: center; position: relative; flex-wrap: wrap; border-radius: 6px; padding: 3px 7px; gap: 1px; }
 .look-row.selected { background: rgb(var(--tint) / 0.024); }
+/* List preview targets meet vertically; keep spacing inside the buttons. */
+.look-entries.list .look-row { padding-block: 0; }
+.look-entries.list .look-row-pick { align-self: stretch; padding-block: 7px; }
 .look-entries.list .look-row:hover,
 .look-entries.list .look-row:has(:focus-visible) { background: var(--hover); }
 .look-row-pick { display: flex; align-items: center; min-width: 0; flex: 1; gap: 10px; padding: 3px 0; border: 0; background: none; color: var(--fg); text-align: left; cursor: pointer; }
