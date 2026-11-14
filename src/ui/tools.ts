@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // The canvas tools of the Workflow layout. Crop, pick-neutral and masks keep
 // their own state in the store; this adds the choice between Select and Pan,
-// crop mode's level line, and the preset hover preview. None of it is saved.
+// crop mode's level line, and look/preset hover previews. None of it is saved.
 import { create } from 'zustand';
 import type { Recipe } from '../film/recipe';
 import { finishCrop, startCrop, useApp } from '../library/store';
@@ -22,7 +22,7 @@ interface ToolState {
   spacePan: boolean;
   /** The tab to go back to when the Mask tool is put down. */
   beforeMask: ControlGroupId;
-  /** A preset under the pointer, shown on the photo without being applied. */
+  /** A look or preset under the pointer, shown on the photo without being applied. */
   preview: { name: string; apply: (r: Recipe | null) => Recipe } | null;
 }
 

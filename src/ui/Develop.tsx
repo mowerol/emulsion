@@ -416,7 +416,7 @@ export function Develop() {
   const sizeKnown = !!src && (loaded!.res !== 'thumb' || decodeFailed === path);
   // An unedited photo uses Emulsion Standard, default sharpening included (as in Lightroom).
   const saved = photo ? photo.recipe ?? UNEDITED : null;
-  // A preset under the pointer is shown on the photo without being applied.
+  // A look or preset under the pointer is shown on the photo without being applied.
   const preview = workflow && !cropping && !editingLook ? tools.preview : null;
   const recipe = useMemo(() => (preview ? preview.apply(saved) : saved), [preview, saved]);
   // What the canvas shows: the crop, or while cropping the whole straightened photo.

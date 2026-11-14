@@ -1,15 +1,37 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Eye } from 'lucide-react';
 import { PACKS, lookName, withLook, type PackId } from '../film/looks';
 import type { StockId } from '../film/stocks';
 import { defaultRecipe, type Recipe } from '../film/recipe';
 import type { Photo } from '../library/store';
+import { photoId } from '../library/copies';
 import { useTileRenders } from './tilerenders';
 import { useUserLooksVersion } from '../library/userlooks';
 import { choiceKey, lookChoices, lookGroups, setHiddenLookGroups, setLookBrowserView, toggleLookFavourite, toggleLookGroup, useLookBrowser, type LookChoice } from './lookbrowser';
 import { LiveRange } from './LiveRange';
+import { setPreview, useTools } from './tools';
+
+/** Hover and keyboard focus audition a look; only a click changes the photo. */
+function LookPickButton({ item, photo, selected, className, onPick, children }: {
+  item: LookChoice; photo: Photo | null; selected: boolean; className: string; onPick: () => void; children: ReactNode;
+}) {
+  const id = photo ? photoId(photo) : null;
+  const preview = useMemo(() => id && !selected ? {
+    name: item.name,
+    apply: (r: Recipe | null) => withLook(r ?? defaultRecipe(), item.pack, item.stock),
+  } : null, [id, selected, item.name, item.pack, item.stock]);
+  const clear = () => {
+    if (preview && useTools.getState().preview === preview) setPreview(null);
+  };
+  // Filtering, closing the picker or changing photos must also end the preview.
+  useEffect(() => clear, [preview]);
+  const show = () => { if (preview) setPreview(preview); };
+  return <button type="button" className={className} title={item.name} aria-pressed={selected}
+    onMouseEnter={show} onMouseLeave={clear} onFocus={show} onBlur={clear}
+    onClick={() => { clear(); onPick(); }}>{children}</button>;
+}
 
 function Swatch({ name, bw = false }: { name: string; bw?: boolean }) {
   const palettes = [['#d2a24f','#806538'], ['#c79b73','#79644e'], ['#92aa96','#526e5c'], ['#b7aa98','#736858']];
@@ -18,12 +40,12 @@ function Swatch({ name, bw = false }: { name: string; bw?: boolean }) {
   return <span className="look-swatch" aria-hidden="true" style={{ background: `linear-gradient(160deg, ${a} 55%, ${b} 55%)` }} />;
 }
 function GridIcon() { return <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden="true"><path d="M2 2h6v6H2zM12 2h6v6h-6zM2 12h6v6H2zM12 12h6v6h-6z" stroke="currentColor" strokeWidth="1.5"/></svg>; }
-function LookRow({ item, selected, favourite, thumb, placeholder, onPick, onDelete, onDuplicate }: { item: LookChoice; selected: boolean; favourite: boolean; thumb: ((el: HTMLCanvasElement | null) => void) | null; placeholder: string | null; onPick: () => void; onDelete: () => Promise<void>; onDuplicate: () => void }) {
+function LookRow({ item, photo, selected, favourite, thumb, placeholder, onPick, onDelete, onDuplicate }: { item: LookChoice; photo: Photo | null; selected: boolean; favourite: boolean; thumb: ((el: HTMLCanvasElement | null) => void) | null; placeholder: string | null; onPick: () => void; onDelete: () => Promise<void>; onDuplicate: () => void }) {
   const [confirm, setConfirm] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   return <div className={`look-row${selected ? ' selected' : ''}`}>
-    <button type="button" className="look-row-pick" title={item.name} aria-pressed={selected} onClick={onPick}>{thumb ? <canvas ref={thumb} className="look-swatch look-thumb" aria-hidden="true" style={placeholder ? { backgroundImage: `url("${placeholder}")` } : undefined}/> : <Swatch name={item.name} bw={item.bw}/>}<span>{item.name}</span></button>
+    <LookPickButton item={item} photo={photo} selected={selected} className="look-row-pick" onPick={onPick}>{thumb ? <canvas ref={thumb} className="look-swatch look-thumb" aria-hidden="true" style={placeholder ? { backgroundImage: `url("${placeholder}")` } : undefined}/> : <Swatch name={item.name} bw={item.bw}/>}<span>{item.name}</span></LookPickButton>
     <button type="button" className="look-star" aria-label={`${favourite ? 'Remove' : 'Add'} ${item.name} ${favourite ? 'from' : 'to'} favourites`} aria-pressed={favourite} onClick={() => toggleLookFavourite(item.key)}>{favourite ? '★' : '☆'}</button>
     <details className="look-row-menu"><summary aria-label={`Manage ${item.name}`}>⋯</summary><div className="look-row-menu-items"><button type="button" onClick={onDuplicate}>Duplicate…</button>{item.custom && <button type="button" onClick={() => setConfirm(true)}>Delete look…</button>}</div></details>
     {confirm && <div className="look-delete-confirm"><p>Delete {item.name} from your library? Existing photos keep their appearance.</p>{error && <p role="alert">{error}</p>}<button disabled={busy} onClick={async () => { setBusy(true); setError(''); try { await onDelete(); } catch(e) { setError(String(e)); } finally { setBusy(false); } }}>Delete</button><button disabled={busy} onClick={() => setConfirm(false)}>Cancel</button></div>}
@@ -54,7 +76,7 @@ function LookGroups({ photo, groups, view, selected, favourites, onPick, onDelet
     size: [280, 210],
     recipeFor: k => { const i = byKey.get(k); return i ? withLook(base, i.pack, i.stock) : base; },
   });
-  return <div ref={root} className="look-browser-groups">{shown.map(({ id, title, entries }) => <details open key={id} className="look-browser-group"><summary>{title} <span>({entries.length})</span></summary><div className={`look-entries ${view}`}>{entries.map(item=><LookRow key={item.key} item={item} selected={selected===item.key} favourite={favourites.includes(item.key)} thumb={grid ? tileRef(`${id}|${item.key}`) : null} placeholder={placeholder} onPick={()=>onPick(item)} onDelete={()=>onDelete(item)} onDuplicate={()=>onDuplicate(item)}/>)}</div></details>)}</div>;
+  return <div ref={root} className="look-browser-groups">{shown.map(({ id, title, entries }) => <details open key={id} className="look-browser-group"><summary>{title} <span>({entries.length})</span></summary><div className={`look-entries ${view}`}>{entries.map(item=><LookRow key={item.key} item={item} photo={photo} selected={selected===item.key} favourite={favourites.includes(item.key)} thumb={grid ? tileRef(`${id}|${item.key}`) : null} placeholder={placeholder} onPick={()=>onPick(item)} onDelete={()=>onDelete(item)} onDuplicate={()=>onDuplicate(item)}/>)}</div></details>)}</div>;
 }
 
 export function LookChooser({ photo, recipe, onPick, onAmount, onEdit, onNew, onRemove, onDelete, onDuplicate, hideAmount = false }: {
@@ -163,7 +185,7 @@ export function LookChooser({ photo, recipe, onPick, onAmount, onEdit, onNew, on
     <div className="look-selector-line"><button type="button" className="look-selector" aria-label="Choose look" aria-expanded={quick} onClick={e=>{trigger.current=e.currentTarget;setQuick(!quick);setQuery('');}}><Swatch name={name} bw={active?.bw}/><strong>{name}</strong><span aria-hidden="true">{quick?'⌃':'⌄'}</span></button><button type="button" className="look-browse-button" aria-label="Browse all looks" title="Browse all looks" onClick={e=>openBrowser(e.currentTarget)}><GridIcon/></button></div>
     {!hideAmount && amount}
     {recipe.lookEnabled && <div className="look-inline-actions"><button onClick={onEdit}>Edit…</button><button onClick={onRemove}>Remove</button></div>}
-    {quick && <div className="look-quick-menu"><input className="look-search" type="search" aria-label="Search looks" placeholder="Search looks…" value={query} onChange={e=>setQuery(e.target.value)}/><div className="look-quick-results"><h3>{query.trim()?'LOOKS':'FAVOURITES'}</h3>{quickItems.slice(0,20).map(item=><button key={item.key} className="look-quick-item" onClick={()=>pick(item,true)}><Swatch name={item.name} bw={item.bw}/><strong>{item.name}</strong>{item.key===key && <span aria-label="Applied">✓</span>}</button>)}{!quickItems.length && <p className="look-empty">{query?'No matching looks.':'Star looks in the browser to keep them here.'}</p>}</div><footer><button onClick={()=>openBrowser()}><GridIcon/>Browse all looks</button><button onClick={()=>{close();onNew();}}>＋ New look…</button></footer></div>}
+    {quick && <div className="look-quick-menu"><input className="look-search" type="search" aria-label="Search looks" placeholder="Search looks…" value={query} onChange={e=>setQuery(e.target.value)}/><div className="look-quick-results"><h3>{query.trim()?'LOOKS':'FAVOURITES'}</h3>{quickItems.slice(0,20).map(item=><LookPickButton key={item.key} item={item} photo={photo} selected={item.key===key} className="look-quick-item" onPick={()=>pick(item,true)}><Swatch name={item.name} bw={item.bw}/><strong>{item.name}</strong>{item.key===key && <span aria-label="Applied">✓</span>}</LookPickButton>)}{!quickItems.length && <p className="look-empty">{query?'No matching looks.':'Star looks in the browser to keep them here.'}</p>}</div><footer><button onClick={()=>openBrowser()}><GridIcon/>Browse all looks</button><button onClick={()=>{close();onNew();}}>＋ New look…</button></footer></div>}
     {fullBrowser && (portalHost ? createPortal(fullBrowser, portalHost) : fullBrowser)}
   </div>;
 }
