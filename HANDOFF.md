@@ -1,5 +1,16 @@
 # Handoff
 
+**0.1.5 release preparation (2026-11-13; prepared, not built/published).** Oli asked whether
+`npm run release` is ready. All app manifests and lockfiles now say 0.1.5 (0.1.4 is already the
+published release), with `docs/release-notes/0.1.5.md` covering catalog migration, optional
+exports, workspaces, Remove/Delete, Halation and masked Glow. Local `.impeccable/review/`
+screenshots are excluded through `.git/info/exclude`, preserving the images while allowing the
+release script's clean-tree check. Platform/native tools, libomp, default signing key and
+notes are present; Cargo metadata validates with `--locked --offline`; script syntax checks.
+The signing password is absent from this tool session; Oli's interactive terminal can answer
+the script's hidden password prompt. No tag or release created and no release build run here.
+Previous full source checks passed (958 JS, 149 Rust); `npm run release` runs them again.
+
 **Sidecar deletion audit / shared dev catalog (2026-11-13; read-only).** Oli asked whether
 JSON sidecars can be deleted and whether dev/prod share a catalog. Both normal builds use
 `app.emulsion.desktop` and the same app-data `library.db`; performance harnesses override this.
