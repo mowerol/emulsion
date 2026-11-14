@@ -11,6 +11,7 @@ import { setEachStroke, useRetouchUi } from './retouchui';
 import { onOpenSettings } from './menubridge';
 import { BACKUP_FREQUENCIES, backupFolder, chooseBackupFolder, restoreCatalog, setBackupSettings, showCatalogBackups, useCatalogBackup, type BackupFrequency } from '../library/catalogbackup';
 import { promptBackup } from './CatalogBackupDialog';
+import { useEditStorage, setEditStorage } from '../library/editstorage';
 import { checkForUpdates, setUpdateSettings, useUpdateSettings } from '../library/updates';
 
 function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
@@ -37,6 +38,7 @@ function Sheet({ onClose }: { onClose: () => void }) {
   const eachStroke = useRetouchUi(u => u.eachStroke);
   const backup = useCatalogBackup();
   const updates = useUpdateSettings();
+  const storage = useEditStorage();
   const [backupPath, setBackupPath] = useState('');
   useEffect(() => { void backupFolder(backup).then(setBackupPath).catch(() => {}); }, [backup]);
   useLayoutEffect(() => {
@@ -94,7 +96,17 @@ function Sheet({ onClose }: { onClose: () => void }) {
 
       <section aria-labelledby="settings-catalog">
         <h3 id="settings-catalog">Catalog</h3>
-        <p className="settings-note">The library's folders, imports, collections and photo details. Offered as a backup when you quit.</p>
+        <p className="settings-note">Your library, saved edits, virtual copies and edit history. Back it up regularly to protect your work.</p>
+        <Row label="Also write edits beside photos" hint="Save portable .emulsion.json sidecars when you edit. Existing files are kept when this is off.">
+          <input type="checkbox" aria-label="Also write edits beside photos" checked={storage.options.writeSidecars} disabled={storage.busy} onChange={e => void setEditStorage({ writeSidecars: e.target.checked })} />
+        </Row>
+        <Row label="Share ratings and metadata with other apps" hint="Write ratings, colour labels and keywords to XMP sidecars. Emulsion edits always save in the catalog.">
+          <input type="checkbox" aria-label="Share ratings and metadata with other apps" checked={storage.options.writeXmp} disabled={storage.busy} onChange={e => void setEditStorage({ writeXmp: e.target.checked })} />
+        </Row>
+        {storage.error && <p className="backup-error" role="alert">{storage.error}</p>}
+        {!!storage.status?.issues.length && <details className="settings-note"><summary>Edit files that need attention ({storage.status.issues.length})</summary>
+          <ul>{storage.status.issues.map((issue, i) => <li key={i}>{issue}</li>)}</ul>
+        </details>}
         <Row label="Back up the catalog">
           <select aria-label="How often to back up the catalog" value={backup.frequency} onChange={e => setBackupSettings({ frequency: e.target.value as BackupFrequency })}>
             {BACKUP_FREQUENCIES.map(f => <option key={f.id} value={f.id}>{f.label}</option>)}

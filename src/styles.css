@@ -2178,3 +2178,11 @@ body:has(.topbar-library) { min-width: 960px; }
   .import-toolbar .size-control input { width: 56px; }
   .import-toolbar .size-control svg { display: none; }
 }
+
+/* Catalog migration and failed writes remain visible without blocking the photo workspace. */
+.storage-notice { position: fixed; left: 16px; bottom: 64px; z-index: 42; display: flex; align-items: flex-start; gap: 16px; max-width: min(660px, calc(100vw - 32px)); padding: 14px 16px; background: var(--panel); color: var(--text); border: 1px solid var(--border); border-radius: 7px; font-size: 13px; }
+.storage-notice p { margin: 5px 0 0; line-height: 1.5; overflow-wrap: anywhere; }
+.storage-notice-actions { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+.storage-notice > .btn { flex-shrink: 0; }
+
+.startup-progress { margin: 0; padding: 32px; color: var(--muted); font-size: 14px; }

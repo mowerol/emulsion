@@ -194,7 +194,7 @@ export const writeSidecar = (path: string, saved: Saved, checkpoint = false) => 
 export const trashPhotos = (paths: string[]) => invoke<{ path: string; error: string | null }[]>('trash_photos', { paths });
 
 /** An earlier state of a photo's edits (src-tauri/src/sidecar.rs `Earlier`). */
-export interface EarlierEdit { updated: number; replaced: number; recipe: unknown | null; copies?: SavedCopy[] }
+export interface EarlierEdit { recovered?: Saved; note?: string; updated: number; replaced: number; recipe: unknown | null; copies?: SavedCopy[] }
 /** Earlier states of a photo's edits, newest first. */
 export const sidecarHistory = (path: string) => isTauri() ? invoke<EarlierEdit[]>('sidecar_history', { path }) : Promise.resolve([]);
 

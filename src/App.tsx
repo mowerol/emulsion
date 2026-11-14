@@ -23,6 +23,7 @@ import { ExportDialog } from './ui/ExportDialog';
 import { CopySettingsDialog } from './ui/CopySettingsDialog';
 import { ShortcutsDialog } from './ui/ShortcutsDialog';
 import { SettingsDialog } from './ui/SettingsDialog';
+import { StorageNotice } from './ui/StorageNotice';
 import { CatalogBackupDialog, catalogMenuAction, requestQuit } from './ui/CatalogBackupDialog';
 import { UpdateDialog } from './ui/UpdateDialog';
 import { RemovePhotosDialog, requestRemovePhotos } from './ui/RemovePhotosDialog';
@@ -271,6 +272,7 @@ export default function App() {
       <CopySettingsDialog />
       <ShortcutsDialog />
       <SettingsDialog />
+      <StorageNotice />
       <CatalogBackupDialog />
       <UpdateDialog />
       <RemovePhotosDialog />

@@ -1,5 +1,40 @@
 # Handoff
 
+**Sidecar deletion audit / shared dev catalog (2026-11-13; read-only).** Oli asked whether
+JSON sidecars can be deleted and whether dev/prod share a catalog. Both normal builds use
+`app.emulsion.desktop` and the same app-data `library.db`; performance harnesses override this.
+Live catalog: schema 2, 22,672 catalog source paths, zero awaiting migration, 1,638 legacy
+files imported. Read-only byte comparison: 1,637 unchanged; **PB072176.ORF.emulsion.json has
+a recipe different from its catalog record**. Preserve/reconcile that file before cleanup;
+no files deleted and no catalog records changed. Require a fresh post-migration catalog backup
+before verified cleanup; old running builds may still write sidecars. Consider giving normal
+dev a separate identifier and copied catalog rather than sharing production data.
+
+**Catalog-first edit storage (2026-11-13; committed, app built; not released).**
+Oli preferred catalog storage and accepted the migration plan. Implementation and verification:
+[storage report](docs/plans/catalog-edit-storage.md).
+- `edit_store.rs` owns authoritative per-source envelopes in schema-2 `edits`, with former
+  cache families and changed portable files retained in `edit_recovery`. Full legacy history,
+  copies, marks and metadata import transactionally; original JSON bytes and files remain.
+  Schema-1 catalog gets a verified snapshot at `backups/before-catalog-edits/library.db` before
+  upgrading. Offline/corrupt/future-format sources remain pending; startup progress and Settings
+  identify pending work. Resets retain an explicit record; stale JSON cannot restore old edits.
+- Saves, scans, history, embedded metadata and global keywords all use this module. Legacy IO
+  fixtures are test-only. Failed save/index queues retain payloads, show Retry saving and block
+  navigation, quit/relaunch and backup. Restore freezes old-session writes until reload.
+- Catalog is default. Settings → Catalog separately opts into JSON exports and XMP sharing
+  (both off by default); existing XMP is read. A changed portable file is preserved and its
+  recovered family is available in Earlier edits, with undo. No automatic sidecar cleanup.
+- `npm run check` passes on the combined working tree (958 JS, 149 Rust; 22 ignored), and
+  `catalog-storage` browser tests pass. Synthetic migration: 2,000 sources/4,000 cached rows in
+  308 ms locally, rerun imports none. Site typecheck passes. Screenshots/logs under
+  `.scratch/catalog-*`. The new browser harness uses fake IPC; Rust tests use temporary files
+  and SQLite databases. Real WKWebView/end-user upgrade feel still needs Oli to try.
+- Local production bundle rebuilt at `src-tauri/target/release/bundle/macos/Emulsion.app` with
+  updater artifacts disabled. Quit/reopen to try. Existing sidecars are retained on upgrade.
+  Implementation was tested in `/Users/oli/Dev/emulsion-catalog-edit-storage` first and then
+  applied to this checkout, preserving the concurrent mask work and earlier Halation changes.
+
 **Glow and Glow size per mask (2026-11-13; committed and pushed).** Oli asked for Glow on
 a mask basis and chose darktable's model (a masked instance's *result* blended by the mask, not
 a masked source). Each mask has Glow (0–100, the photo's mapping) and Glow size (20–400%, default
@@ -16,6 +51,37 @@ at 2048); `region-detail` passes with new `glow`/`maskedGlow` cases (whole vs re
 via preview 3–5/255, same as the photo's Glow); probe clean. Not checked: in-app timing, and by
 hand (Oli): the two new sliders in a mask's Effect list, Reset sliders (size back to 100%),
 dragging Glow/Glow size on a brush or object mask over a light, and undo of those drags.
+
+**Catalog-first migration design (2026-11-13; discussion, no implementation).** Oli prefers
+catalog storage and asked how to migrate an existing userbase. Inspected the current paths:
+- `catalog.rs` schema v1 stores per-root interface photo JSON, including duplicate source
+  entries under nested roots; sidecar `history`, `checkpoint`, `updated`, and XMP sync are not
+  a complete part of that state. `library::scan_with_progress` reloads sidecars unconditionally.
+- `catalogdb.ts::send` logs write failures and advances the diff baseline; this is inadequate
+  once the catalog becomes authoritative. Saves need explicit success/failure and retry state.
+- `commands::write_sidecar`, sidecar-history reads, scans, and `keywords::retag` must all use
+  the same edit-storage module; changing the normal slider save alone leaves bypasses.
+Proposed rollout: add authoritative per-source catalog edit records (complete sidecar envelope,
+including history and explicit reset state), import and mark each source transactionally with
+provenance, preserve conflicting versions, then use catalog reads/writes for migrated sources.
+Process available drives incrementally and resume offline ones on reconnect before editing;
+never mark inaccessible/unreadable sidecars migrated or let stale leftovers restore old edits.
+Retain legacy readers in the shipping update (users can skip releases); snapshot catalog first,
+leave original JSON files untouched, and make verified cleanup a separate explicit action.
+One-time notice explains catalog backups and offers continued portable sidecars. XMP sharing
+is separate: removing automatic JSON writes alone does not prevent `.xmp` files being created.
+No user data, database schema, storage setting, or application code changed this turn.
+
+**Photo-folder sidecars discussion (2026-11-13; investigation only).** Oli noticed
+`20261019-PA191714.dng.emulsion.json` beside an original and compared Lightroom/Capture One.
+Confirmed: Emulsion deliberately writes per-source JSON beside originals for recipes, marks,
+metadata, virtual copies and bounded edit history. `library.db` caches photo state but sidecars
+remain authoritative on scan; deleting them is not a supported migration to catalog storage.
+Verified official docs: Lightroom Classic stores metadata/adjustments in its catalog by default
+(with optional XMP writing; DNG may receive embedded XMP); Capture One Catalogs store edits in
+the catalog, Sessions use a CaptureOne subfolder. Recommendation for Emulsion: catalog storage
+by default with optional portable sidecars; a migration must preserve existing edits, copies
+and history before stopping sidecar writes. No storage change or file deletion performed.
 
 **Stronger Halation trial (2026-11-13; committed and pushed).** Oli agreed to try
 higher strength. New adjustments use the pinned upstream still/weak anti-halation preset

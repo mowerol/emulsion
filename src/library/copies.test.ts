@@ -9,12 +9,13 @@ import { scanFolder, writeSidecar, type Saved, type ScanResult } from '../backen
 import { defaultRecipe } from '../film/recipe';
 import { FULL } from '../film/crop';
 import { NO_FILTER } from './filter';
+import { normalizeMeta } from './meta';
 import { exportStem, expandCopies, photoId, savedFrames } from './copies';
 import { flushSaves } from './sidecars';
 import {
   activePhoto, closeFolder, copySettings, createVirtualCopies, editActive, editRecipes,
   endLookEdit, finishCrop, importFolderPhotos, lookEditDirty, renameLookEdit, markPhotos, openFolder, pasteSettings,
-  redo, removeVirtualCopies, renameVirtualCopy, selectAll, setActive, setCropDraft, setPhotoWhite,
+  redo, restoreRecoveredFamily, removeVirtualCopies, renameVirtualCopy, selectAll, setActive, setCropDraft, setPhotoWhite,
   setFoldJpegs, setIncludeSubfolders, startCrop, startLookEdit, undo, useApp, type Photo,
 } from './store';
 
@@ -255,4 +256,33 @@ it('undoes and redoes a look draft locally without persisting or consuming photo
   endLookEdit();
   expect(activePhoto()?.recipe?.exposure).toBe(1);
   expect(useApp.getState().history).toEqual(before);
+});
+
+it('restores a full recovered source family with metadata and copies, and supports undo', async () => {
+  const path = '/photos/a.jpg';
+  restoreRecoveredFamily(path, {
+    recipe: { ...defaultRecipe(), exposure: 1 }, rating: 4, label: 'green', flag: 'pick',
+    meta: normalizeMeta({ keywords: ['Places|UK'] }),
+    copies: [{ id: 'recovered', name: 'Recovered print', recipe: { ...defaultRecipe(), exposure: 2 }, rating: 5, label: null, flag: null }],
+  });
+  expect(useApp.getState().photos.filter(p => p.path === path)).toHaveLength(2);
+  expect(useApp.getState().photos[0]).toMatchObject({ rating: 4, recipe: { exposure: 1 }, meta: { keywords: ['Places|UK'] } });
+  expect(useApp.getState().photos[1]).toMatchObject({ copyId: 'recovered', copyName: 'Recovered print', rating: 5, recipe: { exposure: 2 } });
+  await flushSaves();
+  expect(disk.get(path)?.copies?.[0].id).toBe('recovered');
+  undo();
+  expect(useApp.getState().photos.filter(p => p.path === path)).toHaveLength(1);
+  expect(useApp.getState().photos[0].rating).toBe(0);
+});
+
+it('keeps the current folder and edits open when saving before navigation fails', async () => {
+  editActive(() => ({ ...defaultRecipe(), exposure: 1 }));
+  const before = useApp.getState().photos;
+  vi.mocked(writeSidecar).mockRejectedValueOnce(new Error('Disk full'));
+  await openFolder('/different');
+  expect(useApp.getState().photos).toBe(before);
+  expect(useApp.getState().folder?.root).toBe('/photos');
+  expect(useApp.getState().photos[0].recipe?.exposure).toBe(1);
+  await flushSaves();
+  expect(disk.get('/photos/a.jpg')?.recipe).toMatchObject({ exposure: 1 });
 });

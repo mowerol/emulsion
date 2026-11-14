@@ -27,7 +27,7 @@ const faqs: Faq[] = [
   },
   {
     q: 'Can I bring my photos over from Lightroom?',
-    a: 'Yes. Import the folders your photos are already in. Stars, colour labels, rejects, keywords and IPTC fields come across through XMP sidecars, the same files Lightroom and Bridge use, and Emulsion writes its changes back to them. Lightroom’s develop settings don’t carry over. If Lightroom Classic keeps your metadata only in its catalog, select the photos there and choose Metadata › Save Metadata to File first.',
+    a: 'Yes. Import the folders your photos are already in. Stars, colour labels, rejects, keywords and IPTC fields come across through XMP sidecars, the same files Lightroom and Bridge use, and you can enable XMP sharing in Settings to write Emulsion’s metadata changes back to them. Lightroom’s develop settings don’t carry over. If Lightroom Classic keeps your metadata only in its catalog, select the photos there and choose Metadata › Save Metadata to File first.',
   },
   {
     q: 'Does the AI send my photos anywhere?',

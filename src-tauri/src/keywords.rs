@@ -1,14 +1,18 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Renaming, moving and deleting a keyword in photos the webview doesn't have open, as
 //! Lightroom's Keyword List does across its catalog. Each photo's current keywords are read
-//! the way a scan reads them (its sidecar, or a newer XMP), changed, and saved through
-//! `sidecar::write`, which updates the XMP too. The open folder's photos change through the
+//! the way a scan reads them and saved by edit_store. The legacy writer below is retained
+//! only as a fixture for the old file format. The open folder's photos change through the
 //! webview's store instead, so they stay undoable.
 
+#[cfg(test)]
 use std::path::Path;
 
+#[cfg(test)]
 use crate::library::with_newer_xmp;
+#[cfg(test)]
 use crate::xmp::{self, Meta};
+#[cfg(test)]
 use crate::sidecar;
 
 /// `keyword` with `from` (and everything under it) moved to `to`, or `None` to delete it.
@@ -24,6 +28,7 @@ pub fn moved(keyword: &str, from: &str, to: Option<&str>) -> Option<String> {
 }
 
 /// Retag one photo. Returns its new metadata, or `None` when it didn't have the keyword.
+#[cfg(test)]
 pub fn retag(image: &Path, from: &str, to: Option<&str>) -> std::io::Result<Option<Meta>> {
     let from = xmp::tidy_path(from);
     let to = to.map(xmp::tidy_path).filter(|t| !t.is_empty());

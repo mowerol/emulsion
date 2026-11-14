@@ -158,13 +158,19 @@ pub fn list_photos(root: &Path, recursive: bool) -> std::io::Result<DiskListing>
 
 /// Scan `target`. If it is a file, its parent folder is scanned and the file is
 /// returned as `focus`.
+#[cfg(test)]
 pub fn scan(target: &Path, recursive: bool) -> std::io::Result<ScanResult> {
     scan_with_progress(target, recursive, None)
 }
 
 /// Discover and sort file identities first, then read sidecars in bounded batches. The first
 /// screenful can start loading thumbnails while the rest of a slow drive is still being read.
-pub fn scan_with_progress(target: &Path, recursive: bool, mut progress: Option<&mut dyn FnMut(ScanProgress)>) -> std::io::Result<ScanResult> {
+#[cfg(test)]
+pub fn scan_with_progress(target: &Path, recursive: bool, progress: Option<&mut dyn FnMut(ScanProgress)>) -> std::io::Result<ScanResult> {
+    scan_with_reader(target, recursive, progress, &mut |path, owner| Ok(with_newer_xmp(sidecar::read_synced(path), xmp::read_sidecar(path, owner))))
+}
+
+pub fn scan_with_reader(target: &Path, recursive: bool, mut progress: Option<&mut dyn FnMut(ScanProgress)>, read: &mut dyn FnMut(&Path, bool) -> std::io::Result<sidecar::Saved>) -> std::io::Result<ScanResult> {
     let (root, focus): (PathBuf, Option<String>) = if target.is_file() {
         let parent = target
             .parent()
@@ -278,7 +284,7 @@ pub fn scan_with_progress(target: &Path, recursive: bool, mut progress: Option<&
             let path = PathBuf::from(&e.path);
             let key = (path.parent().map(Path::to_path_buf).unwrap_or_default(), xmp::stem_key(&path));
             let owner = xmp::owns(&path, by_stem[&key].iter().map(PathBuf::as_path));
-            let saved = with_newer_xmp(sidecar::read_synced(&path), xmp::read_sidecar(&path, owner));
+            let saved = read(&path, owner)?;
             e.recipe = saved.recipe;
             e.rating = saved.rating;
             e.label = saved.label;

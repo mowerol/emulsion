@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-//! Sidecars: each edited, rated, tagged or flagged photo gets `<file name>.emulsion.json`
-//! next to it. Nothing is ever written into the photo itself.
+//! Portable edit envelopes: legacy `<file name>.emulsion.json` files and the optional export
+//! of authoritative catalog edits. Nothing is ever written into the photo itself.
 //!
 //! A sidecar also keeps earlier states of the photo's edits (`history`), as darktable keeps the
 //! history stack in its XMP sidecars, so a reset or a batch paste can be taken back after the
@@ -19,7 +19,9 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::xmp::{self, Interchange, Meta};
+use crate::xmp::{Interchange, Meta};
+#[cfg(test)]
+use crate::xmp;
 
 pub const SUFFIX: &str = ".emulsion.json";
 const FORMAT: &str = "emulsion";
@@ -30,36 +32,36 @@ pub const SESSION_MS: u64 = 30 * 60 * 1000;
 pub const KEEP: usize = 20;
 const MAX_HISTORY_BYTES: usize = 4 * 1024 * 1024;
 
-#[derive(Serialize, Deserialize)]
-struct Sidecar {
-    format: String,
-    version: u32,
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub(crate) struct Sidecar {
+    pub(crate) format: String,
+    pub(crate) version: u32,
     /// Milliseconds since the Unix epoch.
-    updated: u64,
+    pub(crate) updated: u64,
     /// The look; `null` for a photo that is only rated or tagged.
-    recipe: serde_json::Value,
+    pub(crate) recipe: serde_json::Value,
     #[serde(default, skip_serializing_if = "is_zero")]
-    rating: u8,
+    pub(crate) rating: u8,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    label: Option<String>,
+    pub(crate) label: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    flag: Option<String>,
+    pub(crate) flag: Option<String>,
     /// Hearts, before pick and reject flags replaced them (2026-11-11): read as a pick, never written.
     #[serde(default, skip_serializing)]
-    heart: bool,
+    pub(crate) heart: bool,
     #[serde(default, skip_serializing_if = "Meta::is_empty")]
-    meta: Meta,
+    pub(crate) meta: Meta,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    copies: Vec<VirtualCopy>,
+    pub(crate) copies: Vec<VirtualCopy>,
     /// The XMP sidecar's modified time after Emulsion last wrote it, ms.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    xmp: Option<u64>,
+    pub(crate) xmp: Option<u64>,
     /// When the last earlier state was kept (or the sidecar was first written), ms.
     #[serde(default)]
-    checkpoint: u64,
+    pub(crate) checkpoint: u64,
     /// Earlier states of the edits, oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    history: Vec<Earlier>,
+    pub(crate) history: Vec<Earlier>,
 }
 
 /// An earlier state of a photo's edits: its own recipe and its virtual copies'.
@@ -70,6 +72,10 @@ pub struct Earlier {
     pub updated: u64,
     /// When it was replaced.
     pub replaced: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub note: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub recovered: Option<Saved>,
     pub recipe: serde_json::Value,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub copies: Vec<VirtualCopy>,
@@ -127,6 +133,7 @@ pub struct Saved {
 }
 
 impl Saved {
+    #[cfg(test)]
     fn is_empty(&self) -> bool {
         self.recipe.is_none() && self.rating == 0 && self.label.is_none() && self.flag.is_none() && self.meta.is_empty() && self.copies.is_empty()
     }
@@ -152,41 +159,27 @@ pub fn path_for(image: &Path) -> PathBuf {
 }
 
 /// What is saved for `image`, or `None` when there is no readable sidecar.
+#[cfg(test)]
 fn read_car(image: &Path) -> Option<Sidecar> {
     let text = fs::read_to_string(path_for(image)).ok()?;
     let car: Sidecar = serde_json::from_str(&text).ok()?;
     (car.format == FORMAT).then_some(car)
 }
 
+#[cfg(test)]
 pub fn read(image: &Path) -> Option<Saved> {
     read_synced(image).map(|(saved, _)| saved)
 }
 
 /// What is saved for `image`, and how it stood against the XMP.
+#[cfg(test)]
 pub fn read_synced(image: &Path) -> Option<(Saved, Sync)> {
     let car = read_car(image)?;
-    let sync = Sync { updated: car.updated, xmp: car.xmp };
-    let saved = Saved {
-        recipe: Some(car.recipe).filter(|r| !r.is_null()),
-        rating: car.rating.min(5),
-        label: car.label,
-        flag: flag_of(car.flag, car.heart),
-        meta: car.meta,
-        copies: car.copies.into_iter().map(|c| VirtualCopy { flag: flag_of(c.flag, c.heart), heart: false, ..c }).collect(),
-    };
-    Some((saved, sync)).filter(|(s, _)| !s.is_empty())
-}
-
-/// What `image` has embedded in it, when it has nothing of its own to share yet: no stars,
-/// label, keywords or IPTC fields in its sidecar, and no XMP sidecar.
-pub fn embedded(image: &Path) -> Option<Interchange> {
-    if read(image).is_some_and(|s| !s.interchange().is_empty()) || xmp::has_sidecar(image) {
-        return None;
-    }
-    xmp::read_embedded(image).filter(|v| !v.is_empty())
+    Some((car.saved(), Sync { updated: car.updated, xmp: car.xmp })).filter(|(s, _)| !s.is_empty())
 }
 
 /// Earlier states of `image`'s edits, newest first.
+#[cfg(test)]
 pub fn history(image: &Path) -> Vec<Earlier> {
     let mut h = read_car(image).map(|c| c.history).unwrap_or_default();
     h.reverse();
@@ -202,7 +195,7 @@ fn has_edits(recipe: &serde_json::Value, copies: &[VirtualCopy]) -> bool {
     !recipe.is_null() || !copies.is_empty()
 }
 
-fn now_ms() -> u64 {
+pub(crate) fn now_ms() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
@@ -213,13 +206,14 @@ fn now_ms() -> u64 {
 ///
 /// When the stars, label, keywords or IPTC fields differ from the last save, the XMP sidecar is
 /// updated first. If that fails the edits are still saved and the error is returned.
+#[cfg(test)]
 pub fn write(image: &Path, saved: &Saved, checkpoint: bool) -> io::Result<()> {
     write_at(image, saved, checkpoint, now_ms())
 }
 
+#[cfg(test)]
 fn write_at(image: &Path, saved: &Saved, checkpoint: bool, now: u64) -> io::Result<()> {
     let target = path_for(image);
-    let recipe = saved.recipe.clone().unwrap_or(serde_json::Value::Null);
     let old = read_car(image);
     let before = old.as_ref().map(|o| Interchange { rating: o.rating.min(5), label: o.label.clone(), reject: flag_of(o.flag.clone(), o.heart).as_deref() == Some("reject"), meta: o.meta.tidy() }).unwrap_or_default();
     let mut xmp_time = old.as_ref().and_then(|o| o.xmp);
@@ -232,9 +226,53 @@ fn write_at(image: &Path, saved: &Saved, checkpoint: bool, now: u64) -> io::Resu
             Err(e) => xmp_error = Some(e),
         }
     }
+    let mut car = next_document(saved, old.as_ref(), checkpoint, now);
+    car.xmp = xmp_time;
+    if saved.is_empty() && car.history.is_empty() {
+        return match fs::remove_file(&target) {
+            Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
+            _ => xmp_error.map_or(Ok(()), Err),
+        };
+    }
+    let text = serde_json::to_string_pretty(&car).map_err(io::Error::other)?;
+    let mut tmp = target.as_os_str().to_owned();
+    tmp.push(".tmp");
+    let tmp = PathBuf::from(tmp);
+    fs::write(&tmp, text)?;
+    fs::rename(&tmp, &target)?;
+    xmp_error.map_or(Ok(()), |e| Err(io::Error::new(e.kind(), format!("edits saved, but the XMP sidecar was not updated: {e}"))))
+}
+
+/// Decode a legacy envelope strictly: corruption and newer versions must never become defaults.
+pub(crate) fn decode_document(text: &str) -> io::Result<Sidecar> {
+    let mut car: Sidecar = serde_json::from_str(text).map_err(io::Error::other)?;
+    if car.format != FORMAT || !(1..=VERSION).contains(&car.version) {
+        return Err(io::Error::other("This sidecar is not a supported Emulsion edit file"));
+    }
+    car.flag = flag_of(car.flag.take(), car.heart); car.heart = false;
+    let normalize = |c: &mut VirtualCopy| { c.flag = flag_of(c.flag.take(), c.heart); c.heart = false; };
+    car.copies.iter_mut().for_each(normalize);
+    for h in &mut car.history { h.copies.iter_mut().for_each(normalize); }
+    Ok(car)
+}
+
+impl Sidecar {
+    pub(crate) fn saved(&self) -> Saved {
+        Saved {
+            recipe: Some(self.recipe.clone()).filter(|r| !r.is_null()), rating: self.rating.min(5),
+            label: self.label.clone(), flag: flag_of(self.flag.clone(), self.heart), meta: self.meta.clone(),
+            copies: self.copies.iter().cloned().map(|c| VirtualCopy { flag: flag_of(c.flag, c.heart), heart: false, ..c }).collect(),
+        }
+    }
+}
+
+/// Preserve the same checkpoint/history rules in the catalog and optional portable files.
+pub(crate) fn next_document(saved: &Saved, old: Option<&Sidecar>, checkpoint: bool, now: u64) -> Sidecar {
+    let recipe = saved.recipe.clone().unwrap_or(serde_json::Value::Null);
+    let interchange = saved.interchange();
     let mut history = Vec::new();
     let mut last_checkpoint = now;
-    if let Some(old) = old {
+    if let Some(old) = old.cloned() {
         history = old.history;
         last_checkpoint = old.checkpoint;
         let before = edits(&old.recipe, &old.copies);
@@ -242,7 +280,7 @@ fn write_at(image: &Path, saved: &Saved, checkpoint: bool, now: u64) -> io::Resu
         let due = checkpoint || resetting || now.saturating_sub(old.checkpoint) >= SESSION_MS;
         if has_edits(&old.recipe, &old.copies) && before != edits(&recipe, &saved.copies) && due {
             if history.last().map(|l| edits(&l.recipe, &l.copies)) != Some(before) {
-                history.push(Earlier { updated: old.updated, replaced: now, recipe: old.recipe, copies: old.copies });
+                history.push(Earlier { updated: old.updated, replaced: now, recipe: old.recipe, copies: old.copies, note: None, recovered: None });
             }
             last_checkpoint = now;
         }
@@ -252,14 +290,8 @@ fn write_at(image: &Path, saved: &Saved, checkpoint: bool, now: u64) -> io::Resu
     while history.len() > 1 && serde_json::to_vec(&history).map(|b| b.len()).unwrap_or(0) > MAX_HISTORY_BYTES {
         history.remove(0);
     }
-    if saved.is_empty() && history.is_empty() {
-        return match fs::remove_file(&target) {
-            Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
-            _ => xmp_error.map_or(Ok(()), Err),
-        };
-    }
     let updated = now;
-    let car = Sidecar {
+    Sidecar {
         format: FORMAT.into(),
         version: VERSION,
         updated,
@@ -270,17 +302,27 @@ fn write_at(image: &Path, saved: &Saved, checkpoint: bool, now: u64) -> io::Resu
         heart: false,
         meta: interchange.meta,
         copies: saved.copies.iter().map(|c| VirtualCopy { flag: flag_of(c.flag.clone(), c.heart), heart: false, ..c.clone() }).collect(),
-        xmp: xmp_time,
+        xmp: old.and_then(|o| o.xmp),
         checkpoint: last_checkpoint,
         history,
-    };
-    let text = serde_json::to_string_pretty(&car).map_err(io::Error::other)?;
-    let mut tmp = target.as_os_str().to_owned();
-    tmp.push(".tmp");
-    let tmp = PathBuf::from(tmp);
-    fs::write(&tmp, text)?;
-    fs::rename(&tmp, &target)?;
-    xmp_error.map_or(Ok(()), |e| Err(io::Error::new(e.kind(), format!("edits saved, but the XMP sidecar was not updated: {e}"))))
+    }
+}
+
+/// Export a complete catalog state, including an explicit reset and its history.
+pub(crate) fn export_document(image: &Path, car: &Sidecar) -> io::Result<()> {
+    let target = path_for(image);
+    match fs::read_to_string(&target) {
+        Ok(text) => { decode_document(&text)?; }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {},
+        Err(e) => return Err(e),
+    }
+    let text = serde_json::to_vec_pretty(car).map_err(io::Error::other)?;
+    let tmp = target.with_extension("json.tmp");
+    let mut file = fs::File::create(&tmp)?;
+    use std::io::Write;
+    file.write_all(&text)?;
+    file.sync_all()?;
+    fs::rename(tmp, target)
 }
 
 #[cfg(test)]

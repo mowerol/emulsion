@@ -8,7 +8,7 @@ import { changedPlaces } from './photolist';
 import { useRef } from 'react';
 import type { Histogram } from '../engine/histogram';
 import type { Xy } from '../engine/whitebalance';
-import { catalogMetadata, embeddedMetadata, isTauri, metadataFromFiles, scanFolder, trashPhotos, whitePoints, type EmbeddedMetadata, type Entry, type ScanProgress } from '../backend/api';
+import { catalogMetadata, embeddedMetadata, isTauri, metadataFromFiles, scanFolder, trashPhotos, whitePoints, type EmbeddedMetadata, type Entry, type ScanProgress, type Saved } from '../backend/api';
 import { isEmptyMeta, normalizeMeta, sameMeta, type PhotoMeta } from './meta';
 import { autoPreset, fillPreset } from './metapresets';
 import { folderImport, importedPaths, importedRoots, rememberFolder, saveFolderImport, type FolderImport } from './folders';
@@ -370,6 +370,9 @@ export async function openFolder(path: string, importing = false) {
   finishCrop(true);
   endLookEdit();
   cacheEdits([...get().photos, ...get().hidden]);
+  try { await flushSaves(); }
+  catch (err) { if (request === folderRequest) showToast(`Save changes before opening another folder. ${String(err)}`); return; }
+  if (request !== folderRequest) return;
   set({ loading: true });
   beginOpening({ type: 'folder', id: path }, trimRoot(path).split(/[\\/]/).pop() || path);
   const root = trimRoot(path);
@@ -664,6 +667,9 @@ export async function selectSource(source: SourceSelection) {
   finishCrop(true);
   cacheEdits([...get().photos, ...get().hidden]);
   trace.mark('cacheEdits(previous)');
+  try { await flushSaves(); }
+  catch (err) { if (request === folderRequest) showToast(`Save changes before opening another source. ${String(err)}`); return; }
+  if (request !== folderRequest) return;
   const collectionAddIds = [...get().selected];
   const catalog = useCatalog.getState();
   const session = source.type === 'import' ? catalog.imports.find(i => i.id === source.id) : null;
@@ -1006,7 +1012,7 @@ export function discardTransientEdits(scope: string) {
 
 /**
  * Persist one complete source family, so edits to two copies cannot overwrite each other.
- * `checkpoint` keeps the edits being replaced in the sidecar's history (sidecar.rs).
+ * `checkpoint` keeps the edits being replaced in catalog history (edit_store.rs).
  */
 function persistSources(ids: string[], checkpoint = false) {
   const paths = new Set(ids.map(id => id.split('\0')[0]));
@@ -1093,6 +1099,23 @@ function replaceFamilies(families: Map<string, Photo[]>, preferred?: string[]) {
   if (selected.size && active >= 0 && !selected.has(photoId(photos[active]))) active = photos.findIndex(p => selected.has(photoId(p)));
   if (!selected.size && active >= 0) selected = new Set([photoId(photos[active])]);
   set({ photos, hidden, selected, active, anchor: active, histogram: null });
+}
+
+/** Restore a complete pre-migration alternative, retaining normal undo and checkpoint history. */
+export function restoreRecoveredFamily(path: string, saved: Saved) {
+  if (get().lookEdit) return showToast('Finish editing the look first');
+  finishCrop(true);
+  const before = familyOf(path);
+  const source = before.find(p => !p.copyId);
+  if (!source) return;
+  const original: Photo = { ...source, recipe: normalizeRecipe(saved.recipe),
+    ...normalizeMarks(saved.rating, saved.label, saved.flag), meta: normalizeMeta(saved.meta) };
+  const after = expandCopies(original, saved.copies);
+  history.record('Restore recovered edits and versions', [{ path, frames: true, before, after }], performance.now());
+  replaceFamilies(new Map([[path, after]]));
+  set(historyState());
+  persistSources([path], true);
+  showToast('Restored recovered edits and versions', { label: 'Undo', run: undo });
 }
 
 export function createVirtualCopies() {
@@ -1188,7 +1211,7 @@ function forgetSources(removed: Set<string>, gone = false) {
 
 const photoCount = (n: number) => `${n.toLocaleString()} ${n === 1 ? 'photo' : 'photos'}`;
 
-/** Remove from Library: sidecars stay beside the files, so importing them again brings their edits back. */
+/** Remove from Library: saved catalog edits remain, so importing these sources again brings their edits back. */
 export function removeFromLibrary(plan = removalTargets()) {
   if (get().lookEdit) return showToast('Finish editing the look first');
   finishCrop(true);

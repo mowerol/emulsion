@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! The app's own data, kept in its data folder: custom looks, presets, camera profiles and
 //! `settings.json` (what used to live in the webview's storage and matters beyond this session:
-//! per-camera default profiles, favourites, collections). Photos' edits are in their sidecars and
-//! travel with the photos; this module protects the rest, the way darktable protects its
+//! per-camera default profiles, favourites, collections). Photos' edits and history live in the catalog, with optional portable sidecars; this module
+//! protects the catalog and the rest of the app data, the way darktable protects its
 //! `data.db`: a snapshot on the first launch of each day under `backups/<date>/` (the last 15 kept)
 //! plus one before each version upgrade (darktable's `data.db-pre-<version>`), an archive to move
 //! everything to another computer, and a restore that merges a snapshot or archive back in.

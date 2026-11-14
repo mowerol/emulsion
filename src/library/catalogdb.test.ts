@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, test, vi } from 'vitest';
 const calls: { cmd: string; args: any }[] = [];
 let db: { folders: Record<string, unknown[]>; folderImports: Record<string, unknown>; kv: Record<string, unknown> };
 let failLoad = false;
+let failWrite = false;
 vi.mock('../backend/api', () => ({ isTauri: () => true }));
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: async (cmd: string, args: any) => {
@@ -13,6 +14,7 @@ vi.mock('@tauri-apps/api/core', () => ({
       return structuredClone(db);
     }
     if (cmd === 'catalog_write') {
+      if (failWrite) throw new Error('Disk full');
       const c = args.change;
       for (const r of c.rootsAdded ?? []) db.folders[r] ??= [];
       for (const r of c.upserts ?? []) (db.folders[r.root] ??= []).push(JSON.parse(r.data));
@@ -35,6 +37,7 @@ beforeEach(() => {
   storage.clear();
   db = { folders: {}, folderImports: {}, kv: {} };
   failLoad = false;
+  failWrite = false;
   vi.resetModules();
 });
 
@@ -148,4 +151,19 @@ describe('CatalogDiff', () => {
     expect(change.deletes).toEqual([{ root: '/a', path: '/a/2', copy: '' }]);
     expect(change.upserts).toEqual([]);
   });
+});
+
+test('failed catalog transactions stay queued and retry in order', async () => {
+  const { writeFolderImport, catalogWrites } = await import('./catalogdb');
+  const { useSaveIssues } = await import('./saveissues');
+  failWrite = true;
+  await expect(writeFolderImport('/a', { mode: 'selected', paths: ['/a/1'] })).rejects.toThrow('Disk full');
+  await expect(writeFolderImport('/b', { mode: 'selected', paths: ['/b/1'] })).rejects.toThrow('Disk full');
+  expect(db.folderImports).toEqual({});
+  expect(useSaveIssues.getState().issues.catalog).toContain('Disk full');
+  failWrite = false;
+  await catalogWrites();
+  expect(db.folderImports).toEqual({ '/a': { mode: 'selected', paths: ['/a/1'] }, '/b': { mode: 'selected', paths: ['/b/1'] } });
+  expect(useSaveIssues.getState().issues.catalog).toBeUndefined();
+  expect(calls.filter(c => c.cmd === 'catalog_write').slice(-2).map(c => Object.keys(c.args.change.folderImports)[0])).toEqual(['/a', '/b']);
 });

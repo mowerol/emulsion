@@ -13,7 +13,7 @@ web (a macOS desktop app: Tauri with a React interface in WKWebView. The design 
 
 ## Purpose
 
-Emulsion develops photos (RAW and ordinary) through film looks. Open or import a folder, choose a Look, set its Amount, and refine tone, colour, scanner finish, halation, glow and grain. Edits live in small sidecar files next to each photo; originals are never touched.
+Emulsion develops photos (RAW and ordinary) through film looks. Open or import a folder, choose a Look, set its Amount, and refine tone, colour, scanner finish, halation, glow and grain. Edits live in the catalog, with optional portable sidecars; originals are never touched.
 
 ## Position
 

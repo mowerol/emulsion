@@ -5,7 +5,7 @@ const cards = [
   },
   {
     title: 'Works alongside Lightroom',
-    body: 'Stars, colour labels, rejects, keywords and IPTC fields are read from and written to XMP sidecars, so Lightroom, Bridge and other apps see them too.',
+    body: 'Read stars, colour labels, rejects, keywords and IPTC fields from XMP sidecars. Enable metadata sharing in Settings to write changes back for Lightroom, Bridge and other apps.',
   },
   {
     title: 'Copies, presets and sync',

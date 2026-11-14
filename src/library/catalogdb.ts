@@ -9,9 +9,10 @@
 // Saving sends only what changed: rows are compared with what was last written, by reference first
 // and then by their JSON, so an edit to one photo writes one row. Writes go out in order, one
 // transaction each.
-import { invoke } from '@tauri-apps/api/core';
+import { Channel, invoke } from '@tauri-apps/api/core';
 import { isTauri } from '../backend/api';
 import { getSetting, setSetting } from './appsettings';
+import { saveFailed, saveRecovered } from './saveissues';
 
 export interface StoredCatalog {
   folders: Record<string, unknown[]>;
@@ -35,7 +36,8 @@ export const LEGACY = { catalog: 'emulsion.libraryCatalog', index: 'emulsion.lib
 const MIGRATED = 'migratedFromWebview';
 
 let stored: StoredCatalog | null = null;
-let writing: Promise<void> = Promise.resolve();
+let writing: Promise<void> | null = null;
+const pending: CatalogChange[] = [];
 let frozen = false;
 
 /** True when the catalog lives in library.db (in the app). */
@@ -75,10 +77,10 @@ export function legacyChange(catalog: unknown, index: unknown, imports: unknown)
 }
 
 /** Read library.db, first moving the webview's catalog into it if that hasn't happened yet. */
-export async function loadCatalogDb() {
+export async function loadCatalogDb(progress?: (counts: [number, number]) => void) {
   if (!usesDatabase()) return;
   try {
-    stored = await readDatabase();
+    stored = await readDatabase(progress);
   } catch (e) {
     // Show an empty library rather than nothing, but never write it over the real catalog.
     frozen = true;
@@ -86,12 +88,13 @@ export async function loadCatalogDb() {
   }
 }
 
-async function readDatabase(): Promise<StoredCatalog> {
-  let db = await invoke<StoredCatalog>('catalog_load');
+async function readDatabase(progress?: (counts: [number, number]) => void): Promise<StoredCatalog> {
+  const load = () => invoke<StoredCatalog>('catalog_load', progress ? { onProgress: new Channel(progress) } : undefined);
+  let db = await load();
   if (!db.kv[MIGRATED]) {
     const change = legacyChange(getSetting(LEGACY.catalog) ?? local(LEGACY.catalog), local(LEGACY.index), local(LEGACY.imports));
     await invoke('catalog_write', { change });
-    db = await invoke<StoredCatalog>('catalog_load');
+    db = await load();
     // Only once the database holds them: the index was what filled localStorage's quota.
     try { for (const key of Object.values(LEGACY)) localStorage.removeItem(key); } catch { /* left behind, unused */ }
     setSetting(LEGACY.catalog, undefined);
@@ -99,23 +102,33 @@ async function readDatabase(): Promise<StoredCatalog> {
   return db;
 }
 
-function send(change: CatalogChange) {
-  if (frozen) return writing;
-  writing = writing
-    .then(() => invoke<void>('catalog_write', { change }))
-    .catch(e => console.error('Could not save the library catalog', e));
+// Diffs may advance their in-memory baseline as soon as queued: keep every delta until
+// its transaction succeeds, then replay failures in order before any later delta.
+function drain(): Promise<void> {
+  if (writing) return writing;
+  const work = async () => {
+    while (pending.length) {
+      await invoke<void>('catalog_write', { change: pending[0] });
+      pending.shift();
+    }
+    saveRecovered('catalog');
+  };
+  writing = work().then(() => { writing = null; if (pending.length) return drain(); }, e => {
+    writing = null; saveFailed('catalog', `Could not save the library catalog. ${String(e)}`); throw e;
+  });
+  void writing.catch(() => {});
   return writing;
 }
+function send(change: CatalogChange) {
+  if (frozen) return Promise.resolve();
+  pending.push(change);
+  return drain();
+}
 
-/** Save one folder's import choice (null forgets it). */
 export const writeFolderImport = (root: string, value: unknown | null) => send({ folderImports: { [root]: value } });
-
-/** Wait for every write sent so far. */
-export const catalogWrites = () => writing;
-
-/** Stop writing: the catalog is about to be replaced by a restore and the window reloaded. */
+export const catalogWrites = () => drain();
 export async function freezeCatalogDb() {
-  await writing;
+  await catalogWrites();
   frozen = true;
 }
 

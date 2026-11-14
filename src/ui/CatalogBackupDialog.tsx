@@ -40,6 +40,9 @@ export async function requestQuit() {
     await flushAppSettings();
   } catch (e) {
     console.error('[quit]', e);
+    showToast(`Emulsion is staying open because changes could not be saved. ${String(e)}`);
+    quitting = false;
+    return;
   }
   await invoke('quit_now');
 }
@@ -61,6 +64,9 @@ export async function saveAndRelaunch() {
     await flushAppSettings();
   } catch (e) {
     console.error('[relaunch]', e);
+    showToast(`Emulsion could not save changes before restarting. ${String(e)}`);
+    quitting = false;
+    return;
   }
   await invoke('relaunch_now');
 }
@@ -117,7 +123,7 @@ function Sheet({ mode, onClose }: { mode: Mode; onClose: () => void }) {
     <div className="settings-sections">
       <section>
         <p id="backup-about" className="settings-note">
-          The catalog holds your library: its folders, imports, collections, and each photo's marks, metadata and edits. Edits are also saved beside your photos. {lastLabel(s.last)}.
+          The catalog holds your library: its folders, imports, collections, and each photo's marks, metadata and edits. The catalog includes your saved edits, virtual copies and edit history. {lastLabel(s.last)}.
         </p>
         <div className="settings-row">
           <div className="settings-label"><span>Back up the catalog</span></div>

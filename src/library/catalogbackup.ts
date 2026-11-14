@@ -12,7 +12,7 @@ import { isTauri } from '../backend/api';
 import { getSetting, setSetting } from './appsettings';
 import { flushCatalog, localDay } from './catalog';
 import { freezeCatalogDb } from './catalogdb';
-import { flushSaves } from './sidecars';
+import { flushSaves, freezeSaves, resumeSaves } from './sidecars';
 
 export type BackupFrequency = 'always' | 'daily' | 'weekly' | 'monthly' | 'never';
 export const BACKUP_FREQUENCIES: { id: BackupFrequency; label: string }[] = [
@@ -97,11 +97,20 @@ export async function restoreCatalog() {
   const path = await open({ title: 'Choose a catalog backup to restore', multiple: false, directory: false, defaultPath: latest ?? folder, filters: [{ name: 'Emulsion catalog backup', extensions: ['zip'] }] });
   if (typeof path !== 'string') return;
   const name = path.split(/[\\/]/).pop() ?? path;
-  const ok = await ask(`Replace the library catalog with “${name}”? Folders, imports, collections and photo details go back to how they were then. Edits saved beside your photos are not changed, and the catalog you have now is kept as its own backup first. Emulsion reloads after.`, { title: 'Restore catalog', okLabel: 'Restore', cancelLabel: 'Cancel', kind: 'warning' });
+  const ok = await ask(`Replace the library catalog with “${name}”? Folders, imports, collections and catalog edits go back to how they were then. The catalog you have now is kept as its own backup first. Existing sidecar files are left untouched. Emulsion reloads after.`, { title: 'Restore catalog', okLabel: 'Restore', cancelLabel: 'Cancel', kind: 'warning' });
   if (!ok) return;
-  await flushSaves();
-  await flushCatalog();
-  await freezeCatalogDb();
+  const root = document.getElementById('root');
+  if (root) root.inert = true;
+  try {
+    await freezeSaves();
+    await flushCatalog();
+    await freezeCatalogDb();
+  } catch (e) {
+    resumeSaves();
+    if (root) root.inert = false;
+    await message(`The catalog was not replaced because changes could not be saved. ${String(e)}`, { title: 'Could not restore catalog', kind: 'error' });
+    return;
+  }
   try {
     const r = await invoke<{ before: string }>('catalog_restore', { path });
     await message(`Restored the catalog from “${name}”. The one you had is kept as “${r.before.split(/[\\/]/).pop()}” in Emulsion's backups folder. Emulsion reloads now.`, { title: 'Catalog restored' });

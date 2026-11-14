@@ -2,8 +2,8 @@
 //! The library catalog, `library.db` in the app's data folder: which folders are in the library,
 //! which of their files were imported, every imported photo's catalogued state (edits, marks,
 //! metadata, capture info) and the import sessions and collections. One SQLite database, as
-//! darktable keeps `library.db` and Lightroom Classic its `.lrcat`; photos' edits also stay in
-//! their sidecars, so the photos remain the source of truth for their own edits.
+//! darktable keeps `library.db` and Lightroom Classic its `.lrcat`; authoritative per-source edit envelopes and history live in the edits table. Portable sidecars
+//! are optional exports; legacy files are imported once without deleting them.
 //!
 //! The interface keeps the whole catalog in memory and sends only what changed (`Change`), one
 //! transaction per save. Photos are stored as the interface's JSON, one row per photo per folder
@@ -26,7 +26,7 @@ use std::sync::Mutex;
 
 pub const DB: &str = "library.db";
 /// The schema this build writes (`PRAGMA user_version`).
-const SCHEMA: i64 = 1;
+const SCHEMA: i64 = 2;
 /// Catalog backups kept in the backup folder (older ones of ours are deleted).
 pub const KEEP_BACKUPS: usize = 10;
 const BACKUP_PREFIX: &str = "Emulsion Catalog ";
@@ -82,7 +82,27 @@ pub fn open(path: &Path) -> Result<Connection, String> {
     conn.pragma_update(None, "journal_mode", "WAL").map_err(|e| e.to_string())?;
     conn.pragma_update(None, "synchronous", "NORMAL").map_err(|e| e.to_string())?;
     conn.busy_timeout(std::time::Duration::from_secs(5)).map_err(|e| e.to_string())?;
+    let v = version(&conn)?;
+    if v == 1 {
+        // A required snapshot before changing ownership of edits. Never overwrite an earlier
+        // snapshot; interrupted VACUUM copies use a separate temporary name.
+        let backup = path.parent().ok_or("The catalog has no parent folder")?.join("backups").join("before-catalog-edits").join(path.file_name().ok_or("The catalog has no file name")?);
+        fs::create_dir_all(backup.parent().unwrap()).map_err(|e| e.to_string())?;
+        if !backup.exists() {
+            let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|e| e.to_string())?.as_nanos();
+            let partial = sibling(&backup, &format!(".partial-{}-{nonce}", std::process::id()));
+            copy_to(&conn, &partial)?;
+            // Publishing with a hard link never overwrites a snapshot another window made.
+            let publish = fs::hard_link(&partial, &backup);
+            let _ = fs::remove_file(&partial);
+            if let Err(e) = publish { if e.kind() != io::ErrorKind::AlreadyExists { return Err(e.to_string()); } }
+        }
+        let snapshot = Connection::open_with_flags(&backup, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| e.to_string())?;
+        integrity(&snapshot)?;
+        fs::File::open(&backup).and_then(|f| f.sync_all()).map_err(|e| e.to_string())?;
+    }
     migrate(&conn)?;
+    conn.pragma_update(None, "synchronous", "FULL").map_err(|e| e.to_string())?;
     Ok(conn)
 }
 
@@ -91,26 +111,37 @@ fn version(conn: &Connection) -> Result<i64, String> {
 }
 
 fn migrate(conn: &Connection) -> Result<(), String> {
-    let v = version(conn)?;
+    // Another window may be opening the same catalog: serialize version checks and schema DDL.
+    let tx = rusqlite::Transaction::new_unchecked(conn, rusqlite::TransactionBehavior::Immediate).map_err(|e| e.to_string())?;
+    let v = version(&tx)?;
     if v > SCHEMA {
         return Err(format!("This catalog was made by a newer Emulsion (catalog version {v}). Update Emulsion to open it."));
     }
     if v < 1 {
-        conn.execute_batch(
-            "BEGIN;
-             CREATE TABLE IF NOT EXISTS roots (root TEXT PRIMARY KEY) WITHOUT ROWID;
+        tx.execute_batch(
+            "CREATE TABLE IF NOT EXISTS roots (root TEXT PRIMARY KEY) WITHOUT ROWID;
              CREATE TABLE IF NOT EXISTS photos (
                root TEXT NOT NULL, path TEXT NOT NULL, copy TEXT NOT NULL DEFAULT '',
                pos INTEGER NOT NULL, data TEXT NOT NULL);
              CREATE UNIQUE INDEX IF NOT EXISTS photos_key ON photos (root, path, copy);
              CREATE TABLE IF NOT EXISTS folder_imports (root TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
              CREATE TABLE IF NOT EXISTS kv (key TEXT PRIMARY KEY, value TEXT NOT NULL) WITHOUT ROWID;
-             PRAGMA user_version = 1;
-             COMMIT;",
+             PRAGMA user_version = 1;",
         )
         .map_err(|e| e.to_string())?;
     }
-    Ok(())
+    if v < 2 {
+        tx.execute_batch(
+            "CREATE TABLE edits (path TEXT PRIMARY KEY, data TEXT NOT NULL, legacy TEXT,
+                 legacy_digest TEXT, imported INTEGER NOT NULL) WITHOUT ROWID;
+             CREATE TABLE edit_recovery (path TEXT NOT NULL, kind TEXT NOT NULL, digest TEXT NOT NULL,
+                 data TEXT NOT NULL, UNIQUE(path,kind,digest));
+             INSERT OR IGNORE INTO kv(key,value) SELECT 'editStorageUpgrade','true' WHERE EXISTS(SELECT 1 FROM photos);
+             CREATE INDEX IF NOT EXISTS photos_path ON photos(path);
+             PRAGMA user_version = 2;"
+        ).map_err(|e| e.to_string())?;
+    }
+    tx.commit().map_err(|e| e.to_string())
 }
 
 // ---------------------------------------------------------------- load and save
@@ -251,8 +282,8 @@ pub fn integrity(conn: &Connection) -> Result<(), String> {
     let problems: Vec<String> = st
         .query_map([], |r| r.get::<_, String>(0))
         .map_err(|e| e.to_string())?
-        .filter_map(Result::ok)
-        .filter(|s| s != "ok")
+        .collect::<rusqlite::Result<Vec<_>>>().map_err(|e| e.to_string())?
+        .into_iter().filter(|s| s != "ok")
         .collect();
     if problems.is_empty() { Ok(()) } else { Err(format!("The catalog failed its integrity check: {}", problems.join("; "))) }
 }
@@ -460,6 +491,25 @@ mod tests {
         assert!(write(&mut conn, &Change { upserts: vec![row("/a", "/a/1", "", 0, r#"{"path":"/a/1"}"#), row("/a", "/a/2", "", 1, "{oops")], ..Default::default() }).is_err());
         // The transaction rolled back: nothing from it was kept.
         assert!(load(&conn).unwrap().folders.is_empty());
+    }
+
+    #[test]
+    fn schema_upgrade_snapshots_v1_before_edit_storage_and_does_not_repeat_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join(DB);
+        let old = Connection::open(&path).unwrap();
+        old.execute_batch("CREATE TABLE roots(root TEXT PRIMARY KEY); CREATE TABLE photos(root TEXT,path TEXT,copy TEXT,pos INTEGER,data TEXT); CREATE TABLE folder_imports(root TEXT PRIMARY KEY,value TEXT); CREATE TABLE kv(key TEXT PRIMARY KEY,value TEXT); INSERT INTO photos VALUES('/a','/a/1','',0,'{}'); PRAGMA user_version=1;").unwrap();
+        drop(old);
+        let conn = open(&path).unwrap();
+        assert_eq!(version(&conn).unwrap(),2);
+        let snapshot = dir.path().join("backups/before-catalog-edits").join(DB);
+        let before = Connection::open(&snapshot).unwrap();
+        assert_eq!(version(&before).unwrap(),1);
+        assert_eq!(before.query_row("SELECT COUNT(*) FROM photos",[],|r|r.get::<_,i64>(0)).unwrap(),1);
+        drop(before); drop(conn);
+        let bytes = fs::read(&snapshot).unwrap();
+        drop(open(&path).unwrap());
+        assert_eq!(fs::read(&snapshot).unwrap(),bytes);
     }
 
     #[test]

@@ -34,6 +34,7 @@ mod segment;
 mod sky;
 mod sky_commands;
 mod sidecar;
+mod edit_store;
 mod thumbs;
 mod trash;
 mod user_looks;
@@ -128,6 +129,7 @@ pub fn run() {
             commands::log_message,
             commands::show_log,
             commands::catalog_load,
+            commands::edit_storage_options,
             commands::catalog_write,
             commands::catalog_default_backup_folder,
             commands::catalog_backup,

@@ -12,13 +12,22 @@ window.addEventListener('unhandledrejection', (e) => logToTerminal('error', `Unh
 // profile defaults) is imported, so they start from it. Then custom looks are listed before
 // photos are drawn with them.
 async function start() {
+  const root = document.getElementById('root');
+  const opening = document.createElement('p');
+  if (root) {
+    opening.className = 'startup-progress'; opening.setAttribute('role', 'status');
+    opening.textContent = 'Opening your catalog and preserving saved edits…';
+    root.replaceChildren(opening);
+  }
   await loadAppSettings().catch((e) => logToTerminal('error', `Settings: ${String(e)}`));
   // The library catalog (library.db) after the settings: its first load moves the catalog that
   // settings.json and localStorage used to hold into it.
-  await loadCatalogDb().catch(async (e) => {
+  await loadCatalogDb(([checked, total]) => {
+    opening.textContent = total > 0 ? `Preserving saved edits… ${checked.toLocaleString()} of ${total.toLocaleString()} photos checked.` : 'Opening your catalog…';
+  }).catch(async (e) => {
     logToTerminal('error', `Library catalog: ${String(e)}`);
     const { message } = await import('@tauri-apps/plugin-dialog');
-    await message(`Emulsion couldn't open its library catalog, so the library starts empty and nothing is saved to it this time.\n\n${String(e)}\n\nYour photos and their edits are safe in their folders. To bring the catalog back, choose Emulsion › Restore Catalog from Backup…`, { title: 'Library catalog unavailable', kind: 'error' }).catch(() => {});
+    await message(`Emulsion couldn't open its library catalog, so the library starts empty and nothing is saved to it this time.\n\n${String(e)}\n\nYour original photos have not been changed and no catalog data has been replaced. To bring the catalog back, choose Emulsion › Restore Catalog from Backup…`, { title: 'Library catalog unavailable', kind: 'error' }).catch(() => {});
   });
   const [React, ReactDOM, { default: App }, { refreshPresets }, { refreshUserLooks }] = await Promise.all([
     import('react'), import('react-dom/client'), import('./App'), import('./library/presets'), import('./library/userlooks'),

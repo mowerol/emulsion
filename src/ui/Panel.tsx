@@ -21,7 +21,7 @@ import type { ScannerId } from '../film/scanners';
 import { ScannerFinishControls } from './ScannerFinish';
 import { STOCK } from '../film/stocks';
 import {
-  activePhoto, openCopySettings, editActive, editRecipes, pasteSettings, redo, showToast, targets, undo, useApp,
+  activePhoto, restoreRecoveredFamily, openCopySettings, editActive, editRecipes, pasteSettings, redo, showToast, targets, undo, useApp,
 } from '../library/store';
 import { MOD, Segmented } from './common';
 import { PhotoInfo } from './PhotoInfo';
@@ -302,7 +302,7 @@ function whenSaved(ms: number, now = new Date()): string {
 }
 
 /**
- * Earlier states of the active frame's edits, kept in its sidecar (src-tauri/src/sidecar.rs) at
+ * Earlier states of the active frame's edits, kept in the catalog (src-tauri/src/edit_store.rs) at
  * resets, pastes, edits of several photos and the start of each editing session. Picking one puts
  * it back as an undoable step, and keeps what it replaces.
  */
@@ -310,13 +310,14 @@ function EarlierEdits({ close }: { close: () => void }) {
   const photo = useApp(activePhoto);
   const [open, setOpen] = useState(false);
   const [list, setList] = useState<EarlierEdit[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const path = photo?.path;
   useEffect(() => {
     if (!open || !path) return;
     let live = true;
-    setList(null);
+    setList(null); setError(null);
     // Saves still waiting may add a state.
-    void flushSaves().then(() => sidecarHistory(path)).then((h) => { if (live) setList(h); }, () => { if (live) setList([]); });
+    void flushSaves().catch(() => {}).then(() => sidecarHistory(path)).then((h) => { if (live) setList(h); }, e => { if (live) { setList([]); setError(`Could not read saved edits. ${String(e)}`); } });
     return () => { live = false; };
   }, [open, path]);
   if (!photo) return null;
@@ -326,18 +327,20 @@ function EarlierEdits({ close }: { close: () => void }) {
     const raw = photo.copyId ? e.copies?.find((c) => c.id === photo.copyId) : { recipe: e.recipe };
     if (!raw) return [];
     const recipe = normalizeRecipe(raw.recipe);
-    return [{ when: whenSaved(e.updated), recipe, same: JSON.stringify(recipe) === current }];
+    return [{ when: e.note ?? whenSaved(e.updated), recipe, recovered: !photo.copyId ? e.recovered : undefined, same: !e.recovered && JSON.stringify(recipe) === current }];
   });
   return <div className="earlier-edits" role="group" aria-label="Earlier edits">
     <div className="earlier-head">Earlier edits{photo.copyId ? ` of ${photo.copyName}` : ''}</div>
     {list === null && <p className="earlier-note">Reading…</p>}
-    {list !== null && !states.length && <p className="earlier-note">None yet. Emulsion keeps the edit you had when you reset, paste or edit several photos, and when you come back to a photo later.</p>}
+    {error && <p className="earlier-note" role="alert">{error}</p>}
+    {list !== null && !error && !states.length && <p className="earlier-note">None yet. Emulsion keeps the edit you had when you reset, paste or edit several photos, and when you come back to a photo later.</p>}
     {states.map((st, i) => {
       const n = editCount(st.recipe);
       const what = !st.recipe ? 'Original' : `${st.recipe.lookEnabled ? lookName(st.recipe.pack, st.recipe.stock) : 'No look'} · ${n} ${n === 1 ? 'edit' : 'edits'}`;
       return <button key={i} type="button" className="menu-item earlier-item" role="menuitem" disabled={st.same} title={st.same ? 'The same as now' : undefined}
         onClick={() => {
           close();
+          if (st.recovered) { restoreRecoveredFamily(photo.path, st.recovered); return; }
           editRecipes([photoId(photo)], () => st.recipe, 'Restore earlier edit', undefined, { checkpoint: true });
           showToast(`Restored the edit from ${st.when}`);
         }}>

@@ -183,6 +183,6 @@ export const MetadataControls = memo(function MetadataControls() {
           value={shared.fields[f.id] ?? ''} mixed={shared.fields[f.id] === null} />)}
       </MetaGroupFold>;
     })}
-    <p className="hint">Stars, colour labels, keywords and these fields are shared with Lightroom and other apps through each photo’s .xmp sidecar.</p>
+    <p className="hint">Ratings and metadata save in the catalog. Settings → Catalog can also share them with other apps through XMP sidecars.</p>
   </div>;
 });

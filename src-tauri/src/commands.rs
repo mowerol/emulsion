@@ -42,13 +42,13 @@ async fn blocking<T: Send + 'static>(f: impl FnOnce() -> Result<T, String> + Sen
 }
 
 #[tauri::command]
-pub async fn scan_folder(webview: tauri::Webview, path: String, recursive: bool, on_progress: Option<JavaScriptChannelId>) -> Result<library::ScanResult, String> {
+pub async fn scan_folder(app: tauri::AppHandle, webview: tauri::Webview, path: String, recursive: bool, on_progress: Option<JavaScriptChannelId>) -> Result<library::ScanResult, String> {
     let on_progress = on_progress.map(|id| id.channel_on::<_, library::ScanProgress>(webview));
     blocking(move || {
         let mut send = |batch| { if let Some(channel) = &on_progress { let _ = channel.send(batch); } };
-        if on_progress.is_some() {
-            library::scan_with_progress(Path::new(&path), recursive, Some(&mut send))
-        } else { library::scan(Path::new(&path), recursive) }.map_err(|e| e.to_string())
+        use tauri::Manager;
+        let mut read = |path: &Path, owner| app.state::<crate::catalog::CatalogDb>().with(|c| crate::edit_store::read(c, path, owner)).map_err(std::io::Error::other);
+        library::scan_with_reader(Path::new(&path), recursive, if on_progress.is_some() { Some(&mut send) } else { None }, &mut read).map_err(|e| e.to_string())
     }).await
 }
 
@@ -171,8 +171,11 @@ pub async fn white_points(paths: Vec<String>) -> Result<Vec<Option<[f32; 2]>>, S
 /// their own yet and no XMP sidecar (in-camera ratings, files from other apps). `None` where
 /// there is nothing to take.
 #[tauri::command]
-pub async fn embedded_metadata(paths: Vec<String>) -> Result<Vec<Option<xmp::Interchange>>, String> {
-    blocking(move || Ok(paths.par_iter().map(|p| sidecar::embedded(Path::new(p))).collect())).await
+pub async fn embedded_metadata(app: tauri::AppHandle, paths: Vec<String>) -> Result<Vec<Option<xmp::Interchange>>, String> {
+    blocking(move || {
+        use tauri::Manager;
+        crate::edit_store::embedded(&app.state::<crate::catalog::CatalogDb>(), &paths)
+    }).await
 }
 
 /// Library › Read Metadata from Files: what each photo's XMP says now, over whatever Emulsion
@@ -184,11 +187,8 @@ pub async fn read_metadata_from_files(paths: Vec<String>) -> Result<Vec<Option<x
 }
 
 #[tauri::command]
-pub async fn write_sidecar(path: String, saved: sidecar::Saved, checkpoint: Option<bool>) -> Result<(), String> {
-    blocking(move || {
-        sidecar::write(Path::new(&path), &saved, checkpoint.unwrap_or(false)).map_err(|e| format!("Could not save edits for {path}: {e}"))
-    })
-    .await
+pub async fn write_sidecar(app: tauri::AppHandle, path: String, saved: sidecar::Saved, checkpoint: Option<bool>) -> Result<(), String> {
+    catalog_run(&app, move |c| crate::edit_store::save(c, Path::new(&path), &saved, checkpoint.unwrap_or(false)).map_err(|e| format!("{path}: {e}"))).await
 }
 
 /// Delete from Disk: move photos and their sidecars to the Trash (trash.rs).
@@ -209,23 +209,17 @@ pub struct Retagged {
 /// Rename or move keyword `from` (and the keywords under it) to `to`, or delete it (`to` null), in
 /// photos that aren't open (the Keyword List).
 #[tauri::command]
-pub async fn retag_keywords(paths: Vec<String>, from: String, to: Option<String>) -> Result<Vec<Retagged>, String> {
-    blocking(move || {
-        Ok(paths
-            .par_iter()
-            .map(|p| match crate::keywords::retag(Path::new(p), &from, to.as_deref()) {
-                Ok(meta) => Retagged { path: p.clone(), meta, error: None },
-                Err(e) => Retagged { path: p.clone(), meta: None, error: Some(e.to_string()) },
-            })
-            .collect())
-    })
-    .await
+pub async fn retag_keywords(app: tauri::AppHandle, paths: Vec<String>, from: String, to: Option<String>) -> Result<Vec<Retagged>, String> {
+    catalog_run(&app, move |c| Ok(paths.iter().map(|p| match crate::edit_store::retag(c, Path::new(p), &from, to.as_deref()) {
+        Ok(meta) => Retagged { path: p.clone(), meta, error: None },
+        Err(e) => Retagged { path: p.clone(), meta: None, error: Some(e) },
+    }).collect())).await
 }
 
 /// Earlier states of a photo's edits, newest first.
 #[tauri::command]
-pub async fn sidecar_history(path: String) -> Result<Vec<sidecar::Earlier>, String> {
-    blocking(move || Ok(sidecar::history(Path::new(&path)))).await
+pub async fn sidecar_history(app: tauri::AppHandle, path: String) -> Result<Vec<sidecar::Earlier>, String> {
+    catalog_run(&app, move |c| crate::edit_store::history(c, Path::new(&path))).await
 }
 
 fn data_root(app: &tauri::AppHandle) -> Result<PathBuf, String> {
@@ -297,13 +291,31 @@ fn catalog_run<T: Send + 'static>(app: &tauri::AppHandle, f: impl FnOnce(&mut ru
 }
 
 #[tauri::command]
-pub async fn catalog_load(app: tauri::AppHandle) -> Result<crate::catalog::Loaded, String> {
-    catalog_run(&app, |c| crate::catalog::load(c)).await
+pub async fn catalog_load(app: tauri::AppHandle, webview: tauri::Webview, on_progress: Option<JavaScriptChannelId>) -> Result<crate::catalog::Loaded, String> {
+    let on_progress = on_progress.map(|id| id.channel_on::<_, (usize, usize)>(webview));
+    catalog_run(&app, move |c| {
+        let status = crate::edit_store::prepare_with_progress(c, &mut |checked, total| {
+            if let Some(channel) = &on_progress { let _ = channel.send((checked, total)); }
+        })?;
+        let mut loaded = crate::catalog::load(c)?;
+        crate::edit_store::overlay(c, &mut loaded)?;
+        loaded.kv.insert("editStorageStatus".into(), serde_json::to_value(status).map_err(|e| e.to_string())?);
+        Ok(loaded)
+    }).await
 }
 
 #[tauri::command]
 pub async fn catalog_write(app: tauri::AppHandle, change: crate::catalog::Change) -> Result<(), String> {
     catalog_run(&app, move |c| crate::catalog::write(c, &change)).await
+}
+
+/// Catalog saving is always on; these preferences control only optional portable exports.
+#[tauri::command]
+pub async fn edit_storage_options(app: tauri::AppHandle, options: Option<crate::edit_store::Options>) -> Result<crate::edit_store::Options, String> {
+    catalog_run(&app, move |c| {
+        if let Some(options) = options { crate::edit_store::set_options(c, &options)?; }
+        crate::edit_store::options(c)
+    }).await
 }
 
 /// Lightroom's default place for catalog backups, under Pictures.
