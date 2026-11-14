@@ -6,7 +6,7 @@ type Faq = { q: string; a: ReactNode; id?: string };
 const faqs: Faq[] = [
   {
     q: 'Was it vibe coded?',
-    a: 'AI coding tools did a lot of the typing, and they’re why one person can build an editor this size. The judgement isn’t generated, though. Emulsion is made by a designer and developer with more than ten years of building software, who decides how it looks, how it works and which proven algorithms go into it. Every processing step is checked against a tested reference before it ships, and the source is open for anyone to read.',
+    a: 'AI coding tools did a lot of the typing, and they’re why one person can build an editor this size. The judgement isn’t generated, though. Emulsion is made by a product designer and software engineer with more than ten years of building software, who decides how it looks, how it works and which proven algorithms go into it. Those algorithms are ported from darktable and RawTherapee rather than invented, and each one is credited down to the upstream commit it came from in NOTICE.md. Every processing step has a tested reference, the GPU version is checked against it, and about 1,100 automated tests run before each release. The source is open for anyone to read.',
   },
   {
     q: 'Is it really free?',

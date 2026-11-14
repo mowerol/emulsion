@@ -1,5 +1,9 @@
 const points = [
   {
+    title: 'The look and the editor, in one place',
+    body: 'Film looks belong at the start of an edit. Stop there, or keep going with masks, retouching and full RAW controls.',
+  },
+  {
     title: 'Proven algorithms',
     body: 'Colour, tone, masking and noise reduction ported from darktable, sharpening from RawTherapee. Years of refinement you can trust with your files.',
   },

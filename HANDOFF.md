@@ -13,17 +13,18 @@ Prepared `.scratch/release-0.1.5-notes.md` from the corrected installation text 
 GitHub still publishes v0.1.4; no v0.1.5 tag/release created by this task. Publishing/uploading
 remains the next step. `release/` also contains older artifacts: select only 0.1.5 assets.
 
-**Marketing site copy from the Reddit launch thread (2026-11-14; uncommitted).** Oli shared the
-thread and wanted the site to use the supportive comments. We agreed to make the case positively
-rather than defend the use of AI, and not to quote commenters. Changes in `site/`: Why Emulsion gets a first
-point, "The look and the editor, in one place" (the Fuji JPEG → TIFF → RAW editor two-step gap),
-with the grid now 1/2/4 columns; new `MakersNote.tsx` ("No subscription game.", first person,
-signed Oli, from his Reddit wording) between Library and Download; the "Was it vibe coded?" FAQ
-now cites the darktable/RawTherapee ports, NOTICE.md commit credits, GPU checks against
-references and ~1,100 tests (958 JS + 149 Rust). Build and typecheck pass; screenshotted at 1440
-and 820. Still to do: Oli edits the note in his own voice; rewrite the "Where are my edits
-stored?" FAQ (still says sidecars) when 0.1.5 ships; add a Fujifilm RAF/X-Trans FAQ only after
-checking real files.
+**Marketing site copy from the Reddit launch thread (2026-11-14; committed and pushed).** Oli
+shared the thread and wanted the site to use the supportive comments. We agreed to make the case
+positively rather than defend the use of AI, and not to quote commenters. Changes in `site/`: Why
+Emulsion gets a first point, "The look and the editor, in one place" (a look can be the whole edit
+or its start; Oli chose copy without the TIFF two-step jab), with the grid now 1/2/4 columns; new
+`MakersNote.tsx` ("No subscription game.", first person, signed Oli; the opening line is Oli's
+own) between Library and Download; the "Was it vibe coded?" FAQ now says "product designer and
+software engineer" and cites the darktable/RawTherapee ports, NOTICE.md commit credits, GPU
+checks against references and ~1,100 tests (958 JS + 149 Rust). Build and typecheck pass;
+screenshotted at 1440 and 820 (headless Chrome can't go below 500 px; phone not checked by eye).
+Still to do: rewrite the "Where are my edits stored?" FAQ (still says sidecars) when 0.1.5 ships;
+add a Fujifilm RAF/X-Trans FAQ only after checking real files.
 
 **0.1.5 release preparation (2026-11-13; prepared, not built/published).** Oli asked whether
 `npm run release` is ready. All app manifests and lockfiles now say 0.1.5 (0.1.4 is already the

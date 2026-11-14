@@ -7,6 +7,7 @@ import Foundations from './components/Foundations.tsx';
 import Looks from './components/Looks.tsx';
 import LocalAI from './components/LocalAI.tsx';
 import Library from './components/Library.tsx';
+import MakersNote from './components/MakersNote.tsx';
 import Download from './components/Download.tsx';
 import Faq from './components/Faq.tsx';
 import Footer from './components/Footer.tsx';
@@ -24,6 +25,7 @@ export default function App() {
         <Foundations />
         <LocalAI />
         <Library />
+        <MakersNote />
         <Download />
         <Faq />
       </main>
