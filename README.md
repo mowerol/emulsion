@@ -160,6 +160,7 @@ Goal (agreed 2026-11-10): make Emulsion a credible replacement for Lightroom Cla
 
 ### Later
 
+- **Warp tool (community request, 2026-11-14):** local, non-destructive reshaping of a photo. The interaction and scope still need design.
 - **Fujifilm film simulations (idea, Oli, 2026-11-13):** add simulations aimed at faithfully reproducing Fujifilm's in-camera rendering, with reference comparisons against camera output to establish fidelity. Keep this distinct from the existing film-inspired LUT collections.
 - **Minimal recipe workspace (idea, Oli, 2026-11-13):** an optional workspace centred on choosing a simulation and tweaking a small set of recipe-style settings, such as exposure, white balance/shift, highlight and shadow tone, colour and grain. Keep the editing experience deliberately minimal, with the full Develop workspace available when needed. Exact controls and simulation coverage remain to be designed.
 - **Maybe — Matte:** consider a convenient tone control that lifts the deepest blacks and tapers out through the midtones. Only add it if it earns its place alongside the tone curve; this is a possibility, not a committed replacement for Fade.

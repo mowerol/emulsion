@@ -1,13 +1,20 @@
-## What and why
+## Summary
 
-<!-- What changes for someone using Emulsion, and why. Link the issue it fixes: "Fixes #12". -->
+<!-- The smallest view that makes the point (a diff sketch, call tree, file tree or diagram), with a
+     line or two of text on what changes for someone using Emulsion and why.
+     Link the issue it fixes: "Fixes #12". -->
 
 ## Ported from
 
 <!-- For image processing: the upstream project, file and commit, and the NOTICE.md entry.
      Any deviation from upstream, and why (agreed with Oli first). Delete if nothing is ported. -->
 
-## Checks
+## Evidence
+
+<!-- Before and after: screenshots for anything visual, test, probe or timing output otherwise. -->
+
+- **Before:**
+  **After:**
 
 <!-- Tick what ran and give the numbers. Delete lines that don't apply. -->
 
@@ -19,5 +26,13 @@
 
 ## To try by hand
 
-<!-- What can't be checked headlessly (mouse, trackpad, keyboard, menus, real photos)
-     and what to try. -->
+<!-- What can't be checked headlessly (mouse, trackpad, keyboard, menus, real photos) and what to
+     try. Delete if nothing. -->
+
+## Merge Danger
+
+**Door:** <!-- two-way (cheap to roll back) or one-way (catalog or sidecar formats, migrations,
+  deleting files, anything users can't undo) -->
+
+**Blast Radius:** <!-- one word, then what could break: edits, exports, the catalog, performance,
+  a camera's files, the site... -->
