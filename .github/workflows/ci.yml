@@ -1,0 +1,72 @@
+# Checks every pull request and every push to main: the same steps as `npm run check`, split so
+# a slow runner doesn't hold up the rest. The interface checks run on Linux (fast to get a
+# runner); `cargo test` needs macOS (LibRaw's OpenMP comes from Homebrew's libomp), and hosted
+# macOS arm64 runners can queue for a long time, so it runs as its own job.
+#
+# The GPU probe and in-app timing need a real GPU and the app's window, so they stay local and
+# the pull request description reports them.
+name: CI
+
+on:
+  pull_request:
+    paths-ignore: ["site/**", "docs/**", "**/*.md", ".github/workflows/pages.yml"]
+  push:
+    branches: [main]
+    paths-ignore: ["site/**", "docs/**", "**/*.md", ".github/workflows/pages.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  interface:
+    name: Typecheck, tests and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+      - run: npx tsc --noEmit
+      - run: npx vitest run
+      - run: npx vite build
+
+  core:
+    name: Rust core (cargo test)
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install libomp
+        run: brew install libomp
+
+      # Tauri's build script embeds the built interface, so dist/ has to exist.
+      - run: npm ci
+      - run: npx vite build
+
+      - name: cargo test
+        working-directory: src-tauri
+        run: cargo test
