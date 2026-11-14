@@ -5,6 +5,7 @@
 // (localStorage `emulsion.engine` = `main`, or no OffscreenCanvas WebGL2), which the perf driver's
 // engine-level scenarios also use.
 import { captureInfo, removeCachedPatch, removeInpaint, type CaptureInfo } from '../backend/api';
+import { gpuMemory } from '../backend/trail';
 import { loadCachedImage } from '../library/thumbs';
 import type { RemoveState } from '../engine/removequeue';
 import type { HalfImage, View } from '../engine/engine';
@@ -100,7 +101,7 @@ export class DevelopClient {
     let c: DevelopClient | null = null;
     const early: FromLoop[] = [];
     const loop = new DevelopLoop(canvas, (m) => (c ? c.receive(m) : early.push(m)),
-      new Worker(new URL('../engine/retouch.worker.ts', import.meta.url), { type: 'module' }), stats);
+      new Worker(new URL('../engine/retouch.worker.ts', import.meta.url), { type: 'module' }));
     loop.stats = stats;
     c = new DevelopClient('main', loop.engine.maxTextureSize, events);
     c.loop = loop;
@@ -148,6 +149,7 @@ export class DevelopClient {
         break;
       }
       case 'busy': this.busy = m.busy; break;
+      case 'memory': gpuMemory('develop engine', m); break;
       case 'sharpening': this.events.sharpening?.(m.pending); break;
       case 'reply': {
         const r = this.requests.get(m.id);

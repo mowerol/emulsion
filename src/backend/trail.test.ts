@@ -3,7 +3,9 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeEach, describe as group, expect, it } from 'vitest';
-import { crumb, describe, formatTrail, installTrail, ipcSettled, ipcStarted, markCleanExit, redact, reportError, resetTrailForTest, stateChanged, trail } from './trail';
+import { crumb, describe, formatTrail, gpuMemory, installTrail, ipcSettled, ipcStarted, markCleanExit, photoShown, redact, reportError, resetTrailForTest, stateChanged, trail } from './trail';
+import { noiseJob } from '../library/noise';
+import { trackTextures } from '../dev/gpumemory';
 
 let t = 0;
 let logged: { level: string; message: string }[] = [];
@@ -179,6 +181,38 @@ group('the page', () => {
     expect(out).toMatch(/typing in input\[text\] "Keyword" +×6/);
     expect(out).toContain('Cmd+z in input[text] "Keyword"');
     expect(out).not.toContain('secret');
+  });
+});
+
+group('memory', () => {
+  const MiB = 2 ** 20;
+
+  it('puts each jump in GPU memory beside the photo and step that caused it', () => {
+    photoShown('/Users/oli/Pictures/x/DSCF0001.RAF', 'develop');
+    gpuMemory('develop engine', { bytes: 600 * MiB, peakBytes: 700 * MiB, textures: 40 });
+    t += 100;
+    noiseJob('/Users/oli/Pictures/x/DSCF0001.RAF', { pending: true, done: 0, total: 0 });
+    for (let i = 1; i <= 8; i++) { t += 500; noiseJob('/Users/oli/Pictures/x/DSCF0001.RAF', { done: i, total: 8 }); }
+    noiseJob('/Users/oli/Pictures/x/DSCF0001.RAF', { pending: false, done: 1, total: 1 });
+    t += 100;
+    gpuMemory('develop engine', { bytes: 1400 * MiB, peakBytes: 1500 * MiB, textures: 44 });
+    t += 3000;
+    gpuMemory('develop engine', { bytes: 1460 * MiB, peakBytes: 1500 * MiB, textures: 45 });
+    const lines = trail().map(c => `${c.kind} ${c.text}`);
+    expect(lines).toEqual([
+      'photo develop: file#1.raf',
+      'memory GPU textures, develop engine: 600 MiB in 40 textures, peak 700 MiB',
+      'photo AI noise reduction 8/8: file#1.raf',
+      'photo AI noise reduction finished: file#1.raf',
+      'memory GPU textures, develop engine: 1,400 MiB (+800 MiB) in 44 textures, peak 1,500 MiB',
+      'memory GPU textures, develop engine: 1,460 MiB (+60 MiB) in 45 textures, peak 1,500 MiB',
+    ]);
+    reportError('Script error', 'x');
+    expect(logged[logged.length - 1].message).toContain('GPU textures: develop engine 1,460 MiB');
+  });
+
+  it('installs the texture tracker once per thread', () => {
+    expect(trackTextures()).toBe(trackTextures());
   });
 });
 

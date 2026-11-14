@@ -144,6 +144,8 @@ export type FromLoop =
   | { type: 'reply'; id: number; ok: false; error: string }
   | { type: 'frame'; stat: FrameStat }
   | { type: 'busy'; busy: boolean }
+  /** The engine's texture memory, when it has moved by 64 MiB or more (for the action trail). */
+  | { type: 'memory'; bytes: number; peakBytes: number; textures: number }
   /** Exact detail is being prepared for the latest view, its stand-in still on screen. */
   | { type: 'sharpening'; pending: boolean };
 
@@ -197,9 +199,13 @@ export class DevelopLoop {
       if (!this.disposed) this.queueWork(() => { if (!this.disposed) this.restart(); });
     }, r => this.removalCall<Uint8Array | null>({ type: 'removeCached', key: r.key }));
   private memory: ReturnType<typeof trackTextures> | null = null;
+  /** Texture memory last reported to the page's action trail. */
+  private memoryReported = 0;
+  /** Background work (noise reduction, capture sharpening) can grow it between renders. */
+  private memoryTimer = setInterval(() => this.reportMemory(), 5000);
 
-  constructor(canvas: HTMLCanvasElement | OffscreenCanvas, private post: (m: FromLoop, transfer?: Transferable[]) => void, retouchWorker?: Worker, stats = false) {
-    if (stats) this.memory = trackTextures();
+  constructor(canvas: HTMLCanvasElement | OffscreenCanvas, private post: (m: FromLoop, transfer?: Transferable[]) => void, retouchWorker?: Worker) {
+    this.memory = trackTextures();
     this.engine = new Engine(canvas);
     this.engine.cacheCapture = (import.meta as { env?: Record<string, string> }).env?.VITE_CAPTURE_CACHE !== '0';
     this.workChannel = new MessageChannel();
@@ -542,6 +548,7 @@ export class DevelopLoop {
         engine.render(source, st.recipe, renderOpts);
         this.presentedPhoto = st.histogramFor;
         this.post({ type: 'presented', photo: st.histogramFor, width: st.width, height: st.height });
+        this.reportMemory();
         if (this.stats) this.frameStat(st.seq, t0, source, !!draft, preparationStat.steps ? { ...preparationStat, capture: { ...engine.captureWork } } : undefined,
           [...(live ? ['live'] : []), ...(moving ? ['moving'] : []), ...(draft ? ['draft'] : []), ...engine.inexactParts]);
         this.sharpening(false);
@@ -582,6 +589,14 @@ export class DevelopLoop {
     if (pending === this.sharpeningShown) return;
     this.sharpeningShown = pending;
     this.post({ type: 'sharpening', pending });
+  }
+
+  /** Tells the page's action trail when texture memory has moved by 64 MiB or more. */
+  private reportMemory() {
+    const m = this.memory?.();
+    if (!m || Math.abs(m.bytes - this.memoryReported) < 64 * 2 ** 20) return;
+    this.memoryReported = m.bytes;
+    this.post({ type: 'memory', bytes: m.bytes, peakBytes: m.peakBytes, textures: m.textures });
   }
 
   /** When the GPU finishes a screen frame (fence polled), for the perf driver. */
@@ -684,6 +699,7 @@ export class DevelopLoop {
 
   dispose() {
     this.disposed = true;
+    clearInterval(this.memoryTimer);
     this.removals.clear();
     for (const cancel of this.removalCancels) cancel();
     for (const reply of this.removalReplies.values()) reply.reject(new Error('engine closed'));

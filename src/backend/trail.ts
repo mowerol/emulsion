@@ -5,8 +5,9 @@
  * led to it.
  *
  * Two lanes of recent steps, merged by time when written out:
- * - the person's: clicks, keys, slider and checkbox values, scrolling, drags, window changes, and
- *   errors and console warnings. Controls are named by their label; typed text is never kept.
+ * - the person's: clicks, keys, slider and checkbox values, scrolling, drags, window changes,
+ *   errors and console warnings, and GPU texture memory each time it moves by 64 MiB (macOS stops
+ *   the page when its memory passes a limit, issue #3, so a jump has to sit beside its cause). Controls are named by their label; typed text is never kept.
  * - the app's: which fields of the app state changed (src/library/store.ts) and the calls into the
  *   Rust core (ipc.ts), so a burst of background work can't push the person's steps out.
  * Repeats of one step close together fold into a single line with a count, so a slider drag or a
@@ -18,8 +19,9 @@
  * the folders above it.
  */
 import { invoke as tauriInvoke } from '@tauri-apps/api/core';
+import { trackTextures } from '../dev/gpumemory';
 
-export type CrumbKind = 'click' | 'key' | 'input' | 'drag' | 'scroll' | 'window' | 'console' | 'error' | 'note' | 'state' | 'ipc';
+export type CrumbKind = 'click' | 'key' | 'input' | 'drag' | 'scroll' | 'window' | 'console' | 'error' | 'note' | 'photo' | 'memory' | 'state' | 'ipc';
 type Level = 'error' | 'warn' | 'info';
 
 export interface Crumb { kind: CrumbKind; text: string; key: string; t: number; last: number; count: number }
@@ -109,6 +111,29 @@ function waitingCalls(at: number): string | null {
   return [...inFlight.values()].map(c => `  ${c.cmd} (${seconds(at - c.t)})`).join('\n');
 }
 
+// --- GPU memory (src/dev/gpumemory.ts) ---
+
+const MIB = 2 ** 20;
+const lastMemory = new Map<string, number>();
+let memoryLines = 0;
+
+/** Records a thread's WebGL texture memory: `where` is 'develop engine' or 'page'. */
+export function gpuMemory(where: string, m: { bytes: number; peakBytes: number; textures: number }) {
+  const before = lastMemory.get(where);
+  lastMemory.set(where, m.bytes);
+  const change = before === undefined ? '' : ` (${m.bytes >= before ? '+' : '−'}${mib(Math.abs(m.bytes - before))})`;
+  // Never folded: each line is at least 64 MiB from the one before, so they stay few.
+  crumb('memory', `GPU textures, ${where}: ${mib(m.bytes)}${change} in ${m.textures} textures, peak ${mib(m.peakBytes)}`, `memory:${where}:${++memoryLines}`);
+}
+
+/** The latest texture memory of each thread, for the head of a report. */
+function memoryLine(): string | null {
+  if (!lastMemory.size) return null;
+  return `GPU textures: ${[...lastMemory].map(([where, bytes]) => `${where} ${mib(bytes)}`).join(', ')}`;
+}
+
+const mib = (bytes: number) => `${Math.round(bytes / MIB).toLocaleString('en-US')} MiB`;
+
 // --- App state (src/library/store.ts) ---
 
 /** Records which fields of a state object changed, with short before → after values. */
@@ -121,6 +146,11 @@ export function stateChanged(next: object, prev: object) {
 
 export function watchStore(store: { subscribe(listener: (next: object, prev: object) => void): unknown }) {
   store.subscribe((next, prev) => stateChanged(next, prev));
+}
+
+/** The photo now open (a photoId, made opaque like every path), in the person's lane beside the memory it costs. */
+export function photoShown(id: string | null, view: string) {
+  crumb('photo', id ? `${view}: ${id}` : `${view}: no photo`);
 }
 
 function brief(v: unknown): string {
@@ -178,6 +208,7 @@ export function reportError(source: string, error: unknown, componentStack?: str
   const parts = [
     `${source}: ${message}`,
     `Build: ${BUILD} (tools/diagnostics/symbolicate.mjs maps the stack to source)`,
+    memoryLine(),
     stack && `Stack:\n${indent(stack)}`,
     componentStack && `Components:\n${indent(componentStack.split('\n').filter(l => l.trim()).slice(0, 30).join('\n'))}`,
     waiting && `Waiting on the Rust core:\n${waiting}`,
@@ -300,6 +331,18 @@ export function installTrail(win: Window = window) {
     };
     signal.addEventListener('abort', () => { if (console[level] === wrapped) console[level] = original[level]; });
   }
+  // The page's own WebGL (thumbnails, look previews; also the engine when it runs here instead of
+  // in its worker, which then reports under both names).
+  const pageTextures = trackTextures();
+  let pageReported = 0;
+  const memoryTimer = setInterval(() => {
+    const m = pageTextures();
+    if (Math.abs(m.bytes - pageReported) < 64 * MIB) return;
+    pageReported = m.bytes;
+    gpuMemory('page', m);
+  }, 5000);
+  signal.addEventListener('abort', () => clearInterval(memoryTimer));
+
   // For a look from the dev tools: __emulsionTrail()
   (win as unknown as { __emulsionTrail: () => string }).__emulsionTrail = () => formatTrail();
 }
@@ -408,6 +451,7 @@ function clockTime(t: number) {
 export function resetTrailForTest(options: { clock?: () => number; sink?: typeof sink; storage?: Storage | null } = {}) {
   lanes = { person: [], app: [] };
   inFlight.clear();
+  lastMemory.clear();
   reported.clear();
   if (persistTimer) clearTimeout(persistTimer);
   persistTimer = null;

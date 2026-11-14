@@ -2,7 +2,7 @@
 import '@fontsource-variable/geist/wght.css';
 import './styles.css';
 import { logToTerminal } from './backend/api';
-import { installTrail, reportError, watchStore } from './backend/trail';
+import { installTrail, photoShown, reportError, watchStore } from './backend/trail';
 import { loadAppSettings } from './library/appsettings';
 import { loadCatalogDb } from './library/catalogdb';
 
@@ -32,10 +32,14 @@ async function start() {
     const { message } = await import('@tauri-apps/plugin-dialog');
     await message(`Emulsion couldn't open its library catalog, so the library starts empty and nothing is saved to it this time.\n\n${String(e)}\n\nYour original photos have not been changed and no catalog data has been replaced. To bring the catalog back, choose Emulsion › Restore Catalog from Backup…`, { title: 'Library catalog unavailable', kind: 'error' }).catch(() => {});
   });
-  const [React, ReactDOM, { default: App }, { refreshPresets }, { refreshUserLooks }, { useApp }] = await Promise.all([
-    import('react'), import('react-dom/client'), import('./App'), import('./library/presets'), import('./library/userlooks'), import('./library/store'),
+  const [React, ReactDOM, { default: App }, { refreshPresets }, { refreshUserLooks }, { useApp }, { photoId }] = await Promise.all([
+    import('react'), import('react-dom/client'), import('./App'), import('./library/presets'), import('./library/userlooks'), import('./library/store'), import('./library/copies'),
   ]);
   watchStore(useApp);
+  useApp.subscribe((s, old) => {
+    const now = s.photos[s.active], was = old.photos[old.active];
+    if ((now && photoId(now)) !== (was && photoId(was)) || s.view !== old.view) photoShown(now ? photoId(now) : null, s.view);
+  });
   await refreshUserLooks().then(() => refreshPresets()).catch((e) => logToTerminal('error', `Saved treatments: ${String(e)}`));
   // React reports with the component stack; an uncaught error unmounts the whole interface.
   ReactDOM.createRoot(document.getElementById('root') as HTMLElement, {
