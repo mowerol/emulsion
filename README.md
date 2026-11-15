@@ -111,6 +111,8 @@ Settings → Catalog offers independent options to also write portable `<file na
 
 ## Development
 
+In development builds, the Look Creator accepts a reference JPEG, PNG or WebP via **Add reference photo** or by dropping one photo onto the window. The draggable split shows the reference on the left and the current look on the right; zoom and pan follow together. **Split** (Y) toggles the comparison, and **×** removes the reference. References last for the editing session and are not imported or saved with the look.
+
 ```sh
 npm run check     # typecheck, frontend tests, Rust tests
 npm test          # frontend tests only

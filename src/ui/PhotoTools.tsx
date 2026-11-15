@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { memo, useEffect, useRef, useState, type ComponentType } from 'react';
-import { Bandage, ChevronDown, Columns2, Crop, Eraser, Eye, Hand, Minus, MousePointer2, Pipette, Plus, Slash, SquareDashedMousePointer, type LucideIcon } from 'lucide-react';
+import { Bandage, Camera, ChevronDown, Columns2, Crop, Eraser, Eye, Hand, Minus, MousePointer2, Pipette, Plus, Slash, SquareDashedMousePointer, type LucideIcon } from 'lucide-react';
 import { setCompare, useApp } from '../library/store';
 import { CropBar } from './CropBar';
 import { activePhoto } from '../library/store';
@@ -33,9 +33,11 @@ const ZOOMS: { scale: number | null; label: string; key?: string }[] = [
 
 /** The bar above the photo: compare on the left, the tools in the middle, zoom on the right. */
 // Memoised: Develop re-renders on every edit, and nothing here follows the recipe.
-export const PhotoTools = memo(function PhotoTools({ scale, zoomLabel, onZoom, onStep, before, onBefore, ready }: {
+export const PhotoTools = memo(function PhotoTools({ scale, zoomLabel, onZoom, onStep, before, onBefore, ready, jpegOn, jpegBlocked, onJpeg }: {
   scale: number | null; zoomLabel: string; onZoom: (scale: number | null) => void; onStep: (direction: 1 | -1) => void;
   before: Before; onBefore: (before: Before) => void; ready: boolean;
+  /** Development builds: the camera JPEG toggle (absent elsewhere); `jpegBlocked` says why it can't show. */
+  jpegOn?: boolean; jpegBlocked?: string | null; onJpeg?: () => void;
 }) {
   const hasPhoto = useApp(s => !!activePhoto(s));
   const cropping = useApp(s => !!s.cropEdit);
@@ -83,6 +85,10 @@ export const PhotoTools = memo(function PhotoTools({ scale, zoomLabel, onZoom, o
       <button type="button" className="tool-icon" disabled={!ready || cropping} aria-label="Split" data-tip="Split before and after (Y)" aria-pressed={before === 'split'} onClick={() => toggle('split')}>
         <Columns2 size={18} strokeWidth={1.75} aria-hidden="true" />
       </button>
+      {onJpeg && <button type="button" className="tool-icon" disabled={!ready || cropping || !!jpegBlocked && !jpegOn} aria-label="Camera JPEG"
+        data-tip={jpegBlocked ?? 'Compare with the camera JPEG (K)'} aria-pressed={!!jpegOn} onClick={onJpeg}>
+        <Camera size={18} strokeWidth={1.75} aria-hidden="true" />
+      </button>}
     </div>
 
     <div className="tool-pill" role="group" aria-label="Tools">

@@ -38,6 +38,7 @@ const SECTIONS: { title: string; rows: Row[] }[] = [
     ['\\ (hold)', 'Show original'],
     ['Y', 'Before and after split'],
     ['J', 'Show clipping'],
+    ...(import.meta.env.DEV ? [['K', 'Compare with the camera JPEG']] as [string, string][] : []),
     ['Z', 'Fit / 100%'],
     [`${MOD}=  ${MOD}−`, 'Zoom in / out (also = and −)'],
     [`${MOD}0`, 'Zoom to fit'],

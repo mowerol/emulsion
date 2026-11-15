@@ -222,6 +222,8 @@ function useDesktop() {
         else if (e.payload.type === 'drop') {
           externalDrag = false;
           setDropping(false);
+          // The dev look editor's reference picker consumes this native drop itself.
+          if (import.meta.env.DEV && useApp.getState().lookEdit) return;
           void openPaths(e.payload.paths);
         }
       }),
@@ -278,7 +280,7 @@ export default function App() {
       <RemovePhotosDialog />
       {dropping && (
         <div className="drop">
-          <p>Drop a folder or photos to open them</p>
+          <p>{import.meta.env.DEV && editingLook ? 'Drop a photo to use as the reference' : 'Drop a folder or photos to open them'}</p>
         </div>
       )}
       <div className="toast-region" role="status" aria-live="polite">

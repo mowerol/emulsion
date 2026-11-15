@@ -108,6 +108,26 @@ pub async fn cull_preview(path: String) -> Result<Response, String> {
     Ok(Response::new(bytes))
 }
 
+/// Dev look matching uses the original encoded bytes, including the camera JPEG's ICC profile.
+#[tauri::command]
+pub async fn read_reference_photo(path: String) -> Result<Response, String> {
+    if !cfg!(debug_assertions) { return Err("Reference photos are development-only".into()); }
+    blocking(move || {
+        use std::io::Read;
+        let path = Path::new(&path);
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+        if !matches!(ext.as_str(), "jpg" | "jpeg" | "png" | "webp") {
+            return Err("Choose a JPEG, PNG or WebP reference".into());
+        }
+        const LIMIT: u64 = 128 * 1024 * 1024;
+        let mut bytes = Vec::new();
+        std::fs::File::open(path).map_err(|e| e.to_string())?
+            .take(LIMIT + 1).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+        if bytes.len() as u64 > LIMIT { return Err("Reference photo exceeds 128 MB".into()); }
+        Ok(Response::new(bytes))
+    }).await
+}
+
 #[tauri::command]
 pub async fn load_image(app: tauri::AppHandle, paths: State<'_, AppPaths>, path: String, max_edge: Option<u32>, noise_reduction: Option<bool>) -> Result<Response, String> {
     let cache = paths.cache_dir.parent().unwrap_or(&paths.cache_dir).join("noise-reduction");

@@ -37,6 +37,8 @@ import { useApp, type Photo } from './library/store';
 import { setTargetCollection, useCatalog } from './library/catalog';
 import { NO_FILTER } from './library/filter';
 import { StageMenu } from './ui/StageMenu';
+import { defaultRecipe } from './film/recipe';
+import { endLookEdit, startLookEdit } from './library/store';
 import { flushCatalog } from './library/catalog';
 /** The target collection as last saved to the catalog database. */
 async function savedTarget() {
@@ -104,6 +106,21 @@ it('keeps the folder drop prompt for external folders and clears it when they le
   expect(host.textContent).toContain('Drop a folder or photos to open them');
   await act(async () => desktop.drag({ type: 'leave' }));
   expect(host.textContent).not.toContain('Drop a folder or photos to open them');
+});
+
+it('routes native drops to the development look reference without opening photos or folders', async () => {
+  const recipe = defaultRecipe();
+  await act(async () => startLookEdit(photo.path, 'reference-test', 'Reference test', recipe));
+  const before = useApp.getState().photos;
+  const reads = invoked.length;
+  await act(async () => desktop.drag({ type: 'enter', paths: ['/fuji.JPG'], position: new PhysicalPosition(400, 300) }));
+  expect(host.textContent).toContain('Drop a photo to use as the reference');
+  await act(async () => desktop.drag({ type: 'drop', paths: ['/fuji.JPG'], position: new PhysicalPosition(400, 300) }));
+  expect(host.textContent).not.toContain('Drop a photo to use as the reference');
+  expect(invoked.slice(reads).some(c => c.cmd === 'scan_folder')).toBe(false);
+  expect(useApp.getState().photos).toBe(before);
+  expect(useApp.getState().lookEdit?.id).toBe('reference-test');
+  await act(async () => endLookEdit());
 });
 
 it('preserves a multiple selection and prevents a drop from navigating to the collection', async () => {

@@ -96,6 +96,7 @@ pub fn run() {
             commands::computer_folders,
             commands::thumbnail,
             commands::cull_preview,
+            commands::read_reference_photo,
             commands::load_image,
             commands::custom_looks,
             commands::list_presets,

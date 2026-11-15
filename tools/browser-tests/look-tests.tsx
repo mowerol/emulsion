@@ -4,7 +4,7 @@
 // SHOT=out.png WINDOW=1512,900 DPR=2 node tools/browser-tests/realtime.mjs look-tests 60
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { mockIPC } from '@tauri-apps/api/mocks';
+import { mockIPC, mockWindows } from '@tauri-apps/api/mocks';
 import { LookCreatorHeader, LookLutColumn, LookPreviewFooter } from '../../src/ui/LookCreator';
 import { LookTestStrip } from '../../src/ui/LookTestStrip';
 import { Develop } from '../../src/ui/Develop';
@@ -52,6 +52,7 @@ registerCustomLook(LOOK, 'Coastal fade', { colorBalance: { contrast: 0.2 }, curv
 const looks: [number, [number, number, number], boolean?][] = [[1, [0, 0, 0]], [0.6, [-10, 0, 20]], [1.15, [20, 10, -10]], [0.8, [0, 0, 0], true], [0.9, [25, -5, -20]], [0.5, [-5, -5, 10]], [1.1, [5, 15, 25]], [0.95, [10, 0, 0]], [0.7, [30, 5, -25]], [1.2, [0, 0, 0], true]];
 for (const [i, p] of [...open, ...away].entries()) blobs.set(p.path, await scene(i, ...looks[i]));
 
+mockWindows('main');
 mockIPC(async (command, args) => {
   const a = args as Record<string, unknown> | undefined;
   if (command === 'thumbnail' || command === 'original') { const b = blobs.get(String(a?.path)); if (!b) throw Error('No file'); return b.arrayBuffer(); }
@@ -90,6 +91,77 @@ try {
   // Other cameras first (the middle of each camera's shots), then a spread over the shoot.
   assert(names()[1] === 'P1010106.JPG' && names()[2] === 'IMG_0107.JPG', `Cameras not first: ${names().join(', ')}`);
   await until(() => tiles().every(t => t.classList.contains('ready')), 'first renders');
+
+  if (new URLSearchParams(location.search).has('reference')) {
+    const referenceInput = document.querySelector<HTMLInputElement>('input[aria-label="Reference photo"]')!;
+    const upload = (blob: Blob, name: string) => {
+      const transfer = new DataTransfer(); transfer.items.add(new File([blob], name, { type: blob.type }));
+      referenceInput.files = transfer.files; referenceInput.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    const overlay = () => document.querySelector<HTMLElement>('.look-reference-overlay');
+    const divider = () => document.querySelector<HTMLElement>('[aria-label="Reference and look divider"]')!;
+    const zoom = (name: string) => [...document.querySelectorAll<HTMLButtonElement>('.zoom-bar button')].find(b => b.textContent === name)!.click();
+    const originalRecipe = JSON.stringify(draft());
+    const count = useApp.getState().photos.length;
+    const revoked: string[] = [];
+    const revoke = URL.revokeObjectURL.bind(URL);
+    URL.revokeObjectURL = url => { revoked.push(url); revoke(url); };
+    const transfer = new DataTransfer();
+    transfer.items.add(new File([blobs.get(open[0].path)!], 'Fuji Classic Chrome reference with a deliberately long filename.JPG', { type: 'image/jpeg' }));
+    const over = new DragEvent('dragover', { dataTransfer: transfer, bubbles: true, cancelable: true });
+    document.querySelector('.stage')!.dispatchEvent(over);
+    assert(over.defaultPrevented, 'File drag was not accepted');
+    await until(() => document.querySelector('.look-reference-bar.drag-over'), 'drop highlight');
+    const drop = new DragEvent('drop', { dataTransfer: transfer, bubbles: true, cancelable: true });
+    document.querySelector('.stage')!.dispatchEvent(drop);
+    assert(drop.defaultPrevented, 'Dropping could navigate away');
+    await until(() => overlay()?.querySelector('img')?.complete && divider(), 'JPEG reference split');
+    const firstURL = overlay()!.querySelector('img')!.src;
+    assert(divider().getAttribute('aria-valuenow') === '50', 'Reference did not start at half');
+    divider().dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowLeft', bubbles: true, cancelable: true }));
+    await until(() => divider().getAttribute('aria-valuenow') === '48', 'keyboard divider');
+    const wrap = document.querySelector('.view-wrap')!.getBoundingClientRect();
+    divider().dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0 }));
+    window.dispatchEvent(new PointerEvent('pointermove', { clientX: wrap.left + wrap.width * 0.65 }));
+    window.dispatchEvent(new PointerEvent('pointerup'));
+    await until(() => divider().getAttribute('aria-valuenow') === '65', 'drag divider');
+    zoom('Split'); await until(() => !overlay(), 'hide reference');
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'y' }));
+    await until(() => overlay(), 'Y restores reference split');
+    useApp.setState({ compare: true }); await until(() => !overlay(), 'held original hides reference');
+    useApp.setState({ compare: false }); await until(() => overlay(), 'release original restores reference');
+    zoom('200%');
+    await until(() => parseFloat(overlay()!.querySelector('img')!.style.width) > 100, 'reference zoom');
+    const beforePan = overlay()!.querySelector('img')!.style.left;
+    document.querySelector('.stage-box')!.dispatchEvent(new WheelEvent('wheel', { deltaX: 60, cancelable: true }));
+    await until(() => overlay()!.querySelector('img')!.style.left !== beforePan, 'reference pan');
+    zoom('Fit');
+    upload(new Blob(['broken'], { type: 'image/jpeg' }), 'broken.jpg');
+    await until(() => document.querySelector('.look-reference-error'), 'invalid JPEG recovery');
+    assert(overlay()!.querySelector('img')!.src === firstURL, 'Invalid upload discarded the reference');
+    upload(blobs.get(open[3].path)!, 'Fuji portrait.JPG');
+    await until(() => overlay()!.querySelector('img')?.alt === 'Reference: Fuji portrait.JPG', 'replace with portrait');
+    assert(revoked.includes(firstURL), 'Replacing leaked the first URL');
+    assert(getComputedStyle(overlay()!.querySelector('img')!).objectFit === 'contain', 'Portrait reference is distorted');
+    document.querySelector<HTMLButtonElement>('[aria-label="Remove reference photo"]')!.click();
+    await until(() => !overlay() && !document.querySelector('.look-reference-name'), 'remove reference');
+    assert(JSON.stringify(draft()) === originalRecipe && useApp.getState().photos.length === count && saved.length === 0, 'Reference changed the recipe, catalog or saved look');
+    upload(blobs.get(open[0].path)!, 'Fuji Classic Chrome reference with a deliberately long filename.JPG');
+    await until(() => overlay()?.querySelector('img')?.complete, 'reload same reference');
+    const finalURL = overlay()!.querySelector('img')!.src;
+    if (new URLSearchParams(location.search).has('zoom')) {
+      zoom('200%'); await until(() => parseFloat(overlay()!.querySelector('img')!.style.width) > 100, 'zoom screenshot');
+    }
+    const bar = document.querySelector('.look-reference-bar')!.getBoundingClientRect();
+    for (const button of document.querySelectorAll('.look-reference-controls button')) {
+      const r = button.getBoundingClientRect(); assert(r.left >= bar.left && r.right <= bar.right, 'Reference controls overflow');
+    }
+    if (!new URLSearchParams(location.search).has('shot')) {
+      endLookEdit(); await until(() => revoked.includes(finalURL), 'unmount releases reference');
+    }
+    document.body.dataset.result = 'PASS: reference drop/upload, split drag/keys, toggle, held original, zoom/pan, corrupt JPEG, replace, portrait fit, remove, cleanup, recipe/catalog isolation';
+    throw 'done';
+  }
 
   // A held pointer stops renders; its release lets them run.
   window.dispatchEvent(new PointerEvent('pointerdown'));
