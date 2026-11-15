@@ -206,9 +206,16 @@ export const PUSHES: { value: Push; label: string; hint: string; phrase: string 
   { value: 2, label: 'Push 2', hint: 'Pushed two stops. Heavy grain.', phrase: 'pushed two stops' },
 ];
 
-export function sliderDefault(def: SliderDef, stock: StockId): number {
+/** A slider's default. `raw: false` (a JPEG or other ordinary photo) starts Sharpening at 0, as it
+ * is already sharpened (Lightroom's JPEG default); unknown counts as a RAW. */
+export function sliderDefault(def: SliderDef, stock: StockId, raw?: boolean): number {
+  if (raw === false && def.key in KIND_DEFAULTS) return KIND_DEFAULTS[def.key as keyof typeof KIND_DEFAULTS];
   return def.stockKey ? STOCK[stock][def.stockKey] : (def.default ?? 0);
 }
+
+/** What an ordinary (non-RAW) photo starts with differently from a RAW. */
+const KIND_DEFAULTS = { sharpen: 0 } as const;
+const kindDefaults = (photo?: { raw: boolean }): Partial<Recipe> => photo && !photo.raw ? KIND_DEFAULTS : {};
 
 /** The stock new edits start from. */
 export const DEFAULT_STOCK: StockId = 'emulsion-standard';
@@ -271,7 +278,8 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
  * (Emulsion Standard), or, for a Fujifilm RAW, the look matching the film simulation it was shot
  * with (`simulationLook`; Oli, 2026-11-14). */
 export function uneditedRecipe(photo: { raw: boolean; capture?: { simulation?: string | null } | null }): Recipe {
-  if (!photo.raw) return defaultRecipe('neutral');
+  // Already sharpened by its camera or app, so no output sharpening either (Lightroom's JPEG default).
+  if (!photo.raw) return { ...defaultRecipe('neutral'), ...kindDefaults(photo) };
   const look = simulationLook(photo.capture?.simulation);
   return look ? withLook(defaultRecipe(), 'emulsion-looks', look) : defaultRecipe();
 }
@@ -287,8 +295,8 @@ export function withStock(recipe: Recipe | null, stock: StockId): Recipe {
 }
 
 /** Reset the sliders, keeping stock, development, scanner, crop, masks and retouching. */
-export function resetAdjustments(recipe: Recipe): Recipe {
-  return { ...defaultRecipe(recipe.stock, recipe.scanner), lookEnabled: recipe.lookEnabled, pack: recipe.pack, lookAmount: recipe.lookAmount, lookBlend: recipe.lookBlend, push: recipe.push, scannerFromLook: recipe.scannerFromLook, lookSnapshot: recipe.lookSnapshot, crop: recipe.crop, transform: recipe.transform, masks: recipe.masks, retouch: recipe.retouch, retouchScales: recipe.retouchScales };
+export function resetAdjustments(recipe: Recipe, photo?: { raw: boolean }): Recipe {
+  return { ...defaultRecipe(recipe.stock, recipe.scanner), ...kindDefaults(photo), lookEnabled: recipe.lookEnabled, pack: recipe.pack, lookAmount: recipe.lookAmount, lookBlend: recipe.lookBlend, push: recipe.push, scannerFromLook: recipe.scannerFromLook, lookSnapshot: recipe.lookSnapshot, crop: recipe.crop, transform: recipe.transform, masks: recipe.masks, retouch: recipe.retouch, retouchScales: recipe.retouchScales };
 }
 
 /**
@@ -324,16 +332,16 @@ const SECTION_FIELDS: Record<SectionId, (keyof Recipe)[]> = {
 };
 
 /** The recipe with one section back to its defaults (stock defaults where the stock owns them). */
-export function resetSection(recipe: Recipe, section: SectionId): Recipe {
-  const base = defaultRecipe(recipe.stock);
+export function resetSection(recipe: Recipe, section: SectionId, photo?: { raw: boolean }): Recipe {
+  const base = { ...defaultRecipe(recipe.stock), ...kindDefaults(photo) };
   const out = { ...recipe } as Record<keyof Recipe, unknown>;
   for (const k of SECTION_FIELDS[section]) out[k] = base[k];
   return out as unknown as Recipe;
 }
 
 /** Whether a section differs from its defaults. */
-export const sectionChanged = (recipe: Recipe | null, section: SectionId) =>
-  !!recipe && JSON.stringify(resetSection(recipe, section)) !== JSON.stringify(recipe);
+export const sectionChanged = (recipe: Recipe | null, section: SectionId, photo?: { raw: boolean }) =>
+  !!recipe && JSON.stringify(resetSection(recipe, section, photo)) !== JSON.stringify(recipe);
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 

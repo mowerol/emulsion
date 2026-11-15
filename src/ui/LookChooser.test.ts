@@ -12,7 +12,7 @@ import { activePhoto, undo, useApp, type Photo } from '../library/store';
 import { photoId } from '../library/copies';
 import { flushSaves } from '../library/sidecars';
 import { writeSidecar } from '../backend/api';
-import { defaultRecipe } from '../film/recipe';
+import { defaultRecipe, uneditedRecipe } from '../film/recipe';
 import { customLookId, registerCustomLook, withLook } from '../film/looks';
 import { choiceKey, useLookBrowser } from './lookbrowser';
 import { setPreview, useTools } from './tools';
@@ -70,7 +70,8 @@ it.each(['list', 'grid', 'quick'] as const)('previews in the %s picker without e
   await enter(b);
   await act(async () => b.click());
   expect(useTools.getState().preview).toBeNull();
-  expect(saved()).toEqual(before.map(r => withLook(r ?? defaultRecipe(), 'custom', stock)));
+  // An unedited photo's first edit starts from what it develops with (Neutral for these JPEGs).
+  expect(saved()).toEqual(before.map(r => withLook(r ?? uneditedRecipe({ raw: false }), 'custom', stock)));
   await act(async () => undo());
   expect(saved()).toEqual(before);
 });

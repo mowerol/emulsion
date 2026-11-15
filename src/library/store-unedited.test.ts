@@ -22,7 +22,8 @@ beforeEach(() => {
 });
 
 it('develops an unedited JPEG as Neutral and a RAW with Emulsion Standard', () => {
-  expect(uneditedRecipe({ raw: false })).toMatchObject({ stock: 'neutral', lookEnabled: false });
+  expect(uneditedRecipe({ raw: false })).toMatchObject({ stock: 'neutral', lookEnabled: false, sharpen: 0 });
+  expect(uneditedRecipe({ raw: true }).sharpen).toBe(20);
   expect(uneditedRecipe({ raw: true })).toMatchObject({ stock: 'emulsion-standard', lookEnabled: true });
 });
 
@@ -35,7 +36,7 @@ it('starts a first edit from what the photo develops with now', () => {
 
 it('keeps a photo unedited when an edit leaves it as it develops', () => {
   const undoBefore = useApp.getState().history.undo;
-  editRecipes(['a.jpg'], (r) => r ? resetAdjustments(r) : r);
+  editRecipes(['a.jpg'], (r, p) => r ? resetAdjustments(r, p) : r);
   editRecipes(['a.jpg'], (r) => r);
   expect(useApp.getState().photos[0].recipe).toBeNull();
   expect(useApp.getState().history.undo).toBe(undoBefore);
@@ -57,4 +58,16 @@ it('starts a Fujifilm RAW’s first edit from its film simulation’s look', () 
   useApp.setState({ photos: [{ ...photo('c.raf', true), capture: { camera: null, date: null, simulation: 'classic-chrome' } }], active: 0, selected: new Set(['c.raf']) });
   editRecipes(['c.raf'], (r) => withSlider(r!, 'exposure', 1));
   expect(useApp.getState().photos[0].recipe).toMatchObject({ exposure: 1, stock: 'emulsion-film-chrome', lookEnabled: true });
+});
+
+it('resets a JPEG\'s sharpening to 0, its own default, and a RAW\'s to 20', async () => {
+  const { resetSection, sectionChanged, sliderDefault, SLIDER } = await import('../film/recipe');
+  const jpeg = { raw: false }, raw = { raw: true };
+  const edited = { ...uneditedRecipe(jpeg), sharpen: 35 };
+  expect(resetAdjustments(edited, jpeg).sharpen).toBe(0);
+  expect(resetSection(edited, 'detail', jpeg).sharpen).toBe(0);
+  expect(resetAdjustments({ ...uneditedRecipe(raw), sharpen: 35 }, raw).sharpen).toBe(20);
+  expect(sectionChanged(uneditedRecipe(jpeg), 'detail', jpeg)).toBe(false);
+  expect(sliderDefault(SLIDER.sharpen, 'neutral', false)).toBe(0);
+  expect(sliderDefault(SLIDER.sharpen, 'neutral', true)).toBe(20);
 });

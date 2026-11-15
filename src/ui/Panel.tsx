@@ -80,16 +80,16 @@ export function useDragGrouping(name: string) {
 type Grouping = { key: string; continuous: boolean } | undefined;
 let typedCount = 0;
 
-type SliderRowProps = { def: SliderDef; recipe: Recipe | null; onChange: (key: SliderDef['key'], v: number, grouping?: Grouping) => void };
+type SliderRowProps = { def: SliderDef; recipe: Recipe | null; raw?: boolean; onChange: (key: SliderDef['key'], v: number, grouping?: Grouping) => void };
 
 /**
  * A row reads only its own value and the stock (for its default), so a drag on one slider doesn't
  * re-render the others.
  */
-const SliderRow = memo(function SliderRow({ def, recipe, onChange }: SliderRowProps) {
-  const value = recipe ? recipe[def.key] : sliderDefault(def, DEFAULT_STOCK);
+const SliderRow = memo(function SliderRow({ def, recipe, raw, onChange }: SliderRowProps) {
+  const value = recipe ? recipe[def.key] : sliderDefault(def, DEFAULT_STOCK, raw);
   const fmt = def.format ?? String;
-  const fallback = sliderDefault(def, recipe?.stock ?? DEFAULT_STOCK);
+  const fallback = sliderDefault(def, recipe?.stock ?? DEFAULT_STOCK, raw);
   const changed = Math.abs(value - fallback) > 1e-9;
   const tick = def.stockKey && recipe ? (def.log ? toLog(def, sliderDefault(def, recipe.stock)) / LOG_STEPS : (sliderDefault(def, recipe.stock) - def.min) / (def.max - def.min)) : null;
   const id = `slider-${def.key}`;
@@ -409,7 +409,7 @@ const ActionBar = memo(function ActionBar({ undo: undoLabel, redo: redoLabel, cl
         <button type="button" className="icon-btn action" onClick={openCopySettings} aria-label="Copy settings" data-tip={`Copy settings (${MOD}C)`}><Copy size={16} aria-hidden="true" /></button>
         <button type="button" className="icon-btn action" onClick={pasteSettings} disabled={!clipboard} aria-label={multi ? `Paste to ${selectedCount}` : 'Paste settings'} data-tip={`${multi ? `Paste to ${selectedCount} photos` : 'Paste settings'} (${MOD}V)`}><ClipboardPaste size={16} aria-hidden="true" /></button>
         <span className="action-sep" aria-hidden="true" />
-        <button type="button" className="icon-btn action" disabled={!hasRecipe} onClick={() => editActive((r) => (r ? resetAdjustments(r) : r), 'Reset sliders')} aria-label="Reset sliders" data-tip="Reset sliders (keeps look, crop and masks)"><RotateCcw size={16} aria-hidden="true" /></button>
+        <button type="button" className="icon-btn action" disabled={!hasRecipe} onClick={() => editActive((r, p) => (r ? resetAdjustments(r, p) : r), 'Reset sliders')} aria-label="Reset sliders" data-tip="Reset sliders (keeps look, crop and masks)"><RotateCcw size={16} aria-hidden="true" /></button>
         <ResetPhotoButton multi={multi} count={selectedCount} />
         <span className="action-sep" aria-hidden="true" />
         <OverflowMenu>{(close) => <>
@@ -467,11 +467,11 @@ export function Panel() {
    * and the panel renders again when a tab changes.
    */
   const resetFor = (section: SectionId, title: string, slot: string = section) =>
-    visible.includes(slot) && sectionChanged(recipe, section) ? () => editActive((r) => (r ? resetSection(r, section) : r), `Reset ${title}`) : undefined;
+    visible.includes(slot) && sectionChanged(recipe, section, photo ?? undefined) ? () => editActive((r, p) => (r ? resetSection(r, section, p) : r), `Reset ${title}`) : undefined;
 
   if (!photo) return <aside className="panel" aria-label="Lab order" />;
 
-  const rows = (keys: readonly string[]) => <div className="sliders">{keys.map(key => SLIDER[key as SliderDef['key']]).map(d => <SliderRow key={d.key} def={d} recipe={base} onChange={setSlider} />)}</div>;
+  const rows = (keys: readonly string[]) => <div className="sliders">{keys.map(key => SLIDER[key as SliderDef['key']]).map(d => <SliderRow key={d.key} def={d} recipe={base} raw={photo?.raw} onChange={setSlider} />)}</div>;
   const sliderGroup = (group: SliderDef['group']) => SLIDERS.filter(d => d.group === group).map(d => d.key);
   const scanner = <ScannerFinishControls recipe={base} editor={!!editing} onChange={pickScanner} />;
   const bodies: Record<string, ReactNode> = {
@@ -507,7 +507,7 @@ export function Panel() {
       <CurveEditor curve={base.curve} disabled={false} onChange={setCurve} />
     </Section>,
     color: <Section id="color" title={grouped ? 'HSL' : 'Colour'} summary={recipe?.color ? 'Edited' : 'As shot'} onReset={resetFor('color', 'Colour')}><ColorControls recipe={base} /></Section>,
-    grading: <Section id="grading" title={grouped ? 'Colour wheels' : 'Colour Grading'} summary={sectionChanged(recipe, 'grading') ? 'Edited' : 'Neutral'} onReset={resetFor('grading', 'Colour Grading')}><ColourGradingControls recipe={base} /></Section>,
+    grading: <Section id="grading" title={grouped ? 'Colour wheels' : 'Colour Grading'} summary={sectionChanged(recipe, 'grading', photo ?? undefined) ? 'Edited' : 'Neutral'} onReset={resetFor('grading', 'Colour Grading')}><ColourGradingControls recipe={base} /></Section>,
     detail: <Section id="detail" title="Detail" onReset={resetFor('detail', 'Detail')}>
       {rows(sliderGroup('detail'))}
       <DetailOrderToggle />
@@ -544,7 +544,7 @@ export function Panel() {
       </>}
 
       <div className={grouped ? 'grouped-controls-body' : 'classic-controls-body'} ref={controlsBody}>
-        {custom ? temporaryMasks ? <Section id="temporary-masks" title="Masks" onReset={sectionChanged(recipe, 'masks') ? () => editActive(r => r ? resetSection(r, 'masks') : r, 'Reset Masks') : undefined}><MaskControls /></Section>
+        {custom ? temporaryMasks ? <Section id="temporary-masks" title="Masks" onReset={sectionChanged(recipe, 'masks', photo ?? undefined) ? () => editActive((r, p) => r ? resetSection(r, 'masks', p) : r, 'Reset Masks') : undefined}><MaskControls /></Section>
           : <><CameraColourWarning raw={photo.raw} camera={photo.camera ?? null} /><PersonalWorkspace recipe={base} context={{ white: photo.white, raw: photo.raw, lens: photo.lens, cropping }} blocks={bodies} actions={{ curve: <CurvePresetMenu curve={base.curve} onChange={setCurve} /> }} onCustomize={() => openWorkspaceEditor()}
           renderGroup={(source, controls) => source === 'color' ? <ColorControls recipe={base} visibleControls={controls} /> : source === 'grading' ? <ColourGradingControls recipe={base} visibleControls={controls} /> : undefined} /></>
           : ordered.map(id => <SectionSlot key={id} hidden={!visible.includes(id)}>{sections[id]}</SectionSlot>)}
@@ -568,7 +568,7 @@ export function Panel() {
           {multi ? `Paste to ${selectedCount}` : 'Paste settings'}
         </button>
         {view === 'develop' && (
-          <button type="button" className="btn" disabled={!recipe} onClick={() => editActive((r) => (r ? resetAdjustments(r) : r), 'Reset sliders')}>
+          <button type="button" className="btn" disabled={!recipe} onClick={() => editActive((r, p) => (r ? resetAdjustments(r, p) : r), 'Reset sliders')}>
             Reset sliders
           </button>
         )}

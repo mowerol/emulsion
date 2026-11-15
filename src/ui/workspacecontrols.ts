@@ -27,7 +27,7 @@ const signed = (v: number) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(Num
 const basic: WorkspaceSlider[] = SLIDERS.map(d => ({
   id: d.key, label: labels[d.key] ?? d.label, category: categories[d.group], hint: d.hint,
   min: d.min, max: d.max, step: d.step, log: d.log,
-  value: r => r[d.key], fallback: r => sliderDefault(d, r.stock),
+  value: r => r[d.key], fallback: (r, c) => sliderDefault(d, r.stock, c.raw),
   set: (r, v) => withSlider(r, d.key, v), format: d.format ?? String,
   ...(d.key === 'lookAmount' ? { setup: 'stock' as const, unavailable: (r: Recipe) => !r.lookEnabled ? 'Choose a look to adjust its amount.' : undefined } : {}),
 }));
@@ -157,7 +157,7 @@ export function resetWorkspaceControls(recipe: Recipe, ids: string[], context: C
     const slider = workspaceSlider(id);
     if (slider) return slider.set(r, slider.fallback(r, context), context);
     const block = workspaceBlock(id);
-    return block?.reset ? block.reset(r) : block?.section ? resetSection(r, block.section) : block ? resetWorkspaceControls(r, block.fields, context) : r;
+    return block?.reset ? block.reset(r) : block?.section ? resetSection(r, block.section, context.raw === undefined ? undefined : { raw: context.raw }) : block ? resetWorkspaceControls(r, block.fields, context) : r;
   }, recipe);
 }
 
