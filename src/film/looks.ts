@@ -261,7 +261,7 @@ export function lutBase(pack: PackId, stock: StockId) {
  * reads from a RAF. Simulations without a look here (black and white, Nostalgic Neg, Reala Ace)
  * keep the default. */
 const SIMULATION_LOOKS: Record<string, string> = {
-  'classic-chrome': 'emulsion-film-chrome', 'classic-negative': 'emulsion-film-neg',
+  'classic-chrome': 'emulsion-fuji-classic-chrome', 'classic-negative': 'emulsion-fuji-classic-negative',
   'pro-neg-hi': 'emulsion-film-pro-neg-hi', 'pro-neg-std': 'emulsion-film-pro-neg-std',
   provia: 'emulsion-film-provia', velvia: 'emulsion-film-velvia', astia: 'emulsion-film-astia',
   eterna: 'emulsion-film-eterna', 'bleach-bypass': 'emulsion-film-bleach',

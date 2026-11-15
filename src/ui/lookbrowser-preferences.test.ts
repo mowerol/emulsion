@@ -19,7 +19,7 @@ it('starts with every built-in look in Favourites', async () => {
   const { BUILTIN_LOOKS } = await import('../film/looks');
   expect(favourites.entries.map(look => look.name)).toEqual(BUILTIN_LOOKS.map(l => l.name));
   expect(favourites.entries.slice(0, 6).map(look => look.name)).toEqual([
-    'Emulsion Standard', 'Classic Negative', 'Classic Chrome', 'Emulsion Gold', 'B&W Dynamic', 'B&W Classic',
+    'Emulsion Standard', 'Emulsion Neg', 'Emulsion Chrome', 'Emulsion Gold', 'B&W Dynamic', 'B&W Classic',
   ]);
 });
 

@@ -44,9 +44,9 @@ it('keeps a photo unedited when an edit leaves it as it develops', () => {
 
 it('opens an unedited Fujifilm RAW with the look of the film simulation it was shot with', () => {
   const fuji = (simulation: string | null) => ({ raw: true, capture: { camera: 'FUJIFILM X-T30 II', date: null, simulation } });
-  expect(uneditedRecipe(fuji('classic-negative'))).toMatchObject({ pack: 'emulsion-looks', stock: 'emulsion-film-neg', lookEnabled: true });
-  expect(uneditedRecipe(fuji('classic-negative')).lookSnapshot).toMatchObject({ id: 'emulsion-film-neg', name: 'Classic Negative' });
-  expect(uneditedRecipe(fuji('classic-chrome'))).toMatchObject({ stock: 'emulsion-film-chrome' });
+  expect(uneditedRecipe(fuji('classic-negative'))).toMatchObject({ pack: 'emulsion-looks', stock: 'emulsion-fuji-classic-negative', lookEnabled: true });
+  expect(uneditedRecipe(fuji('classic-negative')).lookSnapshot).toMatchObject({ id: 'emulsion-fuji-classic-negative', name: 'Classic Negative' });
+  expect(uneditedRecipe(fuji('classic-chrome'))).toMatchObject({ stock: 'emulsion-fuji-classic-chrome' });
   // No look for black and white (yet), none for other cameras: the default look.
   expect(uneditedRecipe(fuji('acros'))).toMatchObject({ stock: 'emulsion-standard' });
   expect(uneditedRecipe(fuji(null))).toMatchObject({ stock: 'emulsion-standard' });
@@ -57,7 +57,7 @@ it('opens an unedited Fujifilm RAW with the look of the film simulation it was s
 it('starts a Fujifilm RAW’s first edit from its film simulation’s look', () => {
   useApp.setState({ photos: [{ ...photo('c.raf', true), capture: { camera: null, date: null, simulation: 'classic-chrome' } }], active: 0, selected: new Set(['c.raf']) });
   editRecipes(['c.raf'], (r) => withSlider(r!, 'exposure', 1));
-  expect(useApp.getState().photos[0].recipe).toMatchObject({ exposure: 1, stock: 'emulsion-film-chrome', lookEnabled: true });
+  expect(useApp.getState().photos[0].recipe).toMatchObject({ exposure: 1, stock: 'emulsion-fuji-classic-chrome', lookEnabled: true });
 });
 
 it('resets a JPEG\'s sharpening to 0, its own default, and a RAW\'s to 20', async () => {

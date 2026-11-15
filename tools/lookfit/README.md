@@ -36,7 +36,7 @@ Run from the worktree root after `source ~/.cargo/env`, with
 3. **Oli converts** in X RAW Studio (it uses the camera, so only the X-T30 II's simulations).
    Spot-check one file's settings in the app first.
 4. **Verify** with `verify.py FOLDER _Tag`.
-5. **Fit**: a start look per simulation in `.scratch/batch/<id>/start.json` (Emulsion Neg's colour
+5. **Fit**: a start look per simulation in `.scratch/batch/<id>/start.json` (Classic Negative's colour
    balance masks only: shadows_weight, white_fulcrum, highlights_weight, grey_fulcrum,
    mask_grey_fulcrum; straight curves; zero HSL), then `caffeinate -i tools/lookfit/batch.sh
    "<id>|<Tag>" ...`. About 12 min per look on an awake Mac; idle, it slows to an hour and the

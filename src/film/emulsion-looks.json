@@ -132,33 +132,36 @@
   },
   {
     "id": "emulsion-film-neg",
-    "name": "Classic Negative",
-    "category": "Emulsion x Fuji",
+    "name": "Emulsion Neg",
     "bw": false,
-    "revision": 27,
+    "revision": 23,
     "settings": {
       "colorBalance": {
-        "shadows_C": 0.10005,
-        "shadows_H": 85.18,
+        "shadows_Y": -0.24,
+        "shadows_C": 0.034249114756038083,
+        "shadows_H": 243.77103344794187,
+        "midtones_Y": 0.025,
+        "highlights_Y": 0.081,
         "shadows_weight": 0.48,
         "white_fulcrum": -1.07,
         "highlights_weight": 1.45,
-        "chroma_shadows": 0.047,
-        "chroma_highlights": -0.081,
-        "chroma_global": -0.167,
-        "chroma_midtones": -0.363,
-        "saturation_global": 0.222,
-        "saturation_highlights": 0.146,
-        "saturation_midtones": 0.402,
-        "saturation_shadows": 0.209,
+        "chroma_shadows": 0.092,
+        "chroma_highlights": 0.211,
+        "chroma_global": 0.073,
+        "chroma_midtones": -0.264,
+        "saturation_global": 0.12,
+        "saturation_highlights": 0.087,
+        "saturation_midtones": 0.397,
+        "saturation_shadows": 0.229,
         "hue_angle": -0.6,
+        "brilliance_global": -0.076,
+        "brilliance_highlights": 0.285,
+        "brilliance_midtones": -0.268,
+        "brilliance_shadows": 0.144,
         "mask_grey_fulcrum": 0.0687,
-        "vibrance": 0.058,
-        "grey_fulcrum": 0.1821,
-        "midtones_C": 0.00827,
-        "midtones_H": 237.85,
-        "highlights_C": 0.01974,
-        "highlights_H": 65.77
+        "vibrance": 0.18,
+        "contrast": 0.12,
+        "grey_fulcrum": 0.1821
       },
       "curve": {
         "b": [
@@ -230,35 +233,19 @@
         "rgb": [
           [
             0,
-            0
+            0.010267606621773284
           ],
           [
-            0.06,
-            0.0156
+            0.2785744598765432,
+            0.22770324775533102
           ],
           [
-            0.15,
-            0.0707
+            0.5104042157687991,
+            0.5044193672839506
           ],
           [
-            0.28,
-            0.1871
-          ],
-          [
-            0.42,
-            0.4251
-          ],
-          [
-            0.56,
-            0.693
-          ],
-          [
-            0.7,
-            0.8703
-          ],
-          [
-            0.84,
-            0.966
+            0.7334229447250281,
+            0.7536218083613917
           ],
           [
             1,
@@ -268,111 +255,88 @@
       },
       "lut": null,
       "color": {
+        "bright": [
+          -15,
+          -11,
+          -64,
+          -34,
+          -15,
+          59,
+          19,
+          0
+        ],
         "hue": [
-          21,
-          -10,
-          35,
-          72,
-          60,
-          -23,
-          26,
-          91
+          66,
+          -40,
+          51,
+          3,
+          59,
+          -3,
+          79,
+          71
         ],
         "sat": [
-          -19,
-          -26,
-          -41,
-          -26,
-          6,
-          -22,
-          -71,
-          -47
-        ],
-        "bright": [
-          0,
-          -19,
-          -56,
-          -46,
-          -8,
-          22,
-          44,
-          44
+          -6,
+          -33,
+          -37,
+          -28,
+          16,
+          -37,
+          -73,
+          -22
         ]
       }
     }
   },
   {
     "id": "emulsion-film-chrome",
-    "name": "Classic Chrome",
-    "category": "Emulsion x Fuji",
+    "name": "Emulsion Chrome",
     "bw": false,
-    "revision": 28,
+    "revision": 20,
     "settings": {
       "colorBalance": {
-        "shadows_weight": 0.48,
-        "white_fulcrum": -1.07,
-        "highlights_weight": 1.45,
-        "mask_grey_fulcrum": 0.0687,
-        "grey_fulcrum": 0.1821,
-        "saturation_global": -0.087,
-        "saturation_shadows": -0.081,
-        "saturation_midtones": -0.035,
-        "saturation_highlights": 0.059,
-        "chroma_global": -0.112,
-        "chroma_shadows": -0.106,
-        "chroma_midtones": -0.042,
-        "chroma_highlights": 0.079,
-        "vibrance": 0.015,
-        "shadows_C": 0.00996,
-        "shadows_H": 51.52,
-        "midtones_C": 0.00215,
-        "midtones_H": 207.76,
-        "highlights_C": 0.00466,
-        "highlights_H": 75.07
+        "shadows_Y": -0.33,
+        "shadows_C": 0.01316104843091086,
+        "shadows_H": 294.73950886974814,
+        "midtones_Y": -0.01,
+        "highlights_Y": 0.073,
+        "shadows_weight": 0.36,
+        "white_fulcrum": -0.78,
+        "highlights_weight": 0.34,
+        "chroma_shadows": -0.134,
+        "chroma_highlights": 0.136,
+        "chroma_midtones": 0.079,
+        "saturation_global": -0.04,
+        "saturation_highlights": 0.087,
+        "saturation_midtones": 0.397,
+        "saturation_shadows": 0.229,
+        "hue_angle": 8.3,
+        "brilliance_global": 0.142,
+        "brilliance_highlights": 0.224,
+        "brilliance_midtones": 0.055,
+        "brilliance_shadows": -0.069,
+        "mask_grey_fulcrum": 0.1125,
+        "vibrance": -0.01,
+        "contrast": 0.03,
+        "grey_fulcrum": 0.1734
       },
       "curve": {
-        "rgb": [
+        "b": [
           [
             0,
             0
           ],
           [
-            0.06,
-            0.0087
+            0.1479329755892256,
+            0.1680348625140291
           ],
           [
-            0.15,
-            0.0508
+            0.48189306257014586,
+            0.4859383768237935
           ],
           [
-            0.28,
-            0.2094
-          ],
-          [
-            0.42,
-            0.4191
-          ],
-          [
-            0.56,
-            0.6362
-          ],
-          [
-            0.7,
-            0.8085
-          ],
-          [
-            0.84,
-            0.9577
-          ],
-          [
-            1,
-            1
-          ]
-        ],
-        "r": [
-          [
-            0,
-            0
+            0.8282938762626263,
+            0.8427295524691358
           ],
           [
             1,
@@ -385,52 +349,98 @@
             0
           ],
           [
-            1,
-            1
-          ]
-        ],
-        "b": [
+            0.22839593855218857,
+            0.23404829545454545
+          ],
           [
-            0,
-            0
+            0.5247290614478115,
+            0.5274305555555555
+          ],
+          [
+            0.7971643518518519,
+            0.7958898007856341
           ],
           [
             1,
             1
           ]
+        ],
+        "r": [
+          [
+            0,
+            0
+          ],
+          [
+            0.1872501052188552,
+            0.17221871492704832
+          ],
+          [
+            0.5050843504489338,
+            0.503532723063973
+          ],
+          [
+            0.767849677328844,
+            0.7620587822671155
+          ],
+          [
+            1,
+            1
+          ]
+        ],
+        "rgb": [
+          [
+            0,
+            0.010267606621773284
+          ],
+          [
+            0.1827199074074074,
+            0.12614092312008973
+          ],
+          [
+            0.4980881734006734,
+            0.4821147236251403
+          ],
+          [
+            0.7200540123456791,
+            0.7330765993265993
+          ],
+          [
+            1,
+            0.9782198723344556
+          ]
         ]
       },
       "lut": null,
       "color": {
+        "bright": [
+          -8,
+          25,
+          -81,
+          1,
+          -3,
+          20,
+          0,
+          0
+        ],
         "hue": [
-          -10,
-          -32,
-          -1,
-          23,
-          -4,
-          -45,
+          -29,
+          -72,
           -13,
-          14
+          -12,
+          -36,
+          -48,
+          -30,
+          0
         ],
         "sat": [
-          -1,
-          -6,
-          -13,
-          13,
-          22,
-          -4,
-          -36,
-          -17
-        ],
-        "bright": [
+          15,
+          -14,
+          -26,
+          15,
+          15,
           2,
-          -10,
           -41,
-          -19,
-          0,
-          12,
-          23,
-          25
+          0
         ]
       }
     }
@@ -714,6 +724,311 @@
         "pack": "gmic-film",
         "stock": "hp5",
         "amount": 1
+      }
+    }
+  },
+  {
+    "id": "emulsion-fuji-classic-negative",
+    "name": "Classic Negative",
+    "category": "Emulsion x Fuji",
+    "bw": false,
+    "revision": 1,
+    "settings": {
+      "colorBalance": {
+        "shadows_C": 0.10005,
+        "shadows_H": 85.18,
+        "shadows_weight": 0.48,
+        "white_fulcrum": -1.07,
+        "highlights_weight": 1.45,
+        "chroma_shadows": 0.047,
+        "chroma_highlights": -0.081,
+        "chroma_global": -0.167,
+        "chroma_midtones": -0.363,
+        "saturation_global": 0.222,
+        "saturation_highlights": 0.146,
+        "saturation_midtones": 0.402,
+        "saturation_shadows": 0.209,
+        "hue_angle": -0.6,
+        "mask_grey_fulcrum": 0.0687,
+        "vibrance": 0.058,
+        "grey_fulcrum": 0.1821,
+        "midtones_C": 0.00827,
+        "midtones_H": 237.85,
+        "highlights_C": 0.01974,
+        "highlights_H": 65.77
+      },
+      "curve": {
+        "b": [
+          [
+            0,
+            0
+          ],
+          [
+            0.1479329755892256,
+            0.1680348625140291
+          ],
+          [
+            0.48189306257014586,
+            0.4859383768237935
+          ],
+          [
+            0.8460129068462402,
+            0.8684976501122335
+          ],
+          [
+            1,
+            1
+          ]
+        ],
+        "g": [
+          [
+            0,
+            0
+          ],
+          [
+            0.22839593855218857,
+            0.23404829545454545
+          ],
+          [
+            0.5247290614478115,
+            0.5274305555555555
+          ],
+          [
+            0.7971643518518519,
+            0.7958898007856341
+          ],
+          [
+            1,
+            1
+          ]
+        ],
+        "r": [
+          [
+            0,
+            0
+          ],
+          [
+            0.1872501052188552,
+            0.17221871492704832
+          ],
+          [
+            0.4968551837822671,
+            0.4886675785634118
+          ],
+          [
+            0.7729617354096522,
+            0.7868155513468014
+          ],
+          [
+            1,
+            1
+          ]
+        ],
+        "rgb": [
+          [
+            0,
+            0
+          ],
+          [
+            0.06,
+            0.0156
+          ],
+          [
+            0.15,
+            0.0707
+          ],
+          [
+            0.28,
+            0.1871
+          ],
+          [
+            0.42,
+            0.4251
+          ],
+          [
+            0.56,
+            0.693
+          ],
+          [
+            0.7,
+            0.8703
+          ],
+          [
+            0.84,
+            0.966
+          ],
+          [
+            1,
+            1
+          ]
+        ]
+      },
+      "lut": null,
+      "color": {
+        "hue": [
+          21,
+          -10,
+          35,
+          72,
+          60,
+          -23,
+          26,
+          91
+        ],
+        "sat": [
+          -19,
+          -26,
+          -41,
+          -26,
+          6,
+          -22,
+          -71,
+          -47
+        ],
+        "bright": [
+          0,
+          -19,
+          -56,
+          -46,
+          -8,
+          22,
+          44,
+          44
+        ]
+      }
+    }
+  },
+  {
+    "id": "emulsion-fuji-classic-chrome",
+    "name": "Classic Chrome",
+    "category": "Emulsion x Fuji",
+    "bw": false,
+    "revision": 1,
+    "settings": {
+      "colorBalance": {
+        "shadows_weight": 0.48,
+        "white_fulcrum": -1.07,
+        "highlights_weight": 1.45,
+        "mask_grey_fulcrum": 0.0687,
+        "grey_fulcrum": 0.1821,
+        "saturation_global": -0.087,
+        "saturation_shadows": -0.081,
+        "saturation_midtones": -0.035,
+        "saturation_highlights": 0.059,
+        "chroma_global": -0.112,
+        "chroma_shadows": -0.106,
+        "chroma_midtones": -0.042,
+        "chroma_highlights": 0.079,
+        "vibrance": 0.015,
+        "shadows_C": 0.00996,
+        "shadows_H": 51.52,
+        "midtones_C": 0.00215,
+        "midtones_H": 207.76,
+        "highlights_C": 0.00466,
+        "highlights_H": 75.07
+      },
+      "curve": {
+        "rgb": [
+          [
+            0,
+            0
+          ],
+          [
+            0.06,
+            0.0087
+          ],
+          [
+            0.15,
+            0.0508
+          ],
+          [
+            0.28,
+            0.2094
+          ],
+          [
+            0.42,
+            0.4191
+          ],
+          [
+            0.56,
+            0.6362
+          ],
+          [
+            0.7,
+            0.8085
+          ],
+          [
+            0.84,
+            0.9577
+          ],
+          [
+            1,
+            1
+          ]
+        ],
+        "r": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            1
+          ]
+        ],
+        "g": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            1
+          ]
+        ],
+        "b": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            1
+          ]
+        ]
+      },
+      "lut": null,
+      "color": {
+        "hue": [
+          -10,
+          -32,
+          -1,
+          23,
+          -4,
+          -45,
+          -13,
+          14
+        ],
+        "sat": [
+          -1,
+          -6,
+          -13,
+          13,
+          22,
+          -4,
+          -36,
+          -17
+        ],
+        "bright": [
+          2,
+          -10,
+          -41,
+          -19,
+          0,
+          12,
+          23,
+          25
+        ]
       }
     }
   },
