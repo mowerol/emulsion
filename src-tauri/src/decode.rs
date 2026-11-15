@@ -489,4 +489,19 @@ mod tests {
         std::fs::write(&p, b"not an image").unwrap();
         assert!(load_for_engine(&p, None).is_err());
     }
+
+    /// Writes what the app's engine receives for each file (`load_for_engine`), for
+    /// `tools/lookfit`. `EMULSION_LOOKFIT_DUMP` holds lines of `max_edge<TAB>input<TAB>output`.
+    #[test]
+    #[ignore]
+    fn dump_engine_payloads() {
+        let list = std::env::var("EMULSION_LOOKFIT_DUMP").expect("set EMULSION_LOOKFIT_DUMP");
+        for line in list.lines().filter(|l| !l.is_empty()) {
+            let mut parts = line.split('\t');
+            let (edge, input, output) = (parts.next().unwrap(), parts.next().unwrap(), parts.next().unwrap());
+            let bytes = load_for_engine(Path::new(input), Some(edge.parse().unwrap())).unwrap();
+            std::fs::write(output, bytes).unwrap();
+            println!("{input} -> {output}");
+        }
+    }
 }
