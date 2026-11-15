@@ -11,7 +11,7 @@ import type { MetadataInclude } from './exportsettings';
 import { NO_META } from './meta';
 import type { HalfImage } from '../engine/engine';
 import type { Photo } from './store';
-import { framePixels } from '../film/crop';
+import { framePixels, resolveFrame, rectFromTuple } from '../film/crop';
 import { ensureCapture } from './thumbs';
 import { stillEngine, StillsLost, type StillClient } from './stillclient';
 import type { RemoveContext } from '../engine/removequeue';
@@ -108,12 +108,18 @@ export const stemOf = (name: string) => name.replace(/\.[^.]+$/, '') || name;
  * long edge at longEdge / that is enough. Never upscales past the photo (or the GPU's limit).
  */
 export async function decodeFor(p: Photo, longEdge: number | null, maxTexture: number): Promise<[number, number, HalfImage]> {
-  const crop = p.recipe?.crop ?? null;
-  const decodeEdge = longEdge === null ? maxTexture : Math.min(maxTexture, Math.ceil(longEdge / Math.min(crop?.w ?? 1, crop?.h ?? 1)));
+  const crop = resolveFrame(p.recipe, p.cameraFrame ? rectFromTuple(p.cameraFrame.rect) : null);
+  const decodeEdge = longEdge === null ? maxTexture : Math.min(maxTexture, Math.ceil(longEdge / Math.min(crop.w, crop.h)));
   const hasRemove = p.recipe?.retouch.some(s => s.tool === 'remove' && s.opacity > 0);
-  const img = await loadImage(p.path, hasRemove ? maxTexture : decodeEdge, p.raw && noiseEnabled(p.recipe));
+  let img = await loadImage(p.path, hasRemove ? maxTexture : decodeEdge, p.raw && noiseEnabled(p.recipe));
+  // Older catalog entries may not have scan metadata yet. Size again from the authoritative decode.
+  const actual = resolveFrame(p.recipe, img.frame);
+  const requiredEdge = longEdge === null ? maxTexture : Math.min(maxTexture, Math.ceil(longEdge / Math.min(actual.w, actual.h)));
+  if (!hasRemove && requiredEdge > decodeEdge && Math.max(img.width, img.height) < Math.max(img.fullWidth, img.fullHeight)) {
+    img = await loadImage(p.path, requiredEdge, p.raw && noiseEnabled(p.recipe));
+  }
   // The frame in the photo's full-resolution pixels, then scaled to what was decoded and asked for.
-  const [fw, fh] = framePixels(crop, img.fullWidth || img.width, img.fullHeight || img.height);
+  const [fw, fh] = framePixels(resolveFrame(p.recipe, img.frame), img.fullWidth || img.width, img.fullHeight || img.height);
   const decoded = img.width / (img.fullWidth || img.width);
   const s = longEdge === null ? decoded : Math.min(decoded, longEdge / Math.max(fw, fh));
   return [Math.max(1, Math.round(fw * s)), Math.max(1, Math.round(fh * s)), img];

@@ -27,6 +27,7 @@ mod exposure;
 mod library;
 mod lens;
 mod raw;
+mod raf;
 mod rawspeed_cameras;
 mod presets;
 mod quit;

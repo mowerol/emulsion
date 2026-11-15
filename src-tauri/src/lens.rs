@@ -587,6 +587,15 @@ fn lens_metadata(all: &[(Tiff<'_>, Vec<Tag>)]) -> Option<LensMetadata> {
     })
 }
 
+/// A nominal tele fallback only when the file actually records a digital zoom ratio.
+/// Physical focal length stays unchanged by Fuji's tele-converter and cannot identify it.
+pub fn digital_zoom(path: &Path) -> Option<f64> {
+    let data = Data::open(path)?;
+    let (all, _) = walk(&data)?;
+    all.iter().find_map(|(t, tags)| values(t, tags, 0xa404).and_then(|v| v.first().copied()))
+        .filter(|v| v.is_finite() && *v > 1.0 && *v < 3.0)
+}
+
 /// The film simulation a Fujifilm camera recorded (its maker note's FilmMode, 0x1401, or for
 /// black and white its Saturation, 0x1003; values from ExifTool's FujiFilm tag table), as a
 /// stable name, or None for other cameras and unknown values.
@@ -714,14 +723,17 @@ mod tests {
                 knots[1..].to_vec()
             });
             c.extend(vec![0.001; if n == 9 { 19 } else { 20 }]);
-            let bytes = tiff(vec![
-                (0xf00b, 10, d.len() as u32, rational(d)),
-                (0xf00f, 10, c.len() as u32, rational(c)),
-                (0xf010, 10, v.len() as u32, rational(v)),
-            ]);
-            match read_bytes(&bytes).unwrap().correction.unwrap() {
-                Correction::Fuji { knots: actual, .. } => assert_eq!(actual, knots),
-                _ => panic!("Fuji"),
+            for (mode, expected_crop) in [(0u16, 1.0), (1, 1.0), (2, 1.25), (4, 1.25), (8, 1.0)] {
+                let bytes = tiff(vec![
+                    (0xf00b, 10, d.len() as u32, rational(d.clone())),
+                    (0xf00f, 10, c.len() as u32, rational(c.clone())),
+                    (0xf010, 10, v.len() as u32, rational(v.clone())),
+                    (0x104d, 3, 1, mode.to_le_bytes().to_vec()),
+                ]);
+                match read_bytes(&bytes).unwrap().correction.unwrap() {
+                    Correction::Fuji { knots: actual, crop, .. } => { assert_eq!(actual, knots); assert_eq!(crop, expected_crop); }
+                    _ => panic!("Fuji"),
+                }
             }
         }
     }

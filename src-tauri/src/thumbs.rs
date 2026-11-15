@@ -29,7 +29,13 @@ fn cache_file(cache_dir: &Path, key: &str) -> PathBuf {
 /// the loupe measures 100% in these preview pixels, never in sensor pixels.
 pub fn cull_preview(path: &Path) -> Result<Vec<u8>, String> {
     let image = match classify(path) {
-        Kind::Raw => raw::embedded_preview(path)?,
+        Kind::Raw => {
+            let img = raw::embedded_preview(path)?;
+            match crate::raf::metadata(path) {
+                Some(frame) => crop_preview(img, &frame),
+                None => img,
+            }
+        },
         _ => {
             let (img, icc) = decode::open_tagged(path)?;
             decode::to_srgb(img, icc.as_deref())
@@ -41,6 +47,20 @@ pub fn cull_preview(path: &Path) -> Result<Vec<u8>, String> {
         .encode_image(&image.to_rgb8())
         .map_err(|e| format!("Could not encode preview: {e}"))?;
     Ok(bytes)
+}
+
+fn crop_preview(img: image::DynamicImage, frame: &crate::raf::CameraFrame) -> image::DynamicImage {
+    let (w, h) = (img.width(), img.height());
+    let native = frame.width as f64 / frame.height as f64;
+    // An aspect-cropped preview is already composed. A native-aspect tele preview still needs cropping.
+    if (w as f64 / h as f64 / native - 1.0).abs() >= 0.01 { return img; }
+    let [x, y, rw, rh] = frame.rect;
+    let x = (x * w as f32).round() as u32;
+    let y = (y * h as f32).round() as u32;
+    let cw = ((rw * w as f32).round() as u32).min(w.saturating_sub(x));
+    let ch = ((rh * h as f32).round() as u32).min(h.saturating_sub(y));
+    if cw == 0 || ch == 0 { return img; }
+    img.crop_imm(x, y, cw, ch)
 }
 
 /// JPEG bytes for a thumbnail of `path`, from the cache when possible.
@@ -112,6 +132,19 @@ mod tests {
         assert_eq!(cached.len(), 1);
         let b = get_or_create(&cache, &img, 256).unwrap();
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn camera_preview_crop_handles_native_already_cropped_and_portrait_previews() {
+        let frame = crate::raf::CameraFrame { rect: [0.0, 2216.0/8736.0, 1.0, 4304.0/8736.0], width: 11648, height: 8736, aspect: Some("65:24".into()), tele: None };
+        let native = image::DynamicImage::new_rgb8(400, 300);
+        let crop = crop_preview(native, &frame);
+        assert_eq!((crop.width(), crop.height()), (400, 148));
+        let already = crop_preview(crop, &frame);
+        assert_eq!((already.width(), already.height()), (400, 148));
+        let portrait = crate::raf::CameraFrame { rect: crate::raf::orient(frame.rect, 6), width: 8736, height: 11648, ..frame };
+        let crop = crop_preview(image::DynamicImage::new_rgb8(300, 400), &portrait);
+        assert_eq!((crop.width(), crop.height()), (148, 400));
     }
 
     #[test]

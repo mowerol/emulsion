@@ -29,9 +29,9 @@ import { RANGE_CHANNELS } from '../film/masks';
 import { warmStageOf, type WarmStage } from '../engine/warm';
 import { defaultRecipe, uneditedRecipe } from '../film/recipe';
 import { D65_XY, clampWhiteBalance, neutralizingWhite, temperatureTint } from '../engine/whitebalance';
-import { STAGE_COLORS, activePhoto, editActive, finishCrop, setCropDraft, setPhotoWhite, setPhotoLens, setPhotoCamera, showToast, startCrop, useApp, withCaptures } from '../library/store';
+import { STAGE_COLORS, activePhoto, editActive, finishCrop, setCropDraft, setPhotoWhite, setPhotoLens, setPhotoCamera, showToast, startCrop, useApp, withCaptures, captureUnread } from '../library/store';
 import { StageMenu } from './StageMenu';
-import { FULL, bounds, orientedSize, rotateFrame } from '../film/crop';
+import { FULL, resolveFrame, rectFromTuple, bounds, orientedSize, rotateFrame } from '../film/crop';
 import { CropOverlay } from './CropOverlay';
 import { ensureCapture, loadCachedImage, prepareFullImage, thumbs } from '../library/thumbs';
 import { Filmstrip } from './Filmstrip';
@@ -363,7 +363,8 @@ export function Develop() {
         } else if (!photo?.recipe?.retouch.some(s => s.tool === 'remove' && s.opacity > 0)) {
           const orig = await thumbs.original(path);
           if (!cancelled && loadedRef.current?.path !== path) {
-            const src = await engine.uploadBlob(orig.blob, useApp.getState().photos.find((p) => p.path === path)?.white ?? null);
+            const currentPhoto = useApp.getState().photos.find((p) => p.path === path);
+            const src = await engine.uploadBlob(orig.blob, currentPhoto?.white ?? null, currentPhoto?.cameraFrame);
             // The RAW may have finished while the browser decoded the embedded JPEG.
             if (cancelled || loadedRef.current?.path === path) { engine.release(src); return; }
             swap(src, 'thumb');
@@ -378,7 +379,8 @@ export function Develop() {
       try {
         // Until the photo's size is known, the most it can be shown at when it fits the stage.
         const r = boxRef.current?.getBoundingClientRect();
-        const crop = useApp.getState().photos.find((p) => p.path === path)?.recipe?.crop;
+        const currentPhoto = useApp.getState().photos.find((p) => p.path === path);
+        const crop = resolveFrame(currentPhoto?.recipe, currentPhoto?.cameraFrame ? rectFromTuple(currentPhoto.cameraFrame.rect) : null);
         const edge = previewEdge(r && r.width > 2 ? fitEdgeBound(r.width, r.height, dpr(), crop?.w, crop?.h) : Infinity, engine.maxTextureSize);
         const cached = cachedSource(sourceKey(path, 'preview', wantsNoise));
         if (cached && !previewStale(askedEdge(cached), edge)) {
@@ -441,12 +443,12 @@ export function Develop() {
   const unedited = useMemo(() => photo ? uneditedRecipe(photo) : null,
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [photo?.raw, photo?.capture?.simulation]);
-  // A RAW the library hasn't read its film simulation from yet (one from an older catalog, or ahead
-  // of the background pass) has it read now, so it opens with its look rather than the default.
-  const captureUnread = !!photo && (!photo.capture || photo.raw && photo.capture.simulation === undefined);
-  useEffect(() => { if (photo && captureUnread) void withCaptures([photo]); },
+  // A RAW the library hasn't read its film simulation or camera framing from yet (one from an older
+  // catalog, or ahead of the background pass) has them read now, so it opens with its look and crop.
+  const unread = !!photo && captureUnread(photo);
+  useEffect(() => { if (photo && unread) void withCaptures([photo]); },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [photo?.path, captureUnread]);
+    [photo?.path, unread]);
   const saved = photo ? photo.recipe ?? unedited : null;
   // A look or preset under the pointer is shown on the photo without being applied.
   const preview = workflow && !cropping && !editingLook ? tools.preview : null;
@@ -455,7 +457,7 @@ export function Develop() {
   const turned = cropEdit ? orientedSize(cropEdit.draft, cropEdit.W, cropEdit.H) : null;
   const frame = cropEdit
     ? { ...bounds(cropEdit.draft.angle, turned![0], turned![1]), angle: cropEdit.draft.angle, orient: cropEdit.draft.orient }
-    : (recipe?.crop ?? FULL);
+    : resolveFrame(recipe, src?.frame);
   // The shown frame's full-resolution size, which zoom and pan measure in.
   const [frameW, frameH] = src ? orientedSize(frame, src.fullW, src.fullH).map((v, i) => v * (i ? frame.h : frame.w)) : [1, 1];
   // Cropping fits the photo at the size every tool shows it, so it doesn't jump: the stage's padding
@@ -480,11 +482,11 @@ export function Develop() {
 
   // Tell the store the photo's size, so cropping can start from the panel.
   useEffect(() => {
-    if (path && src && sizeKnown) useApp.setState({ developSize: { path, W: src.fullW, H: src.fullH } });
-  }, [path, src?.fullW, src?.fullH, sizeKnown]);
+    if (path && src && sizeKnown) useApp.setState({ developSize: { path, W: src.fullW, H: src.fullH, frame: src.frame ?? null } });
+  }, [path, src?.fullW, src?.fullH, src?.frame, sizeKnown]);
 
   // A new crop changes what the zoom refers to, so start from the whole frame.
-  const cropKey = JSON.stringify(recipe?.crop ?? null);
+  const cropKey = JSON.stringify(frame);
   useEffect(() => setZoom(FIT), [cropKey, cropping]);
 
   // The preview follows the size the photo is shown at (previewsize.ts): when a zoom, crop or
@@ -498,7 +500,7 @@ export function Develop() {
   // loads, the preview is what is shown, so it grows with the zoom as before.
   const shownEdge = current && src && sizeKnown ? current.scale * Math.max(src.fullW, src.fullH) : 0;
   const fullShowing = loaded?.res === 'full';
-  const fitCrop = photo?.recipe?.crop;
+  const fitCrop = resolveFrame(photo?.recipe, src?.frame);
   const previewFor = fullShowing && box.w > 2 ? Math.min(shownEdge, fitEdgeBound(box.w, box.h, dpr(), fitCrop?.w, fitCrop?.h)) : shownEdge;
   useEffect(() => {
     const engine = engineRef.current;
@@ -761,6 +763,9 @@ export function Develop() {
           // Esc first puts down the level line, then cancels the crop.
           if (workflow && tools.straighten) useTools.setState({ straighten: false });
           else finishCrop(false);
+        } else if (e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey && k === 'f') {
+          e.preventDefault();
+          setCropDraft(() => FULL);
         } else if (plain && k === 'x') setCropDraft((c) => rotateFrame(c, ...orientedSize(c, cropEdit!.W, cropEdit!.H)));
         else if (plain && k === 'o' && workflow) cycleCropOverlay();
         return;
@@ -833,8 +838,8 @@ export function Develop() {
       const src = wholeOf(l) ?? l.source;
       const k = Math.min(1, ENCODE_EDGE / Math.max(src.w, src.h));
       const w = Math.max(1, Math.round(src.w * k)), h = Math.max(1, Math.round(src.h * k));
-      const r = p.recipe ? { ...p.recipe, masks: [], crop: null, transform: null } : null;
-      return { key: `${p.path}|${src.fullW}x${src.fullH}|${JSON.stringify(p.recipe?.lens ?? null)}`, w, h, pixels: () => engine.readPixels(src, r, w, h, 0) };
+      const r = p.recipe ? { ...p.recipe, masks: [], crop: FULL, transform: null } : null;
+      return { key: `${p.path}|${src.fullW}x${src.fullH}|${JSON.stringify(p.recipe?.lens ?? null)}`, w, h, pixels: () => engine.readPixels(src, r, w, h, 0, FULL) };
     });
     return () => setObjectRenderer(null);
   }, []);

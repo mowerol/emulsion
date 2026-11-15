@@ -15,7 +15,7 @@ import { folderImport, importedPaths, importedRoots, rememberFolder, saveFolderI
 import { libraryEntries, membership as folderMembership, parentFolder, withinFolder } from './membership';
 import { defaultRecipe, uneditedRecipe, normalizeRecipe, type Recipe } from '../film/recipe';
 import { applyCopiedSettings, DEFAULT_COPY_GROUPS, normalizeCopyGroups, type CopiedSettings, type CopyGroup } from '../film/copysettings';
-import { FULL, isFull, type Crop } from '../film/crop';
+import { cameraFrame, resolveFrame, savedCrop, type CameraFrame, type Rect, type Crop } from '../film/crop';
 import { NO_FILTER, isFiltering, normalizeFilter, passes, rangeWithin, shownIndices, stepWithin, type Filter } from './filter';
 import { seedFor } from '../engine/engine';
 import { flushSaves, savePhoto } from './sidecars';
@@ -54,6 +54,7 @@ export interface Photo {
   meta?: PhotoMeta;
   /** A camera RAW. */
   raw: boolean;
+  cameraFrame?: CameraFrame | null;
   /** The JPEG folded into this RAW (same name, same folder), when JPEGs are folded. */
   pair: string | null;
   /**
@@ -134,9 +135,9 @@ export interface State {
     guest?: string;
   } | null;
   /** The crop being edited, for the photo at `path` of size W × H; it is saved when cropping ends. */
-  cropEdit: { path: string; draft: Crop; W: number; H: number } | null;
+  cropEdit: { path: string; draft: Crop; W: number; H: number; frame?: Rect | null } | null;
   /** Size of the photo open in the develop view. */
-  developSize: { path: string; W: number; H: number } | null;
+  developSize: { path: string; W: number; H: number; frame?: Rect | null } | null;
   /** Which photos the Library grid and the filmstrip show. */
   filter: Filter;
   /** The workspace colour behind the photo in Develop. */
@@ -290,7 +291,7 @@ export function showToast(message: string, action?: Toast['action'], ms = 3200) 
 const scannedPhoto = (e: Entry): Photo => ({
   path: e.path, rel: e.rel, name: e.name, size: e.size, modified: e.modified,
   recipe: normalizeRecipe(e.recipe), seed: seedFor(e.path), white: null,
-  ...normalizeMarks(e.rating, e.label, e.flag), meta: normalizeMeta(e.meta), raw: e.raw, pair: null,
+  ...normalizeMarks(e.rating, e.label, e.flag), meta: normalizeMeta(e.meta), raw: e.raw, cameraFrame: e.cameraFrame ?? null, pair: null,
 });
 
 /**
@@ -317,16 +318,21 @@ function withCachedMetadata(photo: Photo, cached?: Photo): Photo {
   return { ...photo, camera: cached.camera, lens: cached.lens, white: cached.white, capture: cached.capture, ...(cached.read ? { read: cached.read } : {}) };
 }
 
-type CaptureRead = Map<string, { identity: Photo; capture: NonNullable<Photo['capture']> }>;
+type CaptureRead = Map<string, { identity: Photo; capture: NonNullable<Photo['capture']>; cameraFrame: CameraFrame | null }>;
 
-/** Whether a photo's capture metadata still has to be read: never read, or a RAW read before the
- * film simulation was (catalogs from before 2026-11-14 have no `simulation`). */
-const captureUnread = (p: Photo) => !p.capture || p.raw && p.capture.simulation === undefined;
+/** Whether a photo's capture metadata still has to be read: never read, a RAW read before the
+ * film simulation was (catalogs from before 2026-11-14 have no `simulation`), or a RAF whose
+ * camera framing (as-shot aspect, digital tele-converter crop) hasn't been read. */
+export const captureUnread = (p: Photo) => !p.capture || p.raw && p.capture.simulation === undefined
+  || p.raw && /\.raf$/i.test(p.path) && p.cameraFrame === undefined;
 
 /** Read the capture metadata of `photos` (camera, date, Fujifilm film simulation). */
 async function readCaptures(photos: Photo[], into: CaptureRead = new Map()) {
   const values = await catalogMetadata(photos.map(p => p.path));
-  photos.forEach((p, n) => into.set(p.path, { identity: p, capture: { simulation: null, ...(values[n] ?? { camera: null, date: null }) } }));
+  photos.forEach((p, n) => {
+    const { cameraFrame, ...capture } = values[n] ?? { camera: null, date: null };
+    into.set(p.path, { identity: p, capture: { simulation: null, ...capture }, cameraFrame: cameraFrame ?? null });
+  });
   return into;
 }
 
@@ -335,7 +341,7 @@ function applyCaptures(found: CaptureRead) {
   if (!found.size) return;
   const update = (p: Photo) => {
     const data = found.get(p.path);
-    return data && p.size === data.identity.size && p.modified === data.identity.modified ? { ...p, capture: data.capture } : p;
+    return data && p.size === data.identity.size && p.modified === data.identity.modified ? { ...p, capture: data.capture, cameraFrame: data.cameraFrame ?? p.cameraFrame ?? null } : p;
   };
   cacheEdits(catalogPhotos().filter(p => found.has(p.path)).map(update));
   updateOpenPhotos(update);
@@ -374,7 +380,7 @@ export async function withCaptures(photos: Photo[]): Promise<Photo[]> {
   const known = new Map(catalogPhotos().map(p => [photoId(p), p]));
   return photos.map(p => {
     const now = known.get(photoId(p)) ?? get().photos.find(q => photoId(q) === photoId(p));
-    return now?.capture && now.size === p.size && now.modified === p.modified ? { ...p, capture: now.capture } : p;
+    return now?.capture && now.size === p.size && now.modified === p.modified ? { ...p, capture: now.capture, cameraFrame: now.cameraFrame } : p;
   });
 }
 
@@ -1518,7 +1524,7 @@ export function openCopySettings() {
   if (!photo) return;
   const crop = get().cropEdit;
   const recipe = crop?.path === photoId(photo)
-    ? { ...(photo.recipe ?? uneditedRecipe(photo)), crop: isFull(crop.draft) ? null : crop.draft }
+    ? { ...(photo.recipe ?? uneditedRecipe(photo)), crop: savedCrop(crop.draft, crop.frame) }
     : photo.recipe ?? uneditedRecipe(photo);
   set({ copySettingsSource: { name: photo.copyName ? `${photo.name} · ${photo.copyName}` : photo.name, recipe: structuredClone(captureLook(recipe)) } });
 }
@@ -1547,7 +1553,7 @@ export function pasteSettings() {
   editRecipes(t.map(photoId), (r) => applyCopiedSettings(clip, r), t.length === 1 ? 'Paste settings' : `Paste settings to ${t.length} photos`, undefined, { checkpoint: true });
   const crop = get().cropEdit;
   if (crop && clip.groups.includes('Crop') && t.some(p => photoId(p) === crop.path)) {
-    set({ cropEdit: { ...crop, draft: structuredClone(clip.recipe.crop ?? FULL) } });
+    set({ cropEdit: { ...crop, draft: structuredClone(resolveFrame(clip.recipe, crop.frame)) } });
   }
   showToast(t.length === 1 ? `Pasted onto ${t[0].name}` : `Pasted onto ${t.length} frames`);
 }
@@ -1649,7 +1655,7 @@ export function startCrop() {
   const a = activePhoto();
   const size = get().developSize;
   if (!a || get().cropEdit || get().view !== 'develop' || size?.path !== a.path) return;
-  set({ cropEdit: { path: photoId(a), draft: a.recipe?.crop ?? FULL, W: size.W, H: size.H }, picking: false });
+  set({ cropEdit: { path: photoId(a), draft: a.recipe?.crop ?? cameraFrame(size.frame, size.W, size.H), W: size.W, H: size.H, frame: size.frame }, picking: false });
 }
 
 export function setCropDraft(change: (c: Crop) => Crop) {
@@ -1663,7 +1669,7 @@ export function finishCrop(keep: boolean) {
   if (!e) return;
   set({ cropEdit: null });
   if (!keep) return;
-  const crop = isFull(e.draft) ? null : e.draft;
+  const crop = savedCrop(e.draft, e.frame);
   editRecipes(
     [e.path],
     (r) => (JSON.stringify(r?.crop ?? null) === JSON.stringify(crop) ? r : { ...(r ?? defaultRecipe()), crop }),

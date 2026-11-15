@@ -3,6 +3,7 @@
 // panels. They belong to each source file (its virtual copies share them) and are shared with
 // other apps through its XMP sidecar, together with the stars and colour label.
 
+import { cameraFrameLabel } from '../film/crop';
 import { memo, useEffect, useId, useState, type ReactNode } from 'react';
 import { ChevronRight, X } from 'lucide-react';
 import { editMeta, targets, useApp } from '../library/store';
@@ -172,8 +173,14 @@ function SavePreset({ shared, onDone }: { shared: SharedMeta; onDone: () => void
 
 export const MetadataControls = memo(function MetadataControls() {
   const shared = useShared();
+  const framing = useApp(s => {
+    const selected = targets(s);
+    const label = cameraFrameLabel(selected[0]?.cameraFrame);
+    return selected.every(p => cameraFrameLabel(p.cameraFrame) === label) ? label : '';
+  });
   if (!shared) return null;
   return <div className="metadata-controls">
+    {framing && <p className="hint">{framing}</p>}
     {shared.total > 1 && <p className="hint">Changes apply to the {shared.total} selected photos.</p>}
     <MetaPresets shared={shared} />
     {META_GROUPS.map(g => {

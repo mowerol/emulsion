@@ -9,6 +9,7 @@ import { StillRenderer, type FromStills, type RemoveInput, type ToStills } from 
 import { engineMode } from '../ui/developclient';
 import type { SourceRef } from '../engine/developloop';
 import { logToTerminal, pixelBuffers } from '../backend/api';
+import { previewFrame, type CameraFrame } from '../film/crop';
 import { InputMode } from '../engine/params';
 import type { HalfImage } from '../engine/engine';
 import type { RemoveContext } from '../engine/removequeue';
@@ -82,15 +83,16 @@ export class StillClient {
     const key = ++keys;
     this.send({ type: 'upload', key, img, origin }, transfer ? pixelBuffers(img) : []);
     return { key, w: img.width, h: img.height, fullW: img.fullWidth, fullH: img.fullHeight, mode: img.mode, white: img.white,
-      camera: img.camera, lens: img.lens, denoised: !!img.denoised, origin };
+      camera: img.camera, frame: img.frame, lens: img.lens, denoised: !!img.denoised, origin };
   }
 
   /** A camera JPEG (a file the decoder can't read is edited through its embedded preview). */
-  async uploadBlob(blob: Blob, white: Xy | null, origin?: string): Promise<StillSource> {
+  async uploadBlob(blob: Blob, white: Xy | null, origin?: string, framing?: CameraFrame | null): Promise<StillSource> {
     const bitmap = await createImageBitmap(blob);
     const key = ++keys;
-    const ref: StillSource = { key, w: bitmap.width, h: bitmap.height, fullW: bitmap.width, fullH: bitmap.height, mode: InputMode.DisplayEncoded, white, denoised: false, origin };
-    this.send({ type: 'uploadBitmap', key, bitmap, white, origin }, [bitmap]);
+    const frame = previewFrame(framing, bitmap.width, bitmap.height);
+    const ref: StillSource = { frame, key, w: bitmap.width, h: bitmap.height, fullW: bitmap.width, fullH: bitmap.height, mode: InputMode.DisplayEncoded, white, denoised: false, origin };
+    this.send({ type: 'uploadBitmap', key, bitmap, white, origin, frame }, [bitmap]);
     return ref;
   }
 

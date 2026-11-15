@@ -25,7 +25,7 @@ import type { Recipe } from '../film/recipe';
 import { OpticsGpu, opticsSize, type MaskedGlow } from './opticsgpu';
 import { lensCenter, lensColourUniforms, lensSpline, lensUniforms, type LensMetadata } from './lenscorrection';
 import { geometryMatrix, hasPerspective } from './perspective';
-import { FULL, orientedSize, type Orientation, type Rect } from '../film/crop';
+import { FULL, resolveFrame, orientedSize, type Crop, type Orientation, type Rect } from '../film/crop';
 import { Gpu, GpuError, Lru, type Program, type SpareSpec, type Target } from './gpu';
 import { InputMode, LUT_UNIT, MASK_GLOW_UNIT, colorBalanceUniforms, developUniforms, llParams, needsPasses, type Uniforms } from './params';
 import { maskActive } from '../film/masks';
@@ -61,6 +61,7 @@ export { GpuError, InputMode };
 
 /** Pixels decoded by the backend: RGBA half floats. */
 export interface HalfImage {
+  frame?: Rect | null;
   denoised?: Uint16Array;
   camera?: import('../film/profiles').CameraMetadata | null;
   lens?: LensMetadata | null;
@@ -86,6 +87,7 @@ export interface View {
 export const FULL_VIEW: View = { x: 0, y: 0, w: 1, h: 1 };
 
 export interface Source {
+  frame?: Rect | null;
   denoised?: WebGLTexture;
   camera?: import('../film/profiles').CameraMetadata | null;
   lens?: LensMetadata | null;
@@ -631,7 +633,7 @@ export class Engine {
     const mips = this.gpu.hdr;
     if (mips) gl.generateMipmap(gl.TEXTURE_2D);
     this.gpu.params(mips);
-    return { denoised: img.denoised ? this.sourceFromHalf({ ...img, data: img.denoised, denoised: undefined }).tex : undefined, tex, w: img.width, h: img.height, mode: img.mode, white: img.white, lens: img.lens, camera: img.camera, fullW: img.fullWidth, fullH: img.fullHeight };
+    return { denoised: img.denoised ? this.sourceFromHalf({ ...img, data: img.denoised, denoised: undefined }).tex : undefined, tex, w: img.width, h: img.height, mode: img.mode, white: img.white, lens: img.lens, camera: img.camera, frame: img.frame, fullW: img.fullWidth, fullH: img.fullHeight };
   }
 
   /** Upload an sRGB image (a thumbnail), shot for `white` (a RAW's camera preview) or D65. */
@@ -1270,7 +1272,7 @@ export class Engine {
     // Wavelet retouch and its scale viewer still require the whole source.
     if ((recipe.retouchScales?.scales ?? 0) > 0 && (this.retouchShow || recipe.retouch.some(s => s.opacity > 0))) return null;
     const view = opts.view ?? FULL_VIEW;
-    const frame = { ...FULL, ...(opts.frame ?? recipe.crop ?? FULL) };
+    const frame = { ...FULL, ...(opts.frame ?? resolveFrame(recipe, src.frame)) };
     const visible = visibleSource(view, frame, recipe.transform, src.w, src.h, src.fullW, src.fullH);
     const scale = pxScale(src);
     const compare = !!opts.compare;
@@ -1416,7 +1418,7 @@ export class Engine {
     // zoomed region's whole-photo products (so zooming in from Fit keeps them).
     const reuse = this.fitMade?.origin === origin && this.fitMade.input === src.tex ? this.fitMade.fit : null;
     if (opts.products || (mode === 'screen' && opts.target !== 'screen')) return reuse;
-    const view = opts.view ?? FULL_VIEW, frame = opts.frame ?? recipe?.crop ?? FULL;
+    const view = opts.view ?? FULL_VIEW, frame = opts.frame ?? resolveFrame(recipe, src.frame);
     // Only with the whole frame in view (Fit, or smaller). Zoomed in, the preview is developed as
     // it is: shrinking it for every zoom would remake every map at each zoom's settle.
     if (view.w < 0.999 || view.h < 0.999) return null;
@@ -2864,7 +2866,7 @@ export class Engine {
       // below keeps the sharp image and scales only effect analysis for the current view.
       if (opts.target === 'screen' && g.hdr && src !== this.viewMade?.source && !hasPerspective(recipe?.transform)) {
         const [sw, sh] = opts.shown ?? [opts.width, opts.height];
-        const frame = { ...FULL, ...(opts.frame ?? recipe?.crop ?? FULL) };
+        const frame = { ...FULL, ...(opts.frame ?? resolveFrame(recipe, src.frame)) };
         const density = displayDensity(sw, sh, opts.view ?? FULL_VIEW, frame, src.fullW, src.fullH) / pxScale(src);
         if (density <= opts.whole.w / src.w * 1.05) {
           if (!opts.moving) this.freeRegion();
@@ -2885,7 +2887,7 @@ export class Engine {
       // much cheaper than developing the full-resolution photo for a view that is still broad.
       // Wavelet retouch and its scale viewer need the whole source, so they keep the old limit.
       const view = opts.view ?? FULL_VIEW;
-      const frame = opts.frame ?? recipe?.crop ?? FULL;
+      const frame = opts.frame ?? resolveFrame(recipe, src.frame);
       const [sw, sh] = opts.shown ?? [opts.width, opts.height];
       const shown = Math.max(sw / view.w / frame.w, sh / view.h / frame.h);
       const wholeOnly = (recipe?.retouchScales?.scales ?? 0) > 0 && (this.retouchShow || !!recipe?.retouch.some(s => s.opacity > 0));
@@ -2904,7 +2906,7 @@ export class Engine {
       let reduce = 1;
       if (screen && opts.live) {
         const [sw, sh] = opts.shown ?? [opts.width, opts.height];
-        const density = displayDensity(sw, sh, opts.view ?? FULL_VIEW, { ...FULL, ...(opts.frame ?? recipe?.crop ?? FULL) }, src.fullW, src.fullH) / pxScale(src);
+        const density = displayDensity(sw, sh, opts.view ?? FULL_VIEW, { ...FULL, ...(opts.frame ?? resolveFrame(recipe, src.frame)) }, src.fullW, src.fullH) / pxScale(src);
         if (density > 0 && density < 0.75) reduce = Math.min(4, 2 ** Math.floor(Math.log2(1 / density) + 0.5));
       }
       src = yield* this.profiledSteps(src, recipe, this.L, screen, reduce, screen && !!opts.live);
@@ -2960,7 +2962,7 @@ export class Engine {
       return;
     }
     const view = opts.view ?? FULL_VIEW;
-    const frame = opts.frame ?? recipe?.crop ?? FULL;
+    const frame = opts.frame ?? resolveFrame(recipe, src.frame);
     // Retouch replaces the source before haze removal. A view
     // showing the photo at half its working size or less retouches at that scale (1/k), as
     // darktable's darkroom runs at the zoom's scale; an export or a 1:1 view at full size.
@@ -3620,7 +3622,7 @@ export class Engine {
   sampleMaskInput(src: Source, recipe: Recipe, mask: number, box: View, max = 512): Float32Array {
     const g = this.gpu;
     const gl = g.gl;
-    const crop = recipe.crop ?? FULL;
+    const crop = resolveFrame(recipe, src.frame);
     const [ow, oh] = orientedSize(crop, src.w, src.h);
     const pw = box.w * crop.w * ow;
     const ph = box.h * crop.h * oh;
@@ -3688,11 +3690,11 @@ export class Engine {
   }
 
   /** Develop into RGBA8 pixels, top row first, at width × height; size it to the recipe's crop (`framePixels`). */
-  readPixels(src: Source, recipe: Recipe | null, width: number, height: number, seed: number, compare = false, view?: View, split?: number, whole?: Source): Uint8Array<ArrayBuffer> {
+  readPixels(src: Source, recipe: Recipe | null, width: number, height: number, seed: number, compare = false, view?: View, split?: number, whole?: Source, frame?: Crop): Uint8Array<ArrayBuffer> {
     const g = this.gpu;
     const gl = g.gl;
     const out = this.outs.get(`${width}x${height}`, () => g.target(width, height, false));
-    this.render(src, recipe, { target: out, width, height, seed, compare, view, split, whole });
+    this.render(src, recipe, { target: out, width, height, seed, compare, view, split, whole, frame });
     const px = new Uint8Array(width * height * 4);
     gl.bindFramebuffer(gl.FRAMEBUFFER, out.fbo);
     gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, px);
@@ -3701,10 +3703,10 @@ export class Engine {
   }
 
   /** The same output, with GPU readback queued into a buffer so UI work never waits on it. */
-  async readPixelsAsync(src: Source, recipe: Recipe | null, width: number, height: number, seed: number, compare = false): Promise<Uint8Array<ArrayBuffer>> {
+  async readPixelsAsync(src: Source, recipe: Recipe | null, width: number, height: number, seed: number, compare = false, frame?: Crop): Promise<Uint8Array<ArrayBuffer>> {
     const g = this.gpu, gl = g.gl;
     const out = this.outs.get(`${width}x${height}`, () => g.target(width, height, false));
-    this.render(src, recipe, { target: out, width, height, seed, compare });
+    this.render(src, recipe, { target: out, width, height, seed, compare, frame });
     const px = new Uint8Array(width * height * 4), buffer = gl.createBuffer();
     if (!buffer) throw new GpuError('Could not allocate a pixel readback buffer');
     let fence: WebGLSync | null = null;
@@ -3739,7 +3741,7 @@ export class Engine {
    * for 16-bit TIFF and PNG export. Read in strips, so a 26 MP frame needs a ~50 MB float buffer at
    * a time rather than 400 MB. The finish dither is one 16-bit step.
    */
-  async readPixels16Async(src: Source, recipe: Recipe | null, width: number, height: number, seed: number): Promise<Uint16Array<ArrayBuffer>> {
+  async readPixels16Async(src: Source, recipe: Recipe | null, width: number, height: number, seed: number, frame?: Crop): Promise<Uint16Array<ArrayBuffer>> {
     const g = this.gpu, gl = g.gl;
     if (!g.hdr) throw new GpuError('16-bit export needs float render targets, which this GPU does not offer');
     const out = g.target(width, height, true, true);
@@ -3747,7 +3749,7 @@ export class Engine {
     const buffer = gl.createBuffer();
     try {
       if (!buffer) throw new GpuError('Could not allocate a pixel readback buffer');
-      this.render(src, recipe, { target: out, width, height, seed, dither: 1 / 65535 });
+      this.render(src, recipe, { target: out, width, height, seed, frame, dither: 1 / 65535 });
       const rows = Math.max(1, Math.min(height, Math.floor((48 << 20) / (width * 16))));
       const strip = new Float32Array(width * rows * 4);
       gl.bindBuffer(gl.PIXEL_PACK_BUFFER, buffer);

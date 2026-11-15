@@ -12,7 +12,7 @@
 // width and height once turned (`orientedSize`). Only `cropAffine`, `sourcePoint`
 // and `framePixels` take the source's own size, and map back through the orientation.
 
-export type AspectId = 'free' | 'original' | '1:1' | '4:5' | '3:2' | '16:9' | '6x6' | '6x4.5' | '6x7' | '5:4' | 'xpan' | 'custom';
+export type AspectId = '4:3' | '17:6' | 'free' | 'original' | '1:1' | '4:5' | '3:2' | '16:9' | '6x6' | '6x4.5' | '6x7' | '5:4' | 'xpan' | 'custom';
 
 /** Quarter turns clockwise, then flips across the turned photo's middle. */
 export interface Orientation {
@@ -45,6 +45,8 @@ export const MIN_SIZE = 0.02;
 export const ASPECTS: { id: AspectId; label: string; ratio: number | null; group: 'common' | 'film' | 'custom' }[] = [
   { id: 'original', label: 'Original', ratio: null, group: 'common' },
   { id: 'free', label: 'Free', ratio: null, group: 'common' },
+  { id: '4:3', label: '4:3', ratio: 4 / 3, group: 'common' },
+  { id: '17:6', label: '17:6', ratio: 17 / 6, group: 'film' },
   { id: '1:1', label: '1:1', ratio: 1, group: 'common' },
   { id: '4:5', label: '4:5', ratio: 5 / 4, group: 'common' },
   { id: '3:2', label: '3:2', ratio: 3 / 2, group: 'common' },
@@ -109,6 +111,47 @@ function withOrient(c: Crop, o: Orientation): Crop {
 }
 
 export const FULL: Crop = { x: 0, y: 0, w: 1, h: 1, angle: 0, aspect: 'original' };
+
+/** Recorded composition over the camera output area (embedded previews), in display orientation. */
+export interface CameraFrame {
+  rect: [number, number, number, number];
+  width: number;
+  height: number;
+  aspect: string | null;
+  tele: number | null;
+}
+
+export const rectFromTuple = ([x, y, w, h]: [number, number, number, number]): Rect => ({ x, y, w, h });
+
+/** Embedded previews normally cover the camera output area; an already aspect-cropped JPEG stays intact. */
+export function previewFrame(framing: CameraFrame | null | undefined, W: number, H: number): Rect | null {
+  return framing && Math.abs((W / H) / (framing.width / framing.height) - 1) < 0.01 ? rectFromTuple(framing.rect) : null;
+}
+
+/** A camera frame has no user rotation; the decoded pixels are already oriented. */
+export const cameraFrame = (frame?: Rect | null, W?: number, H?: number): Crop => frame ? { ...frame, angle: 0, aspect: W && H ? aspectOfFrame(frame, W, H) : 'original' } : FULL;
+export const resolveFrame = (recipe: { crop?: Crop | null } | null | undefined, frame?: Rect | null): Crop => recipe?.crop ?? cameraFrame(frame);
+
+/** Compare visible geometry, independent of the editing aspect lock. */
+export function sameFrame(a: Crop, b: Crop, epsilon = 1e-6): boolean {
+  const ao = a.orient ?? AS_SHOT, bo = b.orient ?? AS_SHOT;
+  return Math.abs(a.x - b.x) <= epsilon && Math.abs(a.y - b.y) <= epsilon
+    && Math.abs(a.w - b.w) <= epsilon && Math.abs(a.h - b.h) <= epsilon && Math.abs(a.angle - b.angle) <= epsilon
+    && ao.turns === bo.turns && ao.flipH === bo.flipH && ao.flipV === bo.flipV;
+}
+
+export function aspectOfFrame(frame: Rect, W: number, H: number): AspectId {
+  const ratio = pixelRatio(frame, W, H);
+  const landscape = Math.max(ratio, 1 / ratio);
+  return ASPECTS.find(a => a.id !== '4:5' && a.ratio && Math.abs(a.ratio / landscape - 1) < 0.01)?.id ?? 'free';
+}
+
+/** Preserve the camera baseline as null, while explicit Full sensor remains a saved crop. */
+export const savedCrop = (draft: Crop, frame?: Rect | null): Crop | null => sameFrame(draft, cameraFrame(frame)) ? null : draft;
+
+export function cameraFrameLabel(frame?: CameraFrame | null): string {
+  return [frame?.aspect && `As shot: ${frame.aspect}`, frame?.tele && `Digital Tele ${frame.tele} mm`].filter(Boolean).join(' · ');
+}
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 const rad = (deg: number) => (deg * Math.PI) / 180;
@@ -365,10 +408,10 @@ export function normalizeCrop(input: unknown): Crop | null {
     const t = num(or.turns);
     c = withOrient(c, { turns: (t === null ? 0 : ((Math.round(t) % 4) + 4) % 4) as Orientation['turns'], flipH: or.flipH === true, flipV: or.flipV === true });
   }
-  return isFull(c) ? null : c;
+  return c;
 }
 
-const NAMED: [number, number][] = [[1, 1], [5, 4], [4, 3], [7, 6], [3, 2], [16, 10], [16, 9], [2, 1], [65, 24], [3, 1]];
+const NAMED: [number, number][] = [[1, 1], [5, 4], [4, 3], [7, 6], [3, 2], [16, 10], [16, 9], [2, 1], [65, 24], [17, 6], [3, 1]];
 
 /** A width-over-height ratio named landscape first: a familiar one within 1%, else the simplest n:d, else to two decimals. */
 export function ratioLabel(r: number): string {

@@ -13,11 +13,12 @@ import { provideLut } from './lutstore';
 import type { Assets } from './assetsync';
 import { adoptUserLooks } from '../film/looks';
 import type { Recipe } from '../film/recipe';
+import type { Rect } from '../film/crop';
 import type { Xy } from './whitebalance';
 
 export type ToStills =
   | { type: 'upload'; key: number; img: HalfImage; origin?: string }
-  | { type: 'uploadBitmap'; key: number; bitmap: ImageBitmap; white: Xy | null; origin?: string }
+  | { type: 'uploadBitmap'; key: number; bitmap: ImageBitmap; white: Xy | null; origin?: string; frame?: Rect | null }
   | { type: 'release'; key: number }
   | { type: 'capture'; key: number; radius: number; toCam: number[]; mask: Uint8Array }
   | ({ type: 'assets' } & Assets)
@@ -82,7 +83,7 @@ export class StillRenderer {
         catch (err) { this.failed.set(m.key, `Could not upload the photo to the GPU. ${String(err)}`); }
         break;
       case 'uploadBitmap':
-        try { this.sources.set(m.key, { ...this.engine.sourceFromImage(m.bitmap, m.bitmap.width, m.bitmap.height, m.white), origin: m.origin }); }
+        try { this.sources.set(m.key, { ...this.engine.sourceFromImage(m.bitmap, m.bitmap.width, m.bitmap.height, m.white), frame: m.frame, origin: m.origin }); }
         catch (err) { this.failed.set(m.key, `Could not upload the photo to the GPU. ${String(err)}`); }
         finally { m.bitmap.close(); }
         break;

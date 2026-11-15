@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { useEffect, useRef, useState } from 'react';
 import { noiseEnabled } from '../film/noisereduction';
-import { framePixels } from '../film/crop';
+import { framePixels, resolveFrame } from '../film/crop';
 import type { Recipe } from '../film/recipe';
 import type { Photo } from '../library/store';
 import { photoId } from '../library/copies';
@@ -109,7 +109,7 @@ export function usePhotoRenders({ photos, recipeFor, size }: {
             continue;
           }
         }
-        const [w, h] = framePixels(recipe?.crop ?? null, d.w, d.h);
+        const [w, h] = framePixels(resolveFrame(recipe, d.src.frame), d.w, d.h);
         const scale = Math.min(tw / w, th / h, 1);
         const cw = Math.max(1, Math.round(w * scale)), ch = Math.max(1, Math.round(h * scale));
         let px: Uint8Array;

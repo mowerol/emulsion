@@ -66,3 +66,21 @@ it('transfers a paired (AI Noise Reduction) decode as its one buffer', () => {
   expect(moved.denoised!.length).toBe(w * h * 4);
   expect(buf.byteLength).toBe(0);
 });
+
+it('reads the camera frame after JSON blocks and before both denoise pixel planes', () => {
+  for (const paired of [false, true]) {
+    const json = new TextEncoder().encode('{"model":"GFX100RF"}');
+    const offset = Math.ceil((HEADER_BYTES + 4 + json.length) / 4) * 4;
+    const buf = new ArrayBuffer(offset + 16 + 8 * (paired ? 2 : 1)), dv = new DataView(buf);
+    dv.setUint32(0, 1, true); dv.setUint32(4, 1, true); dv.setUint32(12, 4 | 16 | (paired ? 8 : 0), true);
+    dv.setUint32(HEADER_BYTES, json.length, true); new Uint8Array(buf, HEADER_BYTES + 4, json.length).set(json);
+    [.1, .2, .5, .6].forEach((v, i) => dv.setFloat32(offset + i * 4, v, true));
+    dv.setUint16(offset + 16, 0x3c00, true);
+    const img = parsePayload(buf);
+    expect(img.frame?.x).toBeCloseTo(.1); expect(img.frame?.h).toBeCloseTo(.6);
+    expect(img.data[0]).toBe(0x3c00); expect(img.denoised?.length ?? 0).toBe(paired ? 4 : 0);
+    expect(() => parsePayload(buf.slice(0, offset + 12))).toThrow(/Missing camera frame/);
+    dv.setFloat32(offset + 8, NaN, true);
+    expect(() => parsePayload(buf)).toThrow(/Invalid camera frame/);
+  }
+});

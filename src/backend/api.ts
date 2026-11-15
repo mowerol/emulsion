@@ -2,11 +2,13 @@ import { noiseJob } from '../library/noise';
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Typed calls into the Rust core (src-tauri/src/commands.rs).
 
+import { rectFromTuple, type CameraFrame, type Rect } from '../film/crop';
 import { Channel, invoke } from './ipc';
 import type { HalfImage } from '../engine/engine';
 import type { InputMode } from '../engine/params';
 
 export interface Entry {
+  cameraFrame?: CameraFrame | null;
   copies?: SavedCopy[];
   path: string;
   rel: string;
@@ -61,7 +63,7 @@ export interface Exposure {
 }
 export const photoExposure = (path: string) => invoke<Exposure | null>('photo_exposure', { path });
 /** `simulation`: a Fujifilm RAW's film simulation (lens.rs `fuji_simulation`), null otherwise. */
-export interface CatalogMetadata { camera: string | null; date: string | null; simulation?: string | null }
+export interface CatalogMetadata { cameraFrame?: CameraFrame | null; camera: string | null; date: string | null; simulation?: string | null }
 /** Camera and capture date, without decoding image pixels. */
 export const catalogMetadata = (paths: string[]) => invoke<(CatalogMetadata | null)[]>('catalog_metadata', { paths });
 
@@ -84,7 +86,8 @@ export const HEADER_BYTES = 32;
  * white point x and y (f32, when flag 1 is set), the full-resolution width and
  * height (u32), optional lens metadata (flag 2: u32 length, JSON, 4-byte alignment),
  * optional camera metadata (flag 4: the same framing, independent of lens support),
- * then RGBA half floats.
+ * optional camera frame (flag 16: four f32 x/y/w/h), then RGBA half floats.
+ * Flag 8 adds a second half-float plane for AI noise reduction.
  */
 export function parsePayload(buf: ArrayBuffer): HalfImage {
   if (buf.byteLength < HEADER_BYTES) throw new Error('Image payload is too short');
@@ -109,13 +112,22 @@ export function parsePayload(buf: ArrayBuffer): HalfImage {
     camera = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, pixelOffset + 4, length)));
     pixelOffset = Math.ceil((pixelOffset + 4 + length) / 4) * 4;
   }
+  let frame: Rect | null = null;
+  if (dv.getUint32(12, true) & 16) {
+    if (buf.byteLength < pixelOffset + 16) throw new Error('Missing camera frame');
+    const values: [number, number, number, number] = [dv.getFloat32(pixelOffset, true), dv.getFloat32(pixelOffset + 4, true), dv.getFloat32(pixelOffset + 8, true), dv.getFloat32(pixelOffset + 12, true)];
+    if (!values.every(Number.isFinite) || values[0] < 0 || values[1] < 0 || values[2] <= 0 || values[3] <= 0
+      || values[0] + values[2] > 1.000001 || values[1] + values[3] > 1.000001) throw new Error('Invalid camera frame');
+    frame = rectFromTuple(values);
+    pixelOffset += 16;
+  }
   const paired = !!(dv.getUint32(12, true) & 8);
   const expected = pixelOffset + width * height * 8 * (paired ? 2 : 1);
   if (buf.byteLength !== expected) throw new Error(`Image payload is ${buf.byteLength} bytes, expected ${expected}`);
   const white: [number, number] | null = dv.getUint32(12, true) & 1 ? [dv.getFloat32(16, true), dv.getFloat32(20, true)] : null;
   const fullWidth = dv.getUint32(24, true) || width;
   const fullHeight = dv.getUint32(28, true) || height;
-  return { width, height, mode, white, lens, camera, fullWidth, fullHeight, denoised: paired ? new Uint16Array(buf, pixelOffset + width * height * 8, width * height * 4) : undefined, data: new Uint16Array(buf, pixelOffset, width * height * 4) };
+  return { width, height, mode, white, lens, camera, frame, fullWidth, fullHeight, denoised: paired ? new Uint16Array(buf, pixelOffset + width * height * 8, width * height * 4) : undefined, data: new Uint16Array(buf, pixelOffset, width * height * 4) };
 }
 
 /** The buffers to transfer when moving a decode to a worker. A paired decode (AI Noise Reduction)

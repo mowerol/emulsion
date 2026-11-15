@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { autoPerspective, photoExposure } from '../backend/api';
 import { PERSPECTIVE_DEFAULTS } from '../engine/perspective';
+import { FULL } from '../film/crop';
 import { defaultRecipe } from '../film/recipe';
 import { loadCachedImage } from './thumbs';
 import { stillEngine } from './stillclient';
@@ -15,7 +16,7 @@ export async function fitPhotoPerspective(photo: Photo, axis: 'vertical' | 'hori
   // Never substitute physical focal length for 35mm equivalent. Unknown camera
   // field of view uses upstream's generic 28mm model, editable in the panel.
   if (!photo.recipe?.transform && exposure?.focalLength35) current.focalLength = exposure.focalLength35;
-  const neutral = { ...defaultRecipe('neutral'), lens: photo.recipe?.lens ?? null };
+  const neutral = { ...defaultRecipe('neutral'), crop: FULL, lens: photo.recipe?.lens ?? null };
   const source = engine.upload(image, photo.path);
   let pixels: Uint8Array;
   try {

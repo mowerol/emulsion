@@ -64,6 +64,7 @@ pub struct Entry {
     pub meta: xmp::Meta,
     /// A camera RAW, as opposed to an ordinary image.
     pub raw: bool,
+    pub camera_frame: Option<crate::raf::CameraFrame>,
     pub copies: Vec<sidecar::VirtualCopy>,
 }
 
@@ -247,6 +248,7 @@ pub fn scan_with_reader(target: &Path, recursive: bool, mut progress: Option<&mu
             flag: None,
             meta: xmp::Meta::default(),
             raw: kind == Kind::Raw,
+            camera_frame: crate::raf::metadata(item.path()),
             copies: Vec::new(),
         });
     }

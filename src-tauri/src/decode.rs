@@ -331,6 +331,11 @@ pub fn raw_for_engine(path: &Path, raw: raw::Decoded, max_edge: Option<u32>) -> 
         bytes.extend_from_slice(&(camera.len() as u32).to_le_bytes());
         bytes.extend_from_slice(&camera);
         while bytes.len() % 4 != 0 { bytes.push(0); }
+        if let Some(frame) = raw.frame {
+            let flags = u32::from_le_bytes(bytes[12..16].try_into().unwrap()) | 16;
+            bytes[12..16].copy_from_slice(&flags.to_le_bytes());
+            for v in frame { bytes.extend_from_slice(&v.to_le_bytes()); }
+        }
         bytes.extend_from_slice(&linear_f16_rgba_impl(&img, true));
         Ok(bytes)
 }

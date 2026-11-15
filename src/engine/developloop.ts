@@ -21,7 +21,7 @@ import type { Xy } from './whitebalance';
 import type { CameraMetadata } from '../film/profiles';
 import type { LensMetadata } from './lenscorrection';
 import { histogram } from './histogram';
-import { framePixels } from '../film/crop';
+import { framePixels, resolveFrame, type Crop, type Rect } from '../film/crop';
 import type { WarmStage } from './warm';
 import { provideLut, type LoadedLut } from './lutstore';
 import { adoptUserLooks } from '../film/looks';
@@ -50,6 +50,7 @@ const WARM_RETRY_MS = 80;
 
 /** What the main thread knows of a source: its key and what layout and the UI read. */
 export interface SourceRef {
+  frame?: Rect | null;
   key: number;
   w: number;
   h: number;
@@ -103,7 +104,7 @@ export interface FrameState {
 
 export type ToLoop =
   | { type: 'upload'; key: number; img: HalfImage; origin?: string }
-  | { type: 'uploadBitmap'; key: number; bitmap: ImageBitmap; white: Xy | null }
+  | { type: 'uploadBitmap'; key: number; bitmap: ImageBitmap; white: Xy | null; frame?: Rect | null }
   | { type: 'release'; key: number }
   | { type: 'capture'; key: number; radius: number; toCam: number[]; mask: Uint8Array }
   | { type: 'prepareCapture'; key: number }
@@ -114,7 +115,7 @@ export type ToLoop =
   | { type: 'assets'; luts?: [string, LoadedLut][]; looks?: Parameters<typeof adoptUserLooks>[0] }
   | { type: 'request'; id: number; call: 'sampleScene'; key: number; u: number; v: number; recipe: Recipe | null }
   | { type: 'request'; id: number; call: 'sampleMaskInput'; key: number; recipe: Recipe; mask: number; box: View }
-  | { type: 'request'; id: number; call: 'readPixels'; key: number; recipe: Recipe | null; w: number; h: number; seed: number }
+  | { type: 'request'; id: number; call: 'readPixels'; key: number; recipe: Recipe | null; w: number; h: number; seed: number; frame?: Crop }
   | { type: 'request'; id: number; call: 'captureState' }
   | { type: 'retryRemovals'; photo: string }
   | { type: 'removeReply'; id: number; value?: Uint8Array | null | CaptureInfo | { img: HalfImage; capture?: CaptureInfo }; error?: string }
@@ -230,7 +231,7 @@ export class DevelopLoop {
       switch (m.type) {
         case 'upload': this.sources.set(m.key, { ...this.engine.sourceFromHalf(m.img), origin: m.origin }); break;
         case 'uploadBitmap':
-          try { this.sources.set(m.key, this.engine.sourceFromImage(m.bitmap, m.bitmap.width, m.bitmap.height, m.white)); }
+          try { this.sources.set(m.key, { ...this.engine.sourceFromImage(m.bitmap, m.bitmap.width, m.bitmap.height, m.white), frame: m.frame }); }
           finally { m.bitmap.close(); }
           break;
         case 'release': {
@@ -361,7 +362,7 @@ export class DevelopLoop {
         const v = this.engine.sampleMaskInput(src, m.recipe, m.mask, m.box);
         this.post({ type: 'reply', id: m.id, ok: true, value: v }, [v.buffer]);
       } else {
-        const v = this.engine.readPixels(src, m.recipe, m.w, m.h, m.seed);
+        const v = this.engine.readPixels(src, m.recipe, m.w, m.h, m.seed, false, undefined, undefined, undefined, m.frame);
         this.post({ type: 'reply', id: m.id, ok: true, value: v }, [v.buffer]);
       }
     } catch (err) {
@@ -650,7 +651,7 @@ export class DevelopLoop {
       if (!source) return;
       if (this.renderPending || !this.engine.idle()) { timer = setTimeout(count, 16) as unknown as number; return; }
       const hs = (st.whole !== null ? this.sources.get(st.whole) : undefined) ?? source;
-      const [w, h] = framePixels(st.recipe?.crop ?? null, hs.w, hs.h);
+      const [w, h] = framePixels(resolveFrame(st.recipe, hs.frame), hs.w, hs.h);
       const k = HISTOGRAM_EDGE / Math.max(w, h);
       const hw = Math.max(1, Math.round(w * Math.min(1, k)));
       const hh = Math.max(1, Math.round(h * Math.min(1, k)));

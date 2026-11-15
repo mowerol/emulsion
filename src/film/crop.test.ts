@@ -132,9 +132,9 @@ describe('crop in a recipe', () => {
     expect(framePixels(crop({ w: 0.5, h: 0.25 }), W, H)).toEqual([3000, 1000]);
   });
 
-  it('reads crops from sidecars and treats a full frame as none', () => {
+  it('reads crops from sidecars and preserves an explicit full frame', () => {
     expect(normalizeCrop(null)).toBeNull();
-    expect(normalizeCrop({ x: 0, y: 0, w: 1, h: 1, angle: 0, aspect: 'original' })).toBeNull();
+    expect(normalizeCrop(FULL)).toEqual(FULL);
     expect(normalizeCrop({ x: 'a' })).toBeNull();
     const c = normalizeCrop({ x: 0.1, y: 0.2, w: 0.5, h: 0.5, angle: 90, aspect: 'nonsense' })!;
     expect(c.angle).toBe(45);
@@ -199,7 +199,7 @@ describe('turning and flipping', () => {
   it('reads and writes orientation through sidecars', () => {
     const c = normalizeCrop(JSON.parse(JSON.stringify(turn(FULL, -1))))!;
     expect(c.orient).toEqual({ turns: 3, flipH: false, flipV: false });
-    expect(normalizeCrop({ ...FULL, orient: { turns: 0, flipH: false, flipV: false } })).toBeNull();
+    expect(normalizeCrop({ ...FULL, orient: { turns: 0, flipH: false, flipV: false } })).toEqual(FULL);
     expect(normalizeCrop({ ...FULL, orient: { turns: 6, flipH: true } })!.orient).toEqual({ turns: 2, flipH: true, flipV: false });
   });
 });

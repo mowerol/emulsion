@@ -28,11 +28,14 @@ struct EmuRawInfo {
     focal_length: f32,
     focal_length35: f32,
     dng: c_int,
+    left_margin: c_int,
+    top_margin: c_int,
+    flip: c_int,
 }
 
 impl EmuRawInfo {
     fn empty() -> Self {
-        EmuRawInfo { width: 0, height: 0, cam_xyz: [[0.0; 3]; 3], cam_mul: [0.0; 3], full_width: 0, full_height: 0, make: [0; 64], model: [0; 64], iso: 0.0, shutter: 0.0, aperture: 0.0, focal_length: 0.0, focal_length35: 0.0, dng: 0 }
+        EmuRawInfo { width: 0, height: 0, cam_xyz: [[0.0; 3]; 3], cam_mul: [0.0; 3], full_width: 0, full_height: 0, make: [0; 64], model: [0; 64], iso: 0.0, shutter: 0.0, aperture: 0.0, focal_length: 0.0, focal_length35: 0.0, dng: 0, left_margin: 0, top_margin: 0, flip: 0 }
     }
 }
 
@@ -314,6 +317,7 @@ pub struct Decoded {
     pub white: Option<[f32; 2]>,
     /// Size of a full-resolution decode, oriented.
     pub full_size: (u32, u32),
+    pub frame: Option<[f32; 4]>,
     pub camera_to_working: Mat3,
     pub camera: CameraMetadata,
 }
@@ -336,6 +340,23 @@ pub fn white_point(cam_xyz: &Mat3, cam_mul: &[f32; 3]) -> Option<[f32; 2]> {
 fn white_for(info: &EmuRawInfo) -> Option<[f32; 2]> {
     let (matrix, _) = colour_of(&info);
     white_point(&matrix?, &info.cam_mul)
+}
+
+fn frame_for(path: &Path, info: &EmuRawInfo) -> Option<[f32; 4]> {
+    let (w, h) = if info.flip & 4 != 0 { (info.full_height, info.full_width) } else { (info.full_width, info.full_height) };
+    crate::raf::read(path)?.decoded(w as u32, h as u32, info.left_margin, info.top_margin, info.flip)
+}
+
+/// Geometry only, for decoded caches written before camera framing was supported.
+pub fn camera_frame(path: &Path) -> Option<[f32; 4]> {
+    crate::raf::read(path)?;
+    let path_c = c_path(path).ok()?;
+    let mut info = EmuRawInfo::empty();
+    let mut err = [0 as c_char; 256];
+    openmp_root();
+    let rc = unsafe { emu_raw_info(path_c.as_ptr(), &mut info, err.as_mut_ptr(), err.len()) };
+    if rc != 0 { return None; }
+    frame_for(path, &info)
 }
 
 /// The as-shot white point of `path`, reading metadata only.
@@ -429,7 +450,7 @@ pub fn decode(path: &Path, half: bool) -> Result<Decoded, String> {
     let noise = Some(crate::noiseprofiles::for_camera(&make, &model, info.iso));
     let colour = Some(source);
     let camera = CameraMetadata { make, model, camera_to_working: m, neutral, baseline_gain: BASELINE_GAIN, noise, colour };
-    Ok(Decoded { image: DynamicImage::ImageRgb32F(buf), white: white_for(&info), full_size, camera_to_working: m, camera })
+    Ok(Decoded { image: DynamicImage::ImageRgb32F(buf), white: white_for(&info), full_size, frame: frame_for(path, &info), camera_to_working: m, camera })
 }
 
 fn file_name(path: &Path) -> String {
@@ -665,6 +686,7 @@ mod tests {
             eprintln!("{path}: half {}x{} reports {:?}; full {}x{} reports {:?}", half.image.width(), half.image.height(), half.full_size, full.image.width(), full.image.height(), full.full_size);
             assert_eq!(full.full_size, (full.image.width(), full.image.height()));
             assert_eq!(half.full_size, full.full_size, "{path}");
+            assert_eq!(half.frame, full.frame, "camera geometry must be independent of decode scale: {path}");
             // Asking for an edge gets that edge, even where the half-size image is smaller.
             let bytes = crate::decode::load_for_engine(Path::new(path), Some(2560)).unwrap();
             let (w, h) = (u32::from_le_bytes(bytes[0..4].try_into().unwrap()), u32::from_le_bytes(bytes[4..8].try_into().unwrap()));

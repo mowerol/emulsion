@@ -4,6 +4,7 @@
 // photo costs (docs/research/engine-worker.md); `mode: 'main'` runs the same loop on this thread
 // (localStorage `emulsion.engine` = `main`, or no OffscreenCanvas WebGL2), which the perf driver's
 // engine-level scenarios also use.
+import { previewFrame, type CameraFrame, type Crop } from '../film/crop';
 import { captureInfo, removeCachedPatch, removeInpaint, type CaptureInfo } from '../backend/api';
 import { gpuMemory } from '../backend/trail';
 import { loadCachedImage } from '../library/thumbs';
@@ -194,17 +195,18 @@ export class DevelopClient {
     const key = ++this.keys;
     this.send({ type: 'upload', key, img, origin });
     const ref: SourceRef = { key, w: img.width, h: img.height, fullW: img.fullWidth, fullH: img.fullHeight, mode: img.mode, white: img.white,
-      camera: img.camera, lens: img.lens, denoised: !!img.denoised, origin };
+      camera: img.camera, frame: img.frame, lens: img.lens, denoised: !!img.denoised, origin };
     this.sources.set(key, ref);
     return ref;
   }
 
   /** A camera thumbnail standing in while the photo decodes. */
-  async uploadBlob(blob: Blob, white: Xy | null): Promise<SourceRef> {
+  async uploadBlob(blob: Blob, white: Xy | null, framing?: CameraFrame | null): Promise<SourceRef> {
     const bitmap = await createImageBitmap(blob);
     const key = ++this.keys;
-    const ref: SourceRef = { key, w: bitmap.width, h: bitmap.height, fullW: bitmap.width, fullH: bitmap.height, mode: InputMode.DisplayEncoded, white, denoised: false };
-    this.send({ type: 'uploadBitmap', key, bitmap, white }, [bitmap]);
+    const frame = previewFrame(framing, bitmap.width, bitmap.height);
+    const ref: SourceRef = { frame, key, w: bitmap.width, h: bitmap.height, fullW: bitmap.width, fullH: bitmap.height, mode: InputMode.DisplayEncoded, white, denoised: false };
+    this.send({ type: 'uploadBitmap', key, bitmap, white, frame }, [bitmap]);
     this.sources.set(key, ref);
     return ref;
   }
@@ -277,8 +279,8 @@ export class DevelopClient {
     return this.ask<Float32Array>({ call: 'sampleMaskInput', key: src.key, recipe, mask, box });
   }
 
-  readPixels(src: SourceRef, recipe: Recipe | null, w: number, h: number, seed: number) {
-    return this.ask<Uint8Array>({ call: 'readPixels', key: src.key, recipe, w, h, seed });
+  readPixels(src: SourceRef, recipe: Recipe | null, w: number, h: number, seed: number, frame?: Crop) {
+    return this.ask<Uint8Array>({ call: 'readPixels', key: src.key, recipe, w, h, seed, frame });
   }
 
   dispose() {

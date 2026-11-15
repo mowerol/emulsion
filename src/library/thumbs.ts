@@ -6,7 +6,7 @@ import { noiseEnabled } from '../film/noisereduction';
 import { useEffect, useSyncExternalStore } from 'react';
 import { captureInfo, loadImage, logToTerminal, thumbnail } from '../backend/api';
 import { recipeKey, type Recipe } from '../film/recipe';
-import { framePixels } from '../film/crop';
+import { framePixels, resolveFrame, cameraFrame, isFull, rectFromTuple, type CameraFrame } from '../film/crop';
 import type { Xy } from '../engine/whitebalance';
 import { InputMode, type HalfImage } from '../engine/engine';
 import { ImageLoadCache } from './imagecache';
@@ -38,7 +38,7 @@ export function prepareFullImage(path: string, width: number, height: number, ma
 
 interface Original { blob: Blob; url: string }
 interface Developed { key: string; url: string }
-interface ThumbJob { path: string; recipe: Recipe | null; seed: number; white: Xy | null; raw: boolean; sourceVersion?: string }
+interface ThumbJob { path: string; recipe: Recipe | null; seed: number; white: Xy | null; raw: boolean; sourceVersion?: string; framing?: CameraFrame | null }
 const hasRemove = (recipe: Recipe | null) => !!recipe?.retouch.some(s => s.tool === 'remove' && s.opacity > 0);
 
 /** A thumbnail fetch dropped from the queue because its frame left the screen before it started. */
@@ -179,15 +179,16 @@ export class ThumbStore {
    * frame that was shown unedited (its first edit); one opened already edited is
    * developed at once.
    */
-  want(path: string, recipe: Recipe | null, seed: number, white: Xy | null, raw = false, id = path, sourceVersion?: string) {
+  want(path: string, recipe: Recipe | null, seed: number, white: Xy | null, raw = false, id = path, sourceVersion?: string, framing?: CameraFrame | null) {
     if (!this.originals.has(path) && !this.failed.has(path)) {
       this.bump(path);
       this.original(path, true).catch(() => {});
     }
-    if (!recipe) this.unedited.add(id);
-    if (recipe && this.developed.get(id)?.key !== thumbKey(recipe, white, sourceVersion)) {
+    const cropped = framing && !isFull(cameraFrame(rectFromTuple(framing.rect)));
+    if (!recipe && !cropped) this.unedited.add(id);
+    if ((recipe || cropped) && this.developed.get(id)?.key !== thumbKey(recipe, white, sourceVersion, framing)) {
       this.waitingRemovals.delete(id);
-      const job = { path, recipe, seed, white, raw, sourceVersion };
+      const job = { path, recipe, seed, white, raw, sourceVersion, framing };
       this.latest.set(id, job);
       this.wanted.set(id, job);
       if (!this.developed.has(id) && !this.unedited.has(id)) {
@@ -218,12 +219,12 @@ export class ThumbStore {
         const [id, job] = next;
         const path = job.path;
         this.wanted.delete(id);
-        const key = thumbKey(job.recipe, job.white, job.sourceVersion);
+        const key = thumbKey(job.recipe, job.white, job.sourceVersion, job.framing);
         if (this.developed.get(id)?.key === key) continue;
         const epoch = this.removalEpoch.get(path) ?? 0;
         try {
           const orig = await this.original(path, true);
-          const url = await developBlob(orig.blob, job.recipe, job.seed, DEVELOPED_EDGE, job.white, path, job.raw, job.sourceVersion);
+          const url = await developBlob(orig.blob, job.recipe, job.seed, DEVELOPED_EDGE, job.white, path, job.raw, job.sourceVersion, job.framing);
           if (this.latest.get(id) !== job) { URL.revokeObjectURL(url); continue; }
           const prev = this.developed.get(id);
           if (prev) URL.revokeObjectURL(prev.url);
@@ -243,10 +244,10 @@ export class ThumbStore {
     }
   }
 
-  url(path: string, recipe: Recipe | null, id = path, white: Xy | null = null, sourceVersion?: string): string | undefined {
-    if (recipe) {
+  url(path: string, recipe: Recipe | null, id = path, white: Xy | null = null, sourceVersion?: string, framing?: CameraFrame | null): string | undefined {
+    if (recipe || framing && !isFull(cameraFrame(rectFromTuple(framing.rect)))) {
       const d = this.developed.get(id);
-      if (d && (!hasRemove(recipe) || d.key === thumbKey(recipe, white, sourceVersion))) return d.url;
+      if (d && (!hasRemove(recipe) || d.key === thumbKey(recipe, white, sourceVersion, framing))) return d.url;
     }
     return hasRemove(recipe) ? undefined : this.originals.get(path)?.url;
   }
@@ -313,20 +314,22 @@ export function ensureCapture<S extends { capture?: unknown; mode: InputMode; w:
 }
 
 /** A developed thumbnail depends on the photo's white point only when the recipe changes white balance. */
-const thumbKey = (recipe: Recipe | null, white: Xy | null, sourceVersion?: string) => (sourceVersion ?? '') + recipeKey(recipe) + (recipe?.wb && white ? `|${white[0]},${white[1]}` : '');
+export const thumbKey = (recipe: Recipe | null, white: Xy | null, sourceVersion?: string, framing?: CameraFrame | null) => (sourceVersion ?? '') + JSON.stringify(framing ?? null) + recipeKey(recipe) + (recipe?.wb && white ? `|${white[0]},${white[1]}` : '');
 
 /** Decode a thumbnail blob into a still-render source; `white` is the photo's as-shot white point. */
-export async function sourceFromBlob(eng: StillClient, blob: Blob, white: Xy | null = null, origin?: string) {
-  const src = await eng.uploadBlob(blob, white, origin);
+export async function sourceFromBlob(eng: StillClient, blob: Blob, white: Xy | null = null, origin?: string, framing?: CameraFrame | null) {
+  const src = await eng.uploadBlob(blob, white, origin, framing);
   return { src, w: src.w, h: src.h };
 }
 
-async function developBlob(blob: Blob, recipe: Recipe | null, seed: number, edge: number, white: Xy | null, path: string, raw: boolean, sourceVersion?: string): Promise<string> {
+async function developBlob(blob: Blob, recipe: Recipe | null, seed: number, edge: number, white: Xy | null, path: string, raw: boolean, sourceVersion?: string, framing?: CameraFrame | null): Promise<string> {
   const eng = stillEngine();
   if (!eng) throw new Error('No GPU');
-  const { src, w: sw, h: sh } = await sourceForPreview(eng, path, blob, white, raw, recipe);
+  const { src, w: sw, h: sh } = !recipe && framing
+    ? await sourceFromBlob(eng, blob, white, path, framing)
+    : await sourceForPreview(eng, path, blob, white, raw, recipe);
   try {
-    const [w, h] = framePixels(recipe?.crop ?? null, sw, sh);
+    const [w, h] = framePixels(resolveFrame(recipe, src.frame), sw, sh);
     const s = Math.min(1, edge / Math.max(w, h));
     const removal = hasRemove(recipe) ? await cachedRemovals(src, recipe!, sourceVersion) : null;
     // Developed and encoded in the still-render worker: none of it on this thread.
@@ -338,7 +341,7 @@ async function developBlob(blob: Blob, recipe: Recipe | null, seed: number, edge
 }
 
 /** The best thumbnail URL for a frame; requests it while `visible`. */
-export function useThumb(path: string, recipe: Recipe | null, seed: number, visible: boolean, white: Xy | null, raw = false, id = path, sourceVersion?: string) {
+export function useThumb(path: string, recipe: Recipe | null, seed: number, visible: boolean, white: Xy | null, raw = false, id = path, sourceVersion?: string, framing?: CameraFrame | null) {
   useSyncExternalStore(thumbs.subscribe, thumbs.snapshot);
   useEffect(() => {
     if (!visible) return;
@@ -346,9 +349,9 @@ export function useThumb(path: string, recipe: Recipe | null, seed: number, visi
     return () => thumbs.unwant(path, id);
   }, [path, visible, id]);
   useEffect(() => {
-    if (visible) thumbs.want(path, recipe, seed, white, raw, id, sourceVersion);
-  }, [path, recipe, seed, visible, white, raw, id, sourceVersion]);
-  return { url: thumbs.url(path, recipe, id, white, sourceVersion), failed: thumbs.hasFailed(path) };
+    if (visible) thumbs.want(path, recipe, seed, white, raw, id, sourceVersion, framing);
+  }, [path, recipe, seed, visible, white, raw, id, sourceVersion, framing]);
+  return { url: thumbs.url(path, recipe, id, white, sourceVersion, framing), failed: thumbs.hasFailed(path) };
 }
 
 

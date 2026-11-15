@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { noiseEnabled } from '../film/noisereduction';
-import { framePixels } from '../film/crop';
+import { framePixels, resolveFrame } from '../film/crop';
 import type { Recipe } from '../film/recipe';
 import type { Photo } from '../library/store';
 import { sourceForPreview, thumbs } from '../library/thumbs';
@@ -102,7 +102,7 @@ export function useTileRenders({ photo, keys, recipeFor, baseKey, root, size }: 
       }
       const { src, w: sw, h: sh } = decoded.current;
       const mark = `${drawKey}|${decoded.current.key}`;
-      const [w, h] = framePixels(recipe?.crop ?? null, sw, sh);
+      const [w, h] = framePixels(resolveFrame(recipe, src.frame), sw, sh);
       const scale = Math.max(tw / w, th / h);
       const cw = Math.max(1, Math.round(w * scale)), ch = Math.max(1, Math.round(h * scale));
       const wanted = latest.current.keys.filter(k => {

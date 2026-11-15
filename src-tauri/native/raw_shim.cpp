@@ -30,6 +30,9 @@ struct EmuRawInfo {
   float focal_length35;
   // Nonzero for a DNG, whose own matrix cam_xyz holds.
   int dng;
+  int left_margin;
+  int top_margin;
+  int flip;
 };
 
 struct EmuRawThumb {
@@ -149,6 +152,9 @@ static void fill_colour_info(LibRaw *raw, EmuRawInfo *info) {
   dng_cam_xyz(raw, info->cam_xyz);
   info->dng = raw->imgdata.idata.dng_version != 0;
   const libraw_image_sizes_t &s = raw->imgdata.sizes;
+  info->left_margin = s.left_margin;
+  info->top_margin = s.top_margin;
+  info->flip = s.flip;
   const bool turned = s.flip & 4;
   info->full_width = turned ? s.height : s.width;
   info->full_height = turned ? s.width : s.height;
@@ -215,6 +221,7 @@ int emu_raw_decode(const char *path, int half, EmuRawInfo *info, void **out, con
   const libraw_image_sizes_t &opened = raw->imgdata.sizes;
   const int open_w = (opened.flip & 4) ? opened.height : opened.width;
   const int open_h = (opened.flip & 4) ? opened.width : opened.height;
+  const int open_left = opened.left_margin, open_top = opened.top_margin, open_flip = opened.flip;
   if ((rc = raw->unpack()) != LIBRAW_SUCCESS) {
     set_error(err, errlen, "unpack", rc);
     delete raw;
@@ -242,6 +249,9 @@ int emu_raw_decode(const char *path, int half, EmuRawInfo *info, void **out, con
   info->height = img->height;
   fill_colour_info(raw, info);
   // A full decode is the photo's size; a half-size one takes it from before processing.
+  info->left_margin = open_left;
+  info->top_margin = open_top;
+  info->flip = open_flip;
   info->full_width = half ? open_w : img->width;
   info->full_height = half ? open_h : img->height;
 

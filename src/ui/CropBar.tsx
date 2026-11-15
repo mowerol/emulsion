@@ -9,7 +9,7 @@ import {
   TrianglesCenterlineDashedHorizontal as FlipV, TrianglesCenterlineDashedVertical as FlipH,
 } from 'lucide-react';
 import {
-  ASPECTS, FULL, MAX_ANGLE, MAX_RATIO, flip, heldRatio, isFull, orientedSize, pixelRatio, ratioLabel, rotateFrame, setAngle, setAspect, turn,
+  ASPECTS, FULL, MAX_ANGLE, MAX_RATIO, flip, heldRatio, cameraFrame, cameraFrameLabel, sameFrame, orientedSize, pixelRatio, ratioLabel, rotateFrame, setAngle, setAspect, turn,
   type AspectId, type Crop,
 } from '../film/crop';
 import { fitPhotoLevel } from '../library/perspective';
@@ -56,7 +56,8 @@ export function CropBar() {
   const locked = draft.aspect !== 'free';
   const portrait = pixelRatio(draft, oW, oH) < 1;
   const square = Math.abs((heldRatio(draft, oW, oH) ?? 0) - 1) < 1e-6;
-  const pristine = isFull(draft) && (draft.aspect === 'original' || draft.aspect === 'free');
+  const baseline = cameraFrame(edit.frame, W, H);
+  const pristine = sameFrame(draft, baseline);
   const o = draft.orient;
 
   const choose = (aspect: AspectId) => { change((c) => setAspect(c, aspect, ...orientedSize(c, W, H))); setMenu(null); };
@@ -99,8 +100,8 @@ export function CropBar() {
   };
 
   const groups: { title: string; ids: AspectId[] }[] = [
-    { title: 'Common', ids: ['original', 'free', '1:1', '4:5', '3:2', '16:9'] },
-    { title: 'Film formats', ids: ['6x6', '6x4.5', '6x7', '5:4', 'xpan'] },
+    { title: 'Common', ids: ['original', 'free', '1:1', '4:3', '4:5', '3:2', '16:9'] },
+    { title: 'Film formats', ids: ['6x6', '6x4.5', '6x7', '5:4', 'xpan', '17:6'] },
   ];
   const overlayName = CROP_OVERLAYS.find((x) => x.id === overlay)!.label;
 
@@ -108,10 +109,16 @@ export function CropBar() {
     <div className="crop-bar" role="toolbar" aria-label="Crop options">
       <div className="crop-ratio" ref={menuRef}>
         <button type="button" className="crop-ratio-button" aria-haspopup="menu" aria-expanded={!!menu} data-tip="Aspect ratio" onClick={() => setMenu(menu ? null : 'list')}>
-          <span>{aspectLabel(draft, oW, oH, false)}</span><ChevronDown size={14} aria-hidden="true" />
+          <span>{edit.frame && pristine ? 'As shot' : edit.frame && sameFrame(draft, FULL) ? 'Full sensor' : aspectLabel(draft, oW, oH, false)}</span><ChevronDown size={14} aria-hidden="true" />
         </button>
         {menu === 'list' && (
           <div className="zoom-menu crop-ratio-menu" role="menu" aria-label="Aspect ratios">
+            {edit.frame && <>
+              <p className="menu-heading">{cameraFrameLabel(photo?.cameraFrame) || 'Camera frame'}</p>
+              <button type="button" role="menuitemradio" aria-checked={pristine} onClick={() => { change(() => baseline); setMenu(null); }}><span>As shot</span>{pristine && <Check size={14} aria-hidden="true" />}</button>
+              <button type="button" role="menuitemradio" aria-checked={sameFrame(draft, FULL)} onClick={() => { change(() => FULL); setMenu(null); }}><span>Full sensor</span><kbd>⇧F</kbd></button>
+              <div className="menu-sep" role="separator" />
+            </>}
             {groups.map((g) => (
               <div key={g.title} role="group" aria-label={g.title}>
                 <p className="menu-heading">{g.title}</p>
@@ -167,7 +174,7 @@ export function CropBar() {
 
       <span className="crop-sep" aria-hidden="true" />
       <button type="button" className="tool-icon small" aria-label={`Overlay: ${overlayName}`} data-tip={`Overlay: ${overlayName} (O)`} onClick={cycleCropOverlay}><Grid3x3 size={16} aria-hidden="true" /></button>
-      <button type="button" className="tool-icon small" aria-label="Reset crop" data-tip="Reset crop" disabled={pristine} onClick={() => change(() => FULL)}><RotateCcw size={16} aria-hidden="true" /></button>
+      <button type="button" className="tool-icon small" aria-label="Reset crop" data-tip="Reset crop to As shot" disabled={pristine} onClick={() => change(() => baseline)}><RotateCcw size={16} aria-hidden="true" /></button>
       {/* At the row's end, as Remove's Cancel and Apply are. */}
       <span className="crop-end tool-crop-actions">
         <button type="button" className="tool-text" onClick={() => finishCrop(false)} data-tip="Cancel (Esc)">Cancel</button>

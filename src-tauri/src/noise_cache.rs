@@ -412,6 +412,7 @@ fn load_cached(
         image: original,
         white: m.white,
         full_size: m.full_size,
+        frame: raw::camera_frame(path),
         camera_to_working: m.camera.camera_to_working,
         camera: raw::CameraMetadata {
             // Entries written before noise profiles were sent lack one; read the ISO again.

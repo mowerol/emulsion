@@ -100,3 +100,27 @@ it('copies a crop draft without committing it and keeps a pasted crop when Done 
   undo();
   expect(useApp.getState().photos[1].recipe?.crop?.w).toBe(.8);
 });
+
+it('round-trips As shot and persists an explicit Full sensor crop, including copy settings', () => {
+  const frame = { x: .001, y: .25, w: .998, h: .5 };
+  useApp.setState({ view: 'develop', developSize: { path: '/photos/a.jpg', W: 11662, H: 8746, frame } });
+  startCrop();
+  expect(useApp.getState().cropEdit?.draft).toMatchObject(frame);
+  finishCrop(true);
+  expect(useApp.getState().photos[0].recipe?.crop).toBeNull();
+  startCrop();
+  setCropDraft(() => FULL);
+  openCopySettings();
+  expect(useApp.getState().copySettingsSource?.recipe.crop).toEqual(FULL);
+  closeCopySettings();
+  finishCrop(true);
+  expect(useApp.getState().photos[0].recipe?.crop).toEqual(FULL);
+  vi.advanceTimersByTime(1000);
+  startCrop();
+  expect(useApp.getState().cropEdit?.draft).toEqual(FULL);
+  setCropDraft(c => ({ ...c, x: .2, y: .3, w: .6, h: .4 }));
+  finishCrop(true);
+  expect(useApp.getState().photos[0].recipe?.crop).toMatchObject({ x: .2, y: .3, w: .6, h: .4 });
+  undo();
+  expect(useApp.getState().photos[0].recipe?.crop).toEqual(FULL);
+});

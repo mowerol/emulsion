@@ -44,3 +44,20 @@ it('never upscales past the photo or the GPU limit', async () => {
   expect(await size(small, 4096)).toEqual([1500, 1000]);
   expect(await size(null, 8192, 4096)).toEqual([4096, 2731]);
 });
+
+it('sizes panorama and tele exports from the decoded camera frame and lets Full sensor override it', async () => {
+  const original = vi.mocked(loadImage).getMockImplementation()!;
+  try {
+    for (const [w, h] of [[11648, 4304], [6448, 4836]]) {
+      const frame = { x: .001, y: .2, w: w / 11662, h: h / 8746 };
+      vi.mocked(loadImage).mockImplementation(async (_path, edge) => {
+        const scale = Math.min(1, edge! / 11662);
+        return { width: Math.round(11662 * scale), height: Math.round(8746 * scale), fullWidth: 11662, fullHeight: 8746, frame } as Awaited<ReturnType<typeof loadImage>>;
+      });
+      expect((await decodeFor(photo(null), null, 16384)).slice(0, 2)).toEqual([w, h]);
+      // No scan metadata yet: decodeFor must request enough pixels after discovering the camera crop.
+      expect((await decodeFor(photo(null), 2048, 16384)).slice(0, 2)).toEqual([2048, Math.round(h * 2048 / w)]);
+      expect((await decodeFor(photo(FULL), null, 16384)).slice(0, 2)).toEqual([11662, 8746]);
+    }
+  } finally { vi.mocked(loadImage).mockImplementation(original); }
+});
