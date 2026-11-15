@@ -420,3 +420,27 @@ a:hover { color: #f8b86f; }
   .reveal { opacity: 1; transform: none; transition: none; }
   .look-img { transition: none; }
 }
+
+/* ── Film simulation comparisons (comparisons/, Comparisons.tsx) ── */
+.cmp-head { padding-bottom: 8px; }
+.cmp-title { font-size: clamp(34px, 5vw, 56px); line-height: 1.08; letter-spacing: -0.02em; font-weight: 600; margin: 0; max-width: 20ch; }
+.cmp-source { margin: 28px 0 0; padding-left: 18px; max-width: 72ch; font-size: 15px; line-height: 1.6; color: var(--subtle); }
+.cmp-source li + li { margin-top: 6px; }
+.cmp-jump { margin-top: 36px; }
+.cmp-jump .look-chip { text-decoration: none; }
+.cmp-sim { padding-top: clamp(56px, 7vw, 96px); scroll-margin-top: 72px; }
+.cmp-sim-title { font-size: clamp(24px, 2.6vw, 32px); font-weight: 600; letter-spacing: -0.01em; margin: 0 0 20px; }
+.cmp-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px 16px; }
+.cmp-item { margin: 0; min-width: 0; }
+.cmp-stage { border-radius: 10px; overflow: hidden; }
+.cmp-tall { grid-row: span 2; display: flex; flex-direction: column; }
+.cmp-tall .cmp-stage { flex: 1; min-height: 0; aspect-ratio: auto !important; }
+.cmp-wide { grid-column: span 2; }
+.cmp-caption { margin-top: 8px; font-size: 12px; color: var(--subtle); }
+.cmp-note { margin-top: clamp(64px, 8vw, 96px); max-width: 80ch; font-size: 13px; line-height: 1.6; color: var(--subtle); }
+@media (max-width: 720px) {
+  .cmp-grid { grid-template-columns: minmax(0, 1fr); }
+  .cmp-tall { grid-row: auto; display: block; }
+  .cmp-tall .cmp-stage { aspect-ratio: 2 / 3 !important; }
+  .cmp-wide { grid-column: auto; }
+}

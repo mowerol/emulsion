@@ -6,4 +6,6 @@ import react from '@vitejs/plugin-react';
 export default defineConfig({
   base: '/emulsion/',
   plugins: [react()],
+  // Two pages: the landing page and the film simulation comparisons (comparisons/).
+  build: { rollupOptions: { input: { main: 'index.html', comparisons: 'comparisons/index.html' } } },
 });
