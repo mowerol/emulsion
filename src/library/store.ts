@@ -317,31 +317,65 @@ function withCachedMetadata(photo: Photo, cached?: Photo): Photo {
   return { ...photo, camera: cached.camera, lens: cached.lens, white: cached.white, capture: cached.capture, ...(cached.read ? { read: cached.read } : {}) };
 }
 
-/** Index metadata in bounded batches so camera/date smart collections cover offscreen frames too. */
+type CaptureRead = Map<string, { identity: Photo; capture: NonNullable<Photo['capture']> }>;
+
+/** Whether a photo's capture metadata still has to be read: never read, or a RAW read before the
+ * film simulation was (catalogs from before 2026-11-14 have no `simulation`). */
+const captureUnread = (p: Photo) => !p.capture || p.raw && p.capture.simulation === undefined;
+
+/** Read the capture metadata of `photos` (camera, date, Fujifilm film simulation). */
+async function readCaptures(photos: Photo[], into: CaptureRead = new Map()) {
+  const values = await catalogMetadata(photos.map(p => p.path));
+  photos.forEach((p, n) => into.set(p.path, { identity: p, capture: { simulation: null, ...(values[n] ?? { camera: null, date: null }) } }));
+  return into;
+}
+
+/** Store what was read in the catalog and the open photos (skipping a file changed since). */
+function applyCaptures(found: CaptureRead) {
+  if (!found.size) return;
+  const update = (p: Photo) => {
+    const data = found.get(p.path);
+    return data && p.size === data.identity.size && p.modified === data.identity.modified ? { ...p, capture: data.capture } : p;
+  };
+  cacheEdits(catalogPhotos().filter(p => found.has(p.path)).map(update));
+  updateOpenPhotos(update);
+}
+
+/** Index metadata in bounded batches so camera/date smart collections cover offscreen frames too.
+ * The first batch is applied at once, the rest every FLUSH_EVERY photos. */
 async function loadCatalogMetadata(photos: Photo[]) {
   if (!isTauri()) return;
-  const pending = [...new Map(photos.filter(p => !p.capture || p.raw && p.capture.simulation === undefined).map(p => [p.path, p])).values()];
-  let updates = new Map<string, { identity: Photo; capture: NonNullable<Photo['capture']> }>();
-  const flush = () => {
-    if (!updates.size) return;
-    const found = updates;
-    updates = new Map();
-    const update = (p: Photo) => {
-      const data = found.get(p.path);
-      return data && p.size === data.identity.size && p.modified === data.identity.modified ? { ...p, capture: data.capture } : p;
-    };
-    cacheEdits(catalogPhotos().filter(p => found.has(p.path)).map(update));
-    updateOpenPhotos(update);
-  };
+  const pending = [...new Map(photos.filter(captureUnread).map(p => [p.path, p])).values()];
+  let updates: CaptureRead = new Map();
+  const flush = () => { const found = updates; updates = new Map(); applyCaptures(found); };
   for (let i = 0; i < pending.length; i += 32) {
-    const batch = pending.slice(i, i + 32);
-    try {
-      const values = await catalogMetadata(batch.map(p => p.path));
-      batch.forEach((p, n) => updates.set(p.path, { identity: p, capture: { simulation: null, ...(values[n] ?? { camera: null, date: null }) } }));
-    } catch { break; }
-    if (updates.size >= FLUSH_EVERY) flush();
+    try { await readCaptures(pending.slice(i, i + 32), updates); } catch { break; }
+    if (i === 0 || updates.size >= FLUSH_EVERY) flush();
   }
   flush();
+}
+
+const capturesReading = new Map<string, Promise<void>>();
+/**
+ * The photos with their capture metadata read, reading now (and storing) any not read yet. An
+ * unedited RAW develops with its film simulation's look (`uneditedRecipe`), so a photo opened, or
+ * exported, before the background pass reached it must not wait for the pass or fall back to the
+ * default look.
+ */
+export async function withCaptures(photos: Photo[]): Promise<Photo[]> {
+  if (!isTauri()) return photos;
+  const unread = photos.filter(p => captureUnread(p) && !capturesReading.has(p.path));
+  if (unread.length) {
+    const reading = readCaptures(unread).then(applyCaptures, () => {});
+    for (const p of unread) capturesReading.set(p.path, reading);
+    void reading.finally(() => { for (const p of unread) if (capturesReading.get(p.path) === reading) capturesReading.delete(p.path); });
+  }
+  await Promise.all(photos.map(p => capturesReading.get(p.path)));
+  const known = new Map(catalogPhotos().map(p => [photoId(p), p]));
+  return photos.map(p => {
+    const now = known.get(photoId(p)) ?? get().photos.find(q => photoId(q) === photoId(p));
+    return now?.capture && now.size === p.size && now.modified === p.modified ? { ...p, capture: now.capture } : p;
+  });
 }
 
 let folderRequest = 0;

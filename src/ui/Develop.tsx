@@ -29,7 +29,7 @@ import { RANGE_CHANNELS } from '../film/masks';
 import { warmStageOf, type WarmStage } from '../engine/warm';
 import { defaultRecipe, uneditedRecipe } from '../film/recipe';
 import { D65_XY, clampWhiteBalance, neutralizingWhite, temperatureTint } from '../engine/whitebalance';
-import { STAGE_COLORS, activePhoto, editActive, finishCrop, setCropDraft, setPhotoWhite, setPhotoLens, setPhotoCamera, showToast, startCrop, useApp } from '../library/store';
+import { STAGE_COLORS, activePhoto, editActive, finishCrop, setCropDraft, setPhotoWhite, setPhotoLens, setPhotoCamera, showToast, startCrop, useApp, withCaptures } from '../library/store';
 import { StageMenu } from './StageMenu';
 import { FULL, bounds, orientedSize, rotateFrame } from '../film/crop';
 import { CropOverlay } from './CropOverlay';
@@ -441,6 +441,12 @@ export function Develop() {
   const unedited = useMemo(() => photo ? uneditedRecipe(photo) : null,
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [photo?.raw, photo?.capture?.simulation]);
+  // A RAW the library hasn't read its film simulation from yet (one from an older catalog, or ahead
+  // of the background pass) has it read now, so it opens with its look rather than the default.
+  const captureUnread = !!photo && (!photo.capture || photo.raw && photo.capture.simulation === undefined);
+  useEffect(() => { if (photo && captureUnread) void withCaptures([photo]); },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [photo?.path, captureUnread]);
   const saved = photo ? photo.recipe ?? unedited : null;
   // A look or preset under the pointer is shown on the photo without being applied.
   const preview = workflow && !cropping && !editingLook ? tools.preview : null;

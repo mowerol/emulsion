@@ -8,7 +8,7 @@ import { METADATA_INCLUDE, exportOptions, readExportSettings, saveExportSettings
 import { exportName, templateError } from '../library/exportnames';
 import { deleteExportPreset, exportPresetNameError, sameExportSettings, saveExportPreset, useExportPresets } from '../library/exportpresets';
 import { personKeywords } from '../library/keywords';
-import { setExportOpen, showToast, sourcePhotos, useApp, type Photo } from '../library/store';
+import { setExportOpen, showToast, sourcePhotos, useApp, withCaptures, type Photo } from '../library/store';
 import { useSourceDefinitions } from '../library/catalog';
 
 type Scope = 'active' | 'selected' | 'developed' | 'all';
@@ -133,7 +133,8 @@ export function ExportDialog() {
     cancel.current = { canceled: false };
     setProgress({ done: 0, total: chosen.length, current: '' });
     try {
-      const res = await exportPhotos(chosen, opts, (done, total, current) => setProgress({ done, total, current }), cancel.current,
+      // An unedited RAW exports with its film simulation's look, so read any not read yet.
+      const res = await exportPhotos(await withCaptures(chosen), opts, (done, total, current) => setProgress({ done, total, current }), cancel.current,
         (photo, error) => new Promise<boolean>(resolve => {
           answer.current = resolve;
           setUnfilled({ name: photoName(photo), error });
