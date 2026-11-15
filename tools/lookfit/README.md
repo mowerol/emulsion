@@ -60,6 +60,36 @@ Run from the worktree root after `source ~/.cargo/env`, with
   boost isn't constant; the sliders can't follow it), Astia 2.35/2.34, Eterna 1.53/2.00, Bleach
   Bypass 1.92/2.71.
 
+## Emulsion Standard from Lightroom's Adobe Color (2026-11-15)
+
+Emulsion Standard (revision 3) is fitted to Lightroom's Adobe Color across three cameras, so it isn't
+one camera's rendering: Fuji RAWs now open with their simulation's look, so Standard mostly serves the
+others.
+
+- **Photos:** `/Volumes/Oli External/Photos/2025/Adobe Color set`: the 77 X-T30 II RAWs (the set above
+  minus DSCF6087) plus 22 OM-3 and 5 E-300 ORFs picked for colour coverage the same way.
+- **Lightroom export:** Profile **Adobe Color** (Lightroom records it as `crs:CameraProfile="Adobe Standard"`
+  with the Look "Adobe Color"; check the XMP in each export), everything else at defaults, no Auto, white
+  balance As Shot, lens profile corrections as Lightroom defaults them; JPEG, full size, no output
+  sharpening, each named as its RAW and saved beside it. Adobe RGB exports are fine (the decoder converts
+  them through their profile). Watch for Lightroom's Raw Defaults: with "Camera Settings" it gave the OM-3
+  files "Camera Natural" instead, which had to be re-exported.
+- **Fit:** `lookfit.mjs --look emulsion-standard --flat-tone` on the 96 normally exposed photos (the 8 teal
+  DR200/DR400 Fujis left out), the white point pinned, then `--color` on all 104, every photo at exposure 0.
+- **Result** (ΔE76, current Standard -> fitted; held-out photos in brackets): X-T30 II 5.5 -> 3.4 (5.6 -> 3.7),
+  OM-3 7.7 -> 7.2 (7.5 -> 6.4), E-300 11.5 -> 9.7 (17.3 -> 13.8). Oli checked it on real photos before it
+  replaced revision 2.
+
+**Per-camera brightness (parked).** One curve can't fit Adobe Color on all three cameras because cameras
+keep different headroom between metered grey and clipping, which Adobe evens out per model (DNG
+BaselineExposure). Measured (`--free-others`): OM-3 +0.3 EV, E-300 -0.75 EV or lower, against the
+X-T30 II. Measuring it from each RAW's embedded JPEG preview fails (the maker's tone curve and picture
+settings swamp it: OM-3 +1.15, E-300 -0.16); measuring the RAW's own headroom (median luminance against
+clipping, compensation and DR removed, `raw::headroom` on branch `feat/camera-exposure`) agrees (OM-3 +0.05,
+E-300 -0.74). Learning it in the background was dropped because brightness would shift once a camera
+finished calibrating; raw.pixls.us has too few photos per camera (685 of 1,035 models have one file) for a
+built-in table. Emulsion Standard is fitted without any offset.
+
 ## Next: black and white
 
 Folder ready for Oli to convert: `X RAW all BW sims` (702 clones; Tags Acros, AcrosYe, AcrosR,

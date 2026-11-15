@@ -28,7 +28,7 @@ describe('Emulsion built-in looks', () => {
     expect(lookChoices().filter(c => c.pack === 'emulsion-looks')[0]).toMatchObject({ name: 'Emulsion Standard', stock: fresh.stock, bw: false });
     expect(normalizeRecipe(JSON.parse(JSON.stringify(fresh)))).toEqual(fresh);
     const applied = withLook(defaultRecipe('neutral'), 'emulsion-looks', fresh.stock);
-    expect(applied.lookSnapshot).toMatchObject({ name: 'Emulsion Standard', revision: 2, kind: 'look' });
+    expect(applied.lookSnapshot).toMatchObject({ name: 'Emulsion Standard', revision: 3, kind: 'look' });
     // An unedited photo shows Standard exactly as choosing it does, and Standard is not Neutral.
     for (const inputMode of [InputMode.SceneLinear, InputMode.DisplayLinear]) {
       const ctx = { width: 64, height: 64, seed: 1, inputMode, store: 1 };
