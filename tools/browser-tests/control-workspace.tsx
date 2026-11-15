@@ -6,7 +6,7 @@ import { Panel } from '../../src/ui/Panel';
 import { WorkspaceMenu } from '../../src/ui/WorkspaceMenu';
 import { defaultRecipe } from '../../src/film/recipe';
 import { activePhoto, useApp } from '../../src/library/store';
-import { addControlWorkspace, CONTROL_WORKSPACE_KEY, defaultControlWorkspace, saveControlWorkspace, useControlWorkspace } from '../../src/ui/controlworkspace';
+import { addControlWorkspace, CONTROL_WORKSPACE_KEY, defaultControlWorkspace, getControlLayout, saveControlWorkspace, useControlWorkspace, useWorkspaceLibrary } from '../../src/ui/controlworkspace';
 import { WORKSPACE_GROUPS } from '../../src/ui/workspacegroups';
 import { setWorkspace, useWorkspace } from '../../src/ui/workspace';
 import { chooseTool } from '../../src/ui/tools';
@@ -71,6 +71,40 @@ try {
   assert(!!document.querySelector('.personal-group-tabs') === (look === 'multi'), 'One tab should have no tab bar; many tabs should');
   if (look === 'temporary-masks') { chooseTool('mask'); await wait(); assert(document.querySelector('[aria-label="Masks (temporary)"]') && document.querySelector('.mask-tools'), 'Temporary Masks did not render'); document.body.dataset.result = 'PASS: temporary Masks in personal workspace'; }
   else if (look === 'masks') { assert(document.querySelector('#section-personal-group-masks .mask-tools'), 'Personal Masks did not render'); document.body.dataset.result = 'PASS: Masks group in personal workspace'; }
+  else if (look === 'minimal' || look === 'minimalmenu') {
+    const personal = JSON.stringify(useControlWorkspace.getState());
+    const library = JSON.stringify(useWorkspaceLibrary.getState());
+    await chooseWorkspace('Minimal');
+    assert(useWorkspace.getState().group === 'minimal', 'Minimal was not selected');
+    assert(document.querySelector('.workspace-menu-button')?.getAttribute('aria-label') === 'Workspace: Minimal', 'Missing Minimal workspace name');
+    await openWorkspaceMenu();
+    assert(menuItem('Minimal').getAttribute('aria-checked') === 'true' && menuItem('Minimal').textContent?.includes('Built-in'), 'Minimal is not marked as the selected built-in');
+    assert(menuItem('Standard workspace').getAttribute('aria-checked') === 'false', 'Standard is selected alongside Minimal');
+    assert(![...document.querySelectorAll('.workspace-menu-list [role=menuitem]')].some(b => b.textContent?.includes('Customize')), 'Built-in Minimal can be customized');
+    if (look === 'minimalmenu') document.body.dataset.result = 'PASS: Minimal built-in menu';
+    else {
+      document.querySelector<HTMLButtonElement>('.workspace-menu-button')!.click(); await wait();
+      assert(document.querySelector('#personal-temperature') && !document.querySelector('#personal-sharpen'), 'Minimal did not keep saved visibility');
+      await editValue('Exposure value', '1.25');
+      assert(activePhoto()!.recipe!.exposure === 1.25, 'Minimal controls cannot edit a photo');
+      await click('Reset Exposure');
+      assert(activePhoto()!.recipe!.exposure === 0 && activePhoto()!.recipe!.grain === 20, 'Minimal reset changed unrelated edits');
+      await click('Color');
+      assert(document.querySelector('.color-channels') && document.querySelector('.grade-wheel'), 'Missing native colour tools');
+      await click('Masks');
+      assert(document.querySelector('.mask-tools') && workspaceMasksOpen(), 'Minimal Masks tab is not functional');
+      await click('Develop');
+      chooseTool('mask'); await wait();
+      assert(getControlLayout().active === 'masks' && document.querySelector('.mask-tools'), 'Mask tool did not use the built-in tab');
+      chooseTool('select'); await wait();
+      assert(getControlLayout().active === 'essentials' && !workspaceMasksOpen(), 'Select did not restore the built-in tab');
+      await chooseWorkspace('Standard workspace');
+      await chooseWorkspace('Minimal');
+      assert(JSON.stringify(useControlWorkspace.getState()) === personal && JSON.stringify(useWorkspaceLibrary.getState()) === library, 'Using Minimal changed personal workspaces');
+      assert(document.querySelectorAll('.personal-group-tabs button').length === 3, 'Minimal has the wrong tabs');
+      document.body.dataset.result = 'PASS: Minimal built-in menu, saved layout, native controls, resets, colour, masks, switching and personal workspace isolation';
+    }
+  }
   else if (look === 'newshot') { await openWorkspaceMenu(); menuItem('New workspace…').click(); await wait(); document.body.dataset.result = 'PASS: new workspace editor'; }
   else if (look === 'menu') { if (new URLSearchParams(location.search).has('two')) addControlWorkspace('Travel', defaultControlWorkspace()); await openWorkspaceMenu(); assert(document.activeElement === document.querySelector('.workspace-menu-list [aria-checked=true]'), 'Menu did not focus the current workspace'); document.body.dataset.result = 'PASS: workspace menu open'; }
   else if (look === 'single' || look === 'multi' || look === 'wheel') document.body.dataset.result = 'PASS: existing groups in personal sidebar';
@@ -175,7 +209,7 @@ try {
       assert(document.querySelector('dialog[open] h2')?.textContent === 'New workspace', 'New workspace did not open the editor');
       document.querySelector('dialog')!.dispatchEvent(new Event('cancel', { cancelable: true })); await wait();
       assert(JSON.stringify(useControlWorkspace.getState()) === before, 'Cancelling a new workspace changed the current one');
-      await openWorkspaceMenu(); assert(document.querySelectorAll('.workspace-menu-list [role=menuitemradio]').length === 2, 'A cancelled workspace was listed'); menuItem('New workspace…').click(); await wait();
+      await openWorkspaceMenu(); assert(document.querySelectorAll('.workspace-menu-list [role=menuitemradio]').length === 3, 'A cancelled workspace was listed'); menuItem('New workspace…').click(); await wait();
       await change('Workspace name', 'Travel'); await click('Create workspace');
       await openWorkspaceMenu();
       assert(menuItem('Travel').getAttribute('aria-checked') === 'true' && menuItem('Personal workspace').getAttribute('aria-checked') === 'false', 'The new workspace is not current');
@@ -190,7 +224,7 @@ try {
       }
       assert(document.querySelector('.control-stages:not(.personal-group-tabs)') && !document.querySelector('.personal-workspace'), 'Deleting the last workspace did not return to Standard');
       await openWorkspaceMenu();
-      assert(document.querySelectorAll('.workspace-menu-list [role=menuitemradio]').length === 1 && ![...document.querySelectorAll('.workspace-menu-list [role=menuitem]')].some(b => b.textContent?.includes('Customize')), 'Deleted workspaces or Customize still offered');
+      assert(document.querySelectorAll('.workspace-menu-list [role=menuitemradio]').length === 2 && ![...document.querySelectorAll('.workspace-menu-list [role=menuitem]')].some(b => b.textContent?.includes('Customize')), 'Deleted workspaces or Customize still offered');
       menuItem('New workspace…').click(); await wait(); await click('Create workspace');
       assert(document.querySelector('.personal-workspace'), 'A new workspace after deleting them all did not show');
       document.body.dataset.result = 'PASS: existing-group library, one/many tabs, whole-group moves and drag, visibility checkboxes, preserved names/icons/visibility, save/cancel/persistence, native HSL/colour wheels, hidden-value-safe resets, standard workspace and new workspaces';

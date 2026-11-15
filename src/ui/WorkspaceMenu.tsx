@@ -18,7 +18,9 @@ const requestEditor = (creating: boolean) => window.dispatchEvent(new CustomEven
 
 export function WorkspaceMenu() {
   const library = useWorkspaceLibrary();
-  const custom = useWorkspace(w => w.group === 'custom') && library.workspaces.length > 0;
+  const group = useWorkspace(w => w.group);
+  const custom = group === 'custom' && library.workspaces.length > 0;
+  const minimal = group === 'minimal';
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -47,7 +49,7 @@ export function WorkspaceMenu() {
     e.stopPropagation();
   };
   const active = library.workspaces.find(w => w.id === library.active);
-  const current = custom && active ? active.name : 'Standard workspace';
+  const current = minimal ? 'Minimal' : custom && active ? active.name : 'Standard workspace';
   const edit = (creating: boolean) => { close(false); requestEditor(creating); };
   const item = (key: string, name: string, on: boolean, pick: () => void, note?: string) =>
     <button type="button" key={key} role="menuitemradio" aria-checked={on} className="menu-item" onClick={() => { pick(); close(); }}>
@@ -59,8 +61,9 @@ export function WorkspaceMenu() {
       aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}><PanelRight size={18} strokeWidth={1.75} aria-hidden="true" /></button>
     {open && <div className="overflow-menu workspace-menu-list" role="menu" aria-label="Workspace">
       <div className="menu-title" aria-hidden="true">Workspace</div>
-      {/* The built-in one can't be edited or deleted; it is always there to come back to. */}
-      {item('standard', 'Standard workspace', !custom, () => setWorkspace({ group: 'develop' }), 'Built-in')}
+      {/* Built-in workspaces can't be edited or deleted; they are always available. */}
+      {item('standard', 'Standard workspace', !custom && !minimal, () => setWorkspace({ group: 'develop' }), 'Built-in')}
+      {item('minimal', 'Minimal', minimal, () => setWorkspace({ group: 'minimal' }), 'Built-in')}
       {library.workspaces.length > 0 && <>
         <div role="separator" className="menu-separator" />
         <div className="menu-title" aria-hidden="true">Custom</div>

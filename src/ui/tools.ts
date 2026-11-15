@@ -5,9 +5,9 @@
 import { create } from 'zustand';
 import type { Recipe } from '../film/recipe';
 import { finishCrop, startCrop, useApp } from '../library/store';
-import { setWorkspace, useWorkspace, type ControlGroupId } from './workspace';
+import { isLayoutWorkspace, setWorkspace, useWorkspace, type ControlGroupId } from './workspace';
 import { setMaskUi } from './maskui';
-import { saveControlWorkspace, useControlWorkspace } from './controlworkspace';
+import { getControlLayout, setControlWorkspaceTab } from './controlworkspace';
 import { closeTemporaryMasks, maskWorkspaceTab, useTemporaryMasks, workspaceMasksOpen } from './maskworkspace';
 import { applyPending, commitDraft, holdRetouch, retouchMode, setRetouchUi, useRetouchUi } from './retouchui';
 
@@ -61,12 +61,12 @@ function putDown(keepCrop: boolean) {
   if (workspaceMasksOpen()) {
     const { returnTab } = useTemporaryMasks.getState();
     const group = useWorkspace.getState().group;
-    setMaskUi({ tool: null, pick: null, ...(group === 'custom' ? { selected: null, shape: null } : {}) });
+    setMaskUi({ tool: null, pick: null, ...(isLayoutWorkspace(group) ? { selected: null, shape: null } : {}) });
     closeTemporaryMasks();
     if (group === 'masks') setWorkspace({ group: useTools.getState().beforeMask });
     else if (returnTab) {
-      const layout = useControlWorkspace.getState();
-      if (layout.groups.some(g => g.id === returnTab)) saveControlWorkspace({ ...layout, active: returnTab });
+      const layout = getControlLayout();
+      if (layout.groups.some(g => g.id === returnTab)) setControlWorkspaceTab(returnTab);
     }
   }
 }
@@ -103,14 +103,14 @@ export function chooseTool(id: ToolId) {
     case 'mask': {
       const group = useWorkspace.getState().group;
       const session = useTemporaryMasks.getState();
-      if (group === 'masks' || session.open || (group === 'custom' && session.returnTab && workspaceMasksOpen())) { putDown(false); return; }
+      if (group === 'masks' || session.open || (isLayoutWorkspace(group) && session.returnTab && workspaceMasksOpen())) { putDown(false); return; }
       putDown(false);
       useTools.setState({ beforeMask: group });
-      if (group === 'custom') {
-        const layout = useControlWorkspace.getState();
+      if (isLayoutWorkspace(group)) {
+        const layout = getControlLayout();
         const tab = maskWorkspaceTab(layout);
         if (tab) {
-          saveControlWorkspace({ ...layout, active: tab.id });
+          setControlWorkspaceTab(tab.id);
           useTemporaryMasks.setState({ returnTab: layout.active });
         } else useTemporaryMasks.setState({ open: true });
         return;

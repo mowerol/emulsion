@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Personal sidebar composition is an app preference, independent of photo recipes.
 import { create } from 'zustand';
+import minimalLayout from './minimal-workspace.json';
 import { getSetting, setSetting } from '../library/appsettings';
 import { WORKSPACE_GROUPS, workspaceGroup } from './workspacegroups';
 import { setWorkspace, useWorkspace } from './workspace';
@@ -92,6 +93,37 @@ function read(): ControlWorkspace {
 }
 export const useControlWorkspace = create<ControlWorkspace>(() => read());
 
+/** Minimal is a bundled snapshot of Oli's layout, independent of editable workspaces. */
+export const minimalControlWorkspace = (): ControlWorkspace => normalizeControlWorkspace(minimalLayout);
+const MINIMAL_TAB_KEY = 'emulsion.minimal-tab';
+function readMinimal(): ControlWorkspace {
+  const layout = minimalControlWorkspace();
+  try {
+    const active = localStorage.getItem(MINIMAL_TAB_KEY);
+    if (active && layout.groups.some(g => g.id === active)) layout.active = active;
+  } catch { /* use the first tab */ }
+  return layout;
+}
+export const useMinimalWorkspace = create<ControlWorkspace>(() => readMinimal());
+export const getControlLayout = (group = useWorkspace.getState().group): ControlWorkspace =>
+  group === 'minimal' ? useMinimalWorkspace.getState() : useControlWorkspace.getState();
+export function useControlLayout(): ControlWorkspace {
+  const group = useWorkspace(s => s.group);
+  const personal = useControlWorkspace();
+  const minimal = useMinimalWorkspace();
+  return group === 'minimal' ? minimal : personal;
+}
+
+/** Tab navigation changes presentation only; Minimal never writes a personal layout. */
+export function setControlWorkspaceTab(id: string) {
+  const layout = getControlLayout();
+  if (layout.active === id || !layout.groups.some(g => g.id === id)) return;
+  if (useWorkspace.getState().group === 'minimal') {
+    useMinimalWorkspace.setState({ ...layout, active: id }, true);
+    try { localStorage.setItem(MINIMAL_TAB_KEY, id); } catch { /* session only */ }
+  } else saveControlWorkspace({ ...layout, active: id });
+}
+
 /**
  * Personal workspaces by name. The active one's layout is also `emulsion.control-workspace`
  * (`useControlWorkspace`), which everything that draws or edits a layout uses; the others wait
@@ -111,7 +143,7 @@ export function normalizeWorkspaceLibrary(input: unknown, current: ControlWorksp
     seen.add(w.id);
     return [{ id: w.id, name: cleanName(w.name, `Workspace ${i + 1}`), layout: normalizeControlWorkspace(w.layout) }];
   });
-  // Every personal workspace deleted: only Standard remains until a new one is made.
+  // Every personal workspace deleted: the built-in workspaces remain available.
   if (!workspaces.length && Array.isArray(p?.workspaces) && !p.workspaces.length) return { version: 1, active: '', workspaces: [] };
   if (!workspaces.length) return { version: 1, active: 'personal', workspaces: [{ id: 'personal', name: FIRST_WORKSPACE_NAME, layout: current }] };
   const active = workspaces.find(w => w.id === p?.active)?.id ?? workspaces[0].id;
@@ -123,7 +155,7 @@ function readLibrary(): WorkspaceLibrary {
   catch { return normalizeWorkspaceLibrary(null, useControlWorkspace.getState()); }
 }
 export const useWorkspaceLibrary = create<WorkspaceLibrary>(() => readLibrary());
-/** With no personal workspace left, Standard is the one shown. */
+/** Leave a missing custom workspace for Standard; built-in choices stay selected. */
 const standardIfNone = () => { if (!useWorkspaceLibrary.getState().workspaces.length && useWorkspace.getState().group === 'custom') setWorkspace({ group: 'develop' }); };
 standardIfNone();
 function saveLibrary(library: WorkspaceLibrary) {

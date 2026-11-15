@@ -18,7 +18,7 @@ import { setWorkspace, useWorkspace, type WorkspacePreferences } from './workspa
 import { firstOf, openSettings, openShortcuts, viewCommand, type ViewCommand } from './menubridge';
 import { logToTerminal, showLog } from '../backend/api';
 import { canTrash } from './RemovePhotosDialog';
-import { useControlWorkspace } from './controlworkspace';
+import { useControlWorkspace, useMinimalWorkspace } from './controlworkspace';
 import { useTemporaryMasks, workspaceMaskToolActive } from './maskworkspace';
 import { useMaskUi } from './maskui';
 
@@ -327,7 +327,7 @@ export async function installAppMenu(run: (id: string) => void): Promise<() => v
       void recent.setEnabled(recentFolders().length > 0 && !lookEdit).catch(() => {});
     }
   }
-  const stops = [useApp.subscribe(sync), usePrefs.subscribe(sync), useWorkspace.subscribe(sync), useControlWorkspace.subscribe(sync), useTemporaryMasks.subscribe(sync), useMaskUi.subscribe(sync),
+  const stops = [useApp.subscribe(sync), usePrefs.subscribe(sync), useWorkspace.subscribe(sync), useControlWorkspace.subscribe(sync), useMinimalWorkspace.subscribe(sync), useTemporaryMasks.subscribe(sync), useMaskUi.subscribe(sync),
     useCatalog.subscribe(sync), useTools.subscribe(sync), useRetouchUi.subscribe(sync), onRecentFolders(() => { void fillRecent().catch(() => {}); })];
   return () => stops.forEach(stop => stop());
 }

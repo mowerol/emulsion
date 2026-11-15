@@ -11,15 +11,17 @@ export const CONTROL_GROUPS = [
   { id: 'presets', name: 'Presets', sections: ['presets'] },
   { id: 'metadata', name: 'Metadata', sections: ['keywords', 'keywordlist', 'metadata'] },
 ] as const;
-export type ControlGroupId = typeof CONTROL_GROUPS[number]['id'] | 'custom';
+export type ControlGroupId = typeof CONTROL_GROUPS[number]['id'] | 'custom' | 'minimal';
 export type ControlSectionId = typeof CONTROL_GROUPS[number]['sections'][number];
 export interface WorkspacePreferences { layout: 'workflow'; imageColumns: 1 | 2 | 3; group: ControlGroupId }
 export const WORKSPACE_DEFAULTS: WorkspacePreferences = { layout: 'workflow', imageColumns: 3, group: 'develop' };
+/** Workspaces whose tabs are composed from the control catalogue. */
+export const isLayoutWorkspace = (group: string | undefined): group is 'custom' | 'minimal' => group === 'custom' || group === 'minimal';
 export function normalizeWorkspace(input: unknown): WorkspacePreferences {
   const p = input && typeof input === 'object' ? input as Partial<Omit<WorkspacePreferences, 'group'>> & { group?: string } : {};
   const group = p.group === 'finish' ? 'refine' : ['prepare', 'look', 'tone'].includes(p.group ?? '') ? 'develop' : p.group;
   // Classic is retired. Keep independent preferences when opening older settings.
-  return { layout: 'workflow', imageColumns: p.imageColumns === 1 || p.imageColumns === 2 ? p.imageColumns : 3, group: group === 'custom' ? 'custom' : CONTROL_GROUPS.find(g => g.id === group)?.id ?? WORKSPACE_DEFAULTS.group };
+  return { layout: 'workflow', imageColumns: p.imageColumns === 1 || p.imageColumns === 2 ? p.imageColumns : 3, group: isLayoutWorkspace(group) ? group : CONTROL_GROUPS.find(g => g.id === group)?.id ?? WORKSPACE_DEFAULTS.group };
 }
 const KEY = 'emulsion.workspace';
 function read(): WorkspacePreferences {

@@ -28,7 +28,7 @@ import { PhotoInfo } from './PhotoInfo';
 import { MaskControls } from './MaskControls';
 import { Histogram } from './Histogram';
 import { CurveEditor, CurvePresetMenu, useCurveSummary } from './CurveEditor';
-import { CONTROL_GROUPS, setWorkspace, useWorkspace } from './workspace';
+import { isLayoutWorkspace, CONTROL_GROUPS, setWorkspace, useWorkspace } from './workspace';
 import { CropControls, cropSummary } from './CropControls';
 import { commitTyped } from './typed';
 import { Section } from './Section';
@@ -42,7 +42,7 @@ import { LiveRange } from './LiveRange';
 import { PersonalWorkspace } from './PersonalWorkspace';
 import { WorkspaceEditor } from './WorkspaceEditor';
 import { onCustomizeWorkspace } from './WorkspaceMenu';
-import { saveControlWorkspace, useControlWorkspace } from './controlworkspace';
+import { setControlWorkspaceTab, useControlLayout } from './controlworkspace';
 import { closeTemporaryMasks, useTemporaryMasks } from './maskworkspace';
 import { WorkspaceIconView } from './WorkspaceIcons';
 
@@ -382,13 +382,13 @@ const SectionSlot = memo(function SectionSlot({ hidden, children }: { hidden: bo
 
 /** The stage tabs; memoised so an edit doesn't re-render their icons. */
 const ControlStages = memo(function ControlStages({ group }: { group: string }) {
-  const personal = useControlWorkspace();
+  const personal = useControlLayout();
   const temporaryMasks = useTemporaryMasks(s => s.open);
-  const custom = group === 'custom';
+  const custom = isLayoutWorkspace(group);
   return <>
     {/* A personal workspace's tabs look like Standard's: icons, named by their tooltip. */}
     {custom ? personal.groups.length > 1 || temporaryMasks ? <nav className="control-stages personal-group-tabs" aria-label="Personal workspace tabs">
-      {personal.groups.map(g => <button type="button" key={g.id} aria-label={g.name} data-tip={g.name} aria-pressed={!temporaryMasks && personal.active === g.id} onClick={() => { closeTemporaryMasks(); saveControlWorkspace({ ...personal, active: g.id }); }}>
+      {personal.groups.map(g => <button type="button" key={g.id} aria-label={g.name} data-tip={g.name} aria-pressed={!temporaryMasks && personal.active === g.id} onClick={() => { closeTemporaryMasks(); setControlWorkspaceTab(g.id); }}>
         <WorkspaceIconView name={g.icon} size={18} />
       </button>)}
       {temporaryMasks && <button type="button" aria-label="Masks (temporary)" data-tip="Masks (temporary)" aria-pressed="true"><SquareDashedMousePointer size={18} strokeWidth={1.75} aria-hidden="true" /></button>}
@@ -437,7 +437,7 @@ export function Panel() {
   const recipe = photo?.recipe ?? null;
   const multi = selectedCount > 1;
   const workspace = useWorkspace();
-  const personalGroup = useControlWorkspace(s => s.active);
+  const personalGroup = useControlLayout().active;
   const cropping = useApp(s => !!s.cropEdit);
   const [customizing, setCustomizing] = useState<false | 'edit' | 'new'>(false);
   const temporaryMasks = useTemporaryMasks(s => s.open);
@@ -459,7 +459,7 @@ export function Panel() {
   };
 
   const classic = view === 'develop' ? ['profile', 'stock', 'presets', 'lens', 'crop', 'transform', 'adjust', 'curve', 'color', 'grading', 'masks', 'detail', 'optics', 'grain', 'noise'] : ['profile', 'stock', 'presets'];
-  const custom = grouped && !editing && workspace.group === 'custom';
+  const custom = grouped && !editing && isLayoutWorkspace(workspace.group);
   const visible: readonly string[] = editing ? ['look-editor', 'look-tone', 'curve', 'color', 'grading', 'scanner'] : grouped ? CONTROL_GROUPS.find(g => g.id === workspace.group)?.sections ?? [] : classic;
   /**
    * A section's Reset, offered only when the section differs from its defaults. Worked out only
@@ -545,7 +545,7 @@ export function Panel() {
 
       <div className={grouped ? 'grouped-controls-body' : 'classic-controls-body'} ref={controlsBody}>
         {custom ? temporaryMasks ? <Section id="temporary-masks" title="Masks" onReset={sectionChanged(recipe, 'masks', photo ?? undefined) ? () => editActive((r, p) => r ? resetSection(r, 'masks', p) : r, 'Reset Masks') : undefined}><MaskControls /></Section>
-          : <><CameraColourWarning raw={photo.raw} camera={photo.camera ?? null} /><PersonalWorkspace recipe={base} context={{ white: photo.white, raw: photo.raw, lens: photo.lens, cropping }} blocks={bodies} actions={{ curve: <CurvePresetMenu curve={base.curve} onChange={setCurve} /> }} onCustomize={() => openWorkspaceEditor()}
+          : <><CameraColourWarning raw={photo.raw} camera={photo.camera ?? null} /><PersonalWorkspace recipe={base} context={{ white: photo.white, raw: photo.raw, lens: photo.lens, cropping }} blocks={bodies} actions={{ curve: <CurvePresetMenu curve={base.curve} onChange={setCurve} /> }} onCustomize={workspace.group === 'custom' ? () => openWorkspaceEditor() : undefined}
           renderGroup={(source, controls) => source === 'color' ? <ColorControls recipe={base} visibleControls={controls} /> : source === 'grading' ? <ColourGradingControls recipe={base} visibleControls={controls} /> : undefined} /></>
           : ordered.map(id => <SectionSlot key={id} hidden={!visible.includes(id)}>{sections[id]}</SectionSlot>)}
         {view !== 'develop' && <p className="hint panel-note">Open Develop to fine-tune exposure, colour, halation and grain.</p>}

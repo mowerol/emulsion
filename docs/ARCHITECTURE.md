@@ -445,7 +445,16 @@ store. A filter with no matches hides the prior active preview and marking contr
 Clear filters restores browsing. Shift/Cmd carousel clicks still explicitly change
 selection. Returning to Grid retains its selection.
 
-`ui/workspace.ts` owns application preferences for one/two image columns and the selected control stage. Workflow is the only workspace; older Classic preferences normalize to Workflow while retaining columns and stage. These preferences are outside photo recipes and sidecars. The control tabs use stable section IDs; a keyed registry follows their membership/order while keeping module view state mounted. They change presentation rather than image-processing order. White balance, Exposure and HDR have independent reset field sets.
+`ui/workspace.ts` owns application preferences for one/two image columns and the selected control stage. Workflow is the only layout; older Classic preferences normalize to Workflow while retaining columns and stage. These preferences are outside photo recipes and sidecars. The control tabs use stable section IDs; a keyed registry follows their membership/order while keeping module view state mounted. They change presentation rather than image-processing order. White balance, Exposure and HDR have independent reset field sets.
+
+
+The workspace menu offers **Standard workspace** and **Minimal** as built-in choices,
+plus editable personal workspaces. Minimal is a bundled snapshot of the saved
+Develop / Color / Masks layout (`ui/minimal-workspace.json`), rendered through the
+same control catalogue as personal workspaces. Its tab selection is independent
+(`emulsion.minimal-tab` in localStorage); using it never overwrites a saved personal
+layout. `getControlLayout`, `useControlLayout` and `setControlWorkspaceTab` route
+panels and mask-tool navigation to the selected layout.
 
 Develop owns zoom, before/split and crop state; its toolbar sits over the photo column. Masks are edited on the photo (`MaskOverlay`) while the Masks tab is open; which mask is selected and the armed tool live in `ui/maskui.ts`, outside the recipe. A fixed bar below the photo holds frame/file details and flag/stars/colour tags; the right pane is reserved for editing controls. The Images browser shares the existing thumbnail, filtering, marking, RAW+JPEG folding and selection operations. Changing columns affects the sidebar grid and up/down navigation stride, not recipes or selection.
 

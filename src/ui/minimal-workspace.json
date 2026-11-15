@@ -1,0 +1,202 @@
+{
+  "active": "essentials",
+  "groups": [
+    {
+      "icon": "film",
+      "id": "essentials",
+      "name": "Develop",
+      "sections": [
+        {
+          "controls": [
+            "look-picker",
+            "lookAmount"
+          ],
+          "icon": "film",
+          "id": "group-stock",
+          "name": "Look",
+          "source": "stock"
+        },
+        {
+          "controls": [
+            "temperature",
+            "tint"
+          ],
+          "icon": "sun",
+          "id": "group-whitebalance",
+          "name": "White Balance",
+          "source": "whitebalance"
+        },
+        {
+          "controls": [
+            "exposure",
+            "contrast",
+            "toneCharacter",
+            "vibrance",
+            "saturation"
+          ],
+          "icon": "contrast",
+          "id": "group-exposure",
+          "name": "Exposure",
+          "source": "exposure"
+        },
+        {
+          "controls": [
+            "highlights",
+            "shadows",
+            "whites",
+            "blacks"
+          ],
+          "icon": "sun",
+          "id": "group-hdr",
+          "name": "High Dynamic Range",
+          "source": "hdr"
+        },
+        {
+          "controls": [
+            "curve"
+          ],
+          "icon": "waves",
+          "id": "group-curve",
+          "name": "Tone curve",
+          "source": "curve"
+        },
+        {
+          "controls": [
+            "grain",
+            "grainIso"
+          ],
+          "icon": "film",
+          "id": "group-grain",
+          "name": "Grain",
+          "source": "grain"
+        },
+        {
+          "controls": [
+            "halation",
+            "halationSize",
+            "glow",
+            "glowSize"
+          ],
+          "icon": "sparkles",
+          "id": "group-optics",
+          "name": "Optics",
+          "source": "optics"
+        },
+        {
+          "controls": [
+            "noise:amount"
+          ],
+          "icon": "waves",
+          "id": "group-noise",
+          "name": "Noise reduction",
+          "source": "noise"
+        },
+        {
+          "controls": [
+            "clarity",
+            "dehaze"
+          ],
+          "icon": "focus",
+          "id": "group-detail",
+          "name": "Detail",
+          "source": "detail"
+        }
+      ]
+    },
+    {
+      "icon": "palette",
+      "id": "color",
+      "name": "Color",
+      "sections": [
+        {
+          "controls": [
+            "hsl:hue:0",
+            "hsl:hue:1",
+            "hsl:hue:2",
+            "hsl:hue:3",
+            "hsl:hue:4",
+            "hsl:hue:5",
+            "hsl:hue:6",
+            "hsl:hue:7",
+            "hsl:sat:0",
+            "hsl:sat:1",
+            "hsl:sat:2",
+            "hsl:sat:3",
+            "hsl:sat:4",
+            "hsl:sat:5",
+            "hsl:sat:6",
+            "hsl:sat:7",
+            "hsl:bright:0",
+            "hsl:bright:1",
+            "hsl:bright:2",
+            "hsl:bright:3",
+            "hsl:bright:4",
+            "hsl:bright:5",
+            "hsl:bright:6",
+            "hsl:bright:7"
+          ],
+          "icon": "palette",
+          "id": "group-color",
+          "name": "HSL",
+          "source": "color"
+        },
+        {
+          "controls": [
+            "grading-wheel",
+            "grade:shadows_C",
+            "grade:shadows_H",
+            "grade:midtones_Y",
+            "grade:midtones_C",
+            "grade:midtones_H",
+            "grade:highlights_Y",
+            "grade:highlights_C",
+            "grade:highlights_H",
+            "grade:global_Y",
+            "grade:global_C",
+            "grade:global_H",
+            "grade:shadows_weight",
+            "grade:white_fulcrum",
+            "grade:highlights_weight",
+            "grade:chroma_shadows",
+            "grade:chroma_highlights",
+            "grade:chroma_global",
+            "grade:chroma_midtones",
+            "grade:saturation_highlights",
+            "grade:saturation_midtones",
+            "grade:saturation_shadows",
+            "grade:hue_angle",
+            "grade:brilliance_global",
+            "grade:brilliance_highlights",
+            "grade:brilliance_midtones",
+            "grade:brilliance_shadows",
+            "grade:mask_grey_fulcrum",
+            "grade:grey_fulcrum",
+            "shadows",
+            "saturation"
+          ],
+          "icon": "palette",
+          "id": "group-grading",
+          "name": "Colour wheels",
+          "source": "grading"
+        }
+      ]
+    },
+    {
+      "icon": "layers",
+      "id": "masks",
+      "name": "Masks",
+      "sections": [
+        {
+          "controls": [
+            "masks"
+          ],
+          "icon": "layers",
+          "id": "group-masks",
+          "name": "Masks",
+          "source": "masks"
+        }
+      ]
+    }
+  ],
+  "version": 2
+}

@@ -5,7 +5,7 @@ import { editActive, useApp } from '../library/store';
 import { Section } from './Section';
 import { LiveRange } from './LiveRange';
 import { ValueInput } from './Panel';
-import { useControlWorkspace } from './controlworkspace';
+import { useControlLayout } from './controlworkspace';
 import { omittedWorkspaceControls, resetWorkspaceControls, workspaceControlChanged, workspaceSlider, type ControlContext, type WorkspaceSlider } from './workspacecontrols';
 
 let gestureId = 0;
@@ -41,9 +41,9 @@ export function PersonalWorkspace({ recipe, context, blocks, actions = {}, onCus
   recipe: Recipe; context: ControlContext; blocks: Record<string, ReactNode>;
   /** A tool's heading buttons (the curve's presets), shown in the heading of the group that holds it, as in the standard workspace. */
   actions?: Record<string, ReactNode>;
-  onCustomize: () => void; renderGroup: (source: string, controls: string[]) => ReactNode;
+  onCustomize?: () => void; renderGroup: (source: string, controls: string[]) => ReactNode;
 }) {
-  const layout = useControlWorkspace();
+  const layout = useControlLayout();
   const group = layout.groups.find(g => g.id === layout.active)!;
   const [otherOpen, setOtherOpen] = useState(false);
   const others = omittedWorkspaceControls(recipe, layout.groups.flatMap(g => g.sections.flatMap(s => s.controls)), context);
@@ -57,7 +57,7 @@ export function PersonalWorkspace({ recipe, context, blocks, actions = {}, onCus
       : <div key={id} className="personal-tool">{blocks[id] ?? <p className="hint">This control is unavailable in this version. You can remove it in Customize.</p>}</div>;
   };
   return <div className="personal-workspace">
-    {!group.sections.some(s => s.controls.length) && <div className="personal-empty"><h3>{group.sections.length ? 'All controls are hidden' : 'Choose groups for this tab'}</h3><p>{group.sections.length ? 'Choose which controls to show in Customize.' : 'Add the editing groups you reach for.'}</p><button type="button" className="btn" onClick={onCustomize}>Customize…</button></div>}
+    {!group.sections.some(s => s.controls.length) && <div className="personal-empty"><h3>{group.sections.length ? 'All controls are hidden' : 'Choose groups for this tab'}</h3><p>{group.sections.length ? 'Choose which controls to show in Customize.' : 'Add the editing groups you reach for.'}</p>{onCustomize && <button type="button" className="btn" onClick={onCustomize}>Customize…</button>}</div>}
     {group.sections.map(section => !!section.controls.length && <Section key={section.id} id={`personal-${section.id}`} title={section.name}
       actions={section.controls.some(id => actions[id]) ? <>{section.controls.map(id => actions[id] && <Fragment key={id}>{actions[id]}</Fragment>)}</> : undefined}
       onReset={section.controls.some(id => workspaceControlChanged(id, recipe, context)) ? () => editActive(r => r ? resetWorkspaceControls(r, section.controls, context) : r, `Reset ${section.name}`) : undefined}>
