@@ -31,6 +31,9 @@ interface Manifest {
   samples: number;
   prior: number;
   iterations: number;
+  /** Which settings to fit: all colour settings (default); 'bw' only HSL brightness, which is how
+   * a black and white look weighs the colours (its colour filter); 'sepia' that and the tint wheels. */
+  params?: 'color' | 'bw' | 'sepia';
 }
 
 const DIR = '/.scratch/lookfit/';
@@ -41,7 +44,7 @@ const progress = (msg: string) => { document.title = msg; console.log(msg); };
 interface Param { name: string; step: number; min: number; max: number; round: number; get(s: ProfileSettings): number; set(s: ProfileSettings, v: number): void }
 const cbOf = (s: ProfileSettings) => (s.colorBalance ??= {}) as Record<string, number>;
 const colorOf = (s: ProfileSettings) => (s.color ??= { hue: Array(8).fill(0), sat: Array(8).fill(0), bright: Array(8).fill(0) });
-const PARAMS: Param[] = [
+const ALL_PARAMS: Param[] = [
   ...(['hue', 'sat', 'bright'] as const).flatMap((kind) => NODE_NAMES.map((band, i): Param => ({
     name: `HSL ${band} ${kind === 'hue' ? 'hue' : kind === 'sat' ? 'saturation' : 'brightness'}`,
     step: kind === 'hue' ? 3 : 4, min: kind === 'hue' ? -HUE_MAX : -100, max: kind === 'hue' ? HUE_MAX : 100, round: 1,
@@ -90,6 +93,9 @@ interface Photo {
   src: Source; w: number; h: number; target: Target;
   /** Sampled pixel indices, and the JPEG's Lab there. */
   at: Uint32Array; jpegLab: Float32Array;
+  /** For a black and white fit, the scene's colour at the samples (Emulsion Standard's Lab), which
+   * the report sorts by in place of the grey JPEG's. */
+  sceneLab?: Float32Array;
   align: { s: number; dx: number; dy: number; score: number };
 }
 
@@ -140,6 +146,13 @@ async function run() {
     });
   }
   const train = photos.filter((p) => !p.held);
+  if (m.params === 'bw' || m.params === 'sepia') {
+    const std = withLook(defaultRecipe('neutral'), 'emulsion-looks', 'emulsion-standard');
+    for (const p of photos) {
+      const px = engine.readPixels(p.src, { ...std, exposure: p.exposure }, p.w, p.h, 0);
+      p.sceneLab = Float32Array.from(Array.from(p.at).flatMap((i) => lab(px[4 * i] / 255, px[4 * i + 1] / 255, px[4 * i + 2] / 255)));
+    }
+  }
 
   /** The render's Lab at a photo's samples. */
   const sampleLab = (p: Photo, settings: ProfileSettings) => {
@@ -169,6 +182,9 @@ async function run() {
   };
   const sumSq = (r: Float32Array) => { let s = 0; for (let i = 0; i < r.length; i++) s += r[i] * r[i]; return s; };
 
+  // A grey render has no hue or saturation left to fit: only the brightness the colours gave it.
+  const PARAMS = ALL_PARAMS.filter((p) => m.params === 'bw' ? p.name.endsWith(' brightness')
+    : m.params === 'sepia' ? p.name.endsWith(' brightness') || p.name.includes(' wheel ') : true);
   const n = PARAMS.length;
   const start = structuredClone(m.look.settings);
   const u0 = Float64Array.from(PARAMS.map((p) => p.get(start) / p.step));
@@ -234,14 +250,14 @@ async function run() {
         const [L1, a1, b1] = [got[3 * k], got[3 * k + 1], got[3 * k + 2]], [L2, a2, b2] = [p.jpegLab[3 * k], p.jpegLab[3 * k + 1], p.jpegLab[3 * k + 2]];
         const e = Math.hypot(L1 - L2, a1 - a2, b1 - b2);
         de += e; dl += L1 - L2;
-        const c2 = Math.hypot(a2, b2);
+        const c2 = Math.hypot(a2, b2), [sa, sb] = p.sceneLab ? [p.sceneLab[3 * k + 1], p.sceneLab[3 * k + 2]] : [a2, b2];
         // Greys in the JPEG (where a white balance difference shows), away from black and white.
         if (c2 < 6 && L2 > 20 && L2 < 90) { na += a1 - a2; nb += b1 - b2; nn++; }
-        if (c2 > 12) {
-          const h2 = hueOf(a2, b2), z = SECTORS.findIndex(([, lo, hi]) => h2 >= lo && h2 < hi);
+        if (Math.hypot(sa, sb) > 12) {
+          const h2 = hueOf(sa, sb), z = SECTORS.findIndex(([, lo, hi]) => h2 >= lo && h2 < hi);
           if (z >= 0) {
             const s = sectors[z]; let dh = hueOf(a1, b1) - h2; if (dh > 180) dh -= 360; if (dh < -180) dh += 360;
-            s.n++; s.de += e; s.dc += Math.hypot(a1, b1) - c2; s.dh += dh; s.dl += L1 - L2;
+            s.n++; s.de += e; s.dc += Math.hypot(a1, b1) - c2; s.dh += p.sceneLab ? 0 : dh; s.dl += L1 - L2;
           }
         }
       }

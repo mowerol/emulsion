@@ -47,8 +47,13 @@ it('opens an unedited Fujifilm RAW with the look of the film simulation it was s
   expect(uneditedRecipe(fuji('classic-negative'))).toMatchObject({ pack: 'emulsion-looks', stock: 'emulsion-fuji-classic-negative', lookEnabled: true });
   expect(uneditedRecipe(fuji('classic-negative')).lookSnapshot).toMatchObject({ id: 'emulsion-fuji-classic-negative', name: 'Classic Negative' });
   expect(uneditedRecipe(fuji('classic-chrome'))).toMatchObject({ stock: 'emulsion-fuji-classic-chrome' });
-  // No look for black and white (yet), none for other cameras: the default look.
-  expect(uneditedRecipe(fuji('acros'))).toMatchObject({ stock: 'emulsion-standard' });
+  // Black and white with its colour filter (lens.rs names each one), Sepia too.
+  for (const s of ['acros', 'acros-ye', 'acros-r', 'acros-g', 'monochrome', 'monochrome-ye', 'monochrome-r', 'monochrome-g', 'sepia']) {
+    expect(uneditedRecipe(fuji(s)).lookSnapshot, s).toMatchObject({ id: `emulsion-fuji-${s}` });
+  }
+  expect(uneditedRecipe(fuji('acros-r')).lookSnapshot?.name).toBe('Acros + R');
+  // Nostalgic Neg and Reala Ace have no look yet, other cameras none: the default look.
+  expect(uneditedRecipe(fuji('nostalgic-neg'))).toMatchObject({ stock: 'emulsion-standard' });
   expect(uneditedRecipe(fuji(null))).toMatchObject({ stock: 'emulsion-standard' });
   // A JPEG stays Neutral, whatever its camera recorded.
   expect(uneditedRecipe({ raw: false, capture: { simulation: 'classic-negative' } })).toMatchObject({ stock: 'neutral', lookEnabled: false });

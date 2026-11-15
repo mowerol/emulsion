@@ -427,6 +427,8 @@ a:hover { color: #f8b86f; }
 .cmp-source { margin: 28px 0 0; padding-left: 18px; max-width: 72ch; font-size: 15px; line-height: 1.6; color: var(--subtle); }
 .cmp-source li + li { margin-top: 6px; }
 .cmp-jump { margin-top: 36px; }
+.cmp-jump + .cmp-jump { margin-top: 12px; }
+.cmp-group { margin-bottom: 12px; }
 .cmp-jump .look-chip { text-decoration: none; }
 .cmp-sim { padding-top: clamp(56px, 7vw, 96px); scroll-margin-top: 72px; }
 .cmp-sim-title { font-size: clamp(24px, 2.6vw, 32px); font-weight: 600; letter-spacing: -0.01em; margin: 0 0 20px; }

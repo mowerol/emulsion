@@ -599,11 +599,18 @@ pub fn fuji_simulation(path: &Path) -> Option<&'static str> {
 }
 
 fn simulation_name(film_mode: Option<u32>, saturation: Option<u32>) -> Option<&'static str> {
-    // Black and white is recorded in Saturation; FilmMode may still hold a colour value then.
+    // Black and white is recorded in Saturation, with its colour filter (1 red, 2 yellow, 3 green;
+    // checked against X RAW Studio conversions); FilmMode may still hold a colour value then.
     match saturation {
-        Some(0x300..=0x303) => return Some("monochrome"),
+        Some(0x300) => return Some("monochrome"),
+        Some(0x301) => return Some("monochrome-r"),
+        Some(0x302) => return Some("monochrome-ye"),
+        Some(0x303) => return Some("monochrome-g"),
         Some(0x310) => return Some("sepia"),
-        Some(0x500..=0x503) => return Some("acros"),
+        Some(0x500) => return Some("acros"),
+        Some(0x501) => return Some("acros-r"),
+        Some(0x502) => return Some("acros-ye"),
+        Some(0x503) => return Some("acros-g"),
         _ => {}
     }
     Some(match film_mode? {
@@ -632,8 +639,11 @@ mod tests {
         assert_eq!(simulation_name(Some(0x501), Some(0xc0)), Some("pro-neg-hi"));
         assert_eq!(simulation_name(Some(0x000), Some(0)), Some("provia"));
         // Black and white comes from Saturation, whatever FilmMode says.
-        assert_eq!(simulation_name(Some(0x000), Some(0x502)), Some("acros"));
-        assert_eq!(simulation_name(None, Some(0x301)), Some("monochrome"));
+        assert_eq!(simulation_name(Some(0x000), Some(0x502)), Some("acros-ye"));
+        assert_eq!(simulation_name(None, Some(0x500)), Some("acros"));
+        assert_eq!(simulation_name(None, Some(0x300)), Some("monochrome"));
+        assert_eq!(simulation_name(None, Some(0x301)), Some("monochrome-r"));
+        assert_eq!(simulation_name(None, Some(0x310)), Some("sepia"));
         assert_eq!(simulation_name(Some(0xfff), None), None);
         assert_eq!(simulation_name(None, None), None);
     }

@@ -25,9 +25,12 @@ for f in raws:
     if not jps[stem]: print('no JPEG, left out:', stem); continue
     if len(jps[stem])!=1: bad.append((stem,'JPEGs',jps[stem])); continue
     j=info(os.path.join(D,jps[stem][0])); r=info(os.path.join(D,f),True)
-    films[j['film']]+=1
+    # Black and white JPEGs record their mode in Saturation (0x300-0x303 B&W and its filters, 0x310
+    # Sepia, 0x500-0x503 Acros and its filters), not a colour setting; FilmMode is absent then.
+    bw=j['sat'] if (j['sat'] or 0)>=0x300 else None
+    films[(j['film'],hex(bw)) if bw else j['film']]+=1
     issues=[k for k in ('hi','sh','clarity','cce','fxb','grain') if (j[k] or 0)!=0]
-    if j['sat'] not in (0,None): issues.append(f"colour {j['sat']}")
+    if j['sat'] not in (0,None) and not bw: issues.append(f"colour {j['sat']}")
     if j['dr']!=100: issues.append(f"JPEG DR{j['dr']}")
     if j['wb']!=r['wb'] or j['shift']!=r['shift']: issues.append('white balance')
     if j['cs']!=1: issues.append('colour space')

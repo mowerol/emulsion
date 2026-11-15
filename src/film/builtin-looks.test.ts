@@ -17,8 +17,10 @@ describe('Emulsion built-in looks', () => {
       expect(normalizeSettings(l.settings), l.name).toEqual(l.settings);
     }
     expect(BUILTIN_LOOKS.map((l) => l.name).slice(0, 6)).toEqual(['Emulsion Standard', 'Emulsion Neg', 'Emulsion Chrome', 'Emulsion Gold', 'B&W Dynamic', 'B&W Classic']);
-    // The fitted Fujifilm simulations follow, all in the Emulsion x Fuji folder.
-    expect(BUILTIN_LOOKS.slice(6).every((l) => l.category === 'Emulsion x Fuji' && !l.bw)).toBe(true);
+    // The fitted Fujifilm simulations follow, all in the Emulsion x Fuji folder: colour, then black and white.
+    const fuji = BUILTIN_LOOKS.slice(6);
+    expect(fuji.every((l) => l.category === 'Emulsion x Fuji')).toBe(true);
+    expect(fuji.filter((l) => l.bw).map((l) => l.id)).toEqual(['acros', 'acros-ye', 'acros-r', 'acros-g', 'monochrome', 'monochrome-ye', 'monochrome-r', 'monochrome-g', 'sepia'].map((s) => `emulsion-fuji-${s}`));
     expect(lookFile('emulsion-looks', 'emulsion-film-neg' as StockId, 0)).toBeNull();
   });
 
@@ -57,15 +59,24 @@ describe('Emulsion built-in looks', () => {
 
   it('lists the B&W looks as black and white', () => {
     const bw = lookChoices().filter((c) => c.pack === 'emulsion-looks' && c.bw).map((c) => c.name);
-    expect(bw).toEqual(['B&W Dynamic', 'B&W Classic']);
+    expect(bw).toEqual(['B&W Dynamic', 'B&W Classic', 'Acros', 'Acros + Ye', 'Acros + R', 'Acros + G',
+      'Monochrome', 'Monochrome + Ye', 'Monochrome + R', 'Monochrome + G', 'Sepia']);
   });
 
-  it('turns colour grey in B&W Dynamic', () => {
+  it('turns colour grey in B&W Dynamic and the Fujifilm black and white looks, and warm in Sepia', () => {
     const grade = (id: string, rgb: [number, number, number]) =>
       colorBalanceRgb(rgb, cbCommit(scaledColorBalance(PACK['emulsion-looks'].looks[id as StockId]!.settings!, 1)!));
-    for (const rgb of [[0.4, 0.1, 0.05], [0.05, 0.2, 0.5], [0.1, 0.3, 0.08]] as [number, number, number][]) {
-      const [r, g, b] = grade('emulsion-bw-dynamic', rgb);
-      expect(Math.max(r, g, b) - Math.min(r, g, b)).toBeLessThan(1e-3 * Math.max(r, 1e-3));
+    const colours = [[0.4, 0.1, 0.05], [0.05, 0.2, 0.5], [0.1, 0.3, 0.08]] as [number, number, number][];
+    const grey = BUILTIN_LOOKS.filter((l) => l.bw && l.settings.colorBalance && l.id !== 'emulsion-fuji-sepia').map((l) => l.id);
+    expect(grey).toHaveLength(9);
+    for (const id of grey) for (const rgb of colours) {
+      const [r, g, b] = grade(id, rgb);
+      expect(Math.max(r, g, b) - Math.min(r, g, b), id).toBeLessThan(1e-3 * Math.max(r, 1e-3));
+    }
+    // Sepia: the same warm tint whatever the colour was (its tint wheels act after the desaturation).
+    for (const rgb of colours) {
+      const [r, g, b] = grade('emulsion-fuji-sepia', rgb);
+      expect(r > g && g > b).toBe(true);
     }
   });
 });

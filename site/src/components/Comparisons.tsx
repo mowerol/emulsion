@@ -6,7 +6,8 @@ import { asset, site } from '../site.ts';
 // RAW with the matching look. Images: public/assets/comparisons/<photo>-<simulation>-{fujifilm,emulsion}.webp,
 // 1200 px on the long edge, made by tools/lookfit/compare.mjs --sides.
 
-type Simulation = { id: string; file: string; name: string };
+/** `bw`: a black and white simulation, listed after the colour ones under their own heading. */
+type Simulation = { id: string; file: string; name: string; bw?: true };
 const SIMULATIONS: Simulation[] = [
   { id: 'classic-negative', file: 'classicneg', name: 'Classic Negative' },
   { id: 'classic-chrome', file: 'classicchrome', name: 'Classic Chrome' },
@@ -17,6 +18,11 @@ const SIMULATIONS: Simulation[] = [
   { id: 'astia', file: 'astia', name: 'Astia' },
   { id: 'eterna', file: 'eterna', name: 'Eterna' },
   { id: 'eterna-bleach-bypass', file: 'bleachbypass', name: 'Eterna Bleach Bypass' },
+  ...([
+    ['acros', 'acros', 'Acros'], ['acros-ye', 'acrosye', 'Acros + Ye filter'], ['acros-r', 'acrosr', 'Acros + R filter'],
+    ['acros-g', 'acrosg', 'Acros + G filter'], ['monochrome', 'mono', 'Monochrome'], ['monochrome-ye', 'monoye', 'Monochrome + Ye filter'],
+    ['monochrome-r', 'monor', 'Monochrome + R filter'], ['monochrome-g', 'monog', 'Monochrome + G filter'], ['sepia', 'sepia', 'Sepia'],
+  ] as const).map(([id, file, name]): Simulation => ({ id, file, name, bw: true })),
 ];
 
 /** `layout`: tall spans two rows beside two landscapes; wide spans both columns (wide screens only). */
@@ -63,13 +69,16 @@ export default function Comparisons() {
           <ul className="cmp-source">
             {SOURCE.map((s) => <li key={s}>{s}</li>)}
           </ul>
-          <div className="look-chips cmp-jump" aria-label="Jump to a film simulation">
-            {SIMULATIONS.map((s) => <a key={s.id} className="look-chip" href={`#${s.id}`}>{s.name}</a>)}
-          </div>
+          {[false, true].map((bw) => (
+            <div key={String(bw)} className="look-chips cmp-jump" aria-label={bw ? 'Jump to a black and white simulation' : 'Jump to a colour film simulation'}>
+              {SIMULATIONS.filter((s) => !s.bw === !bw).map((s) => <a key={s.id} className="look-chip" href={`#${s.id}`}>{s.name}</a>)}
+            </div>
+          ))}
         </header>
 
-        {SIMULATIONS.map((s) => (
+        {SIMULATIONS.map((s, i) => (
           <section key={s.id} id={s.id} className="wrap cmp-sim">
+            {s.bw && !SIMULATIONS[i - 1]?.bw && <p className="eyebrow cmp-group">Black and white</p>}
             <h2 className="cmp-sim-title">{s.name}</h2>
             <div className="cmp-grid">
               {PHOTOS.map((p) => (

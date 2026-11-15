@@ -20,6 +20,10 @@
 //                   shadows/midtones/highlights tint wheels, with the curve kept. DR200/DR400
 //                   photos are held at +1/+2 EV and count for colour only (hue and saturation, not
 //                   lightness); every 4th DR100 photo is held out of the fit and only reported. Writes <look>.color-fitted.json
+//   --bw            with --color: fit a black and white look, only its HSL brightness per band
+//                   (the colour filter); every photo's lightness counts, DR200/DR400 too (held at
+//                   +1/+2 EV)
+//   --sepia         like --bw, with the shadows/midtones/highlights tint wheels as well
 //   --evaluate      with --color: measure the look as it is, without fitting (per photo ΔE and
 //                   the mean a*/b* offset of the JPEG's greys, render minus JPEG)
 //   --flat-tone     first set the look's colour balance tone controls to 0 (lightness of the
@@ -48,6 +52,7 @@ const nodes = opt('--nodes', '0,0.06,0.15,0.28,0.42,0.56,0.7,0.84,1').split(',')
 const smooth = Number(opt('--smooth', 0.0005));
 const fixDr = flag('--fix-dr');
 const flatTone = flag('--flat-tone');
+const bwParams = flag('--sepia') ? 'sepia' : flag('--bw') ? 'bw' : 'color';
 if (!args.length || args.some((a) => a.startsWith('--'))) {
   console.error('Usage: node tools/lookfit/lookfit.mjs [--looks FILE] [--look ID] [--edge N] [--nodes a,b,..] [--smooth K] [--fix-dr] PHOTO.RAF ...');
   process.exit(2);
@@ -102,7 +107,8 @@ if (colorMode) {
   writeFileSync(join(work, 'color-manifest.json'), JSON.stringify({
     look: { id: look.id, name: look.name, revision: look.revision ?? 1, settings: look.settings },
     // RAWs captured at DR200/DR400 count for colour only (their hue and saturation, not lightness).
-    photos: photos.map(({ name, raw, jpeg, dr }) => ({ name, raw, jpeg, dr, exposure: dr && dr > 100 ? Math.log2(dr / 100) : 0, colorOnly: !!dr && dr > 100 })),
+    photos: photos.map(({ name, raw, jpeg, dr }) => ({ name, raw, jpeg, dr, exposure: dr && dr > 100 ? Math.log2(dr / 100) : 0, colorOnly: bwParams === 'color' && !!dr && dr > 100 })),
+    params: bwParams,
     holdout: evaluateOnly ? 0 : Number(opt('--holdout', 4)), samples: 2500, prior: Number(opt('--prior', 0.002)), iterations: evaluateOnly ? 0 : 8,
   }));
   const run = spawnSync('node', ['tools/browser-tests/realtime.mjs', 'look-fit-color', '1200'], { encoding: 'utf8', maxBuffer: 64 << 20 });
@@ -117,7 +123,7 @@ if (colorMode) {
   console.log(`\nLook: ${look.name} (${look.id}) from ${looksFile}`);
   console.log(`Mean ΔE (CIE76, render vs camera JPEG): fitted on ${train.length} photos ${mean(train, 'before')} -> ${mean(train, 'after')}; held out ${held.length} photos ${mean(held, 'before')} -> ${mean(held, 'after')}\n`);
   for (const p of result.photos) console.log(`  ${p.name.padEnd(14)} ${p.held ? 'held out' : p.colorOnly ? `DR${p.dr} col` : '        '}  ΔE ${p.before.meanDE.toFixed(1).padStart(5)} -> ${p.after.meanDE.toFixed(1).padStart(5)}   ΔL* ${p.after.meanDL >= 0 ? '+' : ''}${p.after.meanDL.toFixed(1)}`);
-  console.log('\nBy colour (camera JPEG hue, chroma > 12), all photos: ΔE, then render minus JPEG in chroma, hue (degrees) and lightness');
+  console.log('\nBy colour (camera JPEG hue, or the scene’s in Emulsion Standard for black and white; chroma > 12), all photos: ΔE, then render minus JPEG in chroma, hue (degrees) and lightness');
   result.sectors.before.forEach((b, i) => {
     const a = result.sectors.after[i];
     const sg = (v, d = 1) => v === null ? '   -' : `${v >= 0 ? '+' : ''}${v.toFixed(d)}`;

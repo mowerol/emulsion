@@ -5,7 +5,8 @@
 //   node tools/lookfit/compare.mjs --out DIR [--looks FILE] [--edge N] STEM [STEM ...]
 //
 // STEM is a RAW's name without extension (1OKK3518). Classic Negative pairs come from the
-// "X RAW DR100 set" folders, the others from "X RAW all film sims" (<STEM>_<Sim>.RAF/.jpg).
+// "X RAW DR100 set" folders, the others from "X RAW all film sims" and, black and white, "X RAW all
+// BW sims" (<STEM>_<Sim>.RAF/.jpg).
 // Renders through the real engine in headless Chrome (look-compare.ts); writes one JPEG per pair.
 import { createServer } from 'vite';
 import { spawn, spawnSync } from 'node:child_process';
@@ -27,10 +28,13 @@ const ROOT = opt('--photos', '/Volumes/Oli External/Photos/2025');
 if (!args.length) { console.error('Usage: node tools/lookfit/compare.mjs --out DIR STEM ...'); process.exit(2); }
 
 const SIMS = [
-  ['ClassicNeg', 'Classic Negative', 'emulsion-film-neg'], ['ClassicChrome', 'Classic Chrome', 'emulsion-film-chrome'],
+  ['ClassicNeg', 'Classic Negative', 'emulsion-fuji-classic-negative'], ['ClassicChrome', 'Classic Chrome', 'emulsion-fuji-classic-chrome'],
   ['ProNegHi', 'Pro Neg. Hi', 'emulsion-film-pro-neg-hi'], ['ProNegStd', 'Pro Neg. Std', 'emulsion-film-pro-neg-std'],
   ['Provia', 'Provia', 'emulsion-film-provia'], ['Velvia', 'Velvia', 'emulsion-film-velvia'], ['Astia', 'Astia', 'emulsion-film-astia'],
   ['Eterna', 'Eterna', 'emulsion-film-eterna'], ['BleachBypass', 'Eterna Bleach Bypass', 'emulsion-film-bleach'],
+  ...[['Acros', 'Acros', 'acros'], ['AcrosYe', 'Acros + Ye', 'acros-ye'], ['AcrosR', 'Acros + R', 'acros-r'], ['AcrosG', 'Acros + G', 'acros-g'],
+    ['Mono', 'Monochrome', 'monochrome'], ['MonoYe', 'Monochrome + Ye', 'monochrome-ye'], ['MonoR', 'Monochrome + R', 'monochrome-r'],
+    ['MonoG', 'Monochrome + G', 'monochrome-g'], ['Sepia', 'Sepia', 'sepia']].map(([tag, label, id]) => [tag, label, `emulsion-fuji-${id}`, 'X RAW all BW sims']),
 ];
 const looks = Object.fromEntries(JSON.parse(readFileSync(looksFile, 'utf8')).map((l) => [l.id, { name: l.name, revision: l.revision, settings: l.settings }]));
 const work = resolve('.scratch/compare');
@@ -42,11 +46,11 @@ const items = [];
 const dumps = [];
 for (const stem of args) {
   let raw = null;
-  for (const [tag, label, look] of SIMS) {
+  for (const [tag, label, look, folder = 'X RAW all film sims'] of SIMS) {
     if (!looks[look]) continue;
     const [rawPath, jpegPath] = tag === 'ClassicNeg'
       ? ['X RAW DR100 set', 'X RAW DR100 set 2'].map((d) => join(ROOT, d, stem)).map((p) => [`${p}.RAF`, `${p}.jpg`]).find(([r, j]) => existsSync(r) && existsSync(j)) ?? []
-      : [join(ROOT, 'X RAW all film sims', `${stem}_${tag}.RAF`), join(ROOT, 'X RAW all film sims', `${stem}_${tag}.jpg`)];
+      : [join(ROOT, folder, `${stem}_${tag}.RAF`), join(ROOT, folder, `${stem}_${tag}.jpg`)];
     if (!rawPath || !existsSync(rawPath) || !existsSync(jpegPath)) { console.log(`${stem}: no ${label} pair, skipped`); continue; }
     // The RAW at full resolution (the page shrinks it with the JPEG, the same way).
     if (!raw) { raw = `${stem}.raw.bin`; dumps.push(`20000\t${rawPath}\t${join(work, raw)}`); }

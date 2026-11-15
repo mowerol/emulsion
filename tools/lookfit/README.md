@@ -8,9 +8,9 @@ few global controls, so fixing one photo's sky moves every other photo's blues.
 
 | File | Does |
 |---|---|
-| `lookfit.mjs` | Fits one look to RAW+JPEG pairs. Default: the master tone curve (+ exposure per photo). `--color`: HSL x 24, colour balance saturation/chroma x 8, vibrance, 3 tint wheels. `--color --evaluate`: measure only (also reports grey a*/b* offsets). Runs the real engine in headless Chrome (`tools/browser-tests/look-fit*.ts`); decodes with the ignored Rust test `decode::dump_engine_payloads`. Output in `.scratch/lookfit/`. |
-| `batch.sh` | For each `"<look id>|<Tag>"`: verify the JPEGs, fit tone on the DR100 photos, then colour on all. Results in `.scratch/batch/<id>/` (`fitted-look.json`, reports). Needs `.scratch/batch/<id>/start.json`. Run under `caffeinate -i`. |
-| `apply.py` | Writes fitted looks into a looks JSON (category "Emulsion x Fuji"). Edit its `NAMES` for new looks. |
+| `lookfit.mjs` | Fits one look to RAW+JPEG pairs. Default: the master tone curve (+ exposure per photo). `--color`: HSL x 24, colour balance saturation/chroma x 8, vibrance, 3 tint wheels. `--color --evaluate`: measure only (also reports grey a*/b* offsets). `--color --bw` / `--sepia`: a black and white look's HSL brightness (and tint wheels). Runs the real engine in headless Chrome (`tools/browser-tests/look-fit*.ts`); decodes with the ignored Rust test `decode::dump_engine_payloads`. Output in `.scratch/lookfit/`. |
+| `batch.sh` | For each `"<look id>|<Tag>[|bw|sepia]"`: verify the JPEGs, fit tone on the DR100 photos, then colour on all. Results in `.scratch/batch/<id>/` (`fitted-look.json`, reports). Needs `.scratch/batch/<id>/start.json`. Run under `caffeinate -i`. |
+| `apply.py` | Writes fitted looks into a looks JSON (category "Emulsion x Fuji"; `bw` when the look is desaturated). Edit its `NAMES` for new looks. |
 | `xraw_folder.py` | Builds an X RAW Studio folder: RAWs cloned once per simulation (`<RAW>_<Tag>.RAF`), each with its settings file. |
 | `verify.py` | Checks every JPEG in a folder against its RAF: one simulation, base settings, DR100, white balance shift matching the RAW. |
 | `compare.mjs` | Labelled side-by-side images, `--sides` for the website's sliders, `--grid` for one photo in several simulations. |
@@ -90,19 +90,26 @@ E-300 -0.74). Learning it in the background was dropped because brightness would
 finished calibrating; raw.pixls.us has too few photos per camera (685 of 1,035 models have one file) for a
 built-in table. Emulsion Standard is fitted without any offset.
 
-## Next: black and white
+## Black and white (2026-11-15)
 
-Folder ready for Oli to convert: `X RAW all BW sims` (702 clones; Tags Acros, AcrosYe, AcrosR,
-AcrosG, Mono, MonoYe, MonoR, MonoG, Sepia; X RAW names Acros AcrosYe AcrosR AcrosG BW BYe BR BG
-Sepia; base, DR100, no toning or grain, own WB shift). Before fitting:
-- `verify.py` rejects a non-zero Saturation tag; black and white JPEGs record their mode there
-  (0x300-0x303 B&W, 0x310 Sepia, 0x500-0x503 Acros), so accept those.
-- Start looks fully desaturated (colour balance `saturation_global: -1`, as B&W Dynamic/Classic do);
-  fit the tone curve and HSL **brightness** per band (which is what the colour filters change);
-  HSL hue/saturation and colour balance chroma do nothing to a grey result, so drop them from the
-  fit (`PARAMS` in `look-fit-color.ts`).
-- Sepia also needs its tint fitted (the tint wheels, applied after the desaturation).
-- Acros adds its own grain at higher ISO; expect a little more scatter.
-- Then add the looks (`bw: true`), map `acros`/`monochrome`/`sepia` in `simulationLook` (looks.ts;
-  filters aren't distinguished yet: lens.rs `simulation_name` would need the Saturation values
-  0x301/0x302/0x303 and 0x501-0x503 named per filter), and add them to the comparisons page.
+All nine black and white simulations were fitted from `X RAW all BW sims` (78 RAWs x 9; Tags Acros,
+AcrosYe, AcrosR, AcrosG, Mono, MonoYe, MonoR, MonoG, Sepia): `caffeinate -i tools/lookfit/batch.sh
+"emulsion-fuji-acros|Acros|bw" ... "emulsion-fuji-sepia|Sepia|sepia"` with `ALL="X RAW all BW sims"`.
+- The JPEGs record the mode in Saturation (0x300 B&W, 0x301 red filter, 0x302 yellow, 0x303 green,
+  0x310 Sepia, 0x500-0x503 Acros and its filters); `verify.py` accepts them. `lens.rs` names each
+  (`acros-r`, `monochrome-ye`, ...) and `simulationLook` opens it with `emulsion-fuji-<name>`.
+- Start looks: colour balance `chroma_global: -1` (it runs before the four ways, so a tint survives;
+  HSL runs before colour balance, so its brightness per band still sees the colours), Emulsion Neg's
+  masks, straight curve, zero HSL.
+- `--bw` fits only HSL brightness per band (the colour filter); `--sepia` adds the tint wheels. Every
+  photo's lightness counts, DR200/DR400 too (at +1/+2 EV): they hold most of the cyan. The report
+  sorts by the scene's hue in Emulsion Standard, since the JPEG is grey.
+- Tone and brightness share the overall level, so the batch runs tone, brightness, tone, brightness.
+- Results (ΔE76 fitted / held out): Acros 0.83/1.15, Acros + Ye 0.95/1.31, Acros + R 1.21/1.50,
+  Acros + G 1.06/1.30, Monochrome 0.79/1.07, Monochrome + Ye 0.90/1.23, Monochrome + R
+  1.17/1.41, Monochrome + G 1.01/1.25, Sepia 1.77/2.08.
+- The red filters reach the slider's limit (blue brightness -100, green about -96) and still leave
+  blue skies ~0.6 L* and cyan ~5 L* lighter than the camera's. Darktable's channel mixer rgb (grey
+  tab) would follow them exactly, if that is ever wanted; Oli found them good as they are.
+- Acros adds its own grain at higher ISO, which the fit ignores (grain defaults to 0).
+- Not distinguished: Monochrome's warm/cool toning (WC/MG), which the base recipe leaves at 0.
