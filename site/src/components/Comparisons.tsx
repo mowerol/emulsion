@@ -15,22 +15,24 @@ const SIMULATIONS: Simulation[] = [
   { id: 'provia', file: 'provia', name: 'Provia' },
   { id: 'velvia', file: 'velvia', name: 'Velvia' },
   { id: 'astia', file: 'astia', name: 'Astia' },
+  { id: 'eterna', file: 'eterna', name: 'Eterna' },
+  { id: 'eterna-bleach-bypass', file: 'bleachbypass', name: 'Eterna Bleach Bypass' },
 ];
 
 /** `layout`: tall spans two rows beside two landscapes; wide spans both columns (wide screens only). */
 type Photo = { id: string; aspect: string; alt: string; layout?: 'tall' | 'wide' };
 const PHOTOS: Photo[] = [
-  { id: '1OKK4421', aspect: '2 / 3', layout: 'tall', alt: 'A small-town street in winter: a bar sign, an American flag, snow on the pavement and a red car.' },
   { id: '1OKK5708', aspect: '3 / 2', alt: 'A coral-red painted wall with a lilac door, a climbing vine and hostas beneath yellow brick.' },
   { id: '1OKK6059', aspect: '3 / 2', alt: 'A ginger and white dog sitting on grass in front of a red brick wall.' },
-  { id: '1OKK5794', aspect: '3 / 2', layout: 'wide', alt: 'A yellow brick clock tower against a blue sky, framed by trees and power lines.' },
+  { id: '1OKK4939', aspect: '3 / 2', alt: 'A white house and an old RV beside a road, bare trees on a hillside behind, under a blue sky.' },
+  { id: '1OKK5794', aspect: '3 / 2', alt: 'A yellow brick clock tower against a blue sky, framed by trees and power lines.' },
 ];
 
 const SOURCE = [
   'The same RAW on both sides, shot on a Fujifilm X-T30 II at DR100.',
   'Fujifilm JPEG: made by the camera itself through FUJIFILM X RAW STUDIO, with each simulation at its base settings (tones, Color, Clarity and Color Chrome off, white balance as shot).',
   'Emulsion: the matching look at its defaults, with no adjustments to the photo.',
-  'Each look was fitted to about 70 RAW and JPEG pairs and checked on photos left out of the fit. These four were among the fitted photos.',
+  'Each look was fitted to about 70 RAW and JPEG pairs and checked on photos left out of the fit. Of these four, the red wall was left out of every fit; the others were used in most.',
 ];
 
 export default function Comparisons() {
