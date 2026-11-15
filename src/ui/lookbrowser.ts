@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { create } from 'zustand';
-import { PACK, PACKS, lookName, stocksForPack, type PackId } from '../film/looks';
+import { BUILTIN_CATEGORY, PACK, PACKS, lookName, stocksForPack, type PackId } from '../film/looks';
 import type { StockId } from '../film/stocks';
 import { getSetting, setSetting } from '../library/appsettings';
 export interface LookChoice { key: string; pack: PackId; stock: StockId; name: string; bw: boolean; custom: boolean }
@@ -35,6 +35,17 @@ export function lookGroups(items: LookChoice[], favourites: string[]): LookGroup
   ];
   for (const p of PACKS.filter(p => !p.hidden && !p.user)) {
     const entries = items.filter(i => i.pack === p.id);
+    if (p.id === 'emulsion-looks') {
+      // Emulsion's own looks first (keeping the pack's folder id), then each further category, in file order.
+      const categoryOf = (i: LookChoice) => PACK[i.pack].looks[i.stock]?.category ?? BUILTIN_CATEGORY;
+      const categories = [...new Set([BUILTIN_CATEGORY, ...entries.map(categoryOf)])];
+      for (const c of categories) {
+        const list = entries.filter(i => categoryOf(i) === c);
+        if (c === BUILTIN_CATEGORY) groups.push({ id: p.id, title: p.name, label: p.name, pack: p.id, entries: list });
+        else if (list.length) groups.push({ id: `${p.id}:${c}`, title: c, label: c, pack: p.id, entries: list });
+      }
+      continue;
+    }
     if (p.id !== 'gmic-film') { groups.push({ id: p.id, title: p.name, label: p.name, pack: p.id, entries }); continue; }
     for (const [category, label] of GMIC_CATEGORIES) groups.push({
       id: `${p.id}:${category}`, title: `${p.name} - ${label}`, label, pack: p.id,

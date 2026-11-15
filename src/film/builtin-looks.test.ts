@@ -16,7 +16,9 @@ describe('Emulsion built-in looks', () => {
       expect(isStockId(l.id), l.id).toBe(true);
       expect(normalizeSettings(l.settings), l.name).toEqual(l.settings);
     }
-    expect(BUILTIN_LOOKS.map((l) => l.name)).toEqual(['Emulsion Standard', 'Emulsion Neg', 'Emulsion Chrome', 'Emulsion Gold', 'B&W Dynamic', 'B&W Classic']);
+    expect(BUILTIN_LOOKS.map((l) => l.name).slice(0, 6)).toEqual(['Emulsion Standard', 'Classic Negative', 'Classic Chrome', 'Emulsion Gold', 'B&W Dynamic', 'B&W Classic']);
+    // The fitted Fujifilm simulations follow, all in the Emulsion x Fuji folder.
+    expect(BUILTIN_LOOKS.slice(6).every((l) => l.category === 'Emulsion x Fuji' && !l.bw)).toBe(true);
     expect(lookFile('emulsion-looks', 'emulsion-film-neg' as StockId, 0)).toBeNull();
   });
 

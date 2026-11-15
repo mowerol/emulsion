@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { beforeEach, describe, expect, it } from 'vitest';
 import { lookChoices, lookGroups, setHiddenLookGroups, toggleLookGroup, useLookBrowser } from './lookbrowser';
+import { PACK } from '../film/looks';
 
 describe('look browser folders', () => {
   const items = lookChoices();
@@ -18,6 +19,15 @@ describe('look browser folders', () => {
       'Negative', 'Black & white', 'Negative (newer)', 'Negative (older)',
     ]);
     expect(new Set(pat.flatMap(g => g.entries.map(i => i.key))).size).toBe(121);
+  });
+
+  it('puts Emulsion’s own looks first and each further category in its own folder', () => {
+    const folders = lookGroups(items, []).filter(g => g.pack === 'emulsion-looks');
+    expect(folders.map(g => g.id)).toEqual(['emulsion-looks', 'emulsion-looks:Emulsion x Fuji']);
+    expect(folders[0].entries.map(i => i.name)).toEqual(['Emulsion Standard', 'Emulsion Gold', 'B&W Dynamic', 'B&W Classic']);
+    expect(folders[1]).toMatchObject({ title: 'Emulsion x Fuji', label: 'Emulsion x Fuji' });
+    expect(folders[1].entries.map(i => i.stock).slice(0, 2)).toEqual(['emulsion-film-neg', 'emulsion-film-chrome']);
+    expect(folders[1].entries.every(i => PACK['emulsion-looks'].looks[i.stock]?.category === 'Emulsion x Fuji')).toBe(true);
   });
 
   it('toggles a folder and clears every hidden folder', () => {
