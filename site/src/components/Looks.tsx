@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import Compare from './Compare.tsx';
 import { asset } from '../site.ts';
 
 /**
@@ -27,8 +28,8 @@ export default function Looks() {
           </h2>
         </div>
         <p data-reveal className="section-aside">
-          Every photo opens on Emulsion Standard, a clean, neutral rendering. Choose a look in one click, set how much of
-          it you want, and keep editing on top.
+          Every RAW opens on Emulsion Standard, a clean, neutral rendering, and a Fujifilm RAW on its film simulation.
+          Choose a look in one click, set how much of it you want, and keep editing on top.
         </p>
       </div>
 
@@ -103,7 +104,34 @@ export default function Looks() {
             Each starts at zero.
           </p>
         </article>
+
+        {/* One X-T30 II RAW: the camera's JPEG (FUJIFILM X RAW STUDIO) beside Emulsion's Classic Chrome,
+            from the comparisons page's images (tools/lookfit/compare.mjs --sides). */}
+        <article data-reveal className="card feature fuji-card">
+          <div className="feature-text">
+            <h3 className="h3 h3-sm">Emulsion x Fuji</h3>
+            <p className="body body-sm" style={{ maxWidth: '46ch' }}>
+              Eighteen looks fitted to Fujifilm’s own JPEGs, from Classic Chrome to Acros. A Fujifilm RAW opens on the
+              simulation it was shot with, framed the way the camera framed it.
+            </p>
+            <a className="look-more" href={`${import.meta.env.BASE_URL}comparisons/`}>See them beside the camera’s JPEGs</a>
+          </div>
+          <div className="feature-media" style={{ aspectRatio: '3 / 2' }}>
+            <Compare
+              before="assets/comparisons/1OKK5794-classicchrome-fujifilm.webp"
+              after="assets/comparisons/1OKK5794-classicchrome-emulsion.webp"
+              alt="A yellow brick clock tower against a blue sky in Classic Chrome: the Fujifilm camera's JPEG and Emulsion's render of the same RAW, either side of a divider."
+              beforeLabel="Fujifilm JPEG"
+              afterLabel="Emulsion"
+            />
+          </div>
+        </article>
       </div>
+
+      <p className="look-note">
+        Fujifilm, X RAW STUDIO and the film simulation names are trademarks of FUJIFILM Corporation. Emulsion is not
+        affiliated with or endorsed by Fujifilm.
+      </p>
     </section>
   );
 }
