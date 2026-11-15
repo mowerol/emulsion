@@ -2,7 +2,7 @@
 import { memo, useMemo, useRef, type KeyboardEvent } from 'react';
 import { PACK, PACKS, lookName, stocksForPack, lutBase, type PackId } from '../film/looks';
 import { useUserLooksVersion } from '../library/userlooks';
-import { defaultRecipe } from '../film/recipe';
+import { defaultRecipe, uneditedRecipe } from '../film/recipe';
 import { withLutBase } from '../film/creative';
 import type { StockId } from '../film/stocks';
 import type { Photo } from '../library/store';
@@ -49,14 +49,14 @@ export const LutBrowser = memo(function LutBrowser({ photo, collection, query, o
   const grid = useRef<HTMLDivElement>(null);
   // Tiles depend on the draft without its LUT (each tile sets its own), so picking a LUT
   // or changing its intensity doesn't redraw the grid.
-  const tileDraft = useMemo(() => JSON.stringify(withLutBase(recipe ?? defaultRecipe(), null)), [recipe]);
+  const tileDraft = useMemo(() => JSON.stringify(withLutBase(recipe ?? (photo ? uneditedRecipe(photo) : defaultRecipe()), null)), [recipe]);
   const { tileRef, placeholder } = useTileRenders({
     photo, keys, baseKey: tileDraft, root: grid,
     // Enough pixels to cover a 4:5 tile about 112 px wide at 2×.
     size: [224, 280],
     recipeFor: k => {
       const e = entries.find(e => e.key === k);
-      return withLutBase(recipe ?? defaultRecipe(), e ? lutBase(e.pack, e.id) : null);
+      return withLutBase(recipe ?? (photo ? uneditedRecipe(photo) : defaultRecipe()), e ? lutBase(e.pack, e.id) : null);
     },
   });
 

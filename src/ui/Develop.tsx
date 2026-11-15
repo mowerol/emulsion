@@ -4,6 +4,7 @@ import { noiseEnabled } from '../film/noisereduction';
 import { photoId } from '../library/copies';
 import { PhotoInfo } from './PhotoInfo';
 import { PhotoTools } from './PhotoTools';
+import { LookReferencePicker, LookReferenceOverlay, cameraJpegBlocked, cameraJpegPath, useCameraJpeg, type LookReference } from './LookReference';
 import { useWorkspace } from './workspace';
 import { useWorkspaceMasksOpen, useWorkspaceMaskToolActive } from './maskworkspace';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -26,7 +27,7 @@ import type { Recipe } from '../film/recipe';
 import { pickStats, pickedRange } from '../engine/masks';
 import { RANGE_CHANNELS } from '../film/masks';
 import { warmStageOf, type WarmStage } from '../engine/warm';
-import { defaultRecipe } from '../film/recipe';
+import { defaultRecipe, uneditedRecipe } from '../film/recipe';
 import { D65_XY, clampWhiteBalance, neutralizingWhite, temperatureTint } from '../engine/whitebalance';
 import { STAGE_COLORS, activePhoto, editActive, finishCrop, setCropDraft, setPhotoWhite, setPhotoLens, setPhotoCamera, showToast, startCrop, useApp } from '../library/store';
 import { StageMenu } from './StageMenu';
@@ -43,7 +44,6 @@ import { ENCODE_EDGE, setObjectRenderer } from './objectselect';
 import { fitEdgeBound, previewEdge, previewStale, PREVIEW_MAX } from './previewsize';
 
 /** What an unedited photo is developed with. */
-const UNEDITED = defaultRecipe();
 
 /** How long the pointer rests on a slider before its stage's map is warmed. */
 const WARM_REST_MS = 80;
@@ -186,6 +186,9 @@ export function Develop() {
   /** Before/after: off, the whole original, or split at `splitAt` of the canvas width. */
   const [before, setBefore] = useState<'off' | 'full' | 'split'>('off');
   const [splitAt, setSplitAt] = useState(0.5);
+  const [reference, setReference] = useState<LookReference | null>(null);
+  const referenceTool = import.meta.env.DEV && editingLook;
+  useEffect(() => { if (!referenceTool) setReference(null); }, [referenceTool]);
   /** Where the workspace's right-click menu is open, if it is. */
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
@@ -197,7 +200,24 @@ export function Develop() {
   const cropping = !!cropEdit;
   const held = useApp((s) => s.compare) && !cropping;
   const compare = held || (before === 'full' && !cropping);
-  const split = before === 'split' && !held && !cropping ? splitAt : undefined;
+  /** Development builds: the photo's paired camera JPEG over the edit (K), whole or left of the
+   * split. It stays on from photo to photo, reading each photo's own JPEG. */
+  const [jpegOn, setJpegOn] = useState(false);
+  const toggleJpeg = useCallback(() => setJpegOn(v => !v), []);
+  // Found once per photo (and when the folder's contents change), not on every edit.
+  const photoCount = useApp((s) => s.photos.length);
+  const jpegPath = useMemo(() => cameraJpegPath(photo, useApp.getState().photos),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [photo?.path, photo?.raw, photo?.pair, photoCount]);
+  const jpegBlocked = cameraJpegBlocked(jpegPath, photo?.recipe ?? null);
+  const cameraJpeg = useCameraJpeg(import.meta.env.DEV && jpegOn && !jpegBlocked ? jpegPath : null);
+  const shownReference = jpegOn ? (cameraJpeg.state === 'ready' ? cameraJpeg.reference : null) : referenceTool ? reference : null;
+  const referenceSplit = !!shownReference && before === 'split' && !held && !cropping;
+  const referenceFull = jpegOn && !!shownReference && before !== 'split' && !held && !cropping;
+  const jpegHint = !jpegOn || held || cropping ? null : jpegBlocked ? `Camera JPEG: ${jpegBlocked.toLowerCase()}`
+    : cameraJpeg.state === 'loading' ? 'Opening the camera JPEG…' : cameraJpeg.state === 'error' ? 'Couldn’t open the camera JPEG'
+    : referenceSplit ? 'Camera JPEG on the left · K to hide' : 'Showing the camera JPEG · K to hide';
+  const split = before === 'split' && !referenceSplit && !held && !cropping ? splitAt : undefined;
   const picking = useApp((s) => s.picking);
   const clipping = useApp((s) => s.clipping);
   const sharpenMask = useApp((s) => s.sharpenMask);
@@ -417,7 +437,11 @@ export function Develop() {
   // thumbnail is what is being edited).
   const sizeKnown = !!src && (loaded!.res !== 'thumb' || decodeFailed === path);
   // An unedited photo uses Emulsion Standard, default sharpening included (as in Lightroom).
-  const saved = photo ? photo.recipe ?? UNEDITED : null;
+  // What the photo develops with while unedited (`uneditedRecipe`), kept so its identity is stable.
+  const unedited = useMemo(() => photo ? uneditedRecipe(photo) : null,
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [photo?.raw, photo?.capture?.simulation]);
+  const saved = photo ? photo.recipe ?? unedited : null;
   // A look or preset under the pointer is shown on the photo without being applied.
   const preview = workflow && !cropping && !editingLook ? tools.preview : null;
   const recipe = useMemo(() => (preview ? preview.apply(saved) : saved), [preview, saved]);
@@ -754,6 +778,8 @@ export function Develop() {
         useApp.setState((s) => ({ clipping: !s.clipping }));
       } else if (!mod && !e.altKey && e.key.toLowerCase() === 'y') {
         setBefore((b) => (b === 'split' ? 'off' : 'split'));
+      } else if (import.meta.env.DEV && !mod && !e.altKey && e.key.toLowerCase() === 'k') {
+        setJpegOn((v) => !v);
       }
     };
     window.addEventListener('keydown', onKey);
@@ -879,9 +905,15 @@ export function Develop() {
   const cursor = cropping ? 'default' : picking ? 'crosshair' : panning ? 'grabbing' : tool === 'pan' ? 'grab' : zoom.scale === null ? 'zoom-in' : 'zoom-out';
 
   return (
-    <section className={`develop${workflow ? ' develop-workflow' : ''}`}>
+    <section className={`develop${workflow ? ' develop-workflow' : ''}${referenceTool ? ' develop-look-reference' : ''}`}>
+      {referenceTool && <LookReferencePicker reference={reference} onChange={next => {
+        setReference(next);
+        setBefore(next ? 'split' : 'off');
+        setSplitAt(0.5);
+      }} />}
       {workflow && !editingLook && <div className="photo-tools-host"><PhotoTools ready={!!current && sizeKnown} scale={zoom.scale} zoomLabel={current ? label(zoom, current) : 'Fit'}
-        onZoom={onToolsZoom} onStep={onToolsStep} before={before} onBefore={setBefore} /></div>}
+        onZoom={onToolsZoom} onStep={onToolsStep} before={before} onBefore={setBefore}
+        {...(import.meta.env.DEV ? { jpegOn, jpegBlocked, onJpeg: toggleJpeg } : {})} /></div>}
       <div
         className={`stage${stage.light ? ' light' : ''}${cropping ? ' cropping' : ''}`}
         style={{ background: stage.hex }}
@@ -906,7 +938,8 @@ export function Develop() {
             aria-label={photo ? `Developed preview of ${photo.name}` : 'Preview'}
             style={{ visibility: showing && presentedPhoto === frameId ? 'visible' : 'hidden', cursor }}
           />
-          {split !== undefined && showing && <SplitDivider at={splitAt} onMove={setSplitAt} />}
+          {(referenceSplit || referenceFull) && shownReference && showing && presentedPhoto === frameId && current && <LookReferenceOverlay reference={shownReference} at={referenceFull ? 1 : splitAt} view={current.view} background={stage.hex} />}
+          {(split !== undefined || referenceSplit) && showing && <SplitDivider at={splitAt} onMove={setSplitAt} labels={referenceSplit ? (jpegOn ? ['Camera JPEG', 'Edit'] : ['Reference', 'Look']) : undefined} />}
           {masksOpen && !cropping && !compare && showing && current && (maskIndex >= 0 || maskTool) && (
             <MaskOverlay transform={recipe?.transform} frame={frame} W={src!.fullW} H={src!.fullH} view={current.view} cssW={current.cssW} cssH={current.cssH} onPick={pickRange} />
           )}
@@ -922,7 +955,8 @@ export function Develop() {
           {error && <p className="stage-error">{error}</p>}
         </div>
         {/* In Workflow nothing sits on the photo: these read from the bottom bar instead. */}
-        {!workflow && compare && <span className="badge">{held ? 'Original' : 'Before'}</span>}
+        {!workflow && compare && !referenceFull && <span className="badge">{held ? 'Original' : 'Before'}</span>}
+        {!workflow && jpegHint && <span className="badge">{jpegHint}</span>}
         {!workflow && clipping && <span className="badge clip-badge">Clipping shown (J)</span>}
         {!workflow && cropping && <span className="badge">Cropping: Enter to keep, Esc to cancel, X turns the frame</span>}
         {photo && (!showing || presentedPhoto !== frameId) && !error && <span className="stage-status">Opening {photo.name}</span>}
@@ -935,9 +969,12 @@ export function Develop() {
             <button type="button" aria-pressed={before === 'full'} onClick={() => setBefore((b) => (b === 'full' ? 'off' : 'full'))} title={'Show the original (or hold \\)'}>
               Before
             </button>
-            <button type="button" aria-pressed={before === 'split'} onClick={() => setBefore((b) => (b === 'split' ? 'off' : 'split'))} title="Before and after side by side (Y)">
+            <button type="button" aria-pressed={before === 'split'} onClick={() => setBefore((b) => (b === 'split' ? 'off' : 'split'))} title={referenceTool && reference ? 'Reference and look side by side (Y)' : 'Before and after side by side (Y)'}>
               Split
             </button>
+            {import.meta.env.DEV && <button type="button" aria-pressed={jpegOn} disabled={!!jpegBlocked && !jpegOn} onClick={toggleJpeg} title={jpegBlocked ?? 'Compare with the camera JPEG (K)'}>
+              JPEG
+            </button>}
             <span className="zoom-sep" aria-hidden="true" />
             <span className="zoom-level" aria-live="polite">{label(zoom, current)}</span>
             <button type="button" aria-pressed={zoom.scale === null} onClick={() => setZoom(FIT)} title={`Fit (${navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl+'}0)`}>
@@ -951,16 +988,20 @@ export function Develop() {
           </div>
         )}
       </div>
-      {workflow && <PhotoInfo toolbar hint={compare ? (held ? 'Showing the original while \\ is held' : 'Showing the original') : clipping ? 'Clipping shown · J to hide' : toolHint(tool, zoom.scale !== null)} />}
+      {workflow && <PhotoInfo toolbar hint={jpegHint ?? (compare ? (held ? 'Showing the original while \\ is held' : 'Showing the original') : clipping ? 'Clipping shown · J to hide' : toolHint(tool, zoom.scale !== null))} />}
       {!workflow && !editingLook && <Filmstrip />}
     </section>
   );
 }
 
-/** The split line: drag it to move; the original shows to its left. */
-function SplitDivider({ at, onMove }: { at: number; onMove: (at: number) => void }) {
+/** The split line: drag it to move; the original (or a reference) shows to its left. */
+function SplitDivider({ at, onMove, labels = ['Before', 'After'] }: { at: number; onMove: (at: number) => void; labels?: [string, string] }) {
+  const stopDrag = useRef<(() => void) | null>(null);
+  useEffect(() => () => stopDrag.current?.(), []);
   const drag = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.button !== 0) return;
     e.stopPropagation();
+    stopDrag.current?.();
     const wrap = e.currentTarget.parentElement!;
     const move = (ev: PointerEvent) => {
       const r = wrap.getBoundingClientRect();
@@ -969,9 +1010,15 @@ function SplitDivider({ at, onMove }: { at: number; onMove: (at: number) => void
     const up = () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
+      window.removeEventListener('pointercancel', up);
+      window.removeEventListener('blur', up);
+      stopDrag.current = null;
     };
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
+    window.addEventListener('pointercancel', up);
+    window.addEventListener('blur', up);
+    stopDrag.current = up;
   };
   return (
     <div
@@ -980,16 +1027,19 @@ function SplitDivider({ at, onMove }: { at: number; onMove: (at: number) => void
       onPointerDown={drag}
       role="separator"
       aria-orientation="vertical"
-      aria-label="Before and after divider"
+      aria-label={`${labels[0]} and ${labels[1].toLowerCase()} divider`}
+      aria-valuemin={2}
+      aria-valuemax={98}
       aria-valuenow={Math.round(at * 100)}
       tabIndex={0}
       onKeyDown={(e) => {
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') { e.preventDefault(); e.stopPropagation(); }
         if (e.key === 'ArrowLeft') onMove(Math.max(0.02, at - 0.02));
         if (e.key === 'ArrowRight') onMove(Math.min(0.98, at + 0.02));
       }}
     >
-      <span className="split-label left">Before</span>
-      <span className="split-label right">After</span>
+      <span className="split-label left">{labels[0]}</span>
+      <span className="split-label right">{labels[1]}</span>
     </div>
   );
 }

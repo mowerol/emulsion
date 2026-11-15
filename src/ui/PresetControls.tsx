@@ -6,7 +6,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { ArrowLeft, Check, ChevronRight, Ellipsis, Plus, Star } from 'lucide-react';
 import { PRESET_GROUPS, DEFAULT_PRESET_GROUPS, GROUP_LABEL, applyPreset, presetScope, presetScopeShort, type Preset, type PresetGroup } from '../film/presets';
-import { defaultRecipe, formatEv, type Recipe } from '../film/recipe';
+import { defaultRecipe, uneditedRecipe, formatEv, type Recipe } from '../film/recipe';
 import { captureLook, lookName } from '../film/looks';
 import { SCANNER } from '../film/scanners';
 import { addPresetCollection, deletePreset, importPresetFiles, savePreset, togglePresetFavourite, usePresetPrefs, usePresets } from '../library/presets';
@@ -99,7 +99,7 @@ export function PresetControls() {
     try {
       const collection = sheet.collection.trim() || undefined;
       const recipe = sheet.mode === 'rename' ? sheet.original!.recipe
-        : applyPreset({ version: 1, id: sheet.id, name: sheet.name, groups: sheet.groups, recipe: captureLook(photo.recipe ?? defaultRecipe()) }, null);
+        : applyPreset({ version: 1, id: sheet.id, name: sheet.name, groups: sheet.groups, recipe: captureLook(photo.recipe ?? uneditedRecipe(photo)) }, null);
       await savePreset({ version: 1, id: sheet.id, name: sheet.name.trim(), groups: sheet.mode === 'rename' ? sheet.original!.groups : sheet.groups, recipe, ...(collection ? { collection } : {}) });
       if (collection) addPresetCollection(collection);
       setSheet(null);
@@ -117,7 +117,7 @@ export function PresetControls() {
   };
 
   if (sheet && photo) {
-    const r = photo.recipe ?? defaultRecipe();
+    const r = photo.recipe ?? uneditedRecipe(photo);
     const all = sheet.groups.length === ALL_GROUPS.length;
     const title = sheet.mode === 'create' ? 'Create preset' : sheet.mode === 'update' ? `Update ${sheet.original!.name}` : `Rename ${sheet.original!.name}`;
     return <form className="preset-sheet" onSubmit={e => { e.preventDefault(); void save(); }} onKeyDown={e => { if (e.key === 'Escape') { e.stopPropagation(); setSheet(null); } }}>

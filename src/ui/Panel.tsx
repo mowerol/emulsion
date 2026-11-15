@@ -16,7 +16,7 @@ import { CameraColourWarning } from './CameraProfile';
 import { TransformControls, transformSummary } from './TransformControls';
 import { LensControls } from './LensControls';
 import { ColourGradingControls } from './ColourGrading';
-import { BRIGHT_RANGE, COLOR_CHANNELS, DEFAULT_STOCK, HUE_DEGREES, SAT_RANGE, SLIDER, SLIDERS, defaultRecipe, normalizeRecipe, tidyColor, type ColorAdjust, resetAdjustments, resetSection, sectionChanged, sliderDefault, withSettingsFrom, withSlider, type Recipe, type SectionId, type SliderDef } from '../film/recipe';
+import { BRIGHT_RANGE, COLOR_CHANNELS, DEFAULT_STOCK, HUE_DEGREES, SAT_RANGE, SLIDER, SLIDERS, defaultRecipe, uneditedRecipe, normalizeRecipe, tidyColor, type ColorAdjust, resetAdjustments, resetSection, sectionChanged, sliderDefault, withSettingsFrom, withSlider, type Recipe, type SectionId, type SliderDef } from '../film/recipe';
 import type { ScannerId } from '../film/scanners';
 import { ScannerFinishControls } from './ScannerFinish';
 import { STOCK } from '../film/stocks';
@@ -449,7 +449,7 @@ export function Panel() {
   const grouped = view === 'develop' && workspace.layout === 'workflow';
   useEffect(() => { if (grouped && controlsBody.current) controlsBody.current.scrollTop = 0; }, [workspace.group, personalGroup, temporaryMasks, grouped, !!editing]);
 
-  const base = recipe ?? defaultRecipe();
+  const base = recipe ?? (photo ? uneditedRecipe(photo) : defaultRecipe());
   const curveSummary = useCurveSummary(recipe?.curve ?? null);
   const setCurve = useCallback((curve: ToneCurve | null) => editActive(r => ({ ...(r ?? defaultRecipe()), curve })), []);
   const pickScanner = (choice: ScannerId | 'look') => {

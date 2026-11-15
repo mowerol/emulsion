@@ -59,6 +59,8 @@ pub struct CatalogMetadata {
     pub camera: Option<String>,
     /// Local capture date, YYYY-MM-DD; no timezone is invented for EXIF timestamps.
     pub date: Option<String>,
+    /// A Fujifilm RAW's film simulation (`lens::fuji_simulation`), for opening it with the matching look.
+    pub simulation: Option<&'static str>,
 }
 
 fn text(exif: &Exif, tag: Tag) -> Option<String> {
@@ -86,16 +88,17 @@ fn catalog_settings(exif: &Exif) -> CatalogMetadata {
             if !(1..=12).contains(&month) || !(1..=31).contains(&day) { return None; }
             Some(value[..10].replace(':', "-"))
         });
-    CatalogMetadata { camera: (!camera.is_empty()).then_some(camera), date }
+    CatalogMetadata { camera: (!camera.is_empty()).then_some(camera), date, simulation: None }
 }
 
 pub fn catalog(path: &Path) -> CatalogMetadata {
     let mut result = File::open(path).ok()
         .and_then(|file| Reader::new().read_from_container(&mut BufReader::new(file)).ok())
         .map(|exif| catalog_settings(&exif))
-        .unwrap_or(CatalogMetadata { camera: None, date: None });
-    if result.camera.is_none() && crate::library::classify(path) == crate::library::Kind::Raw {
-        result.camera = crate::raw::catalog_camera(path);
+        .unwrap_or(CatalogMetadata { camera: None, date: None, simulation: None });
+    if crate::library::classify(path) == crate::library::Kind::Raw {
+        if result.camera.is_none() { result.camera = crate::raw::catalog_camera(path); }
+        result.simulation = crate::lens::fuji_simulation(path);
     }
     result
 }

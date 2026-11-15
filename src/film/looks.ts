@@ -63,7 +63,9 @@ const localPack = (id: PackId, name: string, hint: string, hidden = true): LookP
     : [];
 
 /** Emulsion's own looks: hidden settings with no LUT, edited in development (library/builtinlooks.ts). */
-export interface BuiltinLook { id: string; name: string; bw: boolean; revision: number; settings: ProfileSettings }
+/** `category` puts a look in its own folder of the Look browser (default `Emulsion`). */
+export interface BuiltinLook { id: string; name: string; bw: boolean; revision: number; category?: string; settings: ProfileSettings }
+export const BUILTIN_CATEGORY = 'Emulsion';
 export const BUILTIN_LOOKS = emulsionLooks as BuiltinLook[];
 for (const l of BUILTIN_LOOKS) registerBuiltinStock(l);
 
@@ -76,7 +78,7 @@ export function registerBuiltinStock(l: Pick<BuiltinLook, 'id' | 'name' | 'bw'>)
 }
 
 export const builtinEntry = (l: BuiltinLook): PackLook =>
-  ({ file: '', name: l.name, category: 'Emulsion', kind: 'look', revision: l.revision, settings: l.settings });
+  ({ file: '', name: l.name, category: l.category ?? BUILTIN_CATEGORY, kind: 'look', revision: l.revision, settings: l.settings });
 
 export const PACKS: LookPack[] = [
   { id: 'custom', name: 'Custom looks', hint: 'Your own looks: a LUT and hidden colour and tone settings, with one Amount.', looks: {}, user: true },
@@ -253,6 +255,21 @@ export function lookSettings(pack: PackId, stock: StockId): ProfileSettings | nu
 export function lutBase(pack: PackId, stock: StockId) {
   const settings = lookSettings(pack, stock);
   return settings && !settings.colorBalance && !settings.curve && !settings.color && (!settings.scanner || settings.scanner === 'straight') ? settings.lut : null;
+}
+
+/** The Emulsion x Fuji look for each Fujifilm film simulation, by the names `lens::fuji_simulation`
+ * reads from a RAF. Simulations without a look here (black and white, Nostalgic Neg, Reala Ace)
+ * keep the default. */
+const SIMULATION_LOOKS: Record<string, string> = {
+  'classic-chrome': 'emulsion-film-chrome', 'classic-negative': 'emulsion-film-neg',
+  'pro-neg-hi': 'emulsion-film-pro-neg-hi', 'pro-neg-std': 'emulsion-film-pro-neg-std',
+  provia: 'emulsion-film-provia', velvia: 'emulsion-film-velvia', astia: 'emulsion-film-astia',
+  eterna: 'emulsion-film-eterna', 'bleach-bypass': 'emulsion-film-bleach',
+};
+/** The built-in look matching a camera's film simulation, when there is one. */
+export function simulationLook(simulation: string | null | undefined): StockId | null {
+  const id = simulation ? SIMULATION_LOOKS[simulation] : undefined;
+  return id && PACK['emulsion-looks'].looks[id as StockId] ? id as StockId : null;
 }
 
 export function withLook(recipe: Recipe, pack: PackId, stock: StockId): Recipe {

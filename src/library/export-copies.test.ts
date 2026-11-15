@@ -14,7 +14,7 @@ vi.mock('../backend/api', () => ({
   exportExists: vi.fn(async () => false),
 }));
 import { checkExportDir, exportExists, loadImage, writeExport, removeInpaint } from '../backend/api';
-import { defaultRecipe } from '../film/recipe';
+import { defaultRecipe, uneditedRecipe } from '../film/recipe';
 import { exportPhotos } from './export';
 import { newCircleSpot } from '../film/retouch';
 import type { Photo } from './store';
@@ -46,7 +46,9 @@ it('exports each version with its own recipe, a distinct name and the real sourc
   expect(loadImage).toHaveBeenCalledTimes(3);
   expect(vi.mocked(loadImage).mock.calls.every(([path]) => path === '/a.jpg')).toBe(true);
   // The unedited original exports as Neutral at its defaults.
-  expect(gpu.pixels.mock.calls.map(c => (c as unknown[])[1])).toEqual(versions.map(p => p.recipe ?? defaultRecipe()));
+  // The unedited JPEG exports as it is (Neutral), its versions with their own recipes.
+  expect(gpu.pixels.mock.calls.map(c => (c as unknown[])[1])).toEqual(versions.map(p => p.recipe ?? uneditedRecipe(p)));
+  expect((gpu.pixels.mock.calls[0] as unknown[])[1]).toMatchObject({ stock: 'neutral', lookEnabled: false });
   expect(writeExport).toHaveBeenCalledWith('/exports', 'a_Warm_one', expect.any(Uint8Array), 2, 1, { kind: 'jpeg', quality: 92 }, 'rename', '/a.jpg', undefined);
 });
 

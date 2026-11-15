@@ -155,6 +155,8 @@ impl<'a> Tiff<'a> {
                     | 0x150c
                     | 0x2010
                     | 0x0203
+                    | 0x1003
+                    | 0x1401
             ) {
                 continue;
             }
@@ -425,18 +427,30 @@ pub fn sony_raw_ifd(path: &Path) -> Option<(u32, Option<(u32, u32)>)> {
 /// No unbounded file reads, tag allocations or directory recursion. Invalid/unknown profiles
 /// do not prevent decoding; unsupported DNG models carry an explanation to the UI.
 pub fn read(path: &Path) -> Option<LensMetadata> {
-    let file = File::open(path).ok()?;
-    let data = Data {
-        len: file.metadata().ok()?.len(),
-        file: RefCell::new(file),
-    };
+    let data = Data::open(path)?;
+    let (all, _) = walk(&data)?;
+    lens_metadata(&all)
+}
+
+impl Data {
+    fn open(path: &Path) -> Option<Data> {
+        let file = File::open(path).ok()?;
+        Some(Data { len: file.metadata().ok()?.len(), file: RefCell::new(file) })
+    }
+}
+
+/// Every directory reachable from the file's TIFF, a RAF's embedded JPEG EXIF and the maker notes,
+/// with the bases of Fujifilm maker notes (whose tag numbers mean something only there).
+fn walk(data: &Data) -> Option<(Vec<(Tiff<'_>, Vec<Tag>)>, Vec<u64>)> {
+    let data = data;
+    let mut fuji_notes = Vec::new();
     let header = data.read(0, 108)?;
     let base = if header.starts_with(b"FUJIFILMCCD-RAW ") {
         u32::from_be_bytes(header[100..104].try_into().ok()?) as u64
     } else {
         0
     };
-    let (root, first) = Tiff::at(&data, base)?;
+    let (root, first) = Tiff::at(data, base)?;
     let mut all = Vec::new();
     let mut visited = HashSet::new();
     let mut pending = vec![(root, first)];
@@ -456,7 +470,7 @@ pub fn read(path: &Path) -> Option<LensMetadata> {
                 break;
             }
             if h[1] == 0xe1 && data.read(pos + 4, 6).is_some_and(|v| v == b"Exif\0\0") {
-                if let Some(exif) = Tiff::at(&data, pos + 10) {
+                if let Some(exif) = Tiff::at(data, pos + 10) {
                     pending.push(exif);
                 }
             }
@@ -493,7 +507,7 @@ pub fn read(path: &Path) -> Option<LensMetadata> {
                 if let Some(start) = start {
                     pending.push((
                         Tiff {
-                            data: &data,
+                            data,
                             base: tag.offset,
                             le: true,
                         },
@@ -502,9 +516,10 @@ pub fn read(path: &Path) -> Option<LensMetadata> {
                 }
                 // Fuji maker note header: offsets relative to FUJIFILM, little endian.
                 if h.starts_with(b"FUJIFILM") && h.len() >= 12 {
+                    fuji_notes.push(tag.offset);
                     pending.push((
                         Tiff {
-                            data: &data,
+                            data,
                             base: tag.offset,
                             le: true,
                         },
@@ -515,6 +530,10 @@ pub fn read(path: &Path) -> Option<LensMetadata> {
         }
         all.push((t, tags));
     }
+    Some((all, fuji_notes))
+}
+
+fn lens_metadata(all: &[(Tiff<'_>, Vec<Tag>)]) -> Option<LensMetadata> {
     let find_text = |id| {
         all.iter()
             .flat_map(|(_, tags)| tags)
@@ -538,7 +557,7 @@ pub fn read(path: &Path) -> Option<LensMetadata> {
     };
     let mut correction = None;
     let mut unsupported = None;
-    for (t, tags) in &all {
+    for (t, tags) in all {
         if let Some(tag) = tags.iter().find(|tag| tag.id == 0xc74e) {
             match dng(&tag.value) {
                 Ok(Some(c)) => correction = Some(c),
@@ -568,9 +587,63 @@ pub fn read(path: &Path) -> Option<LensMetadata> {
     })
 }
 
+/// The film simulation a Fujifilm camera recorded (its maker note's FilmMode, 0x1401, or for
+/// black and white its Saturation, 0x1003; values from ExifTool's FujiFilm tag table), as a
+/// stable name, or None for other cameras and unknown values.
+pub fn fuji_simulation(path: &Path) -> Option<&'static str> {
+    let data = Data::open(path)?;
+    let (all, notes) = walk(&data)?;
+    let note = |id| all.iter().filter(|(t, _)| notes.contains(&t.base))
+        .find_map(|(t, tags)| values(t, tags, id).and_then(|v| v.first().copied()));
+    simulation_name(note(0x1401).map(|v| v as u32), note(0x1003).map(|v| v as u32))
+}
+
+fn simulation_name(film_mode: Option<u32>, saturation: Option<u32>) -> Option<&'static str> {
+    // Black and white is recorded in Saturation; FilmMode may still hold a colour value then.
+    match saturation {
+        Some(0x300..=0x303) => return Some("monochrome"),
+        Some(0x310) => return Some("sepia"),
+        Some(0x500..=0x503) => return Some("acros"),
+        _ => {}
+    }
+    Some(match film_mode? {
+        0x000 => "provia",
+        0x120 | 0x300 => "astia",
+        0x200 | 0x400 => "velvia",
+        0x500 => "pro-neg-std",
+        0x501 => "pro-neg-hi",
+        0x600 => "classic-chrome",
+        0x700 => "eterna",
+        0x800 => "classic-negative",
+        0x900 => "bleach-bypass",
+        0xa00 => "nostalgic-neg",
+        0xb00 => "reala-ace",
+        _ => return None,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn names_fuji_film_simulations() {
+        assert_eq!(simulation_name(Some(0x800), Some(0)), Some("classic-negative"));
+        assert_eq!(simulation_name(Some(0x600), None), Some("classic-chrome"));
+        assert_eq!(simulation_name(Some(0x501), Some(0xc0)), Some("pro-neg-hi"));
+        assert_eq!(simulation_name(Some(0x000), Some(0)), Some("provia"));
+        // Black and white comes from Saturation, whatever FilmMode says.
+        assert_eq!(simulation_name(Some(0x000), Some(0x502)), Some("acros"));
+        assert_eq!(simulation_name(None, Some(0x301)), Some("monochrome"));
+        assert_eq!(simulation_name(Some(0xfff), None), None);
+        assert_eq!(simulation_name(None, None), None);
+    }
+    #[test]
+    #[ignore = "set EMULSION_FUJI_SAMPLES to RAF paths separated by :"]
+    fn real_fuji_simulations() {
+        for path in std::env::var("EMULSION_FUJI_SAMPLES").expect("sample paths").split(':') {
+            println!("{path}: {:?}", fuji_simulation(Path::new(path)));
+        }
+    }
     fn tiff(tags: Vec<(u16, u16, u32, Vec<u8>)>) -> Vec<u8> {
         let mut bytes = b"II*\0\x08\0\0\0".to_vec();
         let n = tags.len();

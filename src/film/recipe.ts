@@ -16,7 +16,7 @@ import { normalizeCrop, type Crop } from './crop';
 import { normalizeMasks, type Mask } from './masks';
 import { normalizeRetouch, normalizeRetouchScales, type RetouchScales, type RetouchSpot } from './retouch';
 import { ISO_MAX, ISO_MIN } from '../engine/grain';
-import { DEFAULT_PACK, PACK, isPackId, resolveUserLook, type PackId } from './looks';
+import { DEFAULT_PACK, PACK, isPackId, resolveUserLook, simulationLook, withLook, type PackId } from './looks';
 
 export const RECIPE_VERSION = 1;
 
@@ -264,6 +264,16 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
     retouch: [],
     retouchScales: { scales: 0, mergeFrom: 0 },
   };
+}
+
+/** What a photo without an edit develops with. A JPEG or other ordinary photo, which its camera or
+ * app has already developed, opens as Neutral and so renders as it is. A RAW gets the default look
+ * (Emulsion Standard), or, for a Fujifilm RAW, the look matching the film simulation it was shot
+ * with (`simulationLook`; Oli, 2026-11-14). */
+export function uneditedRecipe(photo: { raw: boolean; capture?: { simulation?: string | null } | null }): Recipe {
+  if (!photo.raw) return defaultRecipe('neutral');
+  const look = simulationLook(photo.capture?.simulation);
+  return look ? withLook(defaultRecipe(), 'emulsion-looks', look) : defaultRecipe();
 }
 
 /**

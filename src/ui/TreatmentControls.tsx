@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { PACK, customLookOf, lookName, lookSettings, withLook, type PackId } from '../film/looks';
-import { defaultRecipe, type Recipe } from '../film/recipe';
+import { defaultRecipe, uneditedRecipe, type Recipe } from '../film/recipe';
 import { recipeFromSettings, type ProfileSettings } from '../film/creative';
 import { deleteLook, useUserLooksVersion, uuid } from '../library/userlooks';
 import { builtinEditId, canEditBuiltins } from '../library/builtinlooks';
@@ -18,7 +18,7 @@ export function begin(photo: Photo, id: string, name: string, settings: ProfileS
 }
 export function TreatmentControls({ photo, hideAmount = false }: { photo: Photo; hideAmount?: boolean }) {
   useUserLooksVersion();
-  const r = photo.recipe ?? defaultRecipe();
+  const r = photo.recipe ?? uneditedRecipe(photo);
   const entry = r.lookEnabled ? PACK[r.pack]?.looks[r.stock] : null;
   const currentId = customLookOf(r.stock);
   const selectedSettings = r.lookSnapshot?.settings ?? lookSettings(r.pack, r.stock);

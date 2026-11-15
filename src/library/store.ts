@@ -13,7 +13,7 @@ import { isEmptyMeta, normalizeMeta, sameMeta, type PhotoMeta } from './meta';
 import { autoPreset, fillPreset } from './metapresets';
 import { folderImport, importedPaths, importedRoots, rememberFolder, saveFolderImport, type FolderImport } from './folders';
 import { libraryEntries, membership as folderMembership, parentFolder, withinFolder } from './membership';
-import { defaultRecipe, normalizeRecipe, type Recipe } from '../film/recipe';
+import { defaultRecipe, uneditedRecipe, normalizeRecipe, type Recipe } from '../film/recipe';
 import { applyCopiedSettings, DEFAULT_COPY_GROUPS, normalizeCopyGroups, type CopiedSettings, type CopyGroup } from '../film/copysettings';
 import { FULL, isFull, type Crop } from '../film/crop';
 import { NO_FILTER, isFiltering, normalizeFilter, passes, rangeWithin, shownIndices, stepWithin, type Filter } from './filter';
@@ -27,7 +27,9 @@ import * as trace from '../dev/trace';
 import { addToCollection, cacheEdits, cacheFolder, catalogPhotos, queueEdits, recordImport, sourceMatcher, sourceMatches, targetCollection, useCatalog, useSourceDefinitions, viewImport, type SourceSelection } from './catalog';
 
 export interface Photo {
-  capture?: { camera: string | null; date: string | null };
+  /** Read from the file in the background. `simulation` (a Fujifilm RAW's film simulation) is absent
+   * when the file was read before it existed, so such RAWs are read again once. */
+  capture?: { camera: string | null; date: string | null; simulation?: string | null };
   camera?: import('../film/profiles').CameraMetadata | null;
   lens?: import('../engine/lenscorrection').LensMetadata | null;
   /** Identity of an additional edit; absent on the original frame. */
@@ -318,7 +320,7 @@ function withCachedMetadata(photo: Photo, cached?: Photo): Photo {
 /** Index metadata in bounded batches so camera/date smart collections cover offscreen frames too. */
 async function loadCatalogMetadata(photos: Photo[]) {
   if (!isTauri()) return;
-  const pending = [...new Map(photos.filter(p => !p.capture).map(p => [p.path, p])).values()];
+  const pending = [...new Map(photos.filter(p => !p.capture || p.raw && p.capture.simulation === undefined).map(p => [p.path, p])).values()];
   let updates = new Map<string, { identity: Photo; capture: NonNullable<Photo['capture']> }>();
   const flush = () => {
     if (!updates.size) return;
@@ -335,7 +337,7 @@ async function loadCatalogMetadata(photos: Photo[]) {
     const batch = pending.slice(i, i + 32);
     try {
       const values = await catalogMetadata(batch.map(p => p.path));
-      batch.forEach((p, n) => updates.set(p.path, { identity: p, capture: values[n] ?? { camera: null, date: null } }));
+      batch.forEach((p, n) => updates.set(p.path, { identity: p, capture: { simulation: null, ...(values[n] ?? { camera: null, date: null }) } }));
     } catch { break; }
     if (updates.size >= FLUSH_EVERY) flush();
   }
@@ -1256,13 +1258,23 @@ export function renameVirtualCopy(id: string, name: string) {
  * Change the recipes of `paths`. Every change is an undoable step, named by
  * `label`, or after what changed.
  */
+/** Run an edit on a photo. An unedited photo's edit starts from what it develops with now
+ * (`uneditedRecipe`: Neutral for a JPEG), and an edit that leaves that as it was keeps the photo
+ * unedited. */
+function changeFrom(change: (r: Recipe | null, p: Photo) => Recipe | null, p: Photo): Recipe | null {
+  if (p.recipe) return change(p.recipe, p);
+  const base = uneditedRecipe(p);
+  const after = change(base, p);
+  return after === base || after && JSON.stringify(after) === JSON.stringify(base) ? null : after;
+}
+
 export function editRecipes(paths: string[], change: (r: Recipe | null, p: Photo) => Recipe | null, label?: string, grouping?: { key: string; continuous: boolean }, options: { checkpoint?: boolean } = {}) {
   // While a look is being edited, edits change only its draft on that photo.
   const editing = get().lookEdit;
   if (editing) {
     if (!paths.includes(editing.path)) return;
     const current = get().photos.find(p => photoId(p) === editing.path)!;
-    const after = change(current.recipe, current);
+    const after = changeFrom(change, current);
     if (after === current.recipe) return;
     // Merged as History.record merges: same key, and continuous or within MERGE_MS of the last.
     const now = performance.now();
@@ -1276,7 +1288,7 @@ export function editRecipes(paths: string[], change: (r: Recipe | null, p: Photo
   const changes: Change[] = [];
   const photos = get().photos.map((p) => {
     if (!wanted.has(photoId(p))) return p;
-    const changed = change(p.recipe, p);
+    const changed = changeFrom(change, p);
     const recipe = changed ? captureLook(changed) : null;
     if (recipe === p.recipe) return p;
     changes.push({ path: photoId(p), before: p.recipe, after: recipe });
@@ -1472,8 +1484,8 @@ export function openCopySettings() {
   if (!photo) return;
   const crop = get().cropEdit;
   const recipe = crop?.path === photoId(photo)
-    ? { ...(photo.recipe ?? defaultRecipe()), crop: isFull(crop.draft) ? null : crop.draft }
-    : photo.recipe ?? defaultRecipe();
+    ? { ...(photo.recipe ?? uneditedRecipe(photo)), crop: isFull(crop.draft) ? null : crop.draft }
+    : photo.recipe ?? uneditedRecipe(photo);
   set({ copySettingsSource: { name: photo.copyName ? `${photo.name} · ${photo.copyName}` : photo.name, recipe: structuredClone(captureLook(recipe)) } });
 }
 
@@ -1485,7 +1497,7 @@ export function copySettings(groups: readonly CopyGroup[] = DEFAULT_COPY_GROUPS)
   if (!source) return;
   const chosen = normalizeCopyGroups(groups);
   if (!chosen.length) return;
-  set({ clipboard: { recipe: structuredClone(captureLook(source.recipe ?? defaultRecipe())), groups: chosen }, copySettingsSource: null });
+  set({ clipboard: { recipe: structuredClone(captureLook(source.recipe ?? ('raw' in source ? uneditedRecipe(source) : defaultRecipe()))), groups: chosen }, copySettingsSource: null });
   showToast(`Copied ${source.name}'s settings`);
 }
 

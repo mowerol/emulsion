@@ -60,7 +60,8 @@ export interface Exposure {
   focalLength35?: number | null;
 }
 export const photoExposure = (path: string) => invoke<Exposure | null>('photo_exposure', { path });
-export interface CatalogMetadata { camera: string | null; date: string | null }
+/** `simulation`: a Fujifilm RAW's film simulation (lens.rs `fuji_simulation`), null otherwise. */
+export interface CatalogMetadata { camera: string | null; date: string | null; simulation?: string | null }
 /** Camera and capture date, without decoding image pixels. */
 export const catalogMetadata = (paths: string[]) => invoke<(CatalogMetadata | null)[]>('catalog_metadata', { paths });
 
