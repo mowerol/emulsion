@@ -238,6 +238,24 @@ pointer-up, blur and cancellation resume preparation. Histograms wait for settli
 pixel pack buffers/fences; developed thumbnails use the same asynchronous readback approach.
 Idle allocation preparation pauses while rendering is pending or a pointer is held.
 
+**Resolution before capture refinement.** A full-resolution RAW view can first present
+its decoded pixels with capture sharpening deferred, then refine the unchanged saved
+recipe through the same cancellable preparation loop. Capture-ready sources use their
+result immediately. Frame statistics distinguish visible resolution from capture-complete
+detail; neither moving stand-ins nor drafts count as full detail. Still/export rendering
+continues to request the complete recipe. `capturekernel.ts` compiles the checked-in
+Wasm contrast search once per realm and reads packed lightness into a temporary instance,
+avoiding a second full-image double array. Conservative block-moment rejection accelerates
+the overlapping search while possible winners retain the TypeScript reference calculation.
+Compilation/allocation failure falls back to that reference.
+
+Large Develop uploads (at least 64 MiB, including a paired denoised plane) cross to the
+worker in transferable 8 MiB parts on separate message turns. The original decoded-cache
+buffers remain intact. `DevelopLoop` assembles both planes before publishing the source,
+retains capture metadata arriving during transfer, and drops unfinished uploads on release
+or disposal. This bounds each handoff's copy size, but allocation/GC can still pause a part.
+Measurements and remaining latency limits are in [gfx-open-zoom.md](research/gfx-open-zoom.md).
+
 The implementation is WIP: correctness checks pass, while final screen-gap, first-pan memory
 and prepared-zoom latency checks remain open. Whole-photo capture-threshold readback and
 views outside regional admission still need bounded-work investigation.
