@@ -4,6 +4,61 @@ Emulsion ships as an **ad-hoc-signed beta for Apple Silicon**: no Apple Develope
 no notarisation. Testers allow it once in System Settings › Privacy & Security › Open Anyway
 (the steps are in `tools/release/INSTALL.txt`, which goes out with every build).
 
+## Release checklist
+
+Every release, in this order. Each step has to pass before the next; the bundle is checked by
+hand before the release PR merges, and nothing is tagged or announced before it has.
+
+**Prepare**
+
+1. A `release/<version>` branch from an up-to-date `main`, in its own worktree.
+2. The version in all five places: `package.json`, `package-lock.json` (its two `emulsion`
+   entries), `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, `src-tauri/Cargo.lock` (the
+   `emulsion` package). The script checks the first three agree.
+3. `docs/release-notes/<version>.md` from `git log v<previous>..main`: one line per change as a
+   tester sees it, issue numbers where there are any, then a **Known** line and the report line.
+4. A new LUT pack under `public/looks/`? It needs a licence file (the script refuses without one)
+   and a row in [Bundled LUTs](#bundled-luts).
+5. Commit, push, open the release PR (`.github/pull_request_template.md`).
+
+**Check the bundle**
+
+6. Build it locally in the release worktree, from Terminal (the script asks for the signing key's
+   password): `source ~/.cargo/env && npm run release`. A first build in a new worktree compiles
+   from scratch (15–20 min); don't point `CARGO_TARGET_DIR` elsewhere, the script reads the bundle
+   from `src-tauri/target`. Output in `release/`.
+7. Install it as a tester would: open the `.dmg`, drag Emulsion to Applications (replacing the
+   installed copy), open it. Then check, in the installed app:
+   - it launches, and About shows the new version;
+   - a folder opens and thumbnails appear; a RAW and a JPEG open in Develop;
+   - a slider drag feels as usual; an export works;
+   - each item in the release notes does what it says;
+   - no "Emulsion look LUTs" or `local-looks` pack shows in the Look browser or the LUT lists;
+   - Help › Show Log in Finder: no new errors from the session.
+8. CI is green on the release PR.
+
+**Ship**
+
+9. Merge the release PR (squash) and update `main` locally.
+10. Tag the merge commit on `main` and push the tag: `git tag -a v<version> -m "Emulsion <version>"
+    <merge commit> && git push origin v<version>`. `.github/workflows/release.yml` builds the
+    same bundle on GitHub and attaches it to a **draft** release.
+11. Check the draft: the `.dmg`, `.sha256`, `INSTALL.txt`, `.app.tar.gz`, `.sig`, `latest.json`
+    and source maps are attached, and the text is the release notes.
+12. Check the draft's own `.dmg`, the exact file testers get (the local build in step 6 is built
+    from the same commit, but on another machine): download it from the draft, check it against
+    its `.sha256` (`shasum -a 256 -c`), install it from the `.dmg` into Applications, open it, see
+    About shows the version, open a RAW, and check the log for errors.
+13. Publish the draft (not as a pre-release).
+14. On a copy still on the previous version: Check for Updates… offers the new one, installs and
+    relaunches.
+
+**Tell people**
+
+15. Comment on the issues the release fixes, asking the reporter to try it; close those they
+    confirm.
+16. Update `HANDOFF.md`.
+
 ## Cutting a build
 
 1. Set the version in all three places: `package.json`, `src-tauri/tauri.conf.json`,
