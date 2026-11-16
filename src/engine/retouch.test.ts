@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it, vi } from 'vitest';
 import { strokeSegments, segmentValue } from './brush';
-import { NO_SCALES, RetouchCache, circleArea, reducedRegion, retouch, retouchInputs, retouchReduced, retouchRegion, scaledMask, scaledSpotMask, spotDelta, spotMask, type RetouchSetup } from './retouch';
+import { NO_SCALES, RetouchCache, appendedSpots, circleArea, reducedRegion, retouch, retouchInputs, retouchReduced, retouchRegion, scaledMask, scaledSpotMask, spotDelta, spotMask, type RetouchSetup, type Roi } from './retouch';
 import { PATCH_SIZE, preRetouchKey, type Patch, type PatchRequest } from './remove';
 import { defaultRecipe } from '../film/recipe';
 import { applyPreset } from '../film/presets';
@@ -144,6 +144,76 @@ describe('retouch spots (darktable retouch.c)', () => {
     expect(out[1].tool).toBe('heal');
     expect(out[1].opacity).toBe(1);
     expect(normalizeRetouch(undefined)).toEqual([]);
+  });
+});
+
+describe('spots added after the ones made (appendedSpots, #31)', () => {
+  const W = 400, H = 300, scale = 0.5, w = 200, h = 150;
+  // A and B overlap; B's source is inside A; C heals over B with its source in A; D clones from C.
+  const A = spot({ center: [0.4, 0.5], source: [0.55, 0.5], radius: 0.06 });
+  const B = spot({ tool: 'clone', center: [0.5, 0.45], source: [0.41, 0.5], radius: 0.03, opacity: 0.8 });
+  const C = spot({ center: [0.52, 0.5], source: [0.38, 0.52], radius: 0.05 });
+  const D = spot({ tool: 'clone', center: [0.8, 0.3], source: [0.52, 0.5], radius: 0.04 });
+  const all = [A, B, C, D];
+
+  /**
+   * What Engine.retouched does at k = 1 on a source that is the crop `view` of the working image:
+   * the spots the crop needs, their region clipped to it, read from `base` (the source, or the
+   * last result when appending), `run` retouched there and written into a copy of the source.
+   */
+  function step(src: Float32Array, base: Float32Array, view: Roi, spots: RetouchSpot[], run: RetouchSpot[] | null, cache?: RetouchCache) {
+    const need = view.w < w || view.h < h ? retouchInputs(spots, view, W, H, scale, w, h).spots : spots;
+    const out = src.slice();
+    const g = reducedRegion(need, W, H, scale, w, h, 1);
+    if (!g) return { out, list: need };
+    const x = Math.max(0, g.x - view.x), y = Math.max(0, g.y - view.y);
+    const r = { x, y, w: Math.min(view.w, g.x + g.w - view.x) - x, h: Math.min(view.h, g.y + g.h - view.y) - y };
+    const sub = new Float32Array(4 * r.w * r.h);
+    for (let j = 0; j < r.h; j++) sub.set(base.subarray(4 * ((r.y + j) * view.w + r.x), 4 * ((r.y + j) * view.w + r.x + r.w)), 4 * j * r.w);
+    retouchReduced(sub, { ...r, x: r.x + view.x, y: r.y + view.y }, W, H, scale, run ?? need, 1, cache);
+    for (let j = 0; j < r.h; j++) out.set(sub.subarray(4 * j * r.w, 4 * (j + 1) * r.w), 4 * ((r.y + j) * view.w + r.x));
+    return { out, list: need };
+  }
+  const crop = (img: Float32Array, v: Roi) => {
+    const c = new Float32Array(4 * v.w * v.h);
+    for (let j = 0; j < v.h; j++) c.set(img.subarray(4 * ((v.y + j) * w + v.x), 4 * ((v.y + j) * w + v.x + v.w)), 4 * j * v.w);
+    return c;
+  };
+
+  for (const [name, view] of [['the whole photo', { x: 0, y: 0, w, h }], ['a zoomed-in region', { x: 70, y: 40, w: 60, h: 50 }]] as const) {
+    it(`gives exactly the pixels of running them all, one spot at a time, on ${name}`, () => {
+      const src = crop(photo(w, h, 80, 75), view);
+      const once = step(src, src, view, all, null).out;
+      for (const cache of [undefined, new RetouchCache()]) {
+        let made: { out: Float32Array; list: RetouchSpot[] } | null = null;
+        let appended = 0;
+        for (let n = 1; n <= all.length; n++) {
+          const spots = all.slice(0, n).map(s => ({ ...s }));
+          const need = view.w < w ? retouchInputs(spots, view, W, H, scale, w, h).spots : spots;
+          const added = made ? appendedSpots(made.list, need, 1) : null;
+          if (added) appended++;
+          made = step(src, added ? made!.out : src, view, spots, added, cache);
+          // Each step equals running its spots at once.
+          expect(Array.from(made.out)).toEqual(Array.from(step(src, src, view, spots, null).out));
+        }
+        expect(Array.from(made!.out)).toEqual(Array.from(once));
+        expect(appended).toBeGreaterThan(0);
+      }
+    });
+  }
+
+  it('builds only on a result made from a prefix of the spots, at full size, without wavelet scales or Remove', () => {
+    expect(appendedSpots([A, B], [A, B, C], 1)).toEqual([C]);
+    // Copies compare by value, as the recipe is rebuilt on every edit.
+    expect(appendedSpots([{ ...A }], [A, { ...B }], 1)).toEqual([B]);
+    expect(appendedSpots([], [A], 1)).toBeNull();
+    expect(appendedSpots([A, B], [A, B], 1)).toBeNull();
+    expect(appendedSpots([A, B], [A], 1)).toBeNull();
+    expect(appendedSpots([A, B], [B, A, C], 1)).toBeNull();
+    expect(appendedSpots([A], [{ ...A, opacity: 0.5 }, B], 1)).toBeNull();
+    expect(appendedSpots([A], [A, B], 2)).toBeNull();
+    expect(appendedSpots([A], [A, B], 1, { scales: 3, mergeFrom: 0, show: 0 })).toBeNull();
+    expect(appendedSpots([A], [A, { ...B, tool: 'remove' }], 1)).toBeNull();
   });
 });
 

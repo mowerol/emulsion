@@ -761,6 +761,20 @@ export function retouchReduced(px: Float32Array, region: Roi, W: number, H: numb
   }
 }
 
+/**
+ * The spots left to run when `spots` is `done` with spots added after it: those added, to run on
+ * `done`'s result, which gives the same pixels as running them all (spots run in order, each on
+ * the result of those before). Null when it isn't so, or when that result can't be built on: a
+ * reduced view (its result is scaled back up into the spots), wavelet scales (spots run per
+ * layer), or Remove spots (each run asks for their missing patches).
+ */
+export function appendedSpots(done: readonly RetouchSpot[], spots: readonly RetouchSpot[], k: number, setup: RetouchSetup = NO_SCALES): RetouchSpot[] | null {
+  if (k !== 1 || setup.scales > 0 || setup.show > 0 || !done.length || spots.length <= done.length) return null;
+  if (spots.some(s => s.tool === 'remove')) return null;
+  for (let i = 0; i < done.length; i++) if (done[i] !== spots[i] && JSON.stringify(done[i]) !== JSON.stringify(spots[i])) return null;
+  return spots.slice(done.length);
+}
+
 /** The k-aligned rectangle of a w × h working image that retouchReduced needs at 1/k. */
 export function reducedRegion(spots: RetouchSpot[], W: number, H: number, scale: number, w: number, h: number, k: number, setup: RetouchSetup = NO_SCALES): Roi | null {
   if (k <= 1) return retouchRegion(spots, W, H, scale, w, h, setup);

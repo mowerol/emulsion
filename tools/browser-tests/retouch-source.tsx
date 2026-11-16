@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Releasing a Heal/Clone source must publish the new patch without another user action.
+// Releasing a Heal/Clone source must publish the new patch without another user action; spots
+// added one at a time at 100% (run alone on the last result, #31) must give the pixels of all at once.
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { Engine, InputMode, type Source } from '../../src/engine/engine';
@@ -44,6 +45,14 @@ window.createImageBitmap = (async () => Object.assign(document.createElement('ca
   if (command === 'load_image') return payload(args.maxEdge);
   if (command === 'plugin:event|listen') return 1;
 } };
+// Spot counts the retouch worker is asked to run (main-thread engine only: in VITE_ENGINE=worker
+// its retouch worker is the engine worker's own).
+const posted: { run: number }[] = [];
+const postMessage = Worker.prototype.postMessage;
+Worker.prototype.postMessage = function(this: Worker, data: any, ...rest: any[]) {
+  if (data && Array.isArray(data.spots) && data.region) posted.push({ run: data.spots.length });
+  return (postMessage as any).apply(this, [data, ...rest]);
+};
 function pointer(el: Element, type: string, x: number, y: number) {
   el.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: x, clientY: y, button: 0, pointerId: 1, isPrimary: true }));
 }
@@ -126,6 +135,47 @@ async function main() {
           assert(worst <= 1, `Released ${tool} patch did not reach the screen: ${JSON.stringify({ results, source: source.w, view: state!.view, submitted: state!.recipe?.retouch, saved: saved.retouch, mode: client!.mode })}`);
         }
       }
+    }
+    // Still at 100%: add spots one at a time, each reading the ones before (#31). The reference
+    // forgets its last result first, so it runs every spot at once. The added spot reads the
+    // earlier ones' result from a half-float texture, hence 1 rather than 0 (0 with RGBA32F).
+    const added = [
+      newCircleSpot([.46, .54], 'heal', .03, .01, [.5, .5]),
+      newCircleSpot([.55, .46], 'clone', .025, .01, [.47, .53]),
+      newCircleSpot([.52, .56], 'heal', .03, .015, [.55, .47]),
+    ];
+    const lanes = ['whole', 'region', 'display'] as const;
+    for (const [n, spot] of added.entries()) {
+      const from = posted.length;
+      editActive(r => ({ ...(r ?? recipe), retouch: [...(r ?? recipe).retouch ?? [], spot] }), 'Spot');
+      const start = performance.now();
+      await wait(25);
+      const canvas = document.querySelector('.stage canvas') as HTMLCanvasElement;
+      const saved = activePhoto(useApp.getState())!.recipe!;
+      assert(saved.retouch?.length === n + 2, 'Spot not added');
+      const source = sources.get(state!.source)!;
+      for (const lane of lanes) {
+        const l = (reference as any)[lane];
+        if (l.retouchMade) { reference.gpu.free(l.retouchMade.out); l.retouchMade = null; }
+      }
+      reference.render(source, saved, { ...state!, prepare: undefined, target: 'screen', whole: sources.get(state!.whole ?? -1) });
+      capture.width = canvas.width; capture.height = canvas.height;
+      ctx.drawImage(frames.get(referenceCanvas)!, 0, 0);
+      const expected = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+      let worst = Infinity;
+      do {
+        ctx.drawImage(frames.get(canvas) ?? canvas, 0, 0);
+        const actual = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        worst = 0;
+        for (let i = 0; i < actual.length; i++) if (i % 4 !== 3) worst = Math.max(worst, Math.abs(actual[i] - expected[i]));
+        if (worst <= 1) break;
+        await wait(25);
+      } while (performance.now() - start < 5000);
+      const runs = posted.slice(from).map(p => p.run);
+      results.push({ zoom: 'full', append: n + 2, verifiedAfterMs: Math.round(performance.now() - start), worst, workerRuns: runs });
+      assert(worst <= 1, `Spot added at 100% did not give the pixels of all at once: ${JSON.stringify({ results, view: state!.view })}`);
+      // On the main thread the worker was asked to run the added spot alone.
+      if ((import.meta as { env?: Record<string, string> }).env?.VITE_ENGINE !== 'worker') assert(runs.length && runs.every(r => r === 1), `The added spot was not run alone: ${JSON.stringify(runs)}`);
     }
     document.body.dataset.result = `PASS: ${JSON.stringify(results)}`;
   } finally { reference.dispose(); }

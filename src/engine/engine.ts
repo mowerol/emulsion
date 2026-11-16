@@ -8,7 +8,8 @@ import { RESAMPLE_MIN_SCALE, resampledSize } from './resample';
 import { effectiveProfiled, noiseEnabled, profiledEnabled } from '../film/noisereduction';
 import { ProfiledDenoiser, type Tile } from './denoisegpu';
 import { denoiseSetup, domainMatrices, GENERIC_NOISE, wbFromNeutral, type DenoiseSetup } from './denoiseprofile';
-import { RetouchCache, reducedRegion, retouchReduced, retouchInputs, type RetouchSetup, type Roi } from './retouch';
+import type { RetouchSpot } from '../film/retouch';
+import { RetouchCache, appendedSpots, reducedRegion, retouchReduced, retouchInputs, type RetouchSetup, type Roi } from './retouch';
 import { BrushGpu, brushShapes, brushSize } from './brushgpu';
 import { ObjectGpu, objectLayers, objectShapes } from './objectgpu';
 import { MASK_UNIT, MaskStack, refinedLayer } from './maskstack';
@@ -365,7 +366,8 @@ class Lane {
   profMade: { input: WebGLTexture; key: string; out: Target; approx?: boolean; live?: boolean } | null = null;
   lensMade: { input: WebGLTexture; key: string; out: Target } | null = null;
   /** The retouched source: made from `input` at 1/k for `spots`; `src` is the source it stands for. */
-  retouchMade: { input: WebGLTexture; spots: string; removeKey: string; k: number; out: Target; src: Source } | null = null;
+  /** `list`: the spots it holds, in order, so a spot added after them runs on `out` alone. */
+  retouchMade: { input: WebGLTexture; spots: string; list: RetouchSpot[]; removeKey: string; k: number; out: Target; src: Source } | null = null;
   /** Haze removal's targets for the latest source size (see dehazeMap), and what they were made from. */
   dh: DehazeTargets | null = null;
   /** The bounded live transmission, retained separately from the settled preview's maps. */
@@ -548,7 +550,7 @@ export class Engine {
   private lensP: Program;
   /** Each spot's last result, so moving one spot does not heal the others again. */
   private retouchCache = new RetouchCache();
-  private retouchAsync: { worker: Worker; onDone: () => void; job: { id: number; src: Source; spots: string; removeKey: string; k: number; region: Roi; lane: Lane; released: boolean } | null } | null = null;
+  private retouchAsync: { worker: Worker; onDone: () => void; job: { id: number; src: Source; spots: string; list: RetouchSpot[]; removeKey: string; k: number; region: Roi; lane: Lane; released: boolean } | null } | null = null;
   private retouchJobs = 0;
   private retouchFbo: WebGLFramebuffer | null = null;
   private removalLane: Lane;
@@ -2785,7 +2787,7 @@ export class Engine {
       a.job = null;
       if (!job.released) {
         const lane = this.L;
-        try { this.L = job.lane; this.retouchStore(job.src, job.spots, job.k, job.region, e.data.px, job.removeKey); }
+        try { this.L = job.lane; this.retouchStore(job.src, job.spots, job.list, job.k, job.region, e.data.px, job.removeKey); }
         finally { this.L = lane; }
       }
       onDone();
@@ -2823,7 +2825,7 @@ export class Engine {
   }
 
   /** A copy of the source with `px` (the retouched region) written in, kept as the retouched source. */
-  private retouchStore(src: Source, spots: string, k: number, region: Roi, px: Float32Array, removeKey: string): Target {
+  private retouchStore(src: Source, spots: string, list: RetouchSpot[], k: number, region: Roi, px: Float32Array, removeKey: string): Target {
     const g = this.gpu;
     const gl = g.gl;
     if (this.L.retouchMade) g.free(this.L.retouchMade.out);
@@ -2837,7 +2839,7 @@ export class Engine {
     gl.texSubImage2D(gl.TEXTURE_2D, 0, region.x, region.y, region.w, region.h, gl.RGBA, gl.FLOAT, px);
     gl.generateMipmap(gl.TEXTURE_2D);
     g.params(true);
-    this.L.retouchMade = { input: src.tex, spots, removeKey, k, out, src };
+    this.L.retouchMade = { input: src.tex, spots, list, removeKey, k, out, src };
     this.L.eqMade = null; this.L.eqPhoto = null; this.L.llMade = null; this.L.usmMade = null; this.L.ceMade = null; this.L.ceScene = null; this.L.ceLookMade = null;
     return out;
   }
@@ -2869,7 +2871,7 @@ export class Engine {
     gl.bindTexture(gl.TEXTURE_2D, out.tex);
     gl.generateMipmap(gl.TEXTURE_2D);
     g.params(true);
-    this.L.retouchMade = { input: src.tex, spots, removeKey, k: Infinity, out, src };
+    this.L.retouchMade = { input: src.tex, spots, list: [], removeKey, k: Infinity, out, src };
     this.L.eqMade = null; this.L.eqPhoto = null; this.L.llMade = null; this.L.usmMade = null; this.L.ceMade = null; this.L.ceScene = null; this.L.ceLookMade = null;
     return this.L.retouchMade;
   }
@@ -2902,6 +2904,13 @@ export class Engine {
     const made = this.L.retouchMade?.input === src.tex ? this.L.retouchMade : null;
     // A result made at a finer scale serves a coarser view (the histogram reuses the view's).
     if (made?.spots === key && made.k <= k) return { ...src, tex: made.out.tex };
+    // A spot painted after the ones made: run only it, on their result (#31: on a GFX100 at
+    // 100% every stroke re-healed every earlier spot, as the worker's cache can't hold them).
+    // That result is kept in half floats, so where the added spot reads what the earlier ones
+    // wrote it can differ from running them all by that rounding (at most 1/255 on screen).
+    const added = made && made.k === 1 ? appendedSpots(made.list, spots, k, setup) : null;
+    const base = added ? { ...src, tex: made!.out.tex } : src;
+    const run = added ?? spots;
     const a = this.retouchAsync;
     // The interactive view hands the work to the worker and meanwhile shows what it has: this
     // source's last result, or the same photo's other source (the preview while the full size is
@@ -2919,16 +2928,16 @@ export class Engine {
       this.retouchOwed = true;
       if (!a.job) {
         const id = ++this.retouchJobs;
-        a.job = { id, src, spots: key, removeKey, k, region, lane: this.L, released: false };
-        const px = this.retouchRead(src, region);
-        a.worker.postMessage({ id, px, region: inputRegion, W: src.fullW, H: src.fullH, scale, spots, k, setup }, [px.buffer]);
+        a.job = { id, src, spots: key, list: spots, removeKey, k, region, lane: this.L, released: false };
+        const px = this.retouchRead(base, region);
+        a.worker.postMessage({ id, px, region: inputRegion, W: src.fullW, H: src.fullH, scale, spots: run, k, setup }, [px.buffer]);
       }
       return { ...stand.src, tex: stand.out.tex };
     }
     if (a?.job?.lane === this.L) a.job.released = true;
-    const px = this.retouchRead(src, region);
-    retouchReduced(px, inputRegion, src.fullW, src.fullH, scale, spots, k, this.retouchCache, setup);
-    return { ...src, tex: this.retouchStore(src, key, k, region, px, removeKey).tex };
+    const px = this.retouchRead(base, region);
+    retouchReduced(px, inputRegion, src.fullW, src.fullH, scale, run, k, this.retouchCache, setup);
+    return { ...src, tex: this.retouchStore(src, key, spots, k, region, px, removeKey).tex };
   }
 
   /**

@@ -150,6 +150,8 @@ async function main() {
   results.push({ label: 'zoom 100%', settledMs: zoomMs, longestTaskMs: Math.round(longest), loads, parts: summarise(parts) });
   results.push(await stroke('100% 1', 0.4, 0.4));
   results.push(await stroke('100% 2', 0.55, 0.5));
+  results.push(await stroke('100% 3', 0.45, 0.6));
+  results.push(await stroke('100% 4', 0.6, 0.4));
   document.body.dataset.result = `PASS: ${JSON.stringify({ size: [FW, FH], tool: TOOL, results }, null, 1)}`;
 }
 main().catch(error => { document.body.dataset.result = `FAIL: ${String(error?.stack ?? error)}`; });
