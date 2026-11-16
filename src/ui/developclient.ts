@@ -60,6 +60,7 @@ export class DevelopClient {
   private closed = false;
   private loop: DevelopLoop | null = null;
   private keys = 0;
+  private uploading = new Map<number, () => void>();
   private seq = 0;
   private requests = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
   private requestIds = 0;
@@ -192,14 +193,56 @@ export class DevelopClient {
     });
   }
 
-  /** Upload decoded pixels. In worker mode they are copied (the decode cache keeps its own). */
+  /** CPU work in the source handoff, for the in-app performance driver. */
+  readonly uploadChunkMaxMs = new Map<number, number>();
+  readonly uploadCpuMs = new Map<number, number>();
   upload(img: HalfImage, origin?: string): SourceRef {
+    const started = performance.now();
     const key = ++this.keys;
-    this.send({ type: 'upload', key, img, origin });
+    if (this.worker && img.data.byteLength + (img.denoised?.byteLength ?? 0) >= 64 * 2 ** 20) this.uploadParts(key, img, origin);
+    else this.send({ type: 'upload', key, img, origin });
+    if (this.stats) this.uploadCpuMs.set(img.width, performance.now() - started);
     const ref: SourceRef = { key, w: img.width, h: img.height, fullW: img.fullWidth, fullH: img.fullHeight, mode: img.mode, white: img.white,
       camera: img.camera, frame: img.frame, lens: img.lens, denoised: !!img.denoised, origin };
     this.sources.set(key, ref);
     return ref;
+  }
+
+  /** Keep the decode cache's pixels intact, but bound each main-thread copy to 8 MiB.
+   * Message turns let controls and painting run between parts without timer clamping. */
+  private uploadParts(key: number, img: HalfImage, origin?: string) {
+    const { data, denoised, ...metadata } = img;
+    this.send({ type: 'uploadStart', key, img: metadata, samples: data.length, denoisedSamples: denoised?.length, origin });
+    const channel = new MessageChannel();
+    const cancel = () => { channel.port1.close(); channel.port2.close(); this.uploading.delete(key); };
+    this.uploading.set(key, cancel);
+    let plane: 'data' | 'denoised' = 'data', offset = 0;
+    channel.port1.onmessage = () => {
+      if (!this.uploading.has(key)) return;
+      const values = plane === 'data' ? data : denoised!;
+      const started = performance.now();
+      try {
+        const part = values.slice(offset, offset + 4 * 2 ** 20);
+        const length = part.length; // Transferring detaches the part immediately.
+        this.send({ type: 'uploadPart', key, plane, offset, data: part }, [part.buffer]);
+        offset += length;
+        if (this.stats) {
+          const ms = performance.now() - started;
+          this.uploadCpuMs.set(img.width, (this.uploadCpuMs.get(img.width) ?? 0) + ms);
+          this.uploadChunkMaxMs.set(img.width, Math.max(this.uploadChunkMaxMs.get(img.width) ?? 0, ms));
+        }
+        if (offset === values.length) {
+          if (plane === 'data' && denoised) { plane = 'denoised'; offset = 0; }
+          else { this.send({ type: 'uploadEnd', key }); cancel(); return; }
+        }
+        channel.port2.postMessage(0);
+      } catch (error) {
+        cancel();
+        this.send({ type: 'release', key });
+        this.events.error(`Could not upload image. ${String(error)}`);
+      }
+    };
+    channel.port2.postMessage(0);
   }
 
   /** A camera thumbnail standing in while the photo decodes. */
@@ -215,13 +258,14 @@ export class DevelopClient {
 
   release(src: SourceRef | null | undefined) {
     if (!src) return;
+    this.uploading.get(src.key)?.();
     this.sources.delete(src.key);
     this.send({ type: 'release', key: src.key });
   }
 
   attachCapture(src: SourceRef, radius: number, toCam: number[], mask: Uint8Array) {
     src.capture = true;
-    this.send({ type: 'capture', key: src.key, radius, toCam, mask });
+    this.send({ type: 'capture', key: src.key, radius, toCam, mask }, mask.buffer instanceof ArrayBuffer ? [mask.buffer] : []);
   }
 
   /** Prepare the active full source while idle, without replacing the fitted preview. */
@@ -287,6 +331,7 @@ export class DevelopClient {
 
   dispose() {
     this.closed = true;
+    for (const cancel of this.uploading.values()) cancel();
     this.send({ type: 'dispose' });
     for (const r of this.requests.values()) r.reject(new Error('engine closed'));
     this.requests.clear();

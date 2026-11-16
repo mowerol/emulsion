@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// "Loading full resolution", on the stage's bottom left, for the whole wait for full detail:
+// Loading/refining status on the stage's bottom left, for the whole wait for full detail:
 // the full decode arriving, then (zoomed in) the engine preparing the exact detail (capture
 // sharpening, full-reach maps) while the soft stand-in shows. One status for both, so the
 // hand-over between them doesn't blink. It waits SHOW_AFTER_MS before appearing, so quick
@@ -9,7 +9,7 @@ import { memo, useEffect, useState } from 'react';
 const SHOW_AFTER_MS = 280;
 const LEAVE_MS = 180;
 
-export const FullResolutionStatus = memo(function FullResolutionStatus({ pending }: { pending: boolean }) {
+export const FullResolutionStatus = memo(function FullResolutionStatus({ pending, loading = true }: { pending: boolean; loading?: boolean }) {
   const [phase, setPhase] = useState<'hidden' | 'shown' | 'leaving'>('hidden');
   useEffect(() => {
     if (pending) {
@@ -26,7 +26,7 @@ export const FullResolutionStatus = memo(function FullResolutionStatus({ pending
       <svg className="loading-full-mark" viewBox="0 0 12 12" aria-hidden="true">
         <circle cx="6" cy="6" r="2.5" />
       </svg>
-      Loading full resolution
+      {loading ? 'Loading full resolution' : 'Refining detail'}
     </span>
   );
 });

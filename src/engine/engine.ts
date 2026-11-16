@@ -1,5 +1,6 @@
 import { removeSetup, type RemoveContext } from './removequeue';
 import { prepareHeal } from './healkernel';
+import { compiledAutoContrast, prepareContrast } from './capturekernel';
 import type { PatchRequest } from './remove';
 import noiseShader from './shaders/noise.frag.glsl?raw';
 import tileCopyShader from './shaders/tilecopy.frag.glsl?raw';
@@ -554,6 +555,7 @@ export class Engine {
 
   constructor(canvas: HTMLCanvasElement | OffscreenCanvas) {
     void prepareHeal();
+    void prepareContrast();
     this.gpu = new Gpu(canvas);
     this.tileCopyP = this.gpu.program(SHADERS.vertex, tileCopyShader);
     this.noiseP = this.gpu.program(SHADERS.vertex, noiseShader);
@@ -1673,13 +1675,20 @@ export class Engine {
     g.bind(2, L.tex);
     this.csP.set({ uMode: 9, uS: 0, uY: 1, uL: 2, uClip: 3, uEst: 4, uR: 5, uBl: 6, uF: 8 });
     g.draw(this.csP, packed, pw, L.h);
-    const px = new Float32Array(pw * L.h * 4);
     gl.bindFramebuffer(gl.FRAMEBUFFER, packed.fbo);
-    gl.readPixels(0, 0, pw, L.h, gl.RGBA, gl.FLOAT, px);
-    g.free(packed);
-    const data = new Float64Array(L.w * L.h);
-    for (let y = 0; y < L.h; y++) for (let x = 0; x < L.w; x++) data[y * L.w + x] = px[y * pw * 4 + x];
-    const threshold = autoContrast({ w: L.w, h: L.h, data });
+    const read = (pixels: Float32Array) => gl.readPixels(0, 0, pw, L.h, gl.RGBA, gl.FLOAT, pixels);
+    let threshold: number;
+    try {
+      const compiled = compiledAutoContrast(L.w, L.h, pw * 4, read);
+      if (compiled !== null) threshold = compiled;
+      else {
+        const px = new Float32Array(pw * L.h * 4);
+        read(px);
+        const data = new Float64Array(L.w * L.h);
+        for (let y = 0; y < L.h; y++) for (let x = 0; x < L.w; x++) data[y * L.w + x] = px[y * pw * 4 + x];
+        threshold = autoContrast({ w: L.w, h: L.h, data });
+      }
+    } finally { g.free(packed); }
     this.captureWork.thresholdMs += performance.now() - started;
     return threshold;
   }

@@ -20,6 +20,7 @@ import { setMaskUi } from '../ui/maskui';
 import { perfClient } from '../ui/developclient';
 import type { PreparationStat, FrameStat } from '../engine/developloop';
 import { iterationsFor } from '../engine/capture';
+import { resolveFrame } from '../film/crop';
 
 // The driver's own timers, kept apart from the app's (watchMainThread times the app's timer callbacks).
 const rawTimeout = window.setTimeout.bind(window);
@@ -28,9 +29,10 @@ const median = (v: number[]) => v.length ? +v.slice().sort((a, b) => a - b)[Math
 const p90 = (v: number[]) => v.length ? +v.slice().sort((a, b) => a - b)[Math.floor(v.length * 0.9)].toFixed(1) : null;
 
 // ---- Frames: every render to the screen, when the GPU finished it, and which input it showed.
-type Frame = { start: number; done: number; cpu: number; tag: number; srcW: number; detail: boolean; seq?: number; preparation?: PreparationStat;
+type Frame = { start: number; done: number; cpu: number; tag: number; srcW: number; detail: boolean; resolution?: boolean; seq?: number; preparation?: PreparationStat;
   captureCache?: FrameStat['captureCache']; memory?: FrameStat['memory']; denoise?: FrameStat['denoise']; pending?: string[]; region?: FrameStat['region'] };
 let frames: Frame[] = [];
+let clientFrameStats = false;
 let tagOf: (r: Recipe | null) => number = () => -1;
 let depth = 0;
 // Draws per program and target size, to see which passes a frame pays for.
@@ -175,7 +177,7 @@ Engine.prototype.render = function (this: Engine, ...a: Parameters<Engine['rende
       };
       setTimeout(poll, 1);
     }
-    if (outer) {
+    if (outer && !clientFrameStats) {
       const f: Frame = { start: t0, done: 0, cpu: performance.now() - t0, tag: tagOf(a[1] as Recipe | null), srcW: a[0].w, detail: !this.stoodIn && !this.inexact && !a[2]?.draft &&
         (a[0].mode !== InputMode.SceneLinear || !a[1]?.captureSharpening || !!a[0].capture) };
       frames.push(f);
@@ -620,7 +622,28 @@ export async function run(which: string) {
   // VITE_PERF_DETAIL=log times the trial detail order (ui/detailorder.ts).
   setDetailOrder(import.meta.env.VITE_PERF_DETAIL === 'log' ? 'log' : 'darktable');
   const out: Record<string, unknown> = { which, production: import.meta.env.PROD, origin: location.origin, detailOrder: import.meta.env.VITE_PERF_DETAIL ?? 'darktable', dpr: devicePixelRatio, ua: navigator.userAgent.replace(/.*AppleWebKit\/(\S+).*/, 'WebKit $1') };
+  let cancelOpening = () => {};
   try {
+    const watchFrames = () => {
+      if (!perfClient) return;
+      clientFrameStats = true;
+      const client = perfClient;
+      client.onFrame = (f) => {
+        lastSrcW = f.srcW;
+        lastScale = client.lastScale;
+        frames.push({ start: f.start, done: f.done, cpu: f.cpu, tag: tagOf(client.recipeOf(f.seq) as Recipe | null), srcW: f.srcW, detail: f.detail, resolution: f.resolution, seq: f.seq, preparation: f.preparation, captureCache: f.captureCache, memory: f.memory, denoise: f.denoise, pending: f.pending, region: f.region });
+      };
+    };
+    // Install before Develop mounts so first-open preparation and GPU work stay in the sample.
+    let watchedClient: typeof perfClient = null;
+    let openingAt: number | null = null;
+    const watchOpening = () => {
+      if (useApp.getState().view === 'develop' && openingAt === null) openingAt = performance.now();
+      if (perfClient && perfClient !== watchedClient) { watchedClient = perfClient; watchFrames(); }
+    };
+    const stopOpening = useApp.subscribe(watchOpening);
+    const openingPoll = window.setInterval(watchOpening, 5);
+    cancelOpening = () => { stopOpening(); window.clearInterval(openingPoll); };
     await focusWindow();
     for (let i = 0; i < 600 && !(useApp.getState().view === 'develop' && useApp.getState().developSize); i++) {
       const s = useApp.getState();
@@ -630,6 +653,32 @@ export async function run(which: string) {
       await wait(100);
     }
     if (!useApp.getState().developSize) throw Error(`no photo developed (view ${useApp.getState().view}, ${useApp.getState().photos.length} photos)`);
+    if (which.split(',').includes('openzoom')) {
+      const { W, H } = useApp.getState().developSize!;
+      // Require enough source pixels for the fitted crop, not just any decoded preview.
+      // An in-camera crop can need the full decode even while its view says Fit.
+      const size = useApp.getState().developSize!;
+      const frame = resolveFrame(activePhoto()?.recipe, size.frame);
+      const canvas = document.querySelector('.main canvas, canvas') as HTMLCanvasElement | null;
+      const neededW = Math.min(W, Math.max(Math.min(1536, Math.max(W, H)) * W / Math.max(W, H), (canvas?.width ?? 0) / frame.w));
+      const decoded = (f: Frame) => f.done >= (openingAt ?? Infinity) && f.srcW >= neededW * .95;
+      const deadline = performance.now() + 60000;
+      while (!frames.some(f => decoded(f) && f.resolution) && performance.now() < deadline) await wait(10);
+      const resolution = frames.find(f => decoded(f) && f.resolution);
+      const visible = await nextPaint();
+      while (!frames.some(f => decoded(f) && f.detail) && performance.now() < deadline) await wait(10);
+      const sharp = frames.find(f => decoded(f) && f.detail);
+      const painted = await nextPaint();
+      out.initialOpen = {
+        resolutionMs: resolution && openingAt !== null ? Math.round(Math.max(resolution.done, visible) - openingAt) : null,
+        resolutionW: resolution?.srcW,
+        sharpMs: sharp && openingAt !== null ? Math.round(Math.max(sharp.done, painted) - openingAt) : null,
+        firstRenderMs: sharp && openingAt !== null ? Math.round(sharp.start - openingAt) : null,
+        firstFrameMs: sharp ? Math.round(sharp.done - sharp.start) : null, srcW: sharp?.srcW,
+        preparation: sharp?.preparation,
+        frames: frames.map(f => ({ srcW: f.srcW, start: Math.round(f.start - (openingAt ?? 0)), done: Math.round(f.done - (openingAt ?? 0)), detail: f.detail, resolution: f.resolution, pending: f.pending })) };
+    }
+    cancelOpening();
     await settle(1500, 30000);
     const canvas = document.querySelector('.main canvas, canvas') as HTMLCanvasElement | null;
     out.canvas = canvas ? `${canvas.width}x${canvas.height}` : null;
@@ -638,16 +687,6 @@ export async function run(which: string) {
     out.engine = perfClient?.mode ?? null;
     // With the engine in its worker, its frames come from the client (the prototype hooks above
     // see only a main-thread engine): draw counts, texture memory and pass timings are main-mode only.
-    const watchFrames = () => {
-      if (perfClient?.mode !== 'worker') return;
-      const client = perfClient;
-      client.onFrame = (f) => {
-        lastSrcW = f.srcW;
-        lastScale = client.lastScale;
-        frames.push({ start: f.start, done: f.done, cpu: f.cpu, tag: tagOf(client.recipeOf(f.seq) as Recipe | null), srcW: f.srcW, detail: f.detail, seq: f.seq, preparation: f.preparation, captureCache: f.captureCache, memory: f.memory, denoise: f.denoise, pending: f.pending, region: f.region });
-      };
-    };
-    watchFrames();
     const only = which.split(',');
     const want = (k: string) => only.includes('all') || only.includes(k);
 
@@ -913,7 +952,7 @@ export async function run(which: string) {
       out.fitTextureAfterZoom = await sliderDrag('texture', 'refine', 120);
       setSliders({ texture: 0 });
     }
-    if (want('zoomdetail') || only.includes('zoomprepared')) {
+    if (want('zoomdetail') || only.includes('zoomprepared') || only.includes('openzoom')) {
       // Time Z through the first GPU-complete full-resolution frame, without slider work.
       // A source swap alone is insufficient: the first regional render must finish too.
       setSliders({ texture: 0, dehaze: 0, clarity: 0 });
@@ -935,17 +974,21 @@ export async function run(which: string) {
       rafLoop();
       const z0 = performance.now();
       key('z')();
+      let resolution: Frame | undefined;
+      while (!(resolution = frames.find(f => f.srcW === fullW && f.resolution && f.done >= z0)) && performance.now() - z0 < 60000) await wait(10);
+      const visible = await nextPaint();
       let sharp: Frame | undefined;
       while (!(sharp = frames.find(f => f.srcW === fullW && f.detail && f.done >= z0)) && performance.now() - z0 < 60000) await wait(10);
       const painted = await nextPaint();
       const gaps = rafStop();
-      out.zoomDetail = { viewingPauseMs, sharpMs: sharp ? Math.round(Math.max(sharp.done, painted) - z0) : null,
+      out.zoomDetail = { viewingPauseMs, resolutionMs: resolution ? Math.round(Math.max(resolution.done, visible) - z0) : null, sharpMs: sharp ? Math.round(Math.max(sharp.done, painted) - z0) : null,
         firstRenderMs: sharp ? Math.round(sharp.start - z0) : null,
         firstRenderCpuMs: sharp ? Math.round(sharp.cpu) : null,
         firstFrameMs: sharp ? Math.round(sharp.done - sharp.start) : null,
         preparation: sharp?.preparation,
         captureCache: sharp?.captureCache, memory: sharp?.memory,
-        uploadCpuMs: uploads.find(u => u.width === fullW)?.cpuMs ?? null,
+        uploadCpuMs: perfClient?.uploadCpuMs?.get(fullW) ?? uploads.find(u => u.width === fullW)?.cpuMs ?? null,
+        uploadChunkMaxMs: perfClient?.uploadChunkMaxMs?.get(fullW) ?? null,
         screenGapMax: gaps.length ? Math.round(Math.max(...gaps)) : null };
     }
     if (only.includes('zoomsettle')) {
@@ -1565,7 +1608,7 @@ export async function run(which: string) {
     }
   } catch (e) {
     out.error = `${String(e)} ${(e as Error)?.stack ?? ""}`;
-  }
+  } finally { cancelOpening(); }
   // Leave the library as it was: drop the scratch folder's import and cached root, then give the
   // catalog time to save (it writes 150 ms after a change) before the runner quits the app.
   // Every run's, including earlier ones this dev app's own storage still lists.

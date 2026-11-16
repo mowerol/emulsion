@@ -1,0 +1,443 @@
+{
+  "date": "2026-11-16",
+  "baseCommit": "a8554aff070a",
+  "sample": "GFX100RF-20261115-2358.raf",
+  "note": "Fresh isolated app processes, production frontend, optimized development native code, warm OS caches. Samples are individual local observations, not percentiles. The 1000 ms provisional target remains unmet.",
+  "runs": {
+    "earlyZoomBefore": {
+      "which": "zoomdetail",
+      "production": true,
+      "origin": "http://localhost:1430",
+      "detailOrder": "darktable",
+      "dpr": 2,
+      "ua": "WebKit 605.1.15",
+      "canvas": "1164x1164",
+      "window": "1440x782",
+      "photo": {
+        "W": 11662,
+        "H": 8746,
+        "frame": {
+          "x": 0.3354484736919403,
+          "y": 0.2804710865020752,
+          "w": 0.32927456498146057,
+          "h": 0.439057856798172
+        }
+      },
+      "engine": "worker",
+      "zoomDetail": {
+        "viewingPauseMs": 0,
+        "sharpMs": 10851,
+        "firstRenderMs": 10803,
+        "firstRenderCpuMs": 16,
+        "firstFrameMs": 18,
+        "preparation": {
+          "steps": 449,
+          "cpuMs": 5057.999999999991,
+          "elapsedMs": 7572.999999999998,
+          "resumeMs": 2515.0000000000073,
+          "maxStepMs": 4096,
+          "capture": {
+            "builds": 2,
+            "hits": 2,
+            "steps": 190,
+            "cpuMs": 409.9999999999982,
+            "elapsedMs": 1309,
+            "thresholdMs": 4286.000000000002
+          }
+        },
+        "captureCache": {
+          "generation": 0,
+          "ready": false,
+          "preparing": false,
+          "steps": 0,
+          "buildMs": 0,
+          "retainedMiB": 0
+        },
+        "memory": {
+          "retainedMiB": 3733.4061279296875,
+          "peakMiB": 3823.5267333984375
+        },
+        "uploadCpuMs": null,
+        "screenGapMax": 1129
+      }
+    },
+    "earlyZoomBeforeChunkedUpload": {
+      "which": "zoomdetail",
+      "production": true,
+      "origin": "http://localhost:1430",
+      "detailOrder": "darktable",
+      "dpr": 2,
+      "ua": "WebKit 605.1.15",
+      "canvas": "1166x1166",
+      "window": "1440x783",
+      "photo": {
+        "W": 11662,
+        "H": 8746,
+        "frame": {
+          "x": 0.3354484736919403,
+          "y": 0.2804710865020752,
+          "w": 0.32927456498146057,
+          "h": 0.439057856798172
+        }
+      },
+      "engine": "worker",
+      "zoomDetail": {
+        "viewingPauseMs": 0,
+        "resolutionMs": 3455,
+        "sharpMs": 5772,
+        "firstRenderMs": 5725,
+        "firstRenderCpuMs": 14,
+        "firstFrameMs": 16,
+        "preparation": {
+          "steps": 380,
+          "cpuMs": 1332.9999999999982,
+          "elapsedMs": 2121,
+          "resumeMs": 788.0000000000018,
+          "maxStepMs": 991.9999999999982,
+          "capture": {
+            "builds": 2,
+            "hits": 2,
+            "steps": 190,
+            "cpuMs": 68.99999999999818,
+            "elapsedMs": 702.0000000000018,
+            "thresholdMs": 1042
+          }
+        },
+        "captureCache": {
+          "generation": 0,
+          "ready": false,
+          "preparing": false,
+          "steps": 0,
+          "buildMs": 0,
+          "retainedMiB": 0
+        },
+        "memory": {
+          "retainedMiB": 3655.0830459594727,
+          "peakMiB": 4331.5982666015625
+        },
+        "uploadCpuMs": 501.0000000000018,
+        "screenGapMax": 521
+      }
+    },
+    "earlyZoomAfter": {
+      "which": "zoomdetail",
+      "production": true,
+      "origin": "http://localhost:1430",
+      "detailOrder": "darktable",
+      "dpr": 2,
+      "ua": "WebKit 605.1.15",
+      "canvas": "1166x1166",
+      "window": "1440x783",
+      "photo": {
+        "W": 11662,
+        "H": 8746,
+        "frame": {
+          "x": 0.3354484736919403,
+          "y": 0.2804710865020752,
+          "w": 0.32927456498146057,
+          "h": 0.439057856798172
+        }
+      },
+      "engine": "worker",
+      "zoomDetail": {
+        "viewingPauseMs": 0,
+        "resolutionMs": 1440,
+        "sharpMs": 2924,
+        "firstRenderMs": 2818,
+        "firstRenderCpuMs": 17,
+        "firstFrameMs": 63,
+        "preparation": {
+          "steps": 285,
+          "cpuMs": 327.0000000000109,
+          "elapsedMs": 1216,
+          "resumeMs": 888.9999999999891,
+          "maxStepMs": 40.00000000000364,
+          "capture": {
+            "builds": 1,
+            "hits": 3,
+            "steps": 95,
+            "cpuMs": 31.999999999996362,
+            "elapsedMs": 604,
+            "thresholdMs": 0
+          }
+        },
+        "captureCache": {
+          "generation": 0,
+          "ready": false,
+          "preparing": false,
+          "steps": 0,
+          "buildMs": 0,
+          "retainedMiB": 0
+        },
+        "memory": {
+          "retainedMiB": 3737.0205459594727,
+          "peakMiB": 6105.2763671875
+        },
+        "uploadCpuMs": 697.0000000000018,
+        "uploadChunkMaxMs": 127,
+        "screenGapMax": 30
+      }
+    },
+    "openThenZoomBefore": {
+      "which": "openzoom",
+      "production": true,
+      "origin": "http://localhost:1430",
+      "detailOrder": "darktable",
+      "dpr": 2,
+      "ua": "WebKit 605.1.15",
+      "initialOpen": {
+        "resolutionMs": 23268,
+        "resolutionW": 11662,
+        "sharpMs": 23302,
+        "firstRenderMs": 23044,
+        "firstFrameMs": 198,
+        "srcW": 11662,
+        "preparation": {
+          "steps": 1145,
+          "cpuMs": 6332.999999999942,
+          "elapsedMs": 11196,
+          "resumeMs": 4863.000000000058,
+          "maxStepMs": 4035.999999999998,
+          "capture": {
+            "builds": 2,
+            "hits": 2,
+            "steps": 190,
+            "cpuMs": 187,
+            "elapsedMs": 2511,
+            "thresholdMs": 4205.000000000002
+          }
+        },
+        "frames": [
+          {
+            "srcW": 512,
+            "start": 571,
+            "done": 659,
+            "detail": true,
+            "resolution": true,
+            "pending": []
+          },
+          {
+            "srcW": 2560,
+            "start": 6445,
+            "done": 6596,
+            "detail": false,
+            "resolution": false,
+            "pending": [
+              "profiledOwed"
+            ]
+          },
+          {
+            "srcW": 2560,
+            "start": 7087,
+            "done": 7113,
+            "detail": false,
+            "resolution": true,
+            "pending": []
+          },
+          {
+            "srcW": 11662,
+            "start": 23044,
+            "done": 23242,
+            "detail": true,
+            "resolution": true,
+            "pending": []
+          }
+        ]
+      },
+      "canvas": "1166x1166",
+      "window": "1440x783",
+      "photo": {
+        "W": 11662,
+        "H": 8746,
+        "frame": {
+          "x": 0.3354484736919403,
+          "y": 0.2804710865020752,
+          "w": 0.32927456498146057,
+          "h": 0.439057856798172
+        }
+      },
+      "engine": "worker",
+      "zoomDetail": {
+        "viewingPauseMs": 0,
+        "resolutionMs": 2786,
+        "sharpMs": 2819,
+        "firstRenderMs": 2731,
+        "firstRenderCpuMs": 19,
+        "firstFrameMs": 20,
+        "preparation": {
+          "steps": 354,
+          "cpuMs": 610.0000000000073,
+          "elapsedMs": 1869.9999999999964,
+          "resumeMs": 1259.999999999989,
+          "maxStepMs": 187.99999999999636,
+          "capture": {
+            "builds": 1,
+            "hits": 3,
+            "steps": 95,
+            "cpuMs": 2,
+            "elapsedMs": 471,
+            "thresholdMs": 0
+          }
+        },
+        "captureCache": {
+          "generation": 0,
+          "ready": false,
+          "preparing": false,
+          "steps": 0,
+          "buildMs": 0,
+          "retainedMiB": 0
+        },
+        "memory": {
+          "retainedMiB": 6983.4842529296875,
+          "peakMiB": 8315.93911743164
+        },
+        "uploadCpuMs": null,
+        "uploadChunkMaxMs": null,
+        "screenGapMax": 303
+      }
+    },
+    "openThenZoomAfter": {
+      "which": "openzoom",
+      "production": true,
+      "origin": "http://localhost:1430",
+      "detailOrder": "darktable",
+      "dpr": 2,
+      "ua": "WebKit 605.1.15",
+      "initialOpen": {
+        "resolutionMs": 12788,
+        "resolutionW": 11662,
+        "sharpMs": 17721,
+        "firstRenderMs": 17662,
+        "firstFrameMs": 18,
+        "srcW": 11662,
+        "preparation": {
+          "steps": 789,
+          "cpuMs": 2531.0000000000127,
+          "elapsedMs": 4739.999999999998,
+          "resumeMs": 2207.9999999999854,
+          "maxStepMs": 1360.9999999999982,
+          "capture": {
+            "builds": 1,
+            "hits": 3,
+            "steps": 95,
+            "cpuMs": 2.000000000001819,
+            "elapsedMs": 1698,
+            "thresholdMs": 1341
+          }
+        },
+        "frames": [
+          {
+            "srcW": 512,
+            "start": 1256,
+            "done": 1326,
+            "detail": true,
+            "resolution": true,
+            "pending": []
+          },
+          {
+            "srcW": 2560,
+            "start": 3104,
+            "done": 3255,
+            "detail": false,
+            "resolution": false,
+            "pending": [
+              "profiledOwed"
+            ]
+          },
+          {
+            "srcW": 2560,
+            "start": 3698,
+            "done": 3725,
+            "detail": false,
+            "resolution": true,
+            "pending": []
+          },
+          {
+            "srcW": 2560,
+            "start": 6079,
+            "done": 6896,
+            "detail": true,
+            "resolution": true,
+            "pending": []
+          },
+          {
+            "srcW": 11662,
+            "start": 12728,
+            "done": 12743,
+            "detail": false,
+            "resolution": true,
+            "pending": [
+              "capture"
+            ]
+          },
+          {
+            "srcW": 11662,
+            "start": 17662,
+            "done": 17680,
+            "detail": true,
+            "resolution": true,
+            "pending": []
+          }
+        ]
+      },
+      "canvas": "1166x1166",
+      "window": "1440x783",
+      "photo": {
+        "W": 11662,
+        "H": 8746,
+        "frame": {
+          "x": 0.3354484736919403,
+          "y": 0.2804710865020752,
+          "w": 0.32927456498146057,
+          "h": 0.439057856798172
+        }
+      },
+      "engine": "worker",
+      "zoomDetail": {
+        "viewingPauseMs": 0,
+        "resolutionMs": 2068,
+        "sharpMs": 3167,
+        "firstRenderMs": 3111,
+        "firstRenderCpuMs": 20,
+        "firstFrameMs": 21,
+        "preparation": {
+          "steps": 285,
+          "cpuMs": 244.99999999999636,
+          "elapsedMs": 902,
+          "resumeMs": 657.0000000000036,
+          "maxStepMs": 28,
+          "capture": {
+            "builds": 1,
+            "hits": 3,
+            "steps": 95,
+            "cpuMs": 19,
+            "elapsedMs": 483.00000000000364,
+            "thresholdMs": 0
+          }
+        },
+        "captureCache": {
+          "generation": 0,
+          "ready": false,
+          "preparing": false,
+          "steps": 0,
+          "buildMs": 0,
+          "retainedMiB": 0
+        },
+        "memory": {
+          "retainedMiB": 4973.958045959473,
+          "peakMiB": 6312.2625732421875
+        },
+        "uploadCpuMs": 450.0000000000018,
+        "uploadChunkMaxMs": 191,
+        "screenGapMax": 36
+      }
+    }
+  },
+  "realImageReferenceChecks": [
+    {
+      "width": 11662,
+      "height": 8746,
+      "threshold": 0
+    }
+  ]
+}

@@ -104,6 +104,9 @@ export interface FrameState {
 
 export type ToLoop =
   | { type: 'upload'; key: number; img: HalfImage; origin?: string }
+  | { type: 'uploadStart'; key: number; img: Omit<HalfImage, 'data' | 'denoised'>; samples: number; denoisedSamples?: number; origin?: string }
+  | { type: 'uploadPart'; key: number; plane: 'data' | 'denoised'; offset: number; data: Uint16Array }
+  | { type: 'uploadEnd'; key: number }
   | { type: 'uploadBitmap'; key: number; bitmap: ImageBitmap; white: Xy | null; frame?: Rect | null }
   | { type: 'release'; key: number }
   | { type: 'capture'; key: number; radius: number; toCam: number[]; mask: Uint8Array }
@@ -124,7 +127,7 @@ export type ToLoop =
 /** Time spent preparing exact detail, separate from the final cached screen draw. */
 export interface PreparationStat { steps: number; cpuMs: number; elapsedMs: number; resumeMs: number; maxStepMs: number; capture?: CaptureWork }
 /** A finished screen render, for the perf driver: times are this realm's performance.now(). */
-export interface FrameStat { seq: number; start: number; cpu: number; done: number; srcW: number; detail: boolean; draft: boolean; preparation?: PreparationStat;
+export interface FrameStat { seq: number; start: number; cpu: number; done: number; srcW: number; detail: boolean; resolution?: boolean; draft: boolean; preparation?: PreparationStat;
   captureCache?: Engine['captureCacheStat']; memory?: { retainedMiB: number; peakMiB: number }; denoise?: Engine['profiledWork'];
   /** Why this frame leaves another render owed: live, moving, draft and the parts of `Engine.inexact`. */
   pending?: string[]; region?: Engine['regionStat'] }
@@ -158,11 +161,14 @@ const caf: (id: number) => void = typeof cancelAnimationFrame === 'function' ? c
 export class DevelopLoop {
   readonly engine: Engine;
   private sources = new Map<number, Source>();
+  private uploads = new Map<number, { img: HalfImage; origin?: string; received: number; capture?: Extract<ToLoop, { type: 'capture' }> }>();
   private state: FrameState | null = null;
   private held = false;
   /** A release can come before the final input's state: stage that input even so. */
   private releasePending = false;
   private renderPending = false;
+  /** Each RAW view presents full-resolution pixels before capture refinement. */
+  private resolutionPresented = new WeakMap<Source, string>();
   private viewMotion = 0;
   private onRelease = new Set<() => void>();
   private pace = { submitted: 0, full: false, waited: false, scale: 1, slow: 0, fastest: Infinity };
@@ -230,11 +236,33 @@ export class DevelopLoop {
     try {
       switch (m.type) {
         case 'upload': this.sources.set(m.key, { ...this.engine.sourceFromHalf(m.img), origin: m.origin }); break;
+        case 'uploadStart':
+          this.uploads.set(m.key, { img: { ...m.img, data: new Uint16Array(m.samples),
+            ...(m.denoisedSamples !== undefined ? { denoised: new Uint16Array(m.denoisedSamples) } : {}) }, origin: m.origin, received: 0 });
+          break;
+        case 'uploadPart': {
+          const pending = this.uploads.get(m.key);
+          if (pending) { pending.img[m.plane]!.set(m.data, m.offset); pending.received += m.data.length; }
+          break;
+        }
+        case 'uploadEnd': {
+          const pending = this.uploads.get(m.key);
+          if (!pending) break; // Released during transfer.
+          this.uploads.delete(m.key);
+          if (pending.received !== pending.img.data.length + (pending.img.denoised?.length ?? 0)) throw Error('Incomplete image upload');
+          const source = { ...this.engine.sourceFromHalf(pending.img), origin: pending.origin };
+          this.sources.set(m.key, source);
+          const capture = pending.capture;
+          if (capture) this.engine.attachCapture(source, capture.radius, capture.toCam, capture.mask);
+          this.restart();
+          break;
+        }
         case 'uploadBitmap':
           try { this.sources.set(m.key, { ...this.engine.sourceFromImage(m.bitmap, m.bitmap.width, m.bitmap.height, m.white), frame: m.frame }); }
           finally { m.bitmap.close(); }
           break;
         case 'release': {
+          this.uploads.delete(m.key);
           if (this.captureSource === m.key) { this.captureCancel(); this.captureSource = null; }
           const s = this.sources.get(m.key);
           this.sources.delete(m.key);
@@ -242,6 +270,8 @@ export class DevelopLoop {
           break;
         }
         case 'capture': {
+          const pending = this.uploads.get(m.key);
+          if (pending) { pending.capture = m; break; }
           const s = this.sources.get(m.key);
           if (s) {
             if (this.captureSource === m.key) this.captureCancel();
@@ -466,6 +496,10 @@ export class DevelopLoop {
     let cancelWork = () => {};
     let preparation: ReturnType<Engine['prepareFrame']> | null = null;
     let preparationStart = 0, lastStep = 0;
+    const initialSource = this.sources.get(st.source);
+    let captureDeferred = !!(st.sizeKnown && st.full && !st.compare && st.recipe?.captureSharpening &&
+      initialSource?.mode === InputMode.SceneLinear && this.resolutionPresented.get(initialSource) !== st.viewKey && !engine.captureReady(initialSource, st.recipe));
+    const resolutionRecipe = captureDeferred ? { ...st.recipe!, captureSharpening: 0 } : st.recipe;
     const preparationStat = { steps: 0, cpuMs: 0, elapsedMs: 0, resumeMs: 0, maxStepMs: 0 };
     const opts = (moving: boolean, draft: number | undefined, live: boolean) => ({
       target: 'screen' as const, width: st.width, height: st.height, seed: st.seed, compare: st.compare, view: st.view,
@@ -518,9 +552,10 @@ export class DevelopLoop {
       const live = !settled && this.held;
       try {
         const renderOpts = opts(moving, draft, live);
+        const renderRecipe = captureDeferred ? resolutionRecipe : st.recipe;
         const refining = settled || (!live && !moving && (st.full || this.releasePending || engine.inexact || preparation !== null));
         if (refining && !preparation) {
-          preparation = engine.prepareFrame(source, st.recipe, renderOpts);
+          preparation = engine.prepareFrame(source, renderRecipe, renderOpts);
           preparationStart = performance.now();
           this.sharpening(true);
         }
@@ -546,12 +581,25 @@ export class DevelopLoop {
           }
         }
         const t0 = performance.now();
-        engine.render(source, st.recipe, renderOpts);
+        engine.render(source, renderRecipe, renderOpts);
         this.presentedPhoto = st.histogramFor;
         this.post({ type: 'presented', photo: st.histogramFor, width: st.width, height: st.height });
         this.reportMemory();
         if (this.stats) this.frameStat(st.seq, t0, source, !!draft, preparationStat.steps ? { ...preparationStat, capture: { ...engine.captureWork } } : undefined,
-          [...(live ? ['live'] : []), ...(moving ? ['moving'] : []), ...(draft ? ['draft'] : []), ...engine.inexactParts]);
+          [...(live ? ['live'] : []), ...(moving ? ['moving'] : []), ...(draft ? ['draft'] : []), ...(captureDeferred ? ['capture'] : []), ...engine.inexactParts]);
+        if (captureDeferred && !live && !moving && !draft && !engine.inexact) {
+          // Publish the decoded detail now. Refine the same saved recipe after it has had
+          // a chance to paint; cancellation/navigation still owns the continuation.
+          this.resolutionPresented.set(source, st.viewKey);
+          captureDeferred = false;
+          preparation = null;
+          preparationStart = lastStep = 0;
+          Object.assign(preparationStat, { steps: 0, cpuMs: 0, elapsedMs: 0, resumeMs: 0, maxStepMs: 0 });
+          this.sharpening(true);
+          this.renderPending = true;
+          settle = setTimeout(() => { id = raf(() => tick(false, true)); }, VIEW_SETTLE_MS) as unknown as number;
+          return;
+        }
         this.sharpening(false);
         if (!live) this.releasePending = false;
         Object.assign(pace, { submitted: performance.now(), full: !draft, waited: false });
@@ -604,7 +652,8 @@ export class DevelopLoop {
   private frameStat(seq: number, start: number, source: Source, draft: boolean, preparation?: FrameStat['preparation'], pending?: string[]) {
     const gl = this.engine.gpu.gl;
     const cpu = performance.now() - start;
-    const detail = !this.engine.stoodIn && !this.engine.inexact && !draft && (source.mode !== InputMode.SceneLinear || !this.state?.recipe?.captureSharpening || !!source.capture);
+    const resolution = !this.engine.stoodIn && !this.engine.inexact && !draft;
+    const detail = resolution && !pending?.includes('capture') && (source.mode !== InputMode.SceneLinear || !this.state?.recipe?.captureSharpening || !!source.capture);
     const storage = this.memory?.();
     const memory = storage ? { retainedMiB: storage.bytes / 2 ** 20, peakMiB: storage.peakBytes / 2 ** 20 } : undefined;
     const captureCache = this.engine.captureCacheStat;
@@ -613,7 +662,7 @@ export class DevelopLoop {
     const poll = () => {
       if (gl.getSyncParameter(sync, gl.SYNC_STATUS) !== gl.SIGNALED) { setTimeout(poll, 1); return; }
       gl.deleteSync(sync);
-      this.post({ type: 'frame', stat: { seq, start, cpu, done: performance.now(), srcW: source.w, detail, draft, preparation, captureCache, memory, denoise: this.engine.profiledWork, pending, region: this.engine.regionStat } });
+      this.post({ type: 'frame', stat: { seq, start, cpu, done: performance.now(), srcW: source.w, detail, resolution, draft, preparation, captureCache, memory, denoise: this.engine.profiledWork, pending, region: this.engine.regionStat } });
     };
     setTimeout(poll, 1);
   }
@@ -714,6 +763,7 @@ export class DevelopLoop {
     this.prepareCancel();
     for (const s of this.sources.values()) this.engine.release(s);
     this.sources.clear();
+    this.uploads.clear();
     this.engine.dispose();
   }
 }

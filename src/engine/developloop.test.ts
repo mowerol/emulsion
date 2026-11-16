@@ -8,14 +8,14 @@ import { newCircleSpot } from '../film/retouch';
 const engine = vi.hoisted(() => ({
   passes: 0, finished: 0, cancelled: 0, idle: true, passMs: 0,
   capturePasses: 0, captureFinished: 0, captureCancelled: 0, captureStarted: 0, captureReady: false,
-  render: vi.fn(),
+  render: vi.fn(), uploaded: [] as { data: Uint16Array; denoised?: Uint16Array }[],
 }));
 vi.mock('./engine', () => ({
   Engine: class {
     maxTextureSize = 8192;
     inexact = false;
     stoodIn = false;
-    sourceFromHalf() { return { w: 4000, h: 3000, fullW: 4000, fullH: 3000, mode: 2, white: null }; }
+    sourceFromHalf(img: { data: Uint16Array; denoised?: Uint16Array }) { engine.uploaded.push(img); return { w: 4000, h: 3000, fullW: 4000, fullH: 3000, mode: 2, white: null }; }
     idle() { return engine.idle; }
     waiting() { return false; }
     render = engine.render;
@@ -86,7 +86,7 @@ beforeEach(() => {
   tasks = [];
   Object.assign(engine, { passes: 0, finished: 0, cancelled: 0, idle: true, passMs: 0 });
   Object.assign(engine, { capturePasses: 0, captureFinished: 0, captureCancelled: 0, captureStarted: 0, captureReady: false });
-  engine.render.mockReset();
+  engine.render.mockReset(); engine.uploaded = [];
   posted = [];
   loop = new DevelopLoop(new OffscreenCanvas(100, 100), (m) => { posted.push(m); });
   loop.handle({ type: 'upload', key: 1, img: { width: 4000, height: 3000, fullWidth: 4000, fullHeight: 3000, mode: 0, white: null, data: new Uint16Array() } });
@@ -98,6 +98,52 @@ afterEach(() => {
 });
 
 describe('exact detail preparation', () => {
+  it('waits for complete paired uploads, keeps early capture metadata and ignores released transfers', () => {
+    loop.handle({ type: 'uploadStart', key: 2, img: { width: 1, height: 1, fullWidth: 1, fullHeight: 1, mode: 2, white: null }, samples: 4, denoisedSamples: 4 });
+    loop.handle({ type: 'state', state: { ...state, source: 2 } });
+    loop.handle({ type: 'capture', key: 2, radius: .7, toCam: [], mask: new Uint8Array([1]) });
+    loop.handle({ type: 'uploadPart', key: 2, plane: 'data', offset: 2, data: new Uint16Array([3, 4]) });
+    vi.advanceTimersByTime(20); drain();
+    expect(engine.render).not.toHaveBeenCalled();
+    loop.handle({ type: 'uploadPart', key: 2, plane: 'data', offset: 0, data: new Uint16Array([1, 2]) });
+    loop.handle({ type: 'uploadPart', key: 2, plane: 'denoised', offset: 0, data: new Uint16Array([5, 6, 7, 8]) });
+    loop.handle({ type: 'uploadEnd', key: 2 });
+    vi.advanceTimersByTime(20); drain();
+    expect(engine.uploaded[1].data).toEqual(new Uint16Array([1, 2, 3, 4]));
+    expect(engine.uploaded[1].denoised).toEqual(new Uint16Array([5, 6, 7, 8]));
+    expect(engine.render.mock.calls[0][0].capture).toBeDefined();
+    loop.handle({ type: 'uploadStart', key: 3, img: { width: 1, height: 1, fullWidth: 1, fullHeight: 1, mode: 2, white: null }, samples: 4 });
+    loop.handle({ type: 'release', key: 3 });
+    loop.handle({ type: 'uploadPart', key: 3, plane: 'data', offset: 0, data: new Uint16Array(4) });
+    loop.handle({ type: 'uploadEnd', key: 3 });
+    expect(engine.uploaded).toHaveLength(2);
+  });
+
+  it('presents full-resolution pixels before capture preparation, then applies the requested sharpening', () => {
+    const requested = { ...recipe, captureSharpening: 50 };
+    loop.handle({ type: 'capture', key: 1, radius: .7, toCam: [], mask: new Uint8Array() });
+    loop.handle({ type: 'state', state: { ...state, sizeKnown: true, recipe: requested, saved: requested } });
+    vi.advanceTimersByTime(16); drain();
+    expect(engine.render).toHaveBeenCalledOnce();
+    expect(engine.render.mock.calls[0][1].captureSharpening).toBe(0);
+    expect(engine.capturePasses).toBe(0);
+    expect(requested.captureSharpening).toBe(50);
+    vi.advanceTimersByTime(200); drain();
+    expect(engine.render.mock.calls[engine.render.mock.calls.length - 1]?.[1]).toBe(requested);
+    expect(posted.filter(m => m.type === 'sharpening').slice(-1)[0]?.pending).toBe(false);
+  });
+
+  it('cancels sharpening of a provisional frame when the photo changes', () => {
+    loop.handle({ type: 'capture', key: 1, radius: .7, toCam: [], mask: new Uint8Array() });
+    loop.handle({ type: 'state', state: { ...state, sizeKnown: true } });
+    vi.advanceTimersByTime(16); drain();
+    expect(engine.render.mock.calls[0][1].captureSharpening).toBe(0);
+    loop.handle({ type: 'upload', key: 2, origin: 'other', img: { width: 4000, height: 3000, fullWidth: 4000, fullHeight: 3000, mode: 0, white: null, data: new Uint16Array() } });
+    loop.handle({ type: 'state', state: { ...state, source: 2, histogramFor: 'other', recipe: { ...recipe, captureSharpening: 0 } } });
+    vi.advanceTimersByTime(300); drain();
+    expect(engine.render.mock.calls.slice(1).every(call => call[0] !== engine.render.mock.calls[0][0])).toBe(true);
+  });
+
   it('prepares capture in bounded idle batches after foreground rendering and waits for the GPU', () => {
     loop.handle({ type: 'state', state });
     vi.advanceTimersByTime(16); drain();

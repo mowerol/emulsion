@@ -973,7 +973,7 @@ export function Develop() {
         {photo && (!showing || presentedPhoto !== frameId) && !error && <span className="stage-status">Opening {photo.name}</span>}
         {photo && showing && loaded!.res === 'thumb' && <span className="stage-status">Loading preview</span>}
         {photo && showing && loaded!.res !== 'thumb' && (
-          <FullResolutionStatus pending={loadingFull || (sharpeningDetail && zoom.scale !== null && !cropping)} />
+          <FullResolutionStatus loading={loadingFull} pending={loadingFull || (sharpeningDetail && zoom.scale !== null && !cropping)} />
         )}
         {!workflow && current && !cropping && (
           <div className="zoom-bar" role="group" aria-label="Zoom">

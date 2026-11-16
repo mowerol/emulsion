@@ -86,9 +86,15 @@ function report(r) {
   const detail = r.zoomDetail;
   if (detail) {
     const ok = detail.sharpMs != null && detail.sharpMs <= sharpBudget;
+    if ('resolutionMs' in detail) console.log(`zoomResolution: ${detail.resolutionMs ?? 'timed out'} ms to visible resolution`);
     console.log(`${ok ? 'PASS' : 'FAIL'} zoomDetail: ${detail.sharpMs ?? 'timed out'} ms to sharp detail (budget ${sharpBudget} ms)`);
   }
-  let bad = detail && (detail.sharpMs == null || detail.sharpMs > sharpBudget) ? 1 : 0;
+  const opened = r.initialOpen;
+  const openBudget = Number(process.env.PERF_OPEN_MS ?? 1000);
+  if (opened && 'resolutionMs' in opened) console.log(`openResolution: ${opened.resolutionMs ?? 'timed out'} ms to visible resolution`);
+  if (opened) console.log(`${opened.sharpMs != null && opened.sharpMs <= openBudget ? 'PASS' : 'FAIL'} initialOpen: ${opened.sharpMs ?? 'timed out'} ms to sharp Fit (budget ${openBudget} ms)`);
+  let bad = opened && (opened.sharpMs == null || opened.sharpMs > openBudget) ? 1 : 0;
+  bad += detail && (detail.sharpMs == null || detail.sharpMs > sharpBudget) ? 1 : 0;
   for (const stop of r.zoomStops ?? []) {
     const ok = stop.valid && stop.sharpMs != null && stop.sharpMs <= sharpBudget;
     if (!ok) bad++;
