@@ -231,9 +231,16 @@ describe('scaled spot masks (#31)', () => {
     for (const shape of shapes) for (const scale of [1, .5, .37, .137]) for (const [dx, dy, padding] of [[0, 0, 0], [7, -12, 1], [-30, 4, 0]]) {
       const roiIn = { x: Math.round(40 * scale), y: Math.round(25 * scale), w: Math.round(780 * scale), h: Math.round(520 * scale) };
       const { roi, mask } = spotMask(shape, W, H);
-      expect(scaledSpotMask(shape, W, H, roiIn, Math.fround(scale), dx, dy, padding)).toEqual(scaledMask(mask, roi, roiIn, Math.fround(scale), dx, dy, padding));
+      const a = scaledSpotMask(shape, W, H, roiIn, Math.fround(scale), dx, dy, padding), b = scaledMask(mask, roi, roiIn, Math.fround(scale), dx, dy, padding);
+      expect(a?.roi).toEqual(b?.roi);
+      // Compared directly: a deep equal of every mask took over 5 s on CI.
+      if (a && b) {
+        expect(a.mask.length).toBe(b.mask.length);
+        const at = a.mask.findIndex((v, i) => !Object.is(v, b.mask[i]));
+        expect(at < 0 ? null : { at, got: a.mask[at], want: b.mask[at] }).toBeNull();
+      }
     }
-  });
+  }, 30000);
 
   it('make a reduced view\'s brush mask from the pixels it shows, not the full size', () => {
     // A default GFX100 brush stroke at Fit: 1.7 MP at full size, about 1/50 of it shown.
@@ -246,7 +253,8 @@ describe('scaled spot masks (#31)', () => {
     // Fewer segment evaluations than the full-size mask has pixels: it was never made.
     const full = spotMask(shape, W, H).roi;
     expect(used).toBeLessThan(full.w * full.h);
-  });
+    // A GFX-sized stroke: ~1.5 s here, about three times that on CI.
+  }, 30000);
 });
 
 describe('brush region planning', () => {
