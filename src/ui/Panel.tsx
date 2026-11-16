@@ -483,7 +483,7 @@ export function Panel() {
     noise: <><ProfiledDenoiseControls recipe={base} raw={photo.raw} camera={photo.camera} /><NoiseReductionControls recipe={base} path={photo.path} raw={photo.raw} /></>,
     lens: photo.raw ? <LensControls recipe={base} metadata={photo.lens} /> : <p className="hint">Lens corrections are available for RAW photos.</p>,
     transform: <TransformControls recipe={base} />,
-    'wb-tools': <WhiteBalanceControls recipe={base} white={photo.white} toolsOnly />,
+    'wb-tools': <WhiteBalanceControls recipe={base} white={photo.white} autoWhite={photo.camera?.autoWhite} toolsOnly />,
     'detail-order': <DetailOrderToggle />,
     'grain-speed': <GrainSpeed recipe={base} />,
     'ai-noise-tools': <NoiseReductionControls recipe={base} path={photo.path} raw={photo.raw} hideAmount />,
@@ -496,11 +496,11 @@ export function Panel() {
     stock: !editing && <Section defaultOpen id="stock" title="Look" summary={base.lookEnabled ? base.lookSnapshot?.name ?? lookName(base.pack, base.stock) : 'None'}><TreatmentControls key={photoId(photo)} photo={photo} /></Section>,
     presets: grouped ? <PresetControls /> : <Section defaultOpen id="presets" title="Presets"><PresetControls /></Section>,
     scanner: editing && scanner,
-    whitebalance: grouped && <Section id="whitebalance" title="White Balance" onReset={resetFor('whitebalance', 'White balance')}><WhiteBalanceControls recipe={base} white={photo.white} /></Section>,
+    whitebalance: grouped && <Section id="whitebalance" title="White Balance" onReset={resetFor('whitebalance', 'White balance')}><WhiteBalanceControls recipe={base} white={photo.white} autoWhite={photo.camera?.autoWhite} /></Section>,
     exposure: grouped && <Section id="exposure" title="Exposure" summary={changedSummary(recipe, ['exposure', 'contrast', 'toneCharacter', 'saturation', 'vibrance'])} onReset={resetFor('exposure', 'Exposure')}>{rows(['exposure', 'contrast', 'toneCharacter', 'saturation', 'vibrance'])}</Section>,
     hdr: grouped && <Section id="hdr" title="High Dynamic Range" summary={changedSummary(recipe, ['highlights', 'shadows', 'whites', 'blacks'])} onReset={resetFor('hdr', 'High Dynamic Range')}>{rows(['highlights', 'shadows', 'whites', 'blacks'])}</Section>,
     adjust: !grouped && <Section id="adjust" title="Adjustments" onReset={resetFor('adjust', 'Adjustments')}>
-      <WhiteBalanceControls recipe={base} white={photo.white} />{rows(sliderGroup('adjust'))}
+      <WhiteBalanceControls recipe={base} white={photo.white} autoWhite={photo.camera?.autoWhite} />{rows(sliderGroup('adjust'))}
     </Section>,
     curve: <Section id="curve" title="Tone curve" summary={curveSummary} onReset={resetFor('curve', 'Tone curve')}
       actions={<CurvePresetMenu curve={base.curve} onChange={setCurve} />}>

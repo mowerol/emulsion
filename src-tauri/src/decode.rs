@@ -539,16 +539,23 @@ mod tests {
         assert!(load_for_engine(&p, None).is_err());
     }
 
-    /// Writes what the app's engine receives for each file (`load_for_engine`), for
-    /// `tools/lookfit`. `EMULSION_LOOKFIT_DUMP` holds lines of `max_edge<TAB>input<TAB>output`.
+    /// Writes what the app's engine receives for each file (`load_for_engine`), for tools that
+    /// render outside the app. `EMULSION_ENGINE_DUMP` holds lines of `max_edge<TAB>input<TAB>output`.
     #[test]
     #[ignore]
     fn dump_engine_payloads() {
-        let list = std::env::var("EMULSION_LOOKFIT_DUMP").expect("set EMULSION_LOOKFIT_DUMP");
+        let list = std::env::var("EMULSION_ENGINE_DUMP").expect("set EMULSION_ENGINE_DUMP");
         for line in list.lines().filter(|l| !l.is_empty()) {
             let mut parts = line.split('\t');
             let (edge, input, output) = (parts.next().unwrap(), parts.next().unwrap(), parts.next().unwrap());
-            let bytes = load_for_engine(Path::new(input), Some(edge.parse().unwrap())).unwrap();
+            // EMULSION_DUMP_CAMERA_AUTO: open a Fujifilm RAW at the camera's own Auto white balance
+            // (Camera Auto in the app) instead of as shot.
+            let gains = std::env::var_os("EMULSION_DUMP_CAMERA_AUTO").and_then(|_| crate::raf::auto_gains(Path::new(input)));
+            let bytes = match gains {
+                Some(g) => raw_for_engine(Path::new(input), raw::decode_balanced(Path::new(input), false, Some(g)).unwrap(), Some(edge.parse().unwrap())).unwrap(),
+                None => load_for_engine(Path::new(input), Some(edge.parse().unwrap())).unwrap(),
+            };
+            if let Some(g) = gains { println!("{input}: Camera Auto, gains {g:?}"); }
             std::fs::write(output, bytes).unwrap();
             println!("{input} -> {output}");
         }

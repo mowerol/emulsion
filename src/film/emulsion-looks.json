@@ -732,7 +732,7 @@
     "name": "Classic Negative",
     "category": "Emulsion x Fuji",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "settings": {
       "colorBalance": {
         "shadows_C": 0.10005,
@@ -863,7 +863,12 @@
           ]
         ]
       },
-      "lut": null,
+      "lut": {
+        "kind": "pack",
+        "pack": "emulsion-luts",
+        "stock": "lut:emulsion-luts:classic-negative",
+        "amount": 1
+      },
       "color": {
         "hue": [
           21,
@@ -1439,7 +1444,7 @@
     "name": "Velvia",
     "category": "Emulsion x Fuji",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "settings": {
       "colorBalance": {
         "shadows_weight": 0.48,
@@ -1533,7 +1538,12 @@
           ]
         ]
       },
-      "lut": null,
+      "lut": {
+        "kind": "pack",
+        "pack": "emulsion-luts",
+        "stock": "lut:emulsion-luts:velvia",
+        "amount": 1
+      },
       "color": {
         "hue": [
           -9,
@@ -3320,6 +3330,460 @@
           33,
           42,
           60
+        ]
+      }
+    }
+  },
+  {
+    "id": "emulsion-fuji-reggies-portra",
+    "name": "Reggie's Portra (Reggie B)",
+    "category": "Emulsion x Fuji Recipes",
+    "bw": false,
+    "revision": 1,
+    "settings": {
+      "colorBalance": {
+        "shadows_weight": 0.48,
+        "white_fulcrum": -1.07,
+        "highlights_weight": 1.45,
+        "mask_grey_fulcrum": 0.0687,
+        "grey_fulcrum": 0.1821,
+        "saturation_global": -0.023,
+        "saturation_shadows": -0.007,
+        "saturation_midtones": 0.074,
+        "saturation_highlights": 0.053,
+        "chroma_global": -0.044,
+        "chroma_shadows": -0.031,
+        "chroma_midtones": 0.074,
+        "chroma_highlights": 0.084,
+        "vibrance": 0.008,
+        "shadows_C": 0.00836,
+        "shadows_H": 53.27,
+        "midtones_C": 0.0078,
+        "midtones_H": 88.53,
+        "highlights_C": 0.02553,
+        "highlights_H": 70.07
+      },
+      "curve": {
+        "rgb": [
+          [
+            0,
+            0
+          ],
+          [
+            0.06,
+            0.0104
+          ],
+          [
+            0.15,
+            0.055
+          ],
+          [
+            0.28,
+            0.2099
+          ],
+          [
+            0.42,
+            0.4043
+          ],
+          [
+            0.56,
+            0.6168
+          ],
+          [
+            0.7,
+            0.7789
+          ],
+          [
+            0.84,
+            0.9242
+          ],
+          [
+            1,
+            1
+          ]
+        ],
+        "r": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            1
+          ]
+        ],
+        "g": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            1
+          ]
+        ],
+        "b": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            1
+          ]
+        ]
+      },
+      "lut": {
+        "kind": "pack",
+        "pack": "emulsion-luts",
+        "stock": "lut:emulsion-luts:reggies-portra",
+        "amount": 1
+      },
+      "color": {
+        "hue": [
+          -12,
+          -40,
+          4,
+          27,
+          -14,
+          -56,
+          -11,
+          21
+        ],
+        "sat": [
+          3,
+          -4,
+          -12,
+          21,
+          25,
+          -10,
+          -43,
+          -21
+        ],
+        "bright": [
+          4,
+          1,
+          -40,
+          -19,
+          -2,
+          -3,
+          29,
+          48
+        ]
+      }
+    }
+  },
+  {
+    "id": "emulsion-fuji-classic-cuban-neg",
+    "name": "Classic Cuban Neg (Osan B)",
+    "category": "Emulsion x Fuji Recipes",
+    "bw": false,
+    "revision": 1,
+    "settings": {
+      "colorBalance": {
+        "shadows_C": 0.11427,
+        "shadows_H": 82.91,
+        "shadows_weight": 0.48,
+        "white_fulcrum": -1.07,
+        "highlights_weight": 1.45,
+        "chroma_shadows": 0.12,
+        "chroma_highlights": -0.093,
+        "chroma_global": -0.076,
+        "chroma_midtones": -0.296,
+        "saturation_global": 0.274,
+        "saturation_highlights": 0.162,
+        "saturation_midtones": 0.448,
+        "saturation_shadows": 0.216,
+        "hue_angle": -0.6,
+        "mask_grey_fulcrum": 0.0687,
+        "vibrance": 0.039,
+        "grey_fulcrum": 0.1821,
+        "midtones_C": 0.0049,
+        "midtones_H": 178.83,
+        "highlights_C": 0.04849,
+        "highlights_H": 64.86
+      },
+      "curve": {
+        "b": [
+          [
+            0,
+            0
+          ],
+          [
+            0.1479329755892256,
+            0.1680348625140291
+          ],
+          [
+            0.48189306257014586,
+            0.4859383768237935
+          ],
+          [
+            0.8460129068462402,
+            0.8684976501122335
+          ],
+          [
+            1,
+            1
+          ]
+        ],
+        "g": [
+          [
+            0,
+            0
+          ],
+          [
+            0.22839593855218857,
+            0.23404829545454545
+          ],
+          [
+            0.5247290614478115,
+            0.5274305555555555
+          ],
+          [
+            0.7971643518518519,
+            0.7958898007856341
+          ],
+          [
+            1,
+            1
+          ]
+        ],
+        "r": [
+          [
+            0,
+            0
+          ],
+          [
+            0.1872501052188552,
+            0.17221871492704832
+          ],
+          [
+            0.4968551837822671,
+            0.4886675785634118
+          ],
+          [
+            0.7729617354096522,
+            0.7868155513468014
+          ],
+          [
+            1,
+            1
+          ]
+        ],
+        "rgb": [
+          [
+            0,
+            0
+          ],
+          [
+            0.06,
+            0.0108
+          ],
+          [
+            0.15,
+            0.0566
+          ],
+          [
+            0.28,
+            0.1451
+          ],
+          [
+            0.42,
+            0.3442
+          ],
+          [
+            0.56,
+            0.6355
+          ],
+          [
+            0.7,
+            0.821
+          ],
+          [
+            0.84,
+            0.9358
+          ],
+          [
+            1,
+            1
+          ]
+        ]
+      },
+      "lut": {
+        "kind": "pack",
+        "pack": "emulsion-luts",
+        "stock": "lut:emulsion-luts:classic-cuban-neg",
+        "amount": 1
+      },
+      "color": {
+        "hue": [
+          15,
+          -17,
+          38,
+          97,
+          54,
+          -30,
+          15,
+          92
+        ],
+        "sat": [
+          -8,
+          -29,
+          -42,
+          -13,
+          10,
+          -18,
+          -71,
+          -46
+        ],
+        "bright": [
+          2,
+          -3,
+          -36,
+          -37,
+          -10,
+          1,
+          48,
+          60
+        ]
+      }
+    }
+  },
+  {
+    "id": "emulsion-fuji-leica-x",
+    "name": "Leica X (carlcruzsnaps)",
+    "category": "Emulsion x Fuji Recipes",
+    "bw": false,
+    "revision": 1,
+    "settings": {
+      "colorBalance": {
+        "shadows_weight": 0.48,
+        "white_fulcrum": -1.07,
+        "highlights_weight": 1.45,
+        "mask_grey_fulcrum": 0.0687,
+        "grey_fulcrum": 0.1821,
+        "saturation_global": -0.007,
+        "saturation_shadows": -0.064,
+        "saturation_midtones": 0.024,
+        "saturation_highlights": 0.093,
+        "chroma_global": -0.055,
+        "chroma_shadows": -0.079,
+        "chroma_midtones": 0.035,
+        "chroma_highlights": 0.076,
+        "vibrance": 0.006,
+        "shadows_C": 0.01026,
+        "shadows_H": 113.57,
+        "midtones_C": 0.00332,
+        "midtones_H": 105.71,
+        "highlights_C": 0.01717,
+        "highlights_H": 75.15
+      },
+      "curve": {
+        "rgb": [
+          [
+            0,
+            0
+          ],
+          [
+            0.06,
+            0.0063
+          ],
+          [
+            0.15,
+            0.0352
+          ],
+          [
+            0.28,
+            0.1676
+          ],
+          [
+            0.42,
+            0.3896
+          ],
+          [
+            0.56,
+            0.6069
+          ],
+          [
+            0.7,
+            0.7708
+          ],
+          [
+            0.84,
+            0.9203
+          ],
+          [
+            1,
+            1
+          ]
+        ],
+        "r": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            1
+          ]
+        ],
+        "g": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            1
+          ]
+        ],
+        "b": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            1
+          ]
+        ]
+      },
+      "lut": {
+        "kind": "pack",
+        "pack": "emulsion-luts",
+        "stock": "lut:emulsion-luts:leica-x",
+        "amount": 1
+      },
+      "color": {
+        "hue": [
+          -11,
+          -39,
+          2,
+          29,
+          -14,
+          -49,
+          -8,
+          20
+        ],
+        "sat": [
+          3,
+          -3,
+          -14,
+          18,
+          20,
+          -2,
+          -37,
+          -23
+        ],
+        "bright": [
+          -4,
+          0,
+          -42,
+          -22,
+          -7,
+          -34,
+          17,
+          53
         ]
       }
     }

@@ -18,8 +18,13 @@ describe('Emulsion built-in looks', () => {
     }
     expect(BUILTIN_LOOKS.map((l) => l.name).slice(0, 6)).toEqual(['Emulsion Standard', 'Emulsion Neg', 'Emulsion Chrome', 'Emulsion Gold', 'B&W Dynamic', 'B&W Classic']);
     // The fitted Fujifilm simulations follow, all in the Emulsion x Fuji folder: colour, then black and white.
-    const fuji = BUILTIN_LOOKS.slice(6);
+    // Community recipes come last, in their own folder.
+    const recipes = BUILTIN_LOOKS.filter((l) => l.category === 'Emulsion x Fuji Recipes');
+    const fuji = BUILTIN_LOOKS.slice(6, BUILTIN_LOOKS.length - recipes.length);
     expect(fuji.every((l) => l.category === 'Emulsion x Fuji')).toBe(true);
+    expect(BUILTIN_LOOKS.slice(-recipes.length)).toEqual(recipes);
+    expect(recipes.map((l) => l.id)).toContain('emulsion-fuji-reggies-portra');
+    expect(recipes.every((l) => !l.bw && /\(.+\)$/.test(l.name))).toBe(true);
     expect(fuji.filter((l) => l.bw).map((l) => l.id)).toEqual(['acros', 'acros-ye', 'acros-r', 'acros-g', 'monochrome', 'monochrome-ye', 'monochrome-r', 'monochrome-g', 'sepia'].map((s) => `emulsion-fuji-${s}`));
     expect(lookFile('emulsion-looks', 'emulsion-film-neg' as StockId, 0)).toBeNull();
   });

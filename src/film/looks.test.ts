@@ -5,15 +5,16 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import catalogue from './lut-catalogue.json';
 import { LOCAL_LOOKS } from './local-looks';
-import { DEFAULT_PACK, PACK, PACKS, customLookId, customLookOf, fileLutId, isPackId, lookFile, registerCustomLook, stockForPack, stocksForPack } from './looks';
-import { STOCK, isStockId } from './stocks';
+import { BUILTIN_LOOKS, DEFAULT_PACK, PACK, PACKS, customLookId, customLookOf, fileLutId, isPackId, lookFile, registerCustomLook, stockForPack, stocksForPack } from './looks';
+import { STOCK, isStockId, type StockId } from './stocks';
 import { defaultRecipe, normalizeRecipe, resetAdjustments, withSettingsFrom, withStock } from './recipe';
 import { parseCube, tetrahedral } from '../engine/lut3d';
 
 describe('bundled look catalogues', () => {
   it('ships every advertised new look unchanged, readable by the real LUT parser', () => {
     expect(catalogue.filter(s => s.pack === 'gmic-film')).toHaveLength(121);
-    expect(catalogue.every(s => s.pack === 'gmic-film')).toBe(true);
+    // The rest are the LUTs fitted to Emulsion's own recipe looks.
+    expect(catalogue.every(s => s.pack === 'gmic-film' || s.pack === 'emulsion-luts')).toBe(true);
     expect(new Set(catalogue.map(s => s.id)).size).toBe(catalogue.length);
     for (const row of catalogue) {
       expect(isPackId(row.pack)).toBe(true);
@@ -23,9 +24,20 @@ describe('bundled look catalogues', () => {
       const bytes = readFileSync(new URL(`../../public/looks/${file}`, import.meta.url));
       expect(createHash('sha256').update(bytes).digest('hex'), file).toBe(row.sha256);
       const lut = parseCube(bytes.toString());
-      expect(lut.level, file).toBe(13);
+      expect(lut.level, file).toBe(row.pack === 'gmic-film' ? 13 : 17);
       expect(lut.data.every(Number.isFinite), file).toBe(true);
       expect(tetrahedral(lut, [0.24, 0.53, 0.79]).every(Number.isFinite), file).toBe(true);
+    }
+  });
+
+  it('gives each recipe look its fitted LUT, hidden from the look lists', () => {
+    expect(PACK['emulsion-luts'].hidden).toBe(true);
+    for (const look of BUILTIN_LOOKS.filter(l => l.category === 'Emulsion x Fuji Recipes')) {
+      const lut = look.settings.lut;
+      expect(lut, look.name).toMatchObject({ kind: 'pack', pack: 'emulsion-luts', amount: 1 });
+      if (lut?.kind !== 'pack') continue;
+      expect(catalogue.some(r => r.id === lut.stock && r.pack === 'emulsion-luts'), look.name).toBe(true);
+      expect(lookFile('emulsion-looks', look.id as StockId, 0), look.name).toBe(`emulsion-luts/${lut.stock.split(':').pop()}.cube`);
     }
   });
 

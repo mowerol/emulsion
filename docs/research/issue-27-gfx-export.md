@@ -75,7 +75,7 @@ node tools/browser-tests/realtime.mjs export-large 90 'sensor&deep'
 node .scratch/issue-27/wk.mjs 'capture&noise'
 ```
 
-`decode::tests::dump_engine_payloads` takes `EMULSION_LOOKFIT_DUMP` lines of
+`decode::tests::dump_engine_payloads` takes `EMULSION_ENGINE_DUMP` lines of
 `edge<TAB>RAW<TAB>output`; use 16384 → `full.bin`, 2560 → `preview.bin`, and
 7775 → `export-small.bin` (the camera crop requires this larger decode for a
 2560² export). `capture::tests::dump_engine_capture_payload` takes

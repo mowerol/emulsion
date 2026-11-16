@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// White balance: as-shot, presets, Temperature and Tint, and an eyedropper.
+// White balance: as-shot, the camera's Auto, presets, Temperature and Tint, and an eyedropper.
 
 import { useMemo } from 'react';
 import { defaultRecipe, type Recipe } from '../film/recipe';
@@ -24,7 +24,20 @@ const fromPos = (p: number) => MIN_TEMPERATURE * (MAX_TEMPERATURE / MIN_TEMPERAT
 const kelvin = (t: number) => `${Math.round(t / 10) * 10} K`;
 const signed = (v: number) => (v > 0 ? `+${v}` : v < 0 ? `−${Math.abs(v)}` : '0');
 
-export function WhiteBalanceControls({ recipe, white, toolsOnly = false }: { recipe: Recipe | null; white: Xy | null; toolsOnly?: boolean }) {
+/** The camera's own Auto white balance as temperature and tint (a Fujifilm RAW shot with a white
+ * balance shift or a fixed white balance records it apart from the as-shot one). */
+export const cameraAutoWb = (white: Xy | null | undefined): WhiteBalance | null =>
+  white ? clampWhiteBalance(temperatureTint(white)) : null;
+
+/** Which menu entry a white balance is: as shot (none set), Camera Auto, a preset, or custom. */
+export function wbPreset(wb: WhiteBalance | null | undefined, cameraAuto: WhiteBalance | null): string {
+  if (!wb) return 'as-shot';
+  const same = (a: WhiteBalance) => Math.abs(a.temperature - wb.temperature) < 0.5 && Math.abs(a.tint - wb.tint) < 0.05;
+  if (cameraAuto && same(cameraAuto)) return 'camera-auto';
+  return WB_PRESETS.find((p) => p.wb.temperature === wb.temperature && p.wb.tint === wb.tint)?.id ?? 'custom';
+}
+
+export function WhiteBalanceControls({ recipe, white, autoWhite = null, toolsOnly = false }: { recipe: Recipe | null; white: Xy | null; autoWhite?: Xy | null; toolsOnly?: boolean }) {
   const picking = useApp((s) => s.picking);
   const asShot = useMemo(() => {
     const { temperature, tint } = temperatureTint(white ?? D65_XY);
@@ -35,7 +48,8 @@ export function WhiteBalanceControls({ recipe, white, toolsOnly = false }: { rec
 
   const set = (next: WhiteBalance | null) => editActive((r) => ({ ...(r ?? defaultRecipe()), wb: next ? clampWhiteBalance(next) : null }));
 
-  const preset = !recipe?.wb ? 'as-shot' : (WB_PRESETS.find((p) => p.wb.temperature === wb.temperature && p.wb.tint === wb.tint)?.id ?? 'custom');
+  const cameraAuto = useMemo(() => cameraAutoWb(autoWhite), [autoWhite]);
+  const preset = wbPreset(recipe?.wb, cameraAuto);
 
   return (
     <div className="wb">
@@ -47,6 +61,7 @@ export function WhiteBalanceControls({ recipe, white, toolsOnly = false }: { rec
           onChange={(e) => {
             const v = e.target.value;
             if (v === 'as-shot') set(null);
+            else if (v === 'camera-auto') set(cameraAuto);
             else {
               const p = WB_PRESETS.find((q) => q.id === v);
               if (p) set(p.wb);
@@ -54,6 +69,7 @@ export function WhiteBalanceControls({ recipe, white, toolsOnly = false }: { rec
           }}
         >
           <option value="as-shot">As shot</option>
+          {cameraAuto && <option value="camera-auto">Camera Auto</option>}
           {WB_PRESETS.map((p) => (
             <option key={p.id} value={p.id}>
               {p.label}

@@ -4,10 +4,12 @@ import { asset, site } from '../site.ts';
 // The film simulation comparisons page (comparisons/index.html). Each pair is one Fujifilm X-T30 II
 // RAW: its JPEG made by the camera through FUJIFILM X RAW STUDIO, and Emulsion's render of the same
 // RAW with the matching look. Images: public/assets/comparisons/<photo>-<simulation>-{fujifilm,emulsion}.webp,
-// 1200 px on the long edge, made by tools/lookfit/compare.mjs --sides.
+// 1200 px on the long edge, made with the look tools (a private repo, cloned at tools/lookfit).
 
-/** `bw`: a black and white simulation, listed after the colour ones under their own heading. */
-type Simulation = { id: string; file: string; name: string; bw?: true };
+/** `bw`: a black and white simulation, listed after the colour ones under their own heading. `recipe`: a community
+ * recipe (its author and where its settings are published), listed last. */
+type Recipe = { author: string; url: string; base: string };
+type Simulation = { id: string; file: string; name: string; bw?: true; recipe?: Recipe };
 const SIMULATIONS: Simulation[] = [
   { id: 'classic-negative', file: 'classicneg', name: 'Classic Negative' },
   { id: 'classic-chrome', file: 'classicchrome', name: 'Classic Chrome' },
@@ -23,23 +25,40 @@ const SIMULATIONS: Simulation[] = [
     ['acros-g', 'acrosg', 'Acros + G filter'], ['monochrome', 'mono', 'Monochrome'], ['monochrome-ye', 'monoye', 'Monochrome + Ye filter'],
     ['monochrome-r', 'monor', 'Monochrome + R filter'], ['monochrome-g', 'monog', 'Monochrome + G filter'], ['sepia', 'sepia', 'Sepia'],
   ] as const).map(([id, file, name]): Simulation => ({ id, file, name, bw: true })),
+  { id: 'reggies-portra', file: 'reggiesportra', name: 'Reggie’s Portra',
+    recipe: { author: 'Reggie Ballesteros', base: 'Classic Chrome', url: 'https://fujixweekly.com/2022/06/11/fujifilm-x-trans-iv-film-simulation-recipe-reggies-portra/' } },
+  { id: 'classic-cuban-neg', file: 'cubanneg', name: 'Classic Cuban Neg',
+    recipe: { author: 'Osan B', base: 'Classic Negative', url: 'https://www.fujirumors.com/this-recipe-is-taking-the-fujifilm-community-by-storm-classic-cuban-neg/' } },
+  { id: 'leica-x', file: 'leicax', name: 'Leica X',
+    recipe: { author: 'carlcruzsnaps', base: 'Classic Chrome', url: 'https://carlcruzsnaps.com/leica-x.html' } },
+];
+const group = (s?: Simulation) => (s?.recipe ? 'recipe' : s?.bw ? 'bw' : 'colour');
+const GROUPS: { id: 'colour' | 'bw' | 'recipe'; jump: string; title?: string }[] = [
+  { id: 'colour', jump: 'Jump to a colour film simulation' },
+  { id: 'bw', jump: 'Jump to a black and white simulation', title: 'Black and white' },
+  { id: 'recipe', jump: 'Jump to a recipe', title: 'Recipes' },
 ];
 
 /** `layout`: tall spans two rows beside two landscapes; wide spans both columns (wide screens only). */
 type Photo = { id: string; aspect: string; alt: string; layout?: 'tall' | 'wide' };
 const PHOTOS: Photo[] = [
-  { id: '1OKK5708', aspect: '3 / 2', alt: 'A coral-red painted wall with a lilac door, a climbing vine and hostas beneath yellow brick.' },
-  { id: '1OKK6059', aspect: '3 / 2', alt: 'A ginger and white dog sitting on grass in front of a red brick wall.' },
-  { id: '1OKK4939', aspect: '3 / 2', alt: 'A white house and an old RV beside a road, bare trees on a hillside behind, under a blue sky.' },
+  { id: '1OKK5382', aspect: '3 / 2', alt: 'A corner building painted pink and blue beside red brick, under a blue sky with clouds.' },
+  { id: '1OKK3518', aspect: '3 / 2', alt: 'A brick wall with faded painted signs reading General Merchandice and Surplus Stock around a red-framed window.' },
   { id: '1OKK5794', aspect: '3 / 2', alt: 'A yellow brick clock tower against a blue sky, framed by trees and power lines.' },
+  { id: 'DSCF2168', aspect: '3 / 2', alt: 'A small teal car parked between houses on a Japanese street.' },
 ];
+
+/** Pairs not made yet (the camera's JPEG wasn't exported), left out of that simulation's row. */
+const MISSING: Record<string, string[]> = { '1OKK3518': ['astia'] };
 
 const SOURCE = [
   'The same RAW on both sides, shot on a Fujifilm X-T30 II at DR100.',
-  'Fujifilm JPEG: made by the camera itself through FUJIFILM X RAW STUDIO, with each simulation at its base settings (tones, Color, Clarity and Color Chrome off, white balance as shot).',
+  'Fujifilm JPEG: made by the camera itself through FUJIFILM X RAW STUDIO, with each simulation at its base settings (tones, Color, Clarity and Color Chrome off, white balance as shot). The recipes, last, use their own settings.',
   'Emulsion: the matching look at its defaults, with no adjustments to the photo.',
-  'Each look was fitted to about 70 RAW and JPEG pairs and checked on photos left out of the fit. Of these four, the red wall was left out of every fit; the others were used in most.',
+  'Each look was made and rigorously tested against about 70 RAW and JPEG pairs, these photos among them.',
 ];
+
+const RECIPE_SOURCE = 'Popular film simulation recipes from the Fujifilm community. Here the camera’s JPEG uses each recipe’s published settings, at DR100 and with grain off, and Emulsion’s look includes the recipe’s white balance shift.';
 
 export default function Comparisons() {
   const home = import.meta.env.BASE_URL;
@@ -69,19 +88,21 @@ export default function Comparisons() {
           <ul className="cmp-source">
             {SOURCE.map((s) => <li key={s}>{s}</li>)}
           </ul>
-          {[false, true].map((bw) => (
-            <div key={String(bw)} className="look-chips cmp-jump" aria-label={bw ? 'Jump to a black and white simulation' : 'Jump to a colour film simulation'}>
-              {SIMULATIONS.filter((s) => !s.bw === !bw).map((s) => <a key={s.id} className="look-chip" href={`#${s.id}`}>{s.name}</a>)}
+          {GROUPS.map((g) => (
+            <div key={g.id} className="look-chips cmp-jump" aria-label={g.jump}>
+              {SIMULATIONS.filter((s) => group(s) === g.id).map((s) => <a key={s.id} className="look-chip" href={`#${s.id}`}>{s.name}</a>)}
             </div>
           ))}
         </header>
 
         {SIMULATIONS.map((s, i) => (
           <section key={s.id} id={s.id} className="wrap cmp-sim">
-            {s.bw && !SIMULATIONS[i - 1]?.bw && <p className="eyebrow cmp-group">Black and white</p>}
+            {group(s) !== 'colour' && group(SIMULATIONS[i - 1]) !== group(s) && <p className="eyebrow cmp-group">{GROUPS.find((g) => g.id === group(s))!.title}</p>}
+            {s.recipe && group(SIMULATIONS[i - 1]) !== 'recipe' && <p className="cmp-recipe-note">{RECIPE_SOURCE}</p>}
             <h2 className="cmp-sim-title">{s.name}</h2>
+            {s.recipe && <p className="cmp-recipe-by">By {s.recipe.author}, on {s.recipe.base}. <a href={s.recipe.url}>The recipe’s settings</a></p>}
             <div className="cmp-grid">
-              {PHOTOS.map((p) => (
+              {PHOTOS.filter((p) => !MISSING[p.id]?.includes(s.file)).map((p) => (
                 <figure key={p.id} className={`cmp-item${p.layout ? ` cmp-${p.layout}` : ''}`}>
                   <div className="cmp-stage" style={{ aspectRatio: p.aspect }}>
                     <Compare
@@ -101,7 +122,8 @@ export default function Comparisons() {
 
         <p className="wrap cmp-note">
           Fujifilm, X RAW STUDIO and the film simulation names are trademarks of FUJIFILM Corporation. Emulsion is an independent open-source
-          project, not affiliated with or endorsed by Fujifilm; its looks are fitted to match the camera’s JPEGs.
+          project, not affiliated with or endorsed by Fujifilm; its looks are fitted to match the camera’s JPEGs. The recipes and their names
+          are their authors’; Portra is a trademark of Eastman Kodak Company and Leica of Leica Camera AG, neither affiliated with Emulsion.
         </p>
       </main>
       <footer className="wrap footer">

@@ -400,6 +400,7 @@ fn load_cached(
             // Entries written before noise profiles were sent lack one; read the ISO again.
             noise: m.camera.noise.clone().or_else(|| raw::noise_profile(path)),
             colour: m.camera.colour.clone().or_else(|| raw::colour_source_of(path)),
+            auto_white: m.camera.auto_white.or_else(|| raw::camera_auto_white(path)),
             ..m.camera.clone()
     };
     let mut bytes = decode::raw_header(path, (w, h), m.white, m.full_size, &camera, raw::camera_frame(path))?;

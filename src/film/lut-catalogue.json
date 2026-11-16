@@ -1087,5 +1087,50 @@
     "file": "negative_old/kodak_portra_400_vc_-.cube",
     "iso": 400,
     "sha256": "d45357ed1feb43e64118ad92cea61733047d0e2aa76ab383e897822166c789d9"
+  },
+  {
+    "id": "lut:emulsion-luts:classic-cuban-neg",
+    "pack": "emulsion-luts",
+    "name": "Classic Cuban Neg (Osan B) (fitted LUT)",
+    "category": "Emulsion x Fuji Recipes",
+    "file": "classic-cuban-neg.cube",
+    "iso": 400,
+    "sha256": "7fd296fb543613f972a4c799e38a6f1ad87a82e896c2315bf6710e86444ee4fe"
+  },
+  {
+    "id": "lut:emulsion-luts:reggies-portra",
+    "pack": "emulsion-luts",
+    "name": "Reggie's Portra (Reggie B) (fitted LUT)",
+    "category": "Emulsion x Fuji Recipes",
+    "file": "reggies-portra.cube",
+    "iso": 400,
+    "sha256": "c694f242bd3fa954f27f3297569d962ca01f13cadf2d47087ae60521ea779968"
+  },
+  {
+    "id": "lut:emulsion-luts:leica-x",
+    "pack": "emulsion-luts",
+    "name": "Leica X (carlcruzsnaps) (fitted LUT)",
+    "category": "Emulsion x Fuji Recipes",
+    "file": "leica-x.cube",
+    "iso": 400,
+    "sha256": "2d4ee331c458675ac62cec294b1e78a0719547f4cf8c8fa94c4bf6e7b2d06ee2"
+  },
+  {
+    "id": "lut:emulsion-luts:velvia",
+    "pack": "emulsion-luts",
+    "name": "Velvia (fitted LUT)",
+    "category": "Emulsion x Fuji",
+    "file": "velvia.cube",
+    "iso": 400,
+    "sha256": "f40776225a48c97b09f1472720512ab5b39300f76553d71b2fcf2f56d3ca5ae2"
+  },
+  {
+    "id": "lut:emulsion-luts:classic-negative",
+    "pack": "emulsion-luts",
+    "name": "Classic Negative (fitted LUT)",
+    "category": "Emulsion x Fuji",
+    "file": "classic-negative.cube",
+    "iso": 400,
+    "sha256": "ab0afd2223fdb0625df4b32c26035716007421147ae0e78a56cdb0e264c6aa6e"
   }
 ]

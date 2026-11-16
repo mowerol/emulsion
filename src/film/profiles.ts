@@ -13,6 +13,9 @@ export interface CameraMetadata {
   noise?: import('../engine/denoiseprofile').NoiseProfile | null;
   /** Where `cameraToWorking` comes from (src-tauri/src/raw.rs `ColourSource`); absent from older payloads. */
   colour?: ColourSource | null;
+  /** The camera's own Auto white point, CIE xy, when the file records it apart from the as-shot
+   * one (Fujifilm RAWs shot with a white balance shift or a fixed white balance; src-tauri raw.rs). */
+  autoWhite?: [number, number] | null;
 }
 export type ColourSource = { kind: 'camera' } | { kind: 'darktable' } | { kind: 'none' };
 export const cameraKey = (camera: Pick<CameraMetadata, 'make' | 'model'>): string => `${camera.make} ${camera.model}`.trim();

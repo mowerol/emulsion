@@ -231,6 +231,73 @@ impl RafCrop {
     }
 }
 
+/// How far the as-shot white balance sits from the camera's own Auto, as gains on camera R, G, B
+/// (as shot times these = Auto). Fujifilm stores both in the Fuji IFD (the little TIFF at the raw
+/// data offset): 0xf00d is Auto without the photographer's fine-tune shift, 0xf00e is as shot, both
+/// as G, R, B levels. They differ when the photo was shot with a shift or a fixed white balance
+/// (Daylight, Kelvin...). None when the file has no such IFD or they are the same.
+pub fn auto_gains(path: &Path) -> Option<[f32; 3]> {
+    if !path.extension()?.eq_ignore_ascii_case("raf") {
+        return None;
+    }
+    let mut file = File::open(path).ok()?;
+    let mut header = [0u8; 108];
+    file.read_exact(&mut header).ok()?;
+    if !header.starts_with(b"FUJIFILMCCD-RAW ") {
+        return None;
+    }
+    let start = u32::from_be_bytes(header[100..104].try_into().ok()?) as u64;
+    file.seek(SeekFrom::Start(start)).ok()?;
+    let mut bytes = vec![0; 65_536];
+    let n = file.read(&mut bytes).ok()?;
+    bytes.truncate(n);
+    gains_from_ifd(&bytes)
+}
+
+fn gains_from_ifd(d: &[u8]) -> Option<[f32; 3]> {
+    let le = match d.get(..4)? {
+        b"II*\0" => true,
+        b"MM\0*" => false,
+        _ => return None,
+    };
+    let u16_at = |o: usize| d.get(o..o + 2).map(|b| if le { u16::from_le_bytes([b[0], b[1]]) } else { u16::from_be_bytes([b[0], b[1]]) });
+    let u32_at = |o: usize| d.get(o..o + 4).map(|b| { let a = [b[0], b[1], b[2], b[3]]; if le { u32::from_le_bytes(a) } else { u32::from_be_bytes(a) } });
+    let (mut auto, mut shot) = (None, None);
+    let mut ifds = vec![u32_at(4)? as usize];
+    let mut visited = 0;
+    while let Some(o) = ifds.pop() {
+        visited += 1;
+        if visited > 4 {
+            return None;
+        }
+        let count = u16_at(o)? as usize;
+        if count > 256 {
+            return None;
+        }
+        for k in 0..count {
+            let e = o + 2 + 12 * k;
+            let (tag, kind, n, value) = (u16_at(e)?, u16_at(e + 2)?, u32_at(e + 4)?, u32_at(e + 8)?);
+            match tag {
+                0xf000 => ifds.push(value as usize),
+                0xf00d | 0xf00e if kind == 4 && n == 3 => {
+                    let v = value as usize;
+                    let grb = [u32_at(v)? as f32, u32_at(v + 4)? as f32, u32_at(v + 8)? as f32];
+                    if tag == 0xf00d { auto = Some(grb) } else { shot = Some(grb) }
+                }
+                _ => {}
+            }
+        }
+    }
+    let (a, s) = (auto?, shot?);
+    if a.iter().chain(&s).any(|v| !(*v > 0.0)) || a == s {
+        return None;
+    }
+    // Levels are multipliers on G, R, B; normalise each to its green.
+    let gains = [(a[1] / a[0]) / (s[1] / s[0]), 1.0, (a[2] / a[0]) / (s[2] / s[0])];
+    // Between any two real white balances (2500 K to 10000 K) a channel moves well within 4x.
+    gains.iter().all(|g| (0.25..4.0).contains(g)).then_some(gains)
+}
+
 pub fn orient([x, y, w, h]: [f32; 4], flip: i32) -> [f32; 4] {
     let r = match flip {
         3 => [1.0 - x - w, 1.0 - y - h, w, h],
@@ -288,6 +355,52 @@ pub fn metadata(path: &Path) -> Option<CameraFrame> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A Fuji IFD as an X-T30 II writes it: a TIFF whose one entry (0xf000) points at the
+    /// directory holding the white balance levels, G, R, B.
+    fn fuji_ifd(auto: [u32; 3], shot: [u32; 3]) -> Vec<u8> {
+        let mut d = b"II*\0".to_vec();
+        d.extend(8u32.to_le_bytes());
+        d.extend(1u16.to_le_bytes());
+        d.extend([0x00, 0xf0, 13, 0]);
+        d.extend(1u32.to_le_bytes());
+        d.extend(26u32.to_le_bytes());
+        d.extend(0u32.to_le_bytes()); // next IFD; the sub IFD starts at 26
+        d.extend(2u16.to_le_bytes());
+        let values = 26 + 2 + 2 * 12 + 4;
+        for (k, tag) in [0xf00du16, 0xf00e].into_iter().enumerate() {
+            d.extend(tag.to_le_bytes());
+            d.extend(4u16.to_le_bytes());
+            d.extend(3u32.to_le_bytes());
+            d.extend((values as u32 + 12 * k as u32).to_le_bytes());
+        }
+        d.extend(0u32.to_le_bytes());
+        for v in auto.iter().chain(&shot) { d.extend(v.to_le_bytes()); }
+        d
+    }
+
+    #[test]
+    fn auto_gains_undo_the_shift() {
+        // DSCF0302.RAF, shot at Auto with R+3 B-2.
+        let g = gains_from_ifd(&fuji_ifd([302, 580, 543], [302, 637, 505])).unwrap();
+        assert_eq!(g[1], 1.0);
+        assert!((g[0] - 580.0 / 637.0).abs() < 1e-6 && (g[2] - 543.0 / 505.0).abs() < 1e-6, "{g:?}");
+        // As shot times the gains is Auto.
+        assert!((637.0 * g[0] - 580.0).abs() < 1e-3 && (505.0 * g[2] - 543.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn auto_gains_need_auto_to_differ() {
+        assert_eq!(gains_from_ifd(&fuji_ifd([302, 559, 535], [302, 559, 535])), None, "no shift");
+        // A fixed white balance (Daylight here) far from the camera's Auto still has one.
+        assert!(gains_from_ifd(&fuji_ifd([302, 559, 535], [302, 700, 420])).is_some());
+        assert_eq!(gains_from_ifd(&fuji_ifd([302, 559, 535], [302, 5000, 30])), None, "not a white balance");
+        assert_eq!(gains_from_ifd(&fuji_ifd([0, 559, 535], [302, 600, 500])), None);
+        assert_eq!(gains_from_ifd(b"not a tiff"), None);
+        let mut cut = fuji_ifd([302, 580, 543], [302, 637, 505]);
+        cut.truncate(40);
+        assert_eq!(gains_from_ifd(&cut), None);
+    }
     fn sample(aspect: (u16, u16), zoom: Option<[u16; 4]>) -> Vec<u8> {
         let pair = |a: u16, b: u16| [a.to_be_bytes(), b.to_be_bytes()].concat();
         let mut tags = vec![

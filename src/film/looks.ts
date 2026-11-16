@@ -9,7 +9,7 @@ import catalogue from './lut-catalogue.json';
 import { LOCAL_LOOKS } from './local-looks';
 import emulsionLooks from './emulsion-looks.json';
 
-export type PackId = 'custom' | 'files' | 'emulsion-looks' | 't3mujinpack' | 'gmic-film' | 'fuji-test' | 'fuji-xtrans-iii' | 'spektrafilm';
+export type PackId = 'custom' | 'files' | 'emulsion-looks' | 'emulsion-luts' | 't3mujinpack' | 'gmic-film' | 'fuji-test' | 'fuji-xtrans-iii' | 'spektrafilm';
 
 /** A stock's LUT in a pack: a file under public/looks/<pack>/, one per push step if it has them. */
 export interface PackLook {
@@ -84,8 +84,13 @@ export const PACKS: LookPack[] = [
   { id: 'custom', name: 'Custom looks', hint: 'Your own looks: a LUT and hidden colour and tone settings, with one Amount.', looks: {}, user: true },
   { id: 'files', name: 'Imported LUTs', hint: 'LUT files available as a look’s optional base.', looks: {}, user: true, hidden: true },
   {
-    id: 'emulsion-looks', name: 'Emulsion', hint: 'Emulsion’s own looks: colour and tone settings, no LUT.',
+    id: 'emulsion-looks', name: 'Emulsion', hint: 'Emulsion’s own looks: colour and tone settings, some with a LUT.',
     looks: Object.fromEntries(BUILTIN_LOOKS.map((l) => [l.id, builtinEntry(l)])),
+  },
+  {
+    // The LUTs that some of Emulsion's own looks use, named in their settings. Not offered on their own.
+    id: 'emulsion-luts', name: 'Emulsion look LUTs', hint: 'LUTs used by Emulsion’s own looks.',
+    looks: bundledLooks('emulsion-luts'), hidden: true,
   },
   {
     id: 't3mujinpack',

@@ -106,7 +106,7 @@ export default function Looks() {
         </article>
 
         {/* One X-T30 II RAW: the camera's JPEG (FUJIFILM X RAW STUDIO) beside Emulsion's Classic Chrome,
-            from the comparisons page's images (tools/lookfit/compare.mjs --sides). */}
+            from the comparisons page's images (made with the private look tools at tools/lookfit). */}
         <article data-reveal className="card feature fuji-card">
           <div className="feature-text">
             <h3 className="h3 h3-sm">Emulsion x Fuji</h3>

@@ -307,6 +307,10 @@ pub struct CameraMetadata {
     /// Where `camera_to_working` comes from; absent from older cached payloads.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub colour: Option<ColourSource>,
+    /// The camera's own Auto white point (CIE xy) when the file records it apart from the
+    /// as-shot one: Fujifilm RAWs shot with a white balance shift or a fixed white balance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_white: Option<[f32; 2]>,
 }
 
 /// A decoded RAW.
@@ -340,6 +344,24 @@ pub fn white_point(cam_xyz: &Mat3, cam_mul: &[f32; 3]) -> Option<[f32; 2]> {
 fn white_for(info: &EmuRawInfo) -> Option<[f32; 2]> {
     let (matrix, _) = colour_of(&info);
     white_point(&matrix?, &info.cam_mul)
+}
+
+fn auto_white_for(info: &EmuRawInfo, g: [f32; 3]) -> Option<[f32; 2]> {
+    let (matrix, _) = colour_of(info);
+    white_point(&matrix?, &[info.cam_mul[0] * g[0], info.cam_mul[1] * g[1], info.cam_mul[2] * g[2]])
+}
+
+/// The camera's own Auto white point of `path` (see `CameraMetadata::auto_white`), reading
+/// metadata only.
+pub fn camera_auto_white(path: &Path) -> Option<[f32; 2]> {
+    let gains = crate::raf::auto_gains(path)?;
+    let cpath = c_path(path).ok()?;
+    let mut info = EmuRawInfo::empty();
+    let mut err = [0 as c_char; 256];
+    openmp_root();
+    let rc = unsafe { emu_raw_info(cpath.as_ptr(), &mut info, err.as_mut_ptr(), err.len()) };
+    if rc != 0 { return None; }
+    auto_white_for(&info, gains)
 }
 
 fn frame_for(path: &Path, info: &EmuRawInfo) -> Option<[f32; 4]> {
@@ -394,6 +416,13 @@ pub fn working_to_camera(path: &Path) -> Result<Mat3, String> {
 /// Decode `path`. With `half`, LibRaw skips the demosaic and returns half
 /// size, which is several times faster and plenty for a preview.
 pub fn decode(path: &Path, half: bool) -> Result<Decoded, String> {
+    decode_balanced(path, half, None)
+}
+
+/// `decode`, with the as-shot white balance moved by `gains` on camera R, G, B first (the
+/// white point and neutral follow), such as a Fujifilm RAW's way to the camera's own Auto
+/// (`raf::auto_gains`).
+pub fn decode_balanced(path: &Path, half: bool, gains: Option<[f32; 3]>) -> Result<Decoded, String> {
     let cpath = c_path(path)?;
     let mut info = EmuRawInfo::empty();
     let mut img: *mut c_void = std::ptr::null_mut();
@@ -413,6 +442,11 @@ pub fn decode(path: &Path, half: bool) -> Result<Decoded, String> {
         }
         return Err(format!("Could not decode RAW {}: {}", file_name(path), error_text(&err)));
     }
+    let auto_white = crate::raf::auto_gains(path).and_then(|a| auto_white_for(&info, a));
+    let g = gains.unwrap_or([1.0; 3]);
+    if gains.is_some() {
+        info.cam_mul = [info.cam_mul[0] * g[0], info.cam_mul[1] * g[1], info.cam_mul[2] * g[2]];
+    }
     let (w, h) = (info.width as u32, info.height as u32);
     let model = error_text(&info.model);
     let make = error_text(&info.make);
@@ -430,7 +464,7 @@ pub fn decode(path: &Path, half: bool) -> Result<Decoded, String> {
     let scale = BASELINE_GAIN / 65535.0;
     let mut out = vec![0f32; n];
     out.par_chunks_mut(3).zip(src.par_chunks(3)).for_each(|(o, s)| {
-        let c = [s[0] as f32 * scale, s[1] as f32 * scale, s[2] as f32 * scale];
+        let c = [s[0] as f32 * scale * g[0], s[1] as f32 * scale * g[1], s[2] as f32 * scale * g[2]];
         for (i, v) in o.iter_mut().enumerate() {
             // Keep out-of-gamut values until lens CA has resampled the camera channels.
             // The GPU input stage clips them after correction (as before for other RAWs).
@@ -449,7 +483,7 @@ pub fn decode(path: &Path, half: bool) -> Result<Decoded, String> {
     } else { None };
     let noise = Some(crate::noiseprofiles::for_camera(&make, &model, info.iso));
     let colour = Some(source);
-    let camera = CameraMetadata { make, model, camera_to_working: m, neutral, baseline_gain: BASELINE_GAIN, noise, colour };
+    let camera = CameraMetadata { make, model, camera_to_working: m, neutral, baseline_gain: BASELINE_GAIN, noise, colour, auto_white };
     Ok(Decoded { image: DynamicImage::ImageRgb32F(buf), white: white_for(&info), full_size, frame: frame_for(path, &info), camera_to_working: m, camera })
 }
 

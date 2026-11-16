@@ -147,7 +147,7 @@ export function LookChooser({ photo, recipe, onPick, onAmount, onEdit, onNew, on
       else if(!e.shiftKey && document.activeElement===last){e.preventDefault();first?.focus();}
     }
   }}>
-    <header className="look-browser-heading"><div><strong>{name}</strong><button className="btn" onClick={close}>Close</button></div>{amount}</header>
+    <header className="look-browser-heading"><div><span className="look-browser-name" data-tip={name}><strong>{name}</strong></span><button className="btn" onClick={close}>Close</button></div>{amount}</header>
     <div className="look-browser-toolbar"><div className="look-colour-filters" role="group" aria-label="Look colour filter">{(['all','colour','bw'] as const).map(f=><button key={f} aria-pressed={filter===f} onClick={()=>setFilter(f)}>{f==='all'?'All':f==='colour'?'Colour':'B&W'}</button>)}</div><div className="look-view-buttons" role="group" aria-label="Look browser layout"><button aria-label="List view" aria-pressed={preferences.view==='list'} onClick={()=>setLookBrowserView('list')}>☰</button><button aria-label="Grid view" aria-pressed={preferences.view==='grid'} onClick={()=>setLookBrowserView('grid')}><GridIcon/></button></div></div>
     <div className="look-browser-search">
       <input className="look-search" type="search" aria-label="Search looks" placeholder="Search looks…" value={query} onChange={e=>setQuery(e.target.value)}/>

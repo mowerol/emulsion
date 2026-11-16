@@ -267,6 +267,29 @@ Implemented from the papers, not from code.
 - Ported to: `src/engine/grain.ts` (reference) and `src/engine/shaders/stages/grain.glsl`
 - Changes: translated from C to TypeScript and GLSL (single precision on the GPU). The lightness channel only, darktable's default; the paper response evaluated directly rather than from its 128 × 128 table; a per-photo offset from Emulsion's seed rather than a hash of the file name modulo the view width; grain on the uncropped frame; Lab relative to D65. Size is darktable's coarseness in its ISO units, set from the stock's film speed and doubled per stop of push. Replaces Emulsion's earlier grain from the statistics of Newson et al.'s Boolean model
 
+## Looks from community film simulation recipes
+
+These looks are matched to what a Fujifilm X-T30 II makes with each recipe's published settings. The settings are the
+recipe authors' work; the looks credit them in their names (the author's first name and initial, or their handle).
+The looks themselves, including their LUTs in `public/looks/emulsion-luts/`, are Emulsion's own work. Each recipe is
+used at DR100 with its grain off (Emulsion's grain defaults to 0). Its white balance shift's colour is part of the
+look, which leaves the photo's own white balance as it is.
+
+### Reggie's Portra, by Reggie Ballesteros
+- Source: https://fujixweekly.com/2022/06/11/fujifilm-x-trans-iv-film-simulation-recipe-reggies-portra/ (published by Ritchie Roesch, Fuji X Weekly)
+- Settings: Classic Chrome, Highlight −1, Shadow −1, Color +2, Color Chrome Effect Strong, Color Chrome FX Blue Weak, white balance Auto R+2 B−4.
+- Look: `emulsion-fuji-reggies-portra` in `src/film/emulsion-looks.json`
+
+### Classic Cuban Neg, by Osan B (@osanbilgi)
+- Source: https://www.fujirumors.com/this-recipe-is-taking-the-fujifilm-community-by-storm-classic-cuban-neg/
+- Settings: Classic Negative, Highlight −2, Shadow +1, Color +4, Clarity −4, Color Chrome Effect Strong, Color Chrome FX Blue Strong, white balance Auto R+4 B−5.
+- Look: `emulsion-fuji-classic-cuban-neg`
+
+### Leica X, by carlcruzsnaps
+- Source: https://carlcruzsnaps.com/leica-x.html
+- Settings: Classic Chrome, Highlight −1, Shadow 0, Color +4, Color Chrome Effect Strong, Color Chrome FX Blue Strong, white balance Auto R+1 B−2. Made on an X-Trans V camera (X100VI); fitted to the X-T30 II's (X-Trans IV) rendering of the same settings.
+- Look: `emulsion-fuji-leica-x`
+
 ## Bundled libraries
 
 ### Halation and Glow (spektrafilm optics), from darktable and spektrafilm

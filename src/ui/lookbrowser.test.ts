@@ -23,11 +23,13 @@ describe('look browser folders', () => {
 
   it('puts Emulsion’s own looks first and each further category in its own folder', () => {
     const folders = lookGroups(items, []).filter(g => g.pack === 'emulsion-looks');
-    expect(folders.map(g => g.id)).toEqual(['emulsion-looks', 'emulsion-looks:Emulsion x Fuji']);
+    expect(folders.map(g => g.id)).toEqual(['emulsion-looks', 'emulsion-looks:Emulsion x Fuji', 'emulsion-looks:Emulsion x Fuji Recipes']);
     expect(folders[0].entries.map(i => i.name)).toEqual(['Emulsion Standard', 'Emulsion Neg', 'Emulsion Chrome', 'Emulsion Gold', 'B&W Dynamic', 'B&W Classic']);
     expect(folders[1]).toMatchObject({ title: 'Emulsion x Fuji', label: 'Emulsion x Fuji' });
     expect(folders[1].entries.map(i => i.stock).slice(0, 2)).toEqual(['emulsion-fuji-classic-negative', 'emulsion-fuji-classic-chrome']);
     expect(folders[1].entries.every(i => PACK['emulsion-looks'].looks[i.stock]?.category === 'Emulsion x Fuji')).toBe(true);
+    expect(folders[2]).toMatchObject({ title: 'Emulsion x Fuji Recipes', label: 'Emulsion x Fuji Recipes' });
+    expect(folders[2].entries.map(i => i.name)).toContain("Reggie's Portra (Reggie B)");
   });
 
   it('toggles a folder and clears every hidden folder', () => {

@@ -44,3 +44,6 @@ tools/probe/dist
 
 # Working notes for Oli and the agents, kept local (see CLAUDE.md)
 /HANDOFF.md
+
+# Look fitting tools: a private repo (mowerol/emulsion-lookfit) cloned here.
+tools/lookfit/
