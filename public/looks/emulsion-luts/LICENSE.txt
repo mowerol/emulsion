@@ -1,0 +1,10 @@
+Emulsion look LUTs
+
+These LUTs are part of Emulsion and are its own work, licensed like the rest of Emulsion under the
+GNU General Public License, version 3 or later (GPL-3.0-or-later; see LICENSE at the top of the
+Emulsion repository). Some of Emulsion's own looks name them in their settings (src/film/emulsion-looks.json).
+
+The film simulation recipes that some of these looks match are their authors' work; NOTICE.md
+credits each one. Fujifilm and the film simulation names are trademarks of FUJIFILM Corporation;
+Portra is a trademark of Eastman Kodak Company and Leica of Leica Camera AG. Emulsion is not
+affiliated with or endorsed by any of them.

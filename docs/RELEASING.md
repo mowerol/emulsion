@@ -84,6 +84,7 @@ Only packs with an explicit licence ship (`public/looks`):
 | --- | --- | --- |
 | `gmic-film` (Pat David / RawTherapee film simulation: B&W and negatives, 121) | CC BY-SA 4.0 | `public/looks/gmic-film/SOURCES.md` |
 | `t3mujinpack` (João Almeida, 8) | MIT | `public/looks/t3mujinpack/LICENSE.txt` |
+| `emulsion-luts` (Emulsion's own, used by some of its looks; hidden) | GPL-3.0-or-later | `public/looks/emulsion-luts/LICENSE.txt` |
 
 PictureFX and Pat David's slide and instant sets were dropped before the 0.1.0 beta; the
 CineStill/SX-70 packs were never bundled. `local-looks/` (Fuji X-Trans III, Fuji GFX tests, spektrafilm) is git-ignored and
