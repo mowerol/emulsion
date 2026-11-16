@@ -18,6 +18,7 @@
         },
         {
           "controls": [
+            "wb-tools",
             "temperature",
             "tint"
           ],

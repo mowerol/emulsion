@@ -23,7 +23,7 @@ it('bundles the saved Develop, Color and Masks layout with its selected controls
   const layout = minimalControlWorkspace();
   expect(layout.groups.map(g => [g.name, g.icon])).toEqual([['Develop', 'film'], ['Color', 'palette'], ['Masks', 'layers']]);
   expect(layout.groups[0].sections.map(s => s.source)).toEqual(['stock', 'whitebalance', 'exposure', 'hdr', 'curve', 'grain', 'optics', 'noise', 'detail']);
-  expect(layout.groups[0].sections.find(s => s.source === 'whitebalance')!.controls).toEqual(['temperature', 'tint']);
+  expect(layout.groups[0].sections.find(s => s.source === 'whitebalance')!.controls).toEqual(['wb-tools', 'temperature', 'tint']);
   expect(layout.groups[0].sections.find(s => s.source === 'optics')!.controls).toEqual(['halation', 'halationSize', 'glow', 'glowSize']);
   expect(layout.groups[0].sections.find(s => s.source === 'detail')!.controls).toEqual(['clarity', 'dehaze']);
   expect(layout.groups[0].sections.find(s => s.source === 'noise')!.controls).toEqual(['noise:amount']);
