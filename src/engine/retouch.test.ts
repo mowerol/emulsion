@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it, vi } from 'vitest';
 import { strokeSegments, segmentValue } from './brush';
-import { NO_SCALES, RetouchCache, circleArea, reducedRegion, retouch, retouchInputs, retouchReduced, retouchRegion, spotDelta, spotMask, type RetouchSetup } from './retouch';
+import { NO_SCALES, RetouchCache, circleArea, reducedRegion, retouch, retouchInputs, retouchReduced, retouchRegion, scaledMask, scaledSpotMask, spotDelta, spotMask, type RetouchSetup } from './retouch';
 import { PATCH_SIZE, preRetouchKey, type Patch, type PatchRequest } from './remove';
 import { defaultRecipe } from '../film/recipe';
 import { applyPreset } from '../film/presets';
@@ -144,6 +144,38 @@ describe('retouch spots (darktable retouch.c)', () => {
     expect(out[1].tool).toBe('heal');
     expect(out[1].opacity).toBe(1);
     expect(normalizeRetouch(undefined)).toEqual([]);
+  });
+});
+
+describe('scaled spot masks (#31)', () => {
+  const node = (x: number, y: number, border: number, hardness = .66, density = 1) => ({ x, y, border, hardness, density });
+  const shapes = [
+    { kind: 'circle' as const, center: [.4, .55] as [number, number], radius: .08, border: .05 },
+    { kind: 'ellipse' as const, center: [.6, .4] as [number, number], radius: [.12, .05] as [number, number], rotation: 30, border: .04, proportional: false },
+    { kind: 'brush' as const, nodes: [node(.3, .3, .05), node(.45, .35, .06, .4, .8), node(.5, .6, .04, .9, 1)] },
+    { kind: 'brush' as const, nodes: [node(.2, .7, .03)], more: [[node(.7, .2, .08, 0, .5), node(.8, .5, .02, 1, 1)]] },
+  ];
+
+  it('equal the full-size mask resampled, at every scale, shift and padding', () => {
+    const W = 900, H = 600;
+    for (const shape of shapes) for (const scale of [1, .5, .37, .137]) for (const [dx, dy, padding] of [[0, 0, 0], [7, -12, 1], [-30, 4, 0]]) {
+      const roiIn = { x: Math.round(40 * scale), y: Math.round(25 * scale), w: Math.round(780 * scale), h: Math.round(520 * scale) };
+      const { roi, mask } = spotMask(shape, W, H);
+      expect(scaledSpotMask(shape, W, H, roiIn, Math.fround(scale), dx, dy, padding)).toEqual(scaledMask(mask, roi, roiIn, Math.fround(scale), dx, dy, padding));
+    }
+  });
+
+  it('make a reduced view\'s brush mask from the pixels it shows, not the full size', () => {
+    // A default GFX100 brush stroke at Fit: 1.7 MP at full size, about 1/50 of it shown.
+    const W = 11662, H = 8746, scale = Math.fround(1664 / W);
+    const shape = { kind: 'brush' as const, nodes: Array.from({ length: 6 }, (_, i) => node(.3 + i * .012, .3 + i * .004, .05)) };
+    const before = brushWork.evaluations;
+    const scaled = scaledSpotMask(shape, W, H, { x: 0, y: 0, w: 1664, h: 1248 }, scale, 0, 0, 0)!;
+    const used = brushWork.evaluations - before;
+    expect(scaled.mask.some(v => v === 1)).toBe(true);
+    // Fewer segment evaluations than the full-size mask has pixels: it was never made.
+    const full = spotMask(shape, W, H).roi;
+    expect(used).toBeLessThan(full.w * full.h);
   });
 });
 

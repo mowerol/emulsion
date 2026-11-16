@@ -119,7 +119,9 @@ export function segmentValue(s: Segment, x: number, y: number): number {
   const dy = s[3] - s[1];
   const l = dx * dx + dy * dy;
   const t = l > 0 ? Math.min(1, Math.max(0, ((x - s[0]) * dx + (y - s[1]) * dy) / l)) : 0;
-  const d = Math.hypot(x - (s[0] + t * dx), y - (s[1] + t * dy));
+  // sqrt as darktable's sqrtf and the shader's length(); Math.hypot is several times slower.
+  const ex = x - (s[0] + t * dx), ey = y - (s[1] + t * dy);
+  const d = Math.sqrt(ex * ex + ey * ey);
   return falloff(d, s[4] + t * (s[5] - s[4]), s[6] + t * (s[7] - s[6]), s[8] + t * (s[9] - s[8]));
 }
 
