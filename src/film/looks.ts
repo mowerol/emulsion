@@ -258,7 +258,7 @@ export function lutBase(pack: PackId, stock: StockId) {
 }
 
 /** The Emulsion x Fuji look for each Fujifilm film simulation, by the names `lens::fuji_simulation`
- * reads from a RAF. Simulations without a look here (Nostalgic Neg, Reala Ace) keep the default.
+ * reads from a RAF.
  * Black and white names carry the colour filter (`acros-r`); a plain `acros` or `monochrome` may also
  * come from a library read before the filters were named. */
 const SIMULATION_LOOKS: Record<string, string> = {
@@ -266,6 +266,7 @@ const SIMULATION_LOOKS: Record<string, string> = {
   'pro-neg-hi': 'emulsion-film-pro-neg-hi', 'pro-neg-std': 'emulsion-film-pro-neg-std',
   provia: 'emulsion-film-provia', velvia: 'emulsion-film-velvia', astia: 'emulsion-film-astia',
   eterna: 'emulsion-film-eterna', 'bleach-bypass': 'emulsion-film-bleach',
+  'reala-ace': 'emulsion-fuji-reala-ace', 'nostalgic-neg': 'emulsion-fuji-nostalgic-neg',
   ...Object.fromEntries(['acros', 'acros-ye', 'acros-r', 'acros-g', 'monochrome', 'monochrome-ye', 'monochrome-r', 'monochrome-g', 'sepia']
     .map((s) => [s, `emulsion-fuji-${s}`])),
 };

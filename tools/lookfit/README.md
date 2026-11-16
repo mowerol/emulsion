@@ -113,3 +113,44 @@ AcrosYe, AcrosR, AcrosG, Mono, MonoYe, MonoR, MonoG, Sepia): `caffeinate -i tool
   tab) would follow them exactly, if that is ever wanted; Oli found them good as they are.
 - Acros adds its own grain at higher ISO, which the fit ignores (grain defaults to 0).
 - Not distinguished: Monochrome's warm/cool toning (WC/MG), which the base recipe leaves at 0.
+
+## Simulations the X-T30 II lacks: one studio RAW through Lightroom (2026-11-16)
+
+Reala Ace and Nostalgic Neg aren't in the X-T30 II, so X RAW Studio can't make them. They were fitted
+to Lightroom's Camera Matching profiles applied to one RAW of DPReview's studio scene (X-T5, base ISO,
+daylight; ColorChecker, grey scale, paints, threads, colour wheels, printed faces). Lightroom only lists
+those profiles for bodies that have the simulation.
+
+- **Exports:** Lightroom Classic, Profile "Camera REALA ACE v2" and "Camera NOSTALGIC Neg" (a Look on the
+  Provia profile; check the XMP), white balance As Shot, everything else at defaults, lens profile off,
+  full-size JPEG. Each export goes beside a link to the RAF with the same name.
+- **Fit:** `lookfit.mjs --flat-tone --exposure 0`, pin the white point, then `--color --balance --holdout 0`,
+  from the usual start (Classic Negative's colour balance masks, straight curve, zero HSL). `--balance`
+  spreads the colour samples over hue and lightness; spread over the frame they are mostly the black
+  background.
+- **Is one scene enough?** Checked on simulations we have the camera's own JPEGs for: each was fitted from
+  the one X-T5 export, then scored against the camera JPEGs of the 77 X-T30 II photos (`--color --evaluate`,
+  ΔE76):
+
+  | | from one studio export | our look (fitted on those 77) | Provia instead |
+  |---|---|---|---|
+  | Classic Chrome (Lightroom) | 1.95 | 1.84 | 5.50 |
+  | Classic Chrome (Capture One) | 2.04 | | |
+  | Pro Neg Hi (Lightroom) | 2.31 | 1.91 | 3.48 |
+  | Classic Negative (Capture One) | 2.96 | 2.45 | 7.85 |
+
+  Greens and yellows carry over worst (the scene's greens are fake grass and feathers).
+- **Lightroom or Capture One:** both alike, Lightroom slightly closer (Provia's ColorChecker against the
+  camera's own JPEG, brightness matched: 2.55 against 2.80; both more contrasty and more saturated in
+  oranges, yellows and skin than the camera). Averaging them doesn't help; their errors agree.
+- **Brightness:** the X-T5's own JPEG is ~0.35 EV brighter than Lightroom's, Capture One's and our Provia
+  (fitted on the X-T30 II), which agree with each other (ours vs Lightroom's Provia ΔE 1.8). So the
+  exports are fitted at exposure 0, with no offset.
+- **Not used:** `--fix A,B` (moves the export by the converter's Provia error against the camera's Provia
+  JPEG, fitted at +0.35 EV) made every check worse (Classic Chrome 2.13, Pro Neg Hi 2.43): the converter's
+  error on Provia doesn't carry to its other profiles.
+- **Results** on the studio scene (ΔE76 against the export): Reala Ace 2.36, Nostalgic Neg 3.12 (Capture
+  One's: 2.51, 3.36). Nostalgic Neg's leftovers are greens, yellows and magentas (~5). A camera JPEG pair
+  (someone's X-T5, X100VI or X-T50 RAW+JPEG shot in either simulation) would beat this; nothing here has
+  been checked against the camera.
+- `compare.mjs --pair RAW,JPEG,LOOK,LABEL,Lightroom` makes the side-by-sides from any such pair.

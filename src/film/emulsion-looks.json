@@ -1971,6 +1971,274 @@
     }
   },
   {
+    "id": "emulsion-fuji-reala-ace",
+    "name": "Reala Ace",
+    "category": "Emulsion x Fuji",
+    "bw": false,
+    "revision": 1,
+    "settings": {
+      "colorBalance": {
+        "shadows_weight": 0.48,
+        "white_fulcrum": -1.07,
+        "highlights_weight": 1.45,
+        "grey_fulcrum": 0.1821,
+        "mask_grey_fulcrum": 0.0687,
+        "saturation_global": 0.037,
+        "saturation_shadows": 0.073,
+        "saturation_midtones": 0.026,
+        "saturation_highlights": 0.02,
+        "chroma_global": -0.013,
+        "chroma_shadows": 0.049,
+        "chroma_midtones": 0.006,
+        "chroma_highlights": -0.01,
+        "vibrance": 0.041,
+        "shadows_C": 0.01963,
+        "shadows_H": 26.3,
+        "midtones_C": 0.00412,
+        "midtones_H": 174.43,
+        "highlights_C": 0.00392,
+        "highlights_H": 37.75
+      },
+      "curve": {
+        "rgb": [
+          [
+            0,
+            0
+          ],
+          [
+            0.06,
+            0.0231
+          ],
+          [
+            0.15,
+            0.1
+          ],
+          [
+            0.28,
+            0.2457
+          ],
+          [
+            0.42,
+            0.4415
+          ],
+          [
+            0.56,
+            0.6639
+          ],
+          [
+            0.7,
+            0.8434
+          ],
+          [
+            0.84,
+            0.9425
+          ],
+          [
+            1,
+            1
+          ]
+        ],
+        "r": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            1
+          ]
+        ],
+        "g": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            1
+          ]
+        ],
+        "b": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            1
+          ]
+        ]
+      },
+      "lut": null,
+      "color": {
+        "hue": [
+          -12,
+          -15,
+          4,
+          11,
+          0,
+          -20,
+          -8,
+          -6
+        ],
+        "sat": [
+          -2,
+          4,
+          10,
+          18,
+          9,
+          1,
+          -14,
+          -20
+        ],
+        "bright": [
+          -6,
+          -9,
+          -26,
+          -21,
+          -11,
+          -23,
+          13,
+          18
+        ]
+      }
+    }
+  },
+  {
+    "id": "emulsion-fuji-nostalgic-neg",
+    "name": "Nostalgic Neg",
+    "category": "Emulsion x Fuji",
+    "bw": false,
+    "revision": 1,
+    "settings": {
+      "colorBalance": {
+        "shadows_weight": 0.48,
+        "white_fulcrum": -1.07,
+        "highlights_weight": 1.45,
+        "grey_fulcrum": 0.1821,
+        "mask_grey_fulcrum": 0.0687,
+        "saturation_global": 0.058,
+        "saturation_shadows": 0.096,
+        "saturation_midtones": 0.005,
+        "saturation_highlights": -0.071,
+        "chroma_global": 0.093,
+        "chroma_shadows": 0.064,
+        "chroma_midtones": -0.044,
+        "chroma_highlights": -0.003,
+        "vibrance": 0.007,
+        "shadows_C": 0.02563,
+        "shadows_H": 64.33,
+        "midtones_C": 0.00311,
+        "midtones_H": 227.6,
+        "highlights_C": 0.02026,
+        "highlights_H": 64.57
+      },
+      "curve": {
+        "rgb": [
+          [
+            0,
+            0
+          ],
+          [
+            0.06,
+            0.0304
+          ],
+          [
+            0.15,
+            0.0907
+          ],
+          [
+            0.28,
+            0.234
+          ],
+          [
+            0.42,
+            0.4298
+          ],
+          [
+            0.56,
+            0.6138
+          ],
+          [
+            0.7,
+            0.8004
+          ],
+          [
+            0.84,
+            0.9315
+          ],
+          [
+            1,
+            1
+          ]
+        ],
+        "r": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            1
+          ]
+        ],
+        "g": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            1
+          ]
+        ],
+        "b": [
+          [
+            0,
+            0
+          ],
+          [
+            1,
+            1
+          ]
+        ]
+      },
+      "lut": null,
+      "color": {
+        "hue": [
+          20,
+          -2,
+          3,
+          49,
+          27,
+          -11,
+          -24,
+          47
+        ],
+        "sat": [
+          1,
+          -2,
+          -5,
+          0,
+          35,
+          7,
+          -37,
+          -41
+        ],
+        "bright": [
+          -7,
+          -15,
+          -27,
+          -25,
+          -11,
+          6,
+          33,
+          19
+        ]
+      }
+    }
+  },
+  {
     "id": "emulsion-fuji-acros",
     "name": "Acros",
     "category": "Emulsion x Fuji",

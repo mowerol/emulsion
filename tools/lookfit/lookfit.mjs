@@ -26,6 +26,15 @@
 //   --sepia         like --bw, with the shadows/midtones/highlights tint wheels as well
 //   --evaluate      with --color: measure the look as it is, without fitting (per photo ΔE and
 //                   the mean a*/b* offset of the JPEG's greys, render minus JPEG)
+//   --exposure EV   hold every photo at this exposure (tone and colour) instead of 0 or its DR's;
+//                   `fit` (tone only) fits each photo's exposure, reported as the current look's best
+//   --balance       with --color: spread the samples evenly over colour instead of over the frame,
+//                   for a single scene such as a studio test chart (mostly background otherwise)
+//   --fix A,B       move every photo's JPEG by B minus A, two more JPEGs of the same RAW (say a raw
+//                   converter's Provia and the camera's own Provia JPEG), to take that converter's
+//                   own error out of its other simulations; see correctBy in fitlib.ts
+//   --holdout N     with --color: hold out every Nth photo (default 4; 0 holds none)
+//   --prior K       with --color: pull towards the starting settings (default 0.002)
 //   --flat-tone     first set the look's colour balance tone controls to 0 (lightness of the
 //                   shadows/midtones/highlights wheels and global, brilliance, contrast), so the
 //                   curve carries the tone; hues, amounts and saturation stay
@@ -53,6 +62,11 @@ const smooth = Number(opt('--smooth', 0.0005));
 const fixDr = flag('--fix-dr');
 const flatTone = flag('--flat-tone');
 const bwParams = flag('--sepia') ? 'sepia' : flag('--bw') ? 'bw' : 'color';
+const fixedExposure = opt('--exposure', null);
+const balance = flag('--balance');
+const fix = opt('--fix', null)?.split(',').map((f) => resolve(f));
+const holdout = Number(opt('--holdout', 4));
+const prior = Number(opt('--prior', 0.002));
 if (!args.length || args.some((a) => a.startsWith('--'))) {
   console.error('Usage: node tools/lookfit/lookfit.mjs [--looks FILE] [--look ID] [--edge N] [--nodes a,b,..] [--smooth K] [--fix-dr] PHOTO.RAF ...');
   process.exit(2);
@@ -86,8 +100,9 @@ const photos = args.map((raw, i) => {
   // The exposure follows the DR the RAW was captured at (a DR200 capture is a stop darker, even
   // when X RAW Studio develops its JPEG at DR100 and brightens it back itself).
   const dr = fujiSettings(raw)?.dr ?? fuji?.dr ?? null;
-  const exposure = dr === null || dr === 100 ? 0 : fixDr ? Math.log2(dr / 100) : null;
-  return { name: basename(raw), rawPath: raw, jpegPath: jpeg, raw: `p${i}.raw.bin`, jpeg: `p${i}.jpg.bin`, dr, exposure, fuji };
+  const exposure = fixedExposure === 'fit' ? null : fixedExposure !== null ? Number(fixedExposure) : dr === null || dr === 100 ? 0 : fixDr ? Math.log2(dr / 100) : null;
+  return { name: basename(raw), rawPath: raw, jpegPath: jpeg, raw: `p${i}.raw.bin`, jpeg: `p${i}.jpg.bin`, dr, exposure, fuji,
+    fix: fix ? { from: `p${i}.fixa.bin`, to: `p${i}.fixb.bin` } : undefined };
 });
 if (!photos.some((p) => p.exposure !== null)) photos[0].exposure = 0;
 
@@ -98,18 +113,27 @@ if (differs.length) console.log(`\nWARNING: these photos were shot with differen
 
 // Decode both files exactly as the app hands them to the engine.
 const target = process.env.CARGO_TARGET_DIR ?? resolve('src-tauri/target');
-const dump = photos.flatMap((p) => [`${edge}\t${p.rawPath}\t${join(work, p.raw)}`, `${edge}\t${p.jpegPath}\t${join(work, p.jpeg)}`]).join('\n');
-const cargo = spawnSync('cargo', ['test', '--lib', '--manifest-path', 'src-tauri/Cargo.toml', 'dump_engine_payloads', '--', '--ignored', '--nocapture'],
-  { env: { ...process.env, CARGO_TARGET_DIR: target, EMULSION_LOOKFIT_DUMP: dump }, encoding: 'utf8' });
-if (cargo.status !== 0) { console.error(cargo.stdout, cargo.stderr); throw new Error('Decoding failed (source ~/.cargo/env first?)'); }
+const dump = photos.flatMap((p) => [`${edge}\t${p.rawPath}\t${join(work, p.raw)}`, `${edge}\t${p.jpegPath}\t${join(work, p.jpeg)}`,
+  ...(p.fix ? [`${edge}\t${fix[0]}\t${join(work, p.fix.from)}`, `${edge}\t${fix[1]}\t${join(work, p.fix.to)}`] : [])]).join('\n');
+// The same files at the same size as the last run are decoded already: reuse them.
+const dumpList = join(work, 'decoded.txt');
+const decoded = existsSync(dumpList) && readFileSync(dumpList, 'utf8') === dump && dump.split('\n').every((l) => existsSync(l.split('\t')[2]));
+if (!decoded) {
+  if (existsSync(dumpList)) writeFileSync(dumpList, '');
+  const cargo = spawnSync('cargo', ['test', '--lib', '--manifest-path', 'src-tauri/Cargo.toml', 'dump_engine_payloads', '--', '--ignored', '--nocapture'],
+    { env: { ...process.env, CARGO_TARGET_DIR: target, EMULSION_LOOKFIT_DUMP: dump }, encoding: 'utf8' });
+  if (cargo.status !== 0) { console.error(cargo.stdout, cargo.stderr); throw new Error('Decoding failed (source ~/.cargo/env first?)'); }
+  writeFileSync(dumpList, dump);
+}
 
 if (colorMode) {
   writeFileSync(join(work, 'color-manifest.json'), JSON.stringify({
     look: { id: look.id, name: look.name, revision: look.revision ?? 1, settings: look.settings },
     // RAWs captured at DR200/DR400 count for colour only (their hue and saturation, not lightness).
-    photos: photos.map(({ name, raw, jpeg, dr }) => ({ name, raw, jpeg, dr, exposure: dr && dr > 100 ? Math.log2(dr / 100) : 0, colorOnly: bwParams === 'color' && !!dr && dr > 100 })),
-    params: bwParams,
-    holdout: evaluateOnly ? 0 : Number(opt('--holdout', 4)), samples: 2500, prior: Number(opt('--prior', 0.002)), iterations: evaluateOnly ? 0 : 8,
+    photos: photos.map(({ name, raw, jpeg, dr, fix }) => ({ name, raw, jpeg, dr, fix,
+      exposure: fixedExposure !== null ? Number(fixedExposure) : dr && dr > 100 ? Math.log2(dr / 100) : 0, colorOnly: bwParams === 'color' && !!dr && dr > 100 })),
+    params: bwParams, balance,
+    holdout: evaluateOnly ? 0 : holdout, samples: 2500, prior, iterations: evaluateOnly ? 0 : 8,
   }));
   const run = spawnSync('node', ['tools/browser-tests/realtime.mjs', 'look-fit-color', '1200'], { encoding: 'utf8', maxBuffer: 64 << 20 });
   const line = run.stdout.trim().split('\n').pop() ?? '';
@@ -137,7 +161,7 @@ if (colorMode) {
 
 writeFileSync(join(work, 'manifest.json'), JSON.stringify({
   look: { id: look.id, name: look.name, revision: look.revision ?? 1, settings: look.settings },
-  photos: photos.map(({ name, raw, jpeg, dr, exposure }) => ({ name, raw, jpeg, dr, exposure })),
+  photos: photos.map(({ name, raw, jpeg, dr, exposure, fix }) => ({ name, raw, jpeg, dr, exposure, fix })),
   nodes, exposures: [-1, 3, 0.05], smooth,
 }));
 

@@ -8,7 +8,8 @@ import { defaultRecipe, type Recipe } from '../../src/film/recipe';
 import { withLook } from '../../src/film/looks';
 import type { ProfileSettings } from '../../src/film/creative';
 
-interface Item { name: string; simulation: string; look: string; raw: string; jpeg: string; exposure: number }
+/** `source`: who made the JPEG, when not the camera (a raw converter's export). */
+interface Item { name: string; simulation: string; look: string; raw: string; jpeg: string; exposure: number; source?: string }
 /** `separate`: also save each side alone (WebP), for the website's before/after sliders. */
 /** A grid: one photo in several simulations, a row each, the camera's JPEG left and Emulsion right. */
 interface Grid { name: string; rows: number[] }
@@ -84,7 +85,7 @@ async function run() {
       g.fillStyle = '#fff'; g.font = font(label * 0.36, 600); g.fillText(head, x, y + h + label * 0.5);
       g.fillStyle = '#9a9a9a'; g.font = font(label * 0.28, 400); g.fillText(sub, x, y + h + label * 0.88);
     };
-    caption(pad, 'Fujifilm JPEG', `${item.simulation}, processed by the camera`);
+    caption(pad, item.source ?? 'Fujifilm JPEG', `${item.simulation}, processed by ${item.source ? 'it' : 'the camera'}`);
     caption(pad + w + gap, 'Emulsion', `${look.name} look, developed from the RAW`);
     window.outputs.push(out.toDataURL('image/jpeg', 0.9));
     if (m.separate) {

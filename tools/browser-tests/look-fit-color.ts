@@ -18,17 +18,23 @@ import { defaultRecipe, HUE_MAX, type Recipe } from '../../src/film/recipe';
 import { withLook } from '../../src/film/looks';
 import { NODE_NAMES } from '../../src/engine/colorequal';
 import type { ProfileSettings } from '../../src/film/creative';
-import { HALF, oetf, lab, luma, gradient, bilinear, align } from '../lookfit/fitlib';
+import { lab, luma, gradient, bilinear, align, displayOf, displayGradient, correctBy, balanced } from '../lookfit/fitlib';
 
 /** `colorOnly`: only the photo's hue and saturation count (its a* and b*), not its lightness: for RAWs
  * captured at DR200/DR400, whose tone is less certain, used for colours DR100 photos lack. */
-interface PhotoIn { name: string; raw: string; jpeg: string; dr: number | null; exposure: number; colorOnly?: boolean }
+interface PhotoIn {
+  name: string; raw: string; jpeg: string; dr: number | null; exposure: number; colorOnly?: boolean;
+  /** Two more JPEGs of the same RAW: the JPEG is moved by `to` minus `from` (see correctBy). */
+  fix?: { from: string; to: string };
+}
 interface Manifest {
   look: { id: string; name: string; revision: number; settings: ProfileSettings };
   photos: PhotoIn[];
   /** Every n-th photo (1-based, from the 4th) is held out; 0 holds none out. */
   holdout: number;
   samples: number;
+  /** Spread the samples evenly over colour instead of over the frame (see balanced). */
+  balance?: boolean;
   prior: number;
   iterations: number;
   /** Which settings to fit: all colour settings (default); 'bw' only HSL brightness, which is how
@@ -117,11 +123,12 @@ async function run() {
     const jp: HalfImage = parsePayload(await (await fetch(DIR + p.jpeg)).arrayBuffer());
     const src = engine.sourceFromHalf(raw);
     const w = raw.width, h = raw.height, jw = jp.width, jh = jp.height;
-    const jd = new Float32Array(jw * jh * 3);
-    for (let i = 0; i < jw * jh; i++) for (let c = 0; c < 3; c++) jd[3 * i + c] = oetf(HALF[jp.data[4 * i + c]]);
-    const jl = new Float32Array(jw * jh);
-    for (let i = 0; i < jw * jh; i++) jl[i] = 0.2126 * jd[3 * i] + 0.7152 * jd[3 * i + 1] + 0.0722 * jd[3 * i + 2];
-    const gj = gradient(jl, jw, jh);
+    const disp = displayOf(jp.data, jw, jh), jd = disp.d;
+    const gj = displayGradient(disp);
+    if (p.fix) {
+      const load = async (f: string) => { const im: HalfImage = parsePayload(await (await fetch(DIR + f)).arrayBuffer()); return displayOf(im.data, im.width, im.height); };
+      correctBy(disp, await load(p.fix.from), await load(p.fix.to));
+    }
     const first = engine.readPixels(src, recipeWith(m.look.settings, p.exposure), w, h, 0);
     const fit = align(gradient(luma(first, w, h, 255), w, h), w, h, gj, jw, jh);
     const kx = jw / w;
@@ -136,7 +143,7 @@ async function run() {
     const limit = gs[Math.floor(gs.length * 0.6)];
     const flat = cand.filter((c) => c.g <= limit);
     const stride = Math.max(1, Math.floor(flat.length / m.samples));
-    const keep = flat.filter((_, n) => n % stride === 0).slice(0, m.samples);
+    const keep = m.balance ? balanced(flat, m.samples) : flat.filter((_, n) => n % stride === 0).slice(0, m.samples);
     const key = `${w}x${h}`;
     if (!targets.has(key)) targets.set(key, engine.gpu.target(w, h, true, true));
     photos.push({

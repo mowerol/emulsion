@@ -12,7 +12,7 @@ import { createServer } from 'vite';
 import { spawn, spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 
 const args = process.argv.slice(2);
 const opt = (name, fallback) => { const i = args.indexOf(name); if (i < 0) return fallback; const v = args[i + 1]; args.splice(i, 2); return v; };
@@ -25,7 +25,11 @@ const sides = opt('--sides', null);
 const gridSpecs = [];
 for (let g; (g = opt('--grid', null));) gridSpecs.push(g);
 const ROOT = opt('--photos', '/Volumes/Oli External/Photos/2025');
-if (!args.length) { console.error('Usage: node tools/lookfit/compare.mjs --out DIR STEM ...'); process.exit(2); }
+// --pair RAW,JPEG,LOOK,LABEL[,SOURCE]: also any RAW beside a JPEG of it, with that look (repeatable);
+// SOURCE names who made the JPEG when it isn't the camera (Lightroom).
+const pairs = [];
+for (let p; (p = opt('--pair', null));) pairs.push(p.split(','));
+if (!args.length && !pairs.length) { console.error('Usage: node tools/lookfit/compare.mjs --out DIR STEM ...'); process.exit(2); }
 
 const SIMS = [
   ['ClassicNeg', 'Classic Negative', 'emulsion-fuji-classic-negative'], ['ClassicChrome', 'Classic Chrome', 'emulsion-fuji-classic-chrome'],
@@ -58,6 +62,14 @@ for (const stem of args) {
     copyFileSync(jpegPath, join(work, jpeg));
     items.push({ name: stem, simulation: label, look, raw, jpeg, exposure: 0, file: `${stem} ${label}.jpg` });
   }
+}
+for (const [rawPath, jpegPath, look, label, source] of pairs) {
+  if (!looks[look]) throw new Error(`No look ${look} in ${looksFile}`);
+  const stem = basename(rawPath).replace(/\.[^.]+$/, ''), k = items.length;
+  const raw = `pair${k}.raw.bin`, jpeg = `pair${k}.jpg`;
+  dumps.push(`20000\t${resolve(rawPath)}\t${join(work, raw)}`);
+  copyFileSync(jpegPath, join(work, jpeg));
+  items.push({ name: stem, simulation: label, look, raw, jpeg, exposure: 0, source, file: `${stem} ${label}.jpg` });
 }
 const cargo = spawnSync('cargo', ['test', '--lib', '--manifest-path', 'src-tauri/Cargo.toml', 'dump_engine_payloads', '--', '--ignored'],
   { env: { ...process.env, EMULSION_LOOKFIT_DUMP: dumps.join('\n') }, encoding: 'utf8' });

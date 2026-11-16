@@ -16,9 +16,13 @@ import { defaultRecipe, type Recipe } from '../../src/film/recipe';
 import { withLook } from '../../src/film/looks';
 import { LINEAR, sampleCurve, type CurvePoint, type ToneCurve } from '../../src/film/curve';
 import type { ProfileSettings } from '../../src/film/creative';
-import { HALF, oetf, lab, table, lookup, invert, luma, gradient, bilinear, align, type Fit } from '../lookfit/fitlib';
+import { lab, table, lookup, invert, luma, gradient, bilinear, align, displayOf, displayGradient, correctBy, type Fit } from '../lookfit/fitlib';
 
-interface PhotoIn { name: string; raw: string; jpeg: string; dr: number | null; exposure: number | null }
+interface PhotoIn {
+  name: string; raw: string; jpeg: string; dr: number | null; exposure: number | null;
+  /** Two more JPEGs of the same RAW: the JPEG is moved by `to` minus `from` (see correctBy). */
+  fix?: { from: string; to: string };
+}
 interface Manifest {
   look: { id: string; name: string; revision: number; settings: ProfileSettings };
   photos: PhotoIn[];
@@ -88,13 +92,14 @@ async function run() {
     const src = engine.sourceFromHalf(raw);
     const rw = raw.width, rh = raw.height, jw = jp.width, jh = jp.height;
     // The JPEG in display values, RGB.
-    const jd = new Float32Array(jw * jh * 3);
-    for (let i = 0; i < jw * jh; i++) for (let c = 0; c < 3; c++) jd[3 * i + c] = oetf(HALF[jp.data[4 * i + c]]);
+    const disp = displayOf(jp.data, jw, jh), jd = disp.d;
     const guess = p.exposure ?? (p.dr ? Math.log2(p.dr / 100) : 0);
     const first = engine.readPixels(src, recipeWith(LINEAR, guess), rw, rh, 0);
-    const jl = new Float32Array(jw * jh);
-    for (let i = 0; i < jw * jh; i++) jl[i] = 0.2126 * jd[3 * i] + 0.7152 * jd[3 * i + 1] + 0.0722 * jd[3 * i + 2];
-    const gj = gradient(jl, jw, jh);
+    const gj = displayGradient(disp);
+    if (p.fix) {
+      const load = async (f: string) => { const im: HalfImage = parsePayload(await (await fetch(DIR + f)).arrayBuffer()); return displayOf(im.data, im.width, im.height); };
+      correctBy(disp, await load(p.fix.from), await load(p.fix.to));
+    }
     const fit = align(gradient(luma(first, rw, rh, 255), rw, rh), rw, rh, gj, jw, jh);
     // Sample flat-ish areas away from the edges: there a pixel or two of misregistration, or
     // the camera's sharpening, barely changes the value.

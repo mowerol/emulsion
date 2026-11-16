@@ -95,3 +95,53 @@ export function align(gr: Float32Array, rw: number, rh: number, gj: Float32Array
   return best;
 }
 
+
+// ---------- JPEGs in display values ----------
+export interface Display { d: Float32Array; w: number; h: number }
+/** A decoded JPEG (linear half floats, RGBA) as display RGB (0-1, 3 per pixel). */
+export function displayOf(data: Uint16Array, w: number, h: number): Display {
+  const d = new Float32Array(w * h * 3);
+  for (let i = 0; i < w * h; i++) for (let c = 0; c < 3; c++) d[3 * i + c] = oetf(HALF[data[4 * i + c]]);
+  return { d, w, h };
+}
+export function displayGradient({ d, w, h }: Display) {
+  const l = new Float32Array(w * h);
+  for (let i = 0; i < w * h; i++) l[i] = 0.2126 * d[3 * i] + 0.7152 * d[3 * i + 1] + 0.0722 * d[3 * i + 2];
+  return gradient(l, w, h);
+}
+/** Moves a JPEG by another converter's error: adds `to` minus `from` (two renderings of the same RAW,
+ * say a raw converter's Provia and the camera's own) at every pixel, each aligned onto the JPEG's
+ * frame first. For a JPEG from that converter, whose error on this RAW is taken to be the same. */
+export function correctBy(target: Display, from: Display, to: Display) {
+  const g = displayGradient(target);
+  const onto = (o: Display) => {
+    const f = align(g, target.w, target.h, displayGradient(o), o.w, o.h), k = o.w / target.w;
+    return (x: number, y: number, c: number) => bilinear(o.d, o.w, o.h,
+      (o.w - 1) / 2 + ((x - (target.w - 1) / 2) * f.s + f.dx) * k, (o.h - 1) / 2 + ((y - (target.h - 1) / 2) * f.s + f.dy) * k, 3, c);
+  };
+  const a = onto(from), b = onto(to);
+  for (let y = 0; y < target.h; y++) for (let x = 0; x < target.w; x++) for (let c = 0; c < 3; c++) {
+    const i = 3 * (y * target.w + x), dv = b(x, y, c) - a(x, y, c);
+    target.d[i + c] = Number.isNaN(dv) ? NaN : Math.min(1, Math.max(0, target.d[i + c] + dv));
+  }
+}
+
+/** Picks up to `n` samples spread evenly over colour: bins by the JPEG's Lab (greys by lightness,
+ * colours by hue and lightness), the same share from each bin that has any. For a single scene
+ * such as a studio test chart, where an even spread over the frame is mostly background. */
+export function balanced<T extends { lab: number[] }>(cand: T[], n: number): T[] {
+  const bins = new Map<number, T[]>();
+  for (const c of cand) {
+    const [L, a, b] = c.lab, ch = Math.hypot(a, b);
+    const key = ch < 8 ? Math.min(9, Math.floor(L / 10)) : 100 + 3 * Math.floor(((Math.atan2(b, a) * 180 / Math.PI + 360) % 360) / 30) + Math.min(2, Math.floor(L / 34));
+    const list = bins.get(key) ?? []; list.push(c); bins.set(key, list);
+  }
+  // Fill from the smallest bins up, so a bin with few samples gives them all and the rest share what is left.
+  const lists = [...bins.values()].filter((l) => l.length >= 20).sort((x, y) => x.length - y.length);
+  const out: T[] = [];
+  lists.forEach((l, i) => {
+    const quota = Math.floor((n - out.length) / (lists.length - i)), stride = Math.max(1, l.length / quota);
+    for (let j = 0; j < Math.min(quota, l.length); j++) out.push(l[Math.floor(j * stride)]);
+  });
+  return out;
+}

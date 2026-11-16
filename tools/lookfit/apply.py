@@ -5,7 +5,8 @@ NAMES={'emulsion-film-pro-neg-hi':'Pro Neg Hi','emulsion-film-pro-neg-std':'Pro 
  'emulsion-film-velvia':'Velvia','emulsion-film-astia':'Astia','emulsion-film-eterna':'Eterna','emulsion-film-bleach':'Eterna Bleach Bypass',
  'emulsion-fuji-acros':'Acros','emulsion-fuji-acros-ye':'Acros + Ye','emulsion-fuji-acros-r':'Acros + R','emulsion-fuji-acros-g':'Acros + G',
  'emulsion-fuji-monochrome':'Monochrome','emulsion-fuji-monochrome-ye':'Monochrome + Ye','emulsion-fuji-monochrome-r':'Monochrome + R',
- 'emulsion-fuji-monochrome-g':'Monochrome + G','emulsion-fuji-sepia':'Sepia'}
+ 'emulsion-fuji-monochrome-g':'Monochrome + G','emulsion-fuji-sepia':'Sepia',
+ 'emulsion-fuji-reala-ace':'Reala Ace','emulsion-fuji-nostalgic-neg':'Nostalgic Neg'}
 # Usage: python3 apply.py LOOKS.json <look id> ...  (results from .scratch/batch/<id>/ in this worktree)
 import os
 p=sys.argv[1]; W=os.path.join(os.path.dirname(os.path.abspath(__file__)),'..','..','.scratch','batch')
@@ -21,7 +22,12 @@ for id in sys.argv[2:]:
     old=next((l for l in d if l['id']==id),None)
     entry={'id':id,'name':NAMES[id],'category':'Emulsion x Fuji','bw':fit.get('colorBalance',{}).get('chroma_global')==-1,'revision':(old['revision']+1) if old else 1,'settings':st}
     if old: d[d.index(old)]=entry
-    else: d.append(entry)
+    elif entry['bw']: d.append(entry)
+    else:
+        # A colour look goes after the other colour Emulsion x Fuji looks, before the black and white ones.
+        last=max(i for i,l in enumerate(d) if l.get('category')=='Emulsion x Fuji' and not l.get('bw'))
+        d.insert(last+1,entry)
+    if not os.path.exists(f'{W}/{id}/tone-report.json'): print(f"{NAMES[id]:22} rev {entry['revision']}"); continue
     t=json.load(open(f'{W}/{id}/tone-report.json'))
     tone=sum(x['after']['meanAbsDL'] for x in t['photos'])/len(t['photos'])
     c=json.load(open(f'{W}/{id}/color-report.json'))
