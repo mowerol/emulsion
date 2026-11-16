@@ -31,6 +31,8 @@
 // - The wavelet hat's step follows darktable's OpenCL path at reduced previews (engine/dwt.ts).
 // - Emulsion decomposes only the spots' region plus the wavelets' reach, which gives the same
 //   pixels there as decomposing the whole image (tested); darktable decomposes its whole ROI.
+// - Heal solves darktable's equation to convergence with multigrid rather than at most 2000 SOR
+//   sweeps (engine/heal.ts, #31: a GFX100 stroke at full size took 28 s and stopped unconverged).
 // Not deviations (same pixels, tested): rt_build_scaled_mask's full-size mask is made only at the
 // pixels its nearest resampling reads (maskAt), and a brush pixel skips segments that provably
 // can't be its largest (#31: a GFX100 brush stroke's mask took 3 s at Fit and at 100%).
@@ -43,7 +45,7 @@ import type { Mat3 } from '../film/stocks';
 import type { RetouchEllipse, RetouchShape, RetouchSpot } from '../film/retouch';
 import { brushStrokes, spotAnchor, usesSource } from '../film/retouch';
 import { falloff, strokeSegments, segmentValue, type Segment } from './brush';
-import { heal, MAX_HEAL_ITER } from './heal';
+import { heal, HEAL_TOLERANCE } from './heal';
 import { gaussianBlur } from './maskrefine';
 import { BilateralGrid } from './bilateral';
 import { dwtDecompose, dwtReach, type DwtParams } from './dwt';
@@ -487,7 +489,7 @@ export class RetouchCache {
  * size over the full size W × H), in place. Spots run in order. With a cache, a spot whose input
  * is unchanged is pasted from its last result.
  */
-export function retouch(img: Float32Array, roiIn: Roi, W: number, H: number, scale: number, spots: RetouchSpot[], maxIter = MAX_HEAL_ITER, cache?: RetouchCache, coverage?: Float32Array, setup: RetouchSetup = NO_SCALES) {
+export function retouch(img: Float32Array, roiIn: Roi, W: number, H: number, scale: number, spots: RetouchSpot[], healTolerance = HEAL_TOLERANCE, cache?: RetouchCache, coverage?: Float32Array, setup: RetouchSetup = NO_SCALES) {
   scale = f(scale);
   const numScales = setup.scales;
   const show = setup.show > 0 && numScales > 0 ? Math.min(setup.show, numScales + 1) : 0;
@@ -502,7 +504,7 @@ export function retouch(img: Float32Array, roiIn: Roi, W: number, H: number, sca
     spots.forEach((spot, i) => {
       if (spot.scale !== s) return;
       if (spot.tool === 'remove') removeSpot(layer, roiIn, W, H, scale, spots, i, setup, coverage);
-      else retouchSpot(layer, roiIn, W, H, scale, spot, maxIter, cache, coverage);
+      else retouchSpot(layer, roiIn, W, H, scale, spot, healTolerance, cache, coverage);
     });
   });
   if (p.returnLayer > 0) {
@@ -589,7 +591,7 @@ export function adjustLevels(img: Float32Array, [left, middle, right]: [number, 
 }
 
 /** rt_process_forms for one form: its mask, scaled and cut to the layer, then its algorithm. */
-function retouchSpot(img: Float32Array, roiIn: Roi, W: number, H: number, scale: number, spot: RetouchSpot, maxIter: number, cache?: RetouchCache, coverage?: Float32Array) {
+function retouchSpot(img: Float32Array, roiIn: Roi, W: number, H: number, scale: number, spot: RetouchSpot, healTolerance: number, cache?: RetouchCache, coverage?: Float32Array) {
   {
     // Blur and fill have no source (darktable leaves dx = dy = 0 for them).
     const moves = usesSource(spot.tool);
@@ -608,7 +610,7 @@ function retouchSpot(img: Float32Array, roiIn: Roi, W: number, H: number, scale:
     copyInToOut(img, roiIn, src, roi, dx, dy);
     const { id: _id, ...settings } = spot;
     void _id;
-    const key = cache ? `${JSON.stringify([settings, W, H, scale, maxIter, roi])}|${hashPixels(2166136261, src)}${moves ? `|${hashPixels(2166136261, copyOf(img, roiIn, roi))}` : ''}` : '';
+    const key = cache ? `${JSON.stringify([settings, W, H, scale, healTolerance, roi])}|${hashPixels(2166136261, src)}${moves ? `|${hashPixels(2166136261, copyOf(img, roiIn, roi))}` : ''}` : '';
     // A cache entry holds the result's pixels, then the spot's mask over the same rectangle.
     const hit = cache?.get(key);
     let maskOut: Float32Array;
@@ -619,7 +621,7 @@ function retouchSpot(img: Float32Array, roiIn: Roi, W: number, H: number, scale:
         copyMasked(src, img, roiIn, scaled.mask, scaled.roi, spot.opacity);
       } else if (spot.tool === 'heal') {
         const dest = copyOf(img, roiIn, roi);
-        heal(src, dest, scaled.mask, scaled.roi.w, scaled.roi.h, maxIter);
+        heal(src, dest, scaled.mask, scaled.roi.w, scaled.roi.h, healTolerance);
         copyMasked(dest, img, roiIn, scaled.mask, scaled.roi, spot.opacity);
       } else if (spot.tool === 'blur') {
         // src is the rectangle itself (dx = dy = 0).
@@ -725,7 +727,7 @@ function modelInput(img: Float32Array, roiIn: Roi, W: number, H: number, scale: 
  * result is as sharp as the view shows it; zoomed in, the view runs `retouch` at full size.
  */
 export function retouchReduced(px: Float32Array, region: Roi, W: number, H: number, scale: number, spots: RetouchSpot[], k: number, cache?: RetouchCache, setup: RetouchSetup = NO_SCALES) {
-  if (k <= 1) { retouch(px, region, W, H, scale, spots, MAX_HEAL_ITER, cache, undefined, setup); return; }
+  if (k <= 1) { retouch(px, region, W, H, scale, spots, HEAL_TOLERANCE, cache, undefined, setup); return; }
   const rs: Roi = { x: region.x / k, y: region.y / k, w: Math.ceil(region.w / k), h: Math.ceil(region.h / k) };
   const small = new Float32Array(4 * rs.w * rs.h);
   for (let Y = 0; Y < rs.h; Y++) for (let X = 0; X < rs.w; X++) {
@@ -737,7 +739,7 @@ export function retouchReduced(px: Float32Array, region: Roi, W: number, H: numb
     small.set([r / n, g / n, b / n, a / n], 4 * (Y * rs.w + X));
   }
   const coverage = new Float32Array(rs.w * rs.h);
-  retouch(small, rs, W, H, scale / k, spots, MAX_HEAL_ITER, cache, coverage, setup);
+  retouch(small, rs, W, H, scale / k, spots, HEAL_TOLERANCE, cache, coverage, setup);
   // Back up, into the spots only. A small pixel's centre is at k·X + (k − 1) / 2.
   const c = (k - 1) / 2;
   for (let y = 0; y < region.h; y++) {

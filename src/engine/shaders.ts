@@ -18,6 +18,7 @@ import brushFrag from './shaders/brush.frag.glsl?raw';
 import objectFrag from './shaders/object.frag.glsl?raw';
 import regionFrag from './shaders/region.frag.glsl?raw';
 import viewsource from './shaders/viewsource.frag.glsl?raw';
+import retouchstand from './shaders/retouchstand.frag.glsl?raw';
 import resample from './shaders/resample.frag.glsl?raw';
 import toneequalizer from './shaders/stages/toneequalizer.glsl?raw';
 import toneeqmask from './shaders/toneeqmask.frag.glsl?raw';
@@ -106,5 +107,6 @@ export const SHADERS = {
   objectFrag,
   regionFrag,
   viewsource,
+  retouchstand,
   resample,
 };

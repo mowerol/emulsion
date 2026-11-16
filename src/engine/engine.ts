@@ -454,8 +454,10 @@ export class Engine {
   private regionProductsSource: WebGLTexture | null = null;
   private regionP: Program;
   private viewSourceP: Program;
+  private retouchStandP: Program;
   private resampleP: Program;
   private nearestSampler: WebGLSampler | null = null;
+  private linearSampler: WebGLSampler | null = null;
   /**
    * The whole photo's source shrunk to the size it is shown at (darktable's Lanczos3 display
    * scaling, resample.ts): `origin` is the source the render was given, `input` the texture
@@ -570,6 +572,7 @@ export class Engine {
     };
     this.regionP = this.gpu.program(SHADERS.vertex, SHADERS.regionFrag);
     this.viewSourceP = this.gpu.program(SHADERS.vertex, SHADERS.viewsource);
+    this.retouchStandP = this.gpu.program(SHADERS.vertex, SHADERS.retouchstand);
     this.resampleP = this.gpu.program(SHADERS.vertex, SHADERS.resample);
     this.whole = new Lane(this.gpu, programs);
     this.region = new Lane(this.gpu, programs);
@@ -2840,6 +2843,38 @@ export class Engine {
   }
 
   /**
+   * A stand-in for a region's retouch made from the whole lane's (retouchstand.frag.glsl), kept
+   * as the lane's result with k = ∞, so it is shown until the worker's own replaces it but never
+   * counts as made.
+   */
+  private retouchStandIn(src: Source, whole: NonNullable<Lane['retouchMade']>, spots: string, removeKey: string): NonNullable<Lane['retouchMade']> {
+    const g = this.gpu, gl = g.gl, roi = src.roi!;
+    if (this.L.retouchMade) g.free(this.L.retouchMade.out);
+    const out = g.target(src.w, src.h, true);
+    // Bilinear from level 0, whatever mipmaps the preview's textures have.
+    if (!this.linearSampler) {
+      this.linearSampler = gl.createSampler()!;
+      gl.samplerParameteri(this.linearSampler, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.samplerParameteri(this.linearSampler, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.samplerParameteri(this.linearSampler, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.samplerParameteri(this.linearSampler, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    }
+    g.bind(0, src.tex); g.bind(1, whole.input); g.bind(2, whole.out.tex);
+    gl.bindSampler(1, this.linearSampler); gl.bindSampler(2, this.linearSampler);
+    try {
+      this.retouchStandP.set({ uSharp: 0, uBefore: 1, uAfter: 2, uRoi: [roi.x, roi.y, roi.w, roi.h], uSize: [src.w, src.h] });
+      g.draw(this.retouchStandP, out, src.w, src.h);
+    } finally { gl.bindSampler(1, null); gl.bindSampler(2, null); }
+    g.scratch();
+    gl.bindTexture(gl.TEXTURE_2D, out.tex);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    g.params(true);
+    this.L.retouchMade = { input: src.tex, spots, removeKey, k: Infinity, out, src };
+    this.L.eqMade = null; this.L.eqPhoto = null; this.L.llMade = null; this.L.usmMade = null; this.L.ceMade = null; this.L.ceScene = null; this.L.ceLookMade = null;
+    return this.L.retouchMade;
+  }
+
+  /**
    * darktable's retouch (engine/retouch.ts): a copy of the source with the spots applied on the
    * CPU over the rectangle they touch, as darktable heals on the CPU even on its OpenCL path. It
    * replaces the source for everything after it. Kept until the spots or the source change; each
@@ -2870,8 +2905,14 @@ export class Engine {
     const a = this.retouchAsync;
     // The interactive view hands the work to the worker and meanwhile shows what it has: this
     // source's last result, or the same photo's other source (the preview while the full size is
-    // retouched after zooming in). Only a photo with nothing to show yet is retouched in place.
-    const stand = made ?? (this.L.retouchMade && src.origin && this.L.retouchMade.src.origin === src.origin ? this.L.retouchMade : null);
+    // retouched after zooming in). A region with nothing of its own yet (just zoomed in past Fit)
+    // stands in the whole photo's retouch, scaled into its spots on the GPU (#31: retouching a
+    // GFX100 region in place froze the view for seconds). Only a photo with nothing to show yet
+    // is retouched in place.
+    let stand = made ?? (this.L.retouchMade && src.origin && this.L.retouchMade.src.origin === src.origin ? this.L.retouchMade : null);
+    const whole = this.whole.retouchMade;
+    if (a && !stand && src.roi && this.L !== this.whole && whole && src.origin && whole.src.origin === src.origin && !whole.src.roi && whole.removeKey === removeKey)
+      stand = this.retouchStandIn(src, whole, key, removeKey);
     // A stand-in made before a completed Remove arrived would resurrect the object.
     // Apply changed patch pixels in this submission instead of publishing that stand-in.
     if (a && stand && stand.removeKey === removeKey) {
