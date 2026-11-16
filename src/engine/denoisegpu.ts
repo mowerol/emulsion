@@ -13,6 +13,15 @@ const BLOCK = 8;
 
 /** How long the working images are kept after the last run, for the next slider step. */
 const KEEP_MS = 4000;
+/**
+ * The most the kept working images may hold: a preview-size set (what a slider drag reuses,
+ * ~127 MiB at 1664 px) and one full-size tile's (~306 MiB). A 20 MP RAW is done in tiles of six
+ * sizes and a portrait one in the transposed six, so keeping every size held ~1.5 GiB per
+ * orientation while photos were stepped through, and with the rest of the page macOS killed it
+ * for memory (issue #3). Past this, the working images given back longest ago are freed.
+ */
+export const POOL_MAX_BYTES = 512 * 2 ** 20;
+const bytesOf = (t: Target) => t.w * t.h * 16;
 
 export class ProfiledDenoiser {
   private p: Program;
@@ -25,13 +34,30 @@ export class ProfiledDenoiser {
     this.p = g.program(SHADERS.vertex, eawdnShader);
   }
 
+  /** The kept working images in the order they were given back, oldest first, and their bytes. */
+  private kept: Target[] = [];
+  private keptBytes = 0;
+
   private take(w: number, h: number): Target {
-    return this.pool.get(`${w}x${h}`)?.pop() ?? this.g.target(w, h, true, true);
+    const t = this.pool.get(`${w}x${h}`)?.pop();
+    if (!t) return this.g.target(w, h, true, true);
+    this.kept.splice(this.kept.indexOf(t), 1);
+    this.keptBytes -= bytesOf(t);
+    return t;
   }
 
   private give(t: Target) {
     const key = `${t.w}x${t.h}`;
     this.pool.set(key, [...(this.pool.get(key) ?? []), t]);
+    this.kept.push(t);
+    this.keptBytes += bytesOf(t);
+    while (this.keptBytes > POOL_MAX_BYTES) {
+      const old = this.kept.shift()!;
+      const bucket = this.pool.get(`${old.w}x${old.h}`)!;
+      bucket.splice(bucket.indexOf(old), 1);
+      this.keptBytes -= bytesOf(old);
+      this.g.free(old);
+    }
     if (this.dropTimer) clearTimeout(this.dropTimer);
     this.dropTimer = setTimeout(() => this.dispose(), KEEP_MS);
   }
@@ -42,6 +68,8 @@ export class ProfiledDenoiser {
     this.dropTimer = null;
     for (const ts of this.pool.values()) ts.forEach((t) => this.g.free(t));
     this.pool.clear();
+    this.kept = [];
+    this.keptBytes = 0;
   }
 
   /**

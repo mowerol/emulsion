@@ -70,6 +70,8 @@ export class DevelopClient {
   onFrame: ((stat: FrameStat) => void) | null = null;
   /** Whether the loop still owes a render (perf driver's settle). */
   busy = false;
+  /** The worker's last GPU texture memory report (dev timing runs read it). */
+  memory: { bytes: number; peakBytes: number; textures: number } | null = null;
   private stats = false;
   private sources = new Map<number, SourceRef>();
   private recipes = new Map<number, Recipe | null>();
@@ -150,7 +152,7 @@ export class DevelopClient {
         break;
       }
       case 'busy': this.busy = m.busy; break;
-      case 'memory': gpuMemory('develop engine', m); break;
+      case 'memory': this.memory = { bytes: m.bytes, peakBytes: m.peakBytes, textures: m.textures }; gpuMemory('develop engine', m); break;
       case 'sharpening': this.events.sharpening?.(m.pending); break;
       case 'reply': {
         const r = this.requests.get(m.id);

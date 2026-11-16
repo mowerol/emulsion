@@ -1536,6 +1536,26 @@ export async function run(which: string) {
       await pass('z100:');
       out.zoomOut = await click(key('z'));
     }
+    // step (only when asked): arrow-key through the folder's photos, forward then back, one every
+    // VITE_PERF_STEP_MS (default 1700, Oli's pace when his 0.1.8 was killed for memory, issue #3),
+    // VITE_PERF_STEP_PASSES times, recording the worker's GPU texture memory after each photo and
+    // after a rest. Run with several photos: inapp.mjs a.ORF,b.ORF,... step
+    if (only.includes('step')) {
+      const ms = Number(import.meta.env.VITE_PERF_STEP_MS ?? 1700), passes = Number(import.meta.env.VITE_PERF_STEP_PASSES ?? 2);
+      const n = useApp.getState().photos.length;
+      const MiB = 2 ** 20;
+      const steps: { at: string; photo: string; mib: number | null; textures: number | null; heapMiB: number | null }[] = [];
+      const record = (at: string) => {
+        const m = perfClient?.memory ?? null, heap = (performance as unknown as { memory?: { usedJSHeapSize: number } }).memory;
+        steps.push({ at, photo: (useApp.getState().developSize?.path ?? '').split('/').pop() ?? '', mib: m && Math.round(m.bytes / MiB), textures: m?.textures ?? null, heapMiB: heap ? Math.round(heap.usedJSHeapSize / MiB) : null });
+      };
+      record('start');
+      for (let p = 0; p < passes; p++) for (const k of ['ArrowRight', 'ArrowLeft']) for (let i = 1; i < n; i++) { key(k)(); await wait(ms); record(`${p}${k === 'ArrowRight' ? '>' : '<'}${i}`); }
+      await wait(8000);
+      record('rest');
+      const mibs = steps.map(s => s.mib ?? 0);
+      out.step = { ms, passes, photos: n, startMiB: mibs[0], maxMiB: Math.max(...mibs), restMiB: mibs[mibs.length - 1], peakMiB: perfClient?.memory ? Math.round(perfClient.memory.peakBytes / MiB) : null, steps };
+    }
     if (want('clicks')) {
       const tabs: Record<string, unknown> = {};
       for (const g of ['colour', 'refine', 'masks', 'presets', 'develop'] as ControlGroupId[]) tabs[g] = await click(pressed(`button[aria-label="${({ colour: 'Colour Grading', refine: 'Refine', masks: 'Masks', presets: 'Presets', develop: 'Develop' } as Record<string, string>)[g]}"]`));
