@@ -9,7 +9,8 @@ import { RESAMPLE_MIN_SCALE, resampledSize } from './resample';
 import { effectiveProfiled, noiseEnabled, profiledEnabled } from '../film/noisereduction';
 import { ProfiledDenoiser, type Tile } from './denoisegpu';
 import { denoiseSetup, domainMatrices, GENERIC_NOISE, wbFromNeutral, type DenoiseSetup } from './denoiseprofile';
-import { RetouchCache, reducedRegion, retouchReduced, retouchInputs, type RetouchSetup, type Roi } from './retouch';
+import type { RetouchSpot } from '../film/retouch';
+import { RetouchCache, appendedSpots, reducedRegion, retouchReduced, retouchInputs, type RetouchSetup, type Roi } from './retouch';
 import { BrushGpu, brushShapes, brushSize } from './brushgpu';
 import { ObjectGpu, objectLayers, objectShapes } from './objectgpu';
 import { MASK_UNIT, MaskStack, refinedLayer } from './maskstack';
@@ -366,7 +367,8 @@ class Lane {
   profMade: { input: WebGLTexture; key: string; out: Target; approx?: boolean; live?: boolean } | null = null;
   lensMade: { input: WebGLTexture; key: string; out: Target } | null = null;
   /** The retouched source: made from `input` at 1/k for `spots`; `src` is the source it stands for. */
-  retouchMade: { input: WebGLTexture; spots: string; removeKey: string; k: number; out: Target; src: Source } | null = null;
+  /** `list`: the spots it holds, in order, so a spot added after them runs on `out` alone. */
+  retouchMade: { input: WebGLTexture; spots: string; list: RetouchSpot[]; removeKey: string; k: number; out: Target; src: Source } | null = null;
   /** Haze removal's targets for the latest source size (see dehazeMap), and what they were made from. */
   dh: DehazeTargets | null = null;
   /** The bounded live transmission, retained separately from the settled preview's maps. */
@@ -455,8 +457,10 @@ export class Engine {
   private regionProductsSource: WebGLTexture | null = null;
   private regionP: Program;
   private viewSourceP: Program;
+  private retouchStandP: Program;
   private resampleP: Program;
   private nearestSampler: WebGLSampler | null = null;
+  private linearSampler: WebGLSampler | null = null;
   /**
    * The whole photo's source shrunk to the size it is shown at (darktable's Lanczos3 display
    * scaling, resample.ts): `origin` is the source the render was given, `input` the texture
@@ -547,7 +551,7 @@ export class Engine {
   private lensP: Program;
   /** Each spot's last result, so moving one spot does not heal the others again. */
   private retouchCache = new RetouchCache();
-  private retouchAsync: { worker: Worker; onDone: () => void; job: { id: number; src: Source; spots: string; removeKey: string; k: number; region: Roi; lane: Lane; released: boolean } | null } | null = null;
+  private retouchAsync: { worker: Worker; onDone: () => void; job: { id: number; src: Source; spots: string; list: RetouchSpot[]; removeKey: string; k: number; region: Roi; lane: Lane; released: boolean } | null } | null = null;
   private retouchJobs = 0;
   private retouchFbo: WebGLFramebuffer | null = null;
   private removalLane: Lane;
@@ -572,6 +576,7 @@ export class Engine {
     };
     this.regionP = this.gpu.program(SHADERS.vertex, SHADERS.regionFrag);
     this.viewSourceP = this.gpu.program(SHADERS.vertex, SHADERS.viewsource);
+    this.retouchStandP = this.gpu.program(SHADERS.vertex, SHADERS.retouchstand);
     this.resampleP = this.gpu.program(SHADERS.vertex, SHADERS.resample);
     this.whole = new Lane(this.gpu, programs);
     this.region = new Lane(this.gpu, programs);
@@ -2791,7 +2796,7 @@ export class Engine {
       a.job = null;
       if (!job.released) {
         const lane = this.L;
-        try { this.L = job.lane; this.retouchStore(job.src, job.spots, job.k, job.region, e.data.px, job.removeKey); }
+        try { this.L = job.lane; this.retouchStore(job.src, job.spots, job.list, job.k, job.region, e.data.px, job.removeKey); }
         finally { this.L = lane; }
       }
       onDone();
@@ -2829,7 +2834,7 @@ export class Engine {
   }
 
   /** A copy of the source with `px` (the retouched region) written in, kept as the retouched source. */
-  private retouchStore(src: Source, spots: string, k: number, region: Roi, px: Float32Array, removeKey: string): Target {
+  private retouchStore(src: Source, spots: string, list: RetouchSpot[], k: number, region: Roi, px: Float32Array, removeKey: string): Target {
     const g = this.gpu;
     const gl = g.gl;
     if (this.L.retouchMade) g.free(this.L.retouchMade.out);
@@ -2843,9 +2848,41 @@ export class Engine {
     gl.texSubImage2D(gl.TEXTURE_2D, 0, region.x, region.y, region.w, region.h, gl.RGBA, gl.FLOAT, px);
     gl.generateMipmap(gl.TEXTURE_2D);
     g.params(true);
-    this.L.retouchMade = { input: src.tex, spots, removeKey, k, out, src };
+    this.L.retouchMade = { input: src.tex, spots, list, removeKey, k, out, src };
     this.L.eqMade = null; this.L.eqPhoto = null; this.L.llMade = null; this.L.usmMade = null; this.L.ceMade = null; this.L.ceScene = null; this.L.ceLookMade = null;
     return out;
+  }
+
+  /**
+   * A stand-in for a region's retouch made from the whole lane's (retouchstand.frag.glsl), kept
+   * as the lane's result with k = ∞, so it is shown until the worker's own replaces it but never
+   * counts as made.
+   */
+  private retouchStandIn(src: Source, whole: NonNullable<Lane['retouchMade']>, spots: string, removeKey: string): NonNullable<Lane['retouchMade']> {
+    const g = this.gpu, gl = g.gl, roi = src.roi!;
+    if (this.L.retouchMade) g.free(this.L.retouchMade.out);
+    const out = g.target(src.w, src.h, true);
+    // Bilinear from level 0, whatever mipmaps the preview's textures have.
+    if (!this.linearSampler) {
+      this.linearSampler = gl.createSampler()!;
+      gl.samplerParameteri(this.linearSampler, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.samplerParameteri(this.linearSampler, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.samplerParameteri(this.linearSampler, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+      gl.samplerParameteri(this.linearSampler, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    }
+    g.bind(0, src.tex); g.bind(1, whole.input); g.bind(2, whole.out.tex);
+    gl.bindSampler(1, this.linearSampler); gl.bindSampler(2, this.linearSampler);
+    try {
+      this.retouchStandP.set({ uSharp: 0, uBefore: 1, uAfter: 2, uRoi: [roi.x, roi.y, roi.w, roi.h], uSize: [src.w, src.h] });
+      g.draw(this.retouchStandP, out, src.w, src.h);
+    } finally { gl.bindSampler(1, null); gl.bindSampler(2, null); }
+    g.scratch();
+    gl.bindTexture(gl.TEXTURE_2D, out.tex);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    g.params(true);
+    this.L.retouchMade = { input: src.tex, spots, list: [], removeKey, k: Infinity, out, src };
+    this.L.eqMade = null; this.L.eqPhoto = null; this.L.llMade = null; this.L.usmMade = null; this.L.ceMade = null; this.L.ceScene = null; this.L.ceLookMade = null;
+    return this.L.retouchMade;
   }
 
   /**
@@ -2876,27 +2913,40 @@ export class Engine {
     const made = this.L.retouchMade?.input === src.tex ? this.L.retouchMade : null;
     // A result made at a finer scale serves a coarser view (the histogram reuses the view's).
     if (made?.spots === key && made.k <= k) return { ...src, tex: made.out.tex };
+    // A spot painted after the ones made: run only it, on their result (#31: on a GFX100 at
+    // 100% every stroke re-healed every earlier spot, as the worker's cache can't hold them).
+    // That result is kept in half floats, so where the added spot reads what the earlier ones
+    // wrote it can differ from running them all by that rounding (at most 1/255 on screen).
+    const added = made && made.k === 1 ? appendedSpots(made.list, spots, k, setup) : null;
+    const base = added ? { ...src, tex: made!.out.tex } : src;
+    const run = added ?? spots;
     const a = this.retouchAsync;
     // The interactive view hands the work to the worker and meanwhile shows what it has: this
     // source's last result, or the same photo's other source (the preview while the full size is
-    // retouched after zooming in). Only a photo with nothing to show yet is retouched in place.
-    const stand = made ?? (this.L.retouchMade && src.origin && this.L.retouchMade.src.origin === src.origin ? this.L.retouchMade : null);
+    // retouched after zooming in). A region with nothing of its own yet (just zoomed in past Fit)
+    // stands in the whole photo's retouch, scaled into its spots on the GPU (#31: retouching a
+    // GFX100 region in place froze the view for seconds). Only a photo with nothing to show yet
+    // is retouched in place.
+    let stand = made ?? (this.L.retouchMade && src.origin && this.L.retouchMade.src.origin === src.origin ? this.L.retouchMade : null);
+    const whole = this.whole.retouchMade;
+    if (a && !stand && src.roi && this.L !== this.whole && whole && src.origin && whole.src.origin === src.origin && !whole.src.roi && whole.removeKey === removeKey)
+      stand = this.retouchStandIn(src, whole, key, removeKey);
     // A stand-in made before a completed Remove arrived would resurrect the object.
     // Apply changed patch pixels in this submission instead of publishing that stand-in.
     if (a && stand && stand.removeKey === removeKey) {
       this.retouchOwed = true;
       if (!a.job) {
         const id = ++this.retouchJobs;
-        a.job = { id, src, spots: key, removeKey, k, region, lane: this.L, released: false };
-        const px = this.retouchRead(src, region);
-        a.worker.postMessage({ id, px, region: inputRegion, W: src.fullW, H: src.fullH, scale, spots, k, setup }, [px.buffer]);
+        a.job = { id, src, spots: key, list: spots, removeKey, k, region, lane: this.L, released: false };
+        const px = this.retouchRead(base, region);
+        a.worker.postMessage({ id, px, region: inputRegion, W: src.fullW, H: src.fullH, scale, spots: run, k, setup }, [px.buffer]);
       }
       return { ...stand.src, tex: stand.out.tex };
     }
     if (a?.job?.lane === this.L) a.job.released = true;
-    const px = this.retouchRead(src, region);
-    retouchReduced(px, inputRegion, src.fullW, src.fullH, scale, spots, k, this.retouchCache, setup);
-    return { ...src, tex: this.retouchStore(src, key, k, region, px, removeKey).tex };
+    const px = this.retouchRead(base, region);
+    retouchReduced(px, inputRegion, src.fullW, src.fullH, scale, run, k, this.retouchCache, setup);
+    return { ...src, tex: this.retouchStore(src, key, spots, k, region, px, removeKey).tex };
   }
 
   /**

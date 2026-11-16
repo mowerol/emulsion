@@ -31,6 +31,11 @@
 // - The wavelet hat's step follows darktable's OpenCL path at reduced previews (engine/dwt.ts).
 // - Emulsion decomposes only the spots' region plus the wavelets' reach, which gives the same
 //   pixels there as decomposing the whole image (tested); darktable decomposes its whole ROI.
+// - Heal solves darktable's equation to convergence with multigrid rather than at most 2000 SOR
+//   sweeps (engine/heal.ts, #31: a GFX100 stroke at full size took 28 s and stopped unconverged).
+// Not deviations (same pixels, tested): rt_build_scaled_mask's full-size mask is made only at the
+// pixels its nearest resampling reads (maskAt), and a brush pixel skips segments that provably
+// can't be its largest (#31: a GFX100 brush stroke's mask took 3 s at Fit and at 100%).
 // Shapes are in source coordinates, so there are no distortions to transform them through.
 // Remove spots (Emulsion's own tool, not darktable's) take an AI inpainting model's patch from
 // RetouchSetup.remove's patches; the crop, key and colour encode are engine/remove.ts (from IOPaint).
@@ -39,8 +44,8 @@
 import type { Mat3 } from '../film/stocks';
 import type { RetouchEllipse, RetouchShape, RetouchSpot } from '../film/retouch';
 import { brushStrokes, spotAnchor, usesSource } from '../film/retouch';
-import { strokeSegments, segmentValue, type Segment } from './brush';
-import { heal, MAX_HEAL_ITER } from './heal';
+import { falloff, strokeSegments, segmentValue, type Segment } from './brush';
+import { heal, HEAL_TOLERANCE } from './heal';
 import { gaussianBlur } from './maskrefine';
 import { BilateralGrid } from './bilateral';
 import { dwtDecompose, dwtReach, type DwtParams } from './dwt';
@@ -146,71 +151,148 @@ function brushArea(segs: Segment[]): Roi {
 
 /** A spot's mask over its area in full-size pixels (darktable's dt_masks_get_mask). */
 export function spotMask(shape: RetouchShape, W: number, H: number): { roi: Roi; mask: Float32Array } {
+  const roi = spotArea(shape, W, H);
+  const range = (from: number, n: number) => Int32Array.from({ length: Math.max(0, n) }, (_, i) => from + i);
+  return { roi, mask: maskAt(shape, W, H, roi, range(roi.x, roi.w), range(roi.y, roi.h)) };
+}
+
+/**
+ * The spot's mask (spotMask's values) at the full-size pixels xs × ys only, row by row, 0 outside
+ * its area `roi`. rt_build_scaled_mask makes the whole full-size mask and then reads it at one
+ * pixel per output pixel; this makes just the pixels it reads, the same values, so a view at a
+ * fraction of the full size doesn't pay for the full-size mask (#31: 3 s a GFX100 brush stroke).
+ */
+function maskAt(shape: RetouchShape, W: number, H: number, roi: Roi, xs: Int32Array, ys: Int32Array): Float32Array {
+  const nx = xs.length, ny = ys.length;
+  const mask = new Float32Array(nx * ny);
+  const inX = (x: number) => x >= roi.x && x < roi.x + roi.w, inY = (y: number) => y >= roi.y && y < roi.y + roi.h;
   if (shape.kind === 'ellipse') {
     // _ellipse_get_mask and _fill_mask: 1 inside, a quadratic falloff across the feather.
-    const roi = ellipseArea(shape, W, H);
-    const mask = new Float32Array(Math.max(0, roi.w * roi.h));
     const { a, b, ta, tb, alpha } = ellipseAxes(shape, W, H);
     const a2 = f(a * a), b2 = f(b * b), ta2 = f(ta * ta), tb2 = f(tb * tb);
     const ca = f(Math.cos(alpha)), sa = f(Math.sin(alpha));
     const cx = f(shape.center[0] * W), cy = f(shape.center[1] * H);
-    for (let i = 0; i < roi.h; i++) for (let j = 0; j < roi.w; j++) {
-      const x = f(roi.x + j - cx), y = f(roi.y + i - cy);
-      const l2 = f(f(x * x) + f(y * y));
-      const l = f(Math.sqrt(l2));
-      const xn = l ? f(x / l) : 0, yn = l ? f(y / l) : 1;
-      const xr = f(f(xn * ca) + f(yn * sa)), yr = f(f(-xn * sa) + f(yn * ca));
-      const cos2 = f(xr * xr), sin2 = f(yr * yr);
-      const radius2 = f(f(a2 * b2) / f(f(a2 * sin2) + f(b2 * cos2)));
-      const total2 = f(f(ta2 * tb2) / f(f(ta2 * sin2) + f(tb2 * cos2)));
-      const v = Math.min(1, Math.max(0, f(f(total2 - l2) / f(total2 - radius2))));
-      mask[i * roi.w + j] = f(v * v);
+    for (let i = 0; i < ny; i++) {
+      if (!inY(ys[i])) continue;
+      for (let j = 0; j < nx; j++) {
+        if (!inX(xs[j])) continue;
+        const x = f(xs[j] - cx), y = f(ys[i] - cy);
+        const l2 = f(f(x * x) + f(y * y));
+        const l = f(Math.sqrt(l2));
+        const xn = l ? f(x / l) : 0, yn = l ? f(y / l) : 1;
+        const xr = f(f(xn * ca) + f(yn * sa)), yr = f(f(-xn * sa) + f(yn * ca));
+        const cos2 = f(xr * xr), sin2 = f(yr * yr);
+        const radius2 = f(f(a2 * b2) / f(f(a2 * sin2) + f(b2 * cos2)));
+        const total2 = f(f(ta2 * tb2) / f(f(ta2 * sin2) + f(tb2 * cos2)));
+        const v = Math.min(1, Math.max(0, f(f(total2 - l2) / f(total2 - radius2))));
+        mask[i * nx + j] = f(v * v);
+      }
     }
-    return { roi, mask };
+    return mask;
   }
   if (shape.kind === 'circle') {
     // _circle_get_mask: 1 inside the radius, a quadratic falloff across the feather.
-    const roi = circleArea(shape.center, shape.radius + shape.border, W, H);
-    const mask = new Float32Array(Math.max(0, roi.w * roi.h));
     const m = Math.min(W, H);
     const cx = f(shape.center[0] * W), cy = f(shape.center[1] * H);
     const radius2 = f(f(shape.radius * m) * f(shape.radius * m));
     const total2 = f(f((shape.radius + shape.border) * m) * f((shape.radius + shape.border) * m));
     const border2 = f(total2 - radius2);
-    for (let i = 0; i < roi.h; i++) for (let j = 0; j < roi.w; j++) {
-      const l2 = f((roi.x + j - cx) ** 2 + (roi.y + i - cy) ** 2);
-      const v = Math.min(1, Math.max(0, f(f(total2 - l2) / border2)));
-      mask[i * roi.w + j] = v * v;
+    for (let i = 0; i < ny; i++) {
+      if (!inY(ys[i])) continue;
+      for (let j = 0; j < nx; j++) {
+        if (!inX(xs[j])) continue;
+        const l2 = f((xs[j] - cx) ** 2 + (ys[i] - cy) ** 2);
+        const v = Math.min(1, Math.max(0, f(f(total2 - l2) / border2)));
+        mask[i * nx + j] = v * v;
+      }
     }
-    return { roi, mask };
+    return mask;
   }
-  // A brush spot's strokes are one mask, their union (as a mask's brush strokes, brushSegments).
+  // A brush spot's strokes are one mask, their union (as a mask's brush strokes, brushSegments):
+  // each pixel the largest segment value. A stroke is sampled every 3 px, so a pixel lies within
+  // reach of hundreds of segments; most are farther than a nearer one, and can't be the largest.
+  // In each tile of pixels, a segment is skipped when the most it can give anywhere in the tile is
+  // below the least another gives everywhere in it (falloff falls with distance and rises with
+  // border, hardness and density), so the largest, and the mask, are exactly as before.
   const segs = brushStrokes(shape).flatMap((st) => strokeSegments(st, W, H));
-  const roi = brushArea(segs);
-  const mask = new Float32Array(roi.w * roi.h);
   let ceiling = 0;
   const bounded = segs.map(s => {
     const r = Math.max(s[4], s[5]);
     ceiling = Math.max(ceiling, s[8], s[9]);
     // A pixel outside this box has zero coverage. Keep one extra pixel for rounding.
     return { s, left: Math.min(s[0], s[2]) - r - 1, right: Math.max(s[0], s[2]) + r + 1,
-      top: Math.min(s[1], s[3]) - r - 1, bottom: Math.max(s[1], s[3]) + r + 1 };
+      top: Math.min(s[1], s[3]) - r - 1, bottom: Math.max(s[1], s[3]) + r + 1,
+      hi: [r, Math.max(s[6], s[7]), Math.max(s[8], s[9])], lo: [Math.min(s[4], s[5]), Math.min(s[6], s[7]), Math.min(s[8], s[9])] };
   });
-  for (let i = 0; i < roi.h; i++) {
-    const y = roi.y + i, row = bounded.filter(b => y >= b.top && y <= b.bottom);
-    for (let j = 0; j < roi.w; j++) {
-      const x = roi.x + j;
-      let best = 0;
-      for (const b of row) {
-        if (x < b.left || x > b.right) continue;
-        best = Math.max(best, segmentValue(b.s, x, y));
-        // The union cannot exceed the largest endpoint density of any segment.
-        if (best >= ceiling) break;
-      }
-      mask[i * roi.w + j] = best;
+  type Bounded = typeof bounded[number];
+  // Bounds only: their rounding is covered by MARGIN, so sqrt serves (hypot is far slower).
+  const distance = (s: Segment, x: number, y: number) => {
+    const dx = s[2] - s[0], dy = s[3] - s[1], l = dx * dx + dy * dy;
+    const t = l > 0 ? Math.min(1, Math.max(0, ((x - s[0]) * dx + (y - s[1]) * dy) / l)) : 0;
+    const ex = x - (s[0] + t * dx), ey = y - (s[1] + t * dy);
+    return Math.sqrt(ex * ex + ey * ey);
+  };
+  // Well above double rounding of the bounds, far below a visible step of the mask.
+  const MARGIN = 1e-6;
+  type Kept = { b: Bounded; high: number };
+  // The segments that can be the largest somewhere in the tile, most likely largest first. Distance
+  // from the tile is at least the centre's less the half diagonal, and at most the farthest
+  // corner's (distance to a segment is convex, so largest at a corner).
+  const prune = (cands: Bounded[], x0: number, y0: number, x1: number, y1: number): Kept[] => {
+    const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2, half = Math.sqrt((x1 - x0) ** 2 + (y1 - y0) ** 2) / 2;
+    let floor = 0;
+    const out: Kept[] = [];
+    for (const b of cands) {
+      if (x1 < b.left || x0 > b.right || y1 < b.top || y0 > b.bottom) continue;
+      const { s, hi, lo } = b;
+      const high = falloff(Math.max(0, distance(s, cx, cy) - half), hi[0], hi[1], hi[2]);
+      if (high < floor - MARGIN) continue;
+      const far = Math.max(distance(s, x0, y0), distance(s, x1, y0), distance(s, x0, y1), distance(s, x1, y1));
+      floor = Math.max(floor, falloff(far, lo[0], lo[1], lo[2]));
+      out.push({ b, high });
     }
-  }
-  return { roi, mask };
+    out.sort((p, q) => q.high - p.high);
+    let n = 0;
+    while (n < out.length && out[n].high >= floor - MARGIN) n++;
+    out.length = n;
+    return out;
+  };
+  // Tiles of 32 output pixels, split down to 8 with each level's survivors, so most bounds are
+  // worked out over few segments.
+  const COARSE = 32, FINE = 8;
+  const tile = (cands: Bounded[], i0: number, i1: number, j0: number, j1: number) => {
+    const y0 = ys[i0], y1 = ys[i1 - 1], x0 = xs[j0], x1 = xs[j1 - 1];
+    if (y1 < roi.y || y0 >= roi.y + roi.h || x1 < roi.x || x0 >= roi.x + roi.w) return;
+    // None: no segment reaches the tile, which stays 0.
+    const kept = prune(cands, x0, y0, x1, y1);
+    if (!kept.length) return;
+    if (i1 - i0 > FINE || j1 - j0 > FINE) {
+      const bs = kept.map(k => k.b), im = Math.min(i1, i0 + FINE * Math.ceil((i1 - i0) / FINE / 2)), jm = Math.min(j1, j0 + FINE * Math.ceil((j1 - j0) / FINE / 2));
+      for (const [a, b] of [[i0, im], [im, i1]]) for (const [c, d] of [[j0, jm], [jm, j1]]) if (b > a && d > c) tile(bs, a, b, c, d);
+      return;
+    }
+    for (let i = i0; i < i1; i++) {
+      const y = ys[i];
+      if (!inY(y)) continue;
+      for (let j = j0; j < j1; j++) {
+        const x = xs[j];
+        if (!inX(x)) continue;
+        let best = 0;
+        for (let k = 0; k < kept.length; k++) {
+          const { b, high } = kept[k];
+          // Sorted: no remaining segment can beat this pixel's value.
+          if (best > high + MARGIN) break;
+          if (x < b.left || x > b.right || y < b.top || y > b.bottom) continue;
+          best = Math.max(best, segmentValue(b.s, x, y));
+          // The union cannot exceed the largest endpoint density of any segment.
+          if (best >= ceiling) break;
+        }
+        mask[i * nx + j] = best;
+      }
+    }
+  };
+  for (let i0 = 0; i0 < ny; i0 += COARSE) for (let j0 = 0; j0 < nx; j0 += COARSE) tile(bounded, i0, Math.min(ny, i0 + COARSE), j0, Math.min(nx, j0 + COARSE));
+  return mask;
 }
 
 /** rt_masks_point_calc_delta (distort_mode 2): from the source to the target, in pixels at `scale`. */
@@ -228,8 +310,21 @@ function intersect(a: Roi, b: Roi, dx: number, dy: number, padding: number): Roi
   return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 
+/**
+ * rt_build_scaled_mask from the spot's shape: the mask resampled (nearest) to `scale` and cut to
+ * what both source and target can reach, made only at the full-size pixels it reads (maskAt).
+ */
+export function scaledSpotMask(shape: RetouchShape, W: number, H: number, roiIn: Roi, scale: number, dx: number, dy: number, padding: number, roiMask = spotArea(shape, W, H)): { roi: Roi; mask: Float32Array } | null {
+  const r0 = { x: int(roiMask.x * scale), y: int(roiMask.y * scale), w: int(f(roiMask.w * scale) + 0.5), h: int(f(roiMask.h * scale) + 0.5) };
+  const roi = intersect(r0, roiIn, dx, dy, padding);
+  if (roi.w < 1 || roi.h < 1) return null;
+  const xs = Int32Array.from({ length: roi.w }, (_, j) => int(f((roi.x + j) / scale)));
+  const ys = Int32Array.from({ length: roi.h }, (_, i) => int(f((roi.y + i) / scale)));
+  return { roi, mask: maskAt(shape, W, H, roiMask, xs, ys) };
+}
+
 /** rt_build_scaled_mask: the mask resampled (nearest) to `scale` and cut to what both source and target can reach. */
-function scaledMask(mask: Float32Array, roiMask: Roi, roiIn: Roi, scale: number, dx: number, dy: number, padding: number): { roi: Roi; mask: Float32Array } | null {
+export function scaledMask(mask: Float32Array, roiMask: Roi, roiIn: Roi, scale: number, dx: number, dy: number, padding: number): { roi: Roi; mask: Float32Array } | null {
   const r0 = { x: int(roiMask.x * scale), y: int(roiMask.y * scale), w: int(f(roiMask.w * scale) + 0.5), h: int(f(roiMask.h * scale) + 0.5) };
   const roi = intersect(r0, roiIn, dx, dy, padding);
   if (roi.w < 1 || roi.h < 1) return null;
@@ -394,7 +489,7 @@ export class RetouchCache {
  * size over the full size W × H), in place. Spots run in order. With a cache, a spot whose input
  * is unchanged is pasted from its last result.
  */
-export function retouch(img: Float32Array, roiIn: Roi, W: number, H: number, scale: number, spots: RetouchSpot[], maxIter = MAX_HEAL_ITER, cache?: RetouchCache, coverage?: Float32Array, setup: RetouchSetup = NO_SCALES) {
+export function retouch(img: Float32Array, roiIn: Roi, W: number, H: number, scale: number, spots: RetouchSpot[], healTolerance = HEAL_TOLERANCE, cache?: RetouchCache, coverage?: Float32Array, setup: RetouchSetup = NO_SCALES) {
   scale = f(scale);
   const numScales = setup.scales;
   const show = setup.show > 0 && numScales > 0 ? Math.min(setup.show, numScales + 1) : 0;
@@ -409,7 +504,7 @@ export function retouch(img: Float32Array, roiIn: Roi, W: number, H: number, sca
     spots.forEach((spot, i) => {
       if (spot.scale !== s) return;
       if (spot.tool === 'remove') removeSpot(layer, roiIn, W, H, scale, spots, i, setup, coverage);
-      else retouchSpot(layer, roiIn, W, H, scale, spot, maxIter, cache, coverage);
+      else retouchSpot(layer, roiIn, W, H, scale, spot, healTolerance, cache, coverage);
     });
   });
   if (p.returnLayer > 0) {
@@ -496,7 +591,7 @@ export function adjustLevels(img: Float32Array, [left, middle, right]: [number, 
 }
 
 /** rt_process_forms for one form: its mask, scaled and cut to the layer, then its algorithm. */
-function retouchSpot(img: Float32Array, roiIn: Roi, W: number, H: number, scale: number, spot: RetouchSpot, maxIter: number, cache?: RetouchCache, coverage?: Float32Array) {
+function retouchSpot(img: Float32Array, roiIn: Roi, W: number, H: number, scale: number, spot: RetouchSpot, healTolerance: number, cache?: RetouchCache, coverage?: Float32Array) {
   {
     // Blur and fill have no source (darktable leaves dx = dy = 0 for them).
     const moves = usesSource(spot.tool);
@@ -515,19 +610,18 @@ function retouchSpot(img: Float32Array, roiIn: Roi, W: number, H: number, scale:
     copyInToOut(img, roiIn, src, roi, dx, dy);
     const { id: _id, ...settings } = spot;
     void _id;
-    const key = cache ? `${JSON.stringify([settings, W, H, scale, maxIter, roi])}|${hashPixels(2166136261, src)}${moves ? `|${hashPixels(2166136261, copyOf(img, roiIn, roi))}` : ''}` : '';
+    const key = cache ? `${JSON.stringify([settings, W, H, scale, healTolerance, roi])}|${hashPixels(2166136261, src)}${moves ? `|${hashPixels(2166136261, copyOf(img, roiIn, roi))}` : ''}` : '';
     // A cache entry holds the result's pixels, then the spot's mask over the same rectangle.
     const hit = cache?.get(key);
     let maskOut: Float32Array;
     if (!hit) {
-      const { roi: roiMask, mask } = spotMask(spot.shape, W, H);
-      const scaled = scaledMask(mask, roiMask, roiIn, scale, dx, dy, padding)!;
+      const scaled = scaledSpotMask(spot.shape, W, H, roiIn, scale, dx, dy, padding, area)!;
       maskOut = scaled.mask;
       if (spot.tool === 'clone') {
         copyMasked(src, img, roiIn, scaled.mask, scaled.roi, spot.opacity);
       } else if (spot.tool === 'heal') {
         const dest = copyOf(img, roiIn, roi);
-        heal(src, dest, scaled.mask, scaled.roi.w, scaled.roi.h, maxIter);
+        heal(src, dest, scaled.mask, scaled.roi.w, scaled.roi.h, healTolerance);
         copyMasked(dest, img, roiIn, scaled.mask, scaled.roi, spot.opacity);
       } else if (spot.tool === 'blur') {
         // src is the rectangle itself (dx = dy = 0).
@@ -633,7 +727,7 @@ function modelInput(img: Float32Array, roiIn: Roi, W: number, H: number, scale: 
  * result is as sharp as the view shows it; zoomed in, the view runs `retouch` at full size.
  */
 export function retouchReduced(px: Float32Array, region: Roi, W: number, H: number, scale: number, spots: RetouchSpot[], k: number, cache?: RetouchCache, setup: RetouchSetup = NO_SCALES) {
-  if (k <= 1) { retouch(px, region, W, H, scale, spots, MAX_HEAL_ITER, cache, undefined, setup); return; }
+  if (k <= 1) { retouch(px, region, W, H, scale, spots, HEAL_TOLERANCE, cache, undefined, setup); return; }
   const rs: Roi = { x: region.x / k, y: region.y / k, w: Math.ceil(region.w / k), h: Math.ceil(region.h / k) };
   const small = new Float32Array(4 * rs.w * rs.h);
   for (let Y = 0; Y < rs.h; Y++) for (let X = 0; X < rs.w; X++) {
@@ -645,7 +739,7 @@ export function retouchReduced(px: Float32Array, region: Roi, W: number, H: numb
     small.set([r / n, g / n, b / n, a / n], 4 * (Y * rs.w + X));
   }
   const coverage = new Float32Array(rs.w * rs.h);
-  retouch(small, rs, W, H, scale / k, spots, MAX_HEAL_ITER, cache, coverage, setup);
+  retouch(small, rs, W, H, scale / k, spots, HEAL_TOLERANCE, cache, coverage, setup);
   // Back up, into the spots only. A small pixel's centre is at k·X + (k − 1) / 2.
   const c = (k - 1) / 2;
   for (let y = 0; y < region.h; y++) {
@@ -665,6 +759,20 @@ export function retouchReduced(px: Float32Array, region: Roi, W: number, H: numb
       }
     }
   }
+}
+
+/**
+ * The spots left to run when `spots` is `done` with spots added after it: those added, to run on
+ * `done`'s result, which gives the same pixels as running them all (spots run in order, each on
+ * the result of those before). Null when it isn't so, or when that result can't be built on: a
+ * reduced view (its result is scaled back up into the spots), wavelet scales (spots run per
+ * layer), or Remove spots (each run asks for their missing patches).
+ */
+export function appendedSpots(done: readonly RetouchSpot[], spots: readonly RetouchSpot[], k: number, setup: RetouchSetup = NO_SCALES): RetouchSpot[] | null {
+  if (k !== 1 || setup.scales > 0 || setup.show > 0 || !done.length || spots.length <= done.length) return null;
+  if (spots.some(s => s.tool === 'remove')) return null;
+  for (let i = 0; i < done.length; i++) if (done[i] !== spots[i] && JSON.stringify(done[i]) !== JSON.stringify(spots[i])) return null;
+  return spots.slice(done.length);
 }
 
 /** The k-aligned rectangle of a w × h working image that retouchReduced needs at 1/k. */
