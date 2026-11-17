@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Recipe to shader uniforms. Pure, so it can be tested without a GPU.
 
-import { STOCK } from '../film/stocks';
+import { STOCK, type Mat3 } from '../film/stocks';
+import { fujiShiftMatrix } from '../film/fujirecipe';
+import { effectiveWb, type CameraWhites } from '../film/fujilooks';
 import { diffusionFraction, halationStrength } from './optics';
 import { scannerFinish } from '../film/scannerfinish';
 import type { Recipe } from '../film/recipe';
-import { REC2020_TO_SRGB, SRGB_TO_REC2020, columnMajor, mulVec } from './color';
+import { REC2020_TO_SRGB, SRGB_TO_REC2020, columnMajor, mulMat, mulVec } from './color';
 import { NEUTRAL, packCurve, sigmoidCurve, toneCurveFor, whiteTargetFor } from './tone';
 import {
   CB_DEFAULTS,
@@ -60,6 +62,10 @@ export interface RenderContext {
   compare?: boolean;
   /** The source's as-shot white point; D65 when unknown or not a RAW. */
   white?: Xy | null;
+  /** A RAW's camera space to the working space, where a Fuji recipe's white balance shift acts. */
+  cameraToWorking?: Mat3 | null;
+  /** The camera's own Auto white and white balance presets, for a Fuji recipe's white balance. */
+  camera?: CameraWhites;
   /** The stock's LUT in the recipe's pack, when it has one and it has loaded. */
   look?: LoadedLut | null;
   /** Show this mask (its index in the recipe's list) as an overlay. */
@@ -136,7 +142,14 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
   const lut = recipe.lookEnabled ? ctx.look ?? null : null;
   const s = STOCK[recipe.stock];
   const sc = scannerFinish(recipe);
-  const wbMat = recipe.wb ? columnMajor(whiteBalanceMatrix(ctx.white ?? D65_XY, whiteXy(recipe.wb.temperature, recipe.wb.tint))) : IDENTITY;
+  // The photo's own white balance, else its Fuji recipe's (film/fujilooks.ts).
+  const chosenWb = effectiveWb(recipe, ctx.camera);
+  const photoWb = chosenWb ? whiteBalanceMatrix(ctx.white ?? D65_XY, whiteXy(chosenWb.temperature, chosenWb.tint)) : null;
+  // A Fuji recipe's white balance shift, on top of the photo's own white balance.
+  const lookLut = profileSettingsFor(recipe)?.lut;
+  const shift = lookLut?.kind === 'fuji' ? fujiShiftMatrix(lookLut.recipe.wbShift, ctx.cameraToWorking ?? null, recipe.lookAmount / 100) : null;
+  const wb = shift && photoWb ? mulMat(shift, photoWb) : shift ?? photoWb;
+  const wbMat = wb ? columnMajor(wb) : IDENTITY;
 
   const teqOn = recipe.highlights !== 0;
   const teq = teqOn ? bandFactors(bandGains(recipe.highlights)) : [0, 0, 0, 0, 0, 0, 0, 0];
@@ -212,12 +225,13 @@ const NO_MASKS: Uniforms = { uTeqTiles: 1, uMaskGlowCount: 0, uMaskGlowTex: MASK
  * mireds (positive warmer) and tint adds to its tint; the mask's CAT16 goes from the photo's
  * white to that one, which is the photo's own white balance with the moved white, inside the mask.
  */
-export function maskUniforms(masks: Mask[], recipe: Recipe, ctx: Pick<RenderContext, 'white' | 'maskShow'>): Uniforms {
+export function maskUniforms(masks: Mask[], recipe: Recipe, ctx: Pick<RenderContext, 'white' | 'maskShow' | 'camera'>): Uniforms {
   const show = ctx.maskShow ?? -1;
   const { shapes, count, index } = packShapes(masks, show);
   if (!index.length) return NO_MASKS;
   const asShot = ctx.white ?? D65_XY;
-  const chosen = recipe.wb ? whiteXy(recipe.wb.temperature, recipe.wb.tint) : asShot;
+  const photoWb = effectiveWb(recipe, ctx.camera);
+  const chosen = photoWb ? whiteXy(photoWb.temperature, photoWb.tint) : asShot;
   let chosenTT: { temperature: number; tint: number } | null = null;
   const meta: number[] = [];
   const wb: number[] = [];
@@ -239,7 +253,7 @@ export function maskUniforms(masks: Mask[], recipe: Recipe, ctx: Pick<RenderCont
     const cbOn = m.contrast !== 0 || m.vibrance !== 0 || m.saturation !== 0 || m.shadows !== 0;
     meta.push(Math.min(1, Math.max(0, m.opacity / 100)), 2 ** m.exposure, cbOn ? 1 : 0, 0);
     if (m.temperature !== 0 || m.tint !== 0) {
-      chosenTT ??= recipe.wb ?? temperatureTint(chosen);
+      chosenTT ??= photoWb ?? temperatureTint(chosen);
       const moved = clampWhiteBalance({ temperature: 1e6 / (1e6 / chosenTT.temperature - m.temperature), tint: chosenTT.tint + m.tint });
       wb.push(...columnMajor(whiteBalanceMatrix(chosen, whiteXy(moved.temperature, moved.tint))));
     } else wb.push(...IDENTITY);

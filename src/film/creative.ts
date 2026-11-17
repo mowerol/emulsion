@@ -11,6 +11,7 @@ import { isScannerId, type ScannerId } from './scanners';
 import { normalizeGrading } from './grading';
 import { normalizeColor, tidyColor, type ColorAdjust, type Recipe } from './recipe';
 import { profileSettingsFor, registerFileLut } from './looks';
+import { normalizeFujiRecipe, type FujiRecipe } from './fujirecipe';
 
 /**
  * A custom look's LUT, with how much of it applies (0 to 1): a system look it refers to, or a LUT
@@ -19,6 +20,12 @@ import { profileSettingsFor, registerFileLut } from './looks';
 export type LutSource = (
   | { kind: 'pack'; pack: string; stock: string; amount: number }
   | { kind: 'file'; hash: string; amount: number }
+  /**
+   * A Fuji recipe: a Fuji film simulation look (`sim`, whose colour, tone and LUT `simLut` the look's
+   * other settings and this carry) with the camera's controls on top (film/fujirecipe.ts). Baked
+   * into one LUT when used.
+   */
+  | { kind: 'fuji'; sim: string; simLut: { pack: string; stock: string } | null; recipe: FujiRecipe; amount: number }
 ) & {
   /** 'color' takes only the LUT's hue and saturation (darktable's color blend mode); absent is normal. */
   blend?: 'color';
@@ -88,6 +95,8 @@ export function withLutBase(r: Recipe, lut: LutSource | null): Recipe {
   if (!lut) return { ...out, lookEnabled: false, stock: 'neutral', lookAmount: 100 };
   const lookAmount = lut.amount * 100;
   const lookBlend = lut.blend === 'color' ? 'color' : 'normal';
+  // A Fuji recipe is edited in the Fuji Editor; anywhere else it falls back to its simulation's LUT.
+  if (lut.kind === 'fuji') return lut.simLut ? { ...out, lookEnabled: true, pack: lut.simLut.pack as Recipe['pack'], stock: lut.simLut.stock as Recipe['stock'], lookAmount, lookBlend } : { ...out, lookEnabled: false, stock: 'neutral', lookAmount: 100 };
   return lut.kind === 'pack'
     ? { ...out, lookEnabled: true, pack: lut.pack as Recipe['pack'], stock: lut.stock as Recipe['stock'], lookAmount, lookBlend }
     : { ...out, lookEnabled: true, pack: 'files', stock: `lut:file:${lut.hash}`, lookAmount, lookBlend };
@@ -203,6 +212,11 @@ function normalizeLut(input: unknown): LutSource | null {
   if (o.kind === 'pack' && typeof o.pack === 'string' && typeof o.stock === 'string') return { kind: 'pack', pack: o.pack, stock: o.stock, amount, ...blend };
   if (o.kind === 'file' && typeof o.hash === 'string' && /^[0-9a-f]{64}$/.test(o.hash)) return { kind: 'file', hash: o.hash, amount, ...blend,
     ...(typeof o.photoMatch === 'string' && o.photoMatch.trim() ? { photoMatch: o.photoMatch.trim().slice(0, 200) } : {}) };
+  if (o.kind === 'fuji' && typeof o.sim === 'string') {
+    const recipe = normalizeFujiRecipe(o.recipe), simLut = o.simLut as Record<string, unknown> | null;
+    if (!recipe) return null;
+    return { kind: 'fuji', sim: o.sim, simLut: simLut && typeof simLut.pack === 'string' && typeof simLut.stock === 'string' ? { pack: simLut.pack, stock: simLut.stock } : null, recipe, amount, ...blend };
+  }
   return null;
 }
 

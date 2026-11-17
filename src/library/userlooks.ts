@@ -45,7 +45,13 @@ const register = (l: CustomLookFile) => {
   const meta = l.settings as Record<string, unknown>;
   const settings = normalizeSettings(l.settings) ?? { colorBalance: null, curve: null, lut: null };
   if (meta._legacy) { legacyLooks.set(customLookId(l.id), { name: l.name, settings, kind: meta._kind === 'look' ? 'look' : meta._kind === 'lut' ? 'lut' : undefined, revision: typeof meta._revision === 'number' ? meta._revision : 1 }); return; }
-  registerCustomLook(l.id, l.name, settings, meta._kind === 'look' ? 'look' : meta._kind === 'lut' ? 'lut' : undefined, typeof meta._revision === 'number' ? meta._revision : 1);
+  registerCustomLook(l.id, l.name, settings, meta._kind === 'look' ? 'look' : meta._kind === 'lut' ? 'lut' : undefined, typeof meta._revision === 'number' ? meta._revision : 1, folderName(meta._folder));
+};
+
+/** A folder name as saved: trimmed, at most 80 characters; empty is none. */
+export const folderName = (v: unknown): string | undefined => {
+  const t = typeof v === 'string' ? v.trim().slice(0, 80) : '';
+  return t || undefined;
 };
 
 /** Load the custom looks into their collection. Call on start. */
@@ -91,15 +97,41 @@ export async function importLutFile(path: string): Promise<string> {
   return hash;
 }
 
-/** Create or update a custom look. Returns its stock id. */
-export async function saveLook(id: string, name: string, settings: ProfileSettings): Promise<StockId> {
+/**
+ * Create or update a custom look. Returns its stock id. It keeps its folder unless `folder` is
+ * given (null takes it out of its folder); a new look goes in `folder`, if any.
+ */
+export async function saveLook(id: string, name: string, settings: ProfileSettings, folder?: string | null): Promise<StockId> {
+  const existing = PACK.custom.looks[customLookId(id)];
+  return write(id, name, settings, (existing?.revision ?? 0) + 1, folder === undefined ? existing?.folder : folderName(folder));
+}
+
+async function write(id: string, name: string, settings: ProfileSettings, revision: number, folder: string | undefined): Promise<StockId> {
   const saved = await invoke<CustomLookFile>('save_custom_look', {
-    look: { version: 2, id, name, settings: { ...settings, _kind: 'look', _revision: (PACK.custom.looks[customLookId(id)]?.revision ?? 0) + 1 }, lut: settings.lut?.kind === 'file' ? settings.lut.hash : undefined },
+    look: { version: 2, id, name, settings: { ...settings, _kind: 'look', _revision: revision, ...(folder ? { _folder: folder } : {}) }, lut: settings.lut?.kind === 'file' ? settings.lut.hash : undefined },
   });
   register(saved);
   changed();
   return customLookId(saved.id);
 }
+
+/** Move a custom look into a folder (null: My looks). Its settings and revision stay, so photos using it are unchanged. */
+export async function moveLook(stock: StockId, folder: string | null): Promise<void> {
+  const id = customLookOf(stock), entry = PACK.custom.looks[stock];
+  if (!id || !entry?.settings || entry.missing) return;
+  await write(id, entry.name ?? 'Look', entry.settings, entry.revision ?? 1, folderName(folder));
+}
+
+/** Delete a look folder: its looks go back to My looks (unchanged otherwise). Returns how many moved. */
+export async function deleteLookFolder(folder: string): Promise<number> {
+  const inside = Object.entries(PACK.custom.looks).filter(([, l]) => l && !l.missing && l.folder === folder && l.settings);
+  for (const [stock] of inside) await moveLook(stock as StockId, null);
+  return inside.length;
+}
+
+/** The folders custom looks are in, A to Z. */
+export const lookFolders = (): string[] =>
+  [...new Set(Object.values(PACK.custom.looks).map((l) => (l && !l.missing ? l.folder : undefined)).filter((f): f is string => !!f))].sort((a, b) => a.localeCompare(b));
 
 /** Import a LUT file as a new custom look. */
 export async function importLook(path: string): Promise<StockId> {

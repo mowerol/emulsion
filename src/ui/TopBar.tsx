@@ -9,6 +9,7 @@ import { useImporter, useImportPhotos } from '../library/importer';
 import { FolderBreadcrumb, LibrarySourceDialog, SourceHeader, type LibraryDialog } from './LibrarySources';
 import { SyncDialog } from './SyncDialog';
 import { WorkspaceMenu } from './WorkspaceMenu';
+import { LooksMenu } from './LooksMenu';
 
 export async function chooseFolder() {
   const current = useApp.getState().folder?.root;
@@ -75,6 +76,7 @@ export function TopBar() {
         <div className="top-actions">
           {s.view === 'library' && root && s.source?.type === 'folder' && <button id="library-sync" type="button" className="btn sync-button" disabled={s.loading} onClick={() => setSyncRoot(root)}><RefreshCw size={13} />Sync…{added > 0 && <><span className="source-new" aria-label="New photos on disk" /><span className="sync-new-count">{added.toLocaleString()} new</span></>}</button>}
           {s.view === 'develop' && count > 0 && <WorkspaceMenu />}
+          {s.view === 'develop' && count > 0 && <LooksMenu />}
           <button type="button" className="btn primary" disabled={!count} onClick={() => setExportOpen(true)}>Export</button>
         </div>
       </>}

@@ -18,13 +18,18 @@ describe('Emulsion built-in looks', () => {
     }
     expect(BUILTIN_LOOKS.map((l) => l.name).slice(0, 6)).toEqual(['Emulsion Standard', 'Emulsion Neg', 'Emulsion Chrome', 'Emulsion Gold', 'B&W Dynamic', 'B&W Classic']);
     // The fitted Fujifilm simulations follow, all in the Emulsion x Fuji folder: colour, then black and white.
-    // Community recipes come last, in their own folder.
-    const recipes = BUILTIN_LOOKS.filter((l) => l.category === 'Emulsion x Fuji Recipes');
+    // Recipes come last: the community's own (named with their maker), then Fuji X Weekly's.
+    const community = BUILTIN_LOOKS.filter((l) => l.category === 'Community Recipes');
+    const weekly = BUILTIN_LOOKS.filter((l) => l.category === 'Fuji X Weekly');
+    const recipes = [...community, ...weekly];
     const fuji = BUILTIN_LOOKS.slice(6, BUILTIN_LOOKS.length - recipes.length);
     expect(fuji.every((l) => l.category === 'Emulsion x Fuji')).toBe(true);
     expect(BUILTIN_LOOKS.slice(-recipes.length)).toEqual(recipes);
-    expect(recipes.map((l) => l.id)).toContain('emulsion-fuji-reggies-portra');
-    expect(recipes.every((l) => !l.bw && /\(.+\)$/.test(l.name))).toBe(true);
+    expect(community.map((l) => l.id)).toEqual(['emulsion-fuji-reggies-portra', 'emulsion-fuji-classic-cuban-neg', 'emulsion-fuji-leica-x']);
+    expect(community.every((l) => /\(.+\)$/.test(l.name))).toBe(true);
+    expect(weekly.length).toBeGreaterThan(50);
+    expect(new Set(BUILTIN_LOOKS.map((l) => l.name.toLowerCase())).size).toBe(BUILTIN_LOOKS.length);
+    expect(recipes.every((l) => !l.bw)).toBe(true);
     expect(fuji.filter((l) => l.bw).map((l) => l.id)).toEqual(['acros', 'acros-ye', 'acros-r', 'acros-g', 'monochrome', 'monochrome-ye', 'monochrome-r', 'monochrome-g', 'sepia'].map((s) => `emulsion-fuji-${s}`));
     expect(lookFile('emulsion-looks', 'emulsion-film-neg' as StockId, 0)).toBeNull();
   });

@@ -4,7 +4,8 @@
 import { useSyncExternalStore } from 'react';
 import { invoke } from '../backend/ipc';
 import { type Clut, parse3dl, parseCube, parseHald } from './lut3d';
-import { USER_LOOKS_DIR } from '../film/looks';
+import { FUJI_LUT_PREFIX, USER_LOOKS_DIR, type FujiLutKey } from '../film/looks';
+import { FUJI_CONTROLS_DIR, FUJI_CONTROL_FILES, bakeFujiLut, type FujiControls } from '../film/fujirecipe';
 
 /** A loaded LUT; `id` keys the GPU texture and the maps downstream, `eightBit` picks its format. */
 export interface LoadedLut extends Clut {
@@ -92,7 +93,9 @@ export async function loadLut(file: string): Promise<LoadedLut | null> {
     luts.set(file, 'loading');
     inFlight.set(file, (async () => {
       try {
-        if (file.startsWith(USER_LOOKS_DIR)) {
+        if (file.startsWith(FUJI_LUT_PREFIX)) {
+          luts.set(file, await bakeFuji(JSON.parse(file.slice(FUJI_LUT_PREFIX.length)) as FujiLutKey));
+        } else if (file.startsWith(USER_LOOKS_DIR)) {
           const { name, blob } = await userLook(file);
           luts.set(file, await readLut(name, blob));
         } else {
@@ -112,6 +115,37 @@ export async function loadLut(file: string): Promise<LoadedLut | null> {
   await inFlight.get(file);
   const now = luts.get(file);
   return now && now !== 'loading' && now !== 'failed' ? now : null;
+}
+
+/**
+ * The Fuji recipe controls' measured maps, loaded once. A map not bundled yet (a setting not
+ * measured yet) is left out: the nearest measured step continues across it.
+ */
+let fujiControls: Promise<FujiControls> | null = null;
+function loadFujiControls(): Promise<FujiControls> {
+  const one = async (name: string) => parseCube((await get(base + FUJI_CONTROLS_DIR + name, 'text')) as string);
+  const stepped = async (files: Record<number, string>): Promise<Record<number, Clut>> => Object.fromEntries((await Promise.all(Object.entries(files)
+    .map(async ([k, f]) => [Number(k), await one(f).catch(() => null)] as const))).filter((e): e is readonly [number, Clut] => e[1] !== null));
+  if (fujiControls) return fujiControls;
+  const loading = (async (): Promise<FujiControls> => ({
+    highlight: await stepped(FUJI_CONTROL_FILES.highlight),
+    shadow: await stepped(FUJI_CONTROL_FILES.shadow),
+    color: await stepped(FUJI_CONTROL_FILES.color),
+    chromeStrong: await one(FUJI_CONTROL_FILES.chromeStrong),
+    chromeStrongAtColor4: await one(FUJI_CONTROL_FILES.chromeStrongAtColor4),
+    blueWeak: await one(FUJI_CONTROL_FILES.blueWeak),
+    blueStrong: await one(FUJI_CONTROL_FILES.blueStrong),
+    blueStrongAtColor4: await one(FUJI_CONTROL_FILES.blueStrongAtColor4),
+  }))();
+  fujiControls = loading;
+  // A failed load is tried again next time.
+  loading.catch(() => { fujiControls = null; });
+  return loading;
+}
+async function bakeFuji(key: FujiLutKey): Promise<LoadedLut> {
+  const [controls, sim] = await Promise.all([loadFujiControls(), key.sim ? loadLut(key.sim) : null]);
+  if (key.sim && !sim) throw new Error(`simulation LUT ${key.sim} did not load`);
+  return { ...bakeFujiLut(sim, key.curve, controls, key.recipe), id: ++ids, eightBit: false };
 }
 
 /** The LUT if it has loaded, else null (and it starts loading; views redraw when it arrives). */

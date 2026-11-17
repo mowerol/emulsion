@@ -33,6 +33,11 @@ struct EmuRawInfo {
   int left_margin;
   int top_margin;
   int flip;
+  // The camera's own white balance presets, as multipliers for R, G, B (all zero when absent):
+  // Daylight (Fujifilm's Fine), and its colour temperature table (Kelvin, R, G, B per row).
+  float wb_daylight[3];
+  float wbct[64][4];
+  int wbct_count;
 };
 
 struct EmuRawThumb {
@@ -151,6 +156,17 @@ static void fill_colour_info(LibRaw *raw, EmuRawInfo *info) {
   // For DNGs, LibRaw colours from the file's matrix, not its table: do the same.
   dng_cam_xyz(raw, info->cam_xyz);
   info->dng = raw->imgdata.idata.dng_version != 0;
+  // Fujifilm stores its Daylight preset as Fine Weather; other makes as Daylight.
+  const int *day = raw->imgdata.color.WB_Coeffs[LIBRAW_WBI_FineWeather];
+  if (day[0] <= 0 || day[1] <= 0 || day[2] <= 0) day = raw->imgdata.color.WB_Coeffs[LIBRAW_WBI_Daylight];
+  for (int i = 0; i < 3; i++) info->wb_daylight[i] = day[0] > 0 && day[1] > 0 && day[2] > 0 ? (float)day[i] : 0.f;
+  info->wbct_count = 0;
+  for (int k = 0; k < 64; k++) {
+    const float *row = raw->imgdata.color.WBCT_Coeffs[k];
+    if (row[0] <= 0 || row[1] <= 0 || row[2] <= 0 || row[3] <= 0) continue;
+    float *out = info->wbct[info->wbct_count++];
+    out[0] = row[0]; out[1] = row[1]; out[2] = row[2]; out[3] = row[3];
+  }
   const libraw_image_sizes_t &s = raw->imgdata.sizes;
   info->left_margin = s.left_margin;
   info->top_margin = s.top_margin;

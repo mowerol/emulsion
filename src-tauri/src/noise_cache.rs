@@ -401,6 +401,7 @@ fn load_cached(
             noise: m.camera.noise.clone().or_else(|| raw::noise_profile(path)),
             colour: m.camera.colour.clone().or_else(|| raw::colour_source_of(path)),
             auto_white: m.camera.auto_white.or_else(|| raw::camera_auto_white(path)),
+            preset_whites: m.camera.preset_whites.clone().or_else(|| raw::camera_preset_whites(path)),
             ..m.camera.clone()
     };
     let mut bytes = decode::raw_header(path, (w, h), m.white, m.full_size, &camera, raw::camera_frame(path))?;

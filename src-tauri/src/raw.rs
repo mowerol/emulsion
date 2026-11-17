@@ -31,11 +31,14 @@ struct EmuRawInfo {
     left_margin: c_int,
     top_margin: c_int,
     flip: c_int,
+    wb_daylight: [f32; 3],
+    wbct: [[f32; 4]; 64],
+    wbct_count: c_int,
 }
 
 impl EmuRawInfo {
     fn empty() -> Self {
-        EmuRawInfo { width: 0, height: 0, cam_xyz: [[0.0; 3]; 3], cam_mul: [0.0; 3], full_width: 0, full_height: 0, make: [0; 64], model: [0; 64], iso: 0.0, shutter: 0.0, aperture: 0.0, focal_length: 0.0, focal_length35: 0.0, dng: 0, left_margin: 0, top_margin: 0, flip: 0 }
+        EmuRawInfo { width: 0, height: 0, cam_xyz: [[0.0; 3]; 3], cam_mul: [0.0; 3], full_width: 0, full_height: 0, make: [0; 64], model: [0; 64], iso: 0.0, shutter: 0.0, aperture: 0.0, focal_length: 0.0, focal_length35: 0.0, dng: 0, left_margin: 0, top_margin: 0, flip: 0, wb_daylight: [0.0; 3], wbct: [[0.0; 4]; 64], wbct_count: 0 }
     }
 }
 
@@ -311,6 +314,46 @@ pub struct CameraMetadata {
     /// as-shot one: Fujifilm RAWs shot with a white balance shift or a fixed white balance.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub auto_white: Option<[f32; 2]>,
+    /// The camera's own white balance presets as white points (CIE xy), where the file records
+    /// them: a Fuji recipe's fixed white balance uses them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub preset_whites: Option<PresetWhites>,
+}
+
+/// White points of a camera's white balance presets.
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PresetWhites {
+    /// Daylight (Fujifilm's Fine).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub daylight: Option<[f32; 2]>,
+    /// Colour temperature settings: Kelvin, x, y; rising Kelvin.
+    #[serde(default)]
+    pub kelvin: Vec<[f32; 3]>,
+}
+
+fn preset_whites_for(info: &EmuRawInfo) -> Option<PresetWhites> {
+    let (matrix, _) = colour_of(info);
+    let matrix = matrix?;
+    let daylight = info.wb_daylight.iter().all(|v| *v > 0.0).then(|| white_point(&matrix, &info.wb_daylight)).flatten();
+    let n = (info.wbct_count.max(0) as usize).min(64);
+    let mut kelvin: Vec<[f32; 3]> = info.wbct[..n].iter()
+        .filter_map(|r| white_point(&matrix, &[r[1], r[2], r[3]]).map(|w| [r[0], w[0], w[1]]))
+        .collect();
+    kelvin.sort_by(|a, b| a[0].total_cmp(&b[0]));
+    (daylight.is_some() || !kelvin.is_empty()).then_some(PresetWhites { daylight, kelvin })
+}
+
+/// The camera's white balance presets of `path` (see `CameraMetadata::preset_whites`), reading
+/// metadata only.
+pub fn camera_preset_whites(path: &Path) -> Option<PresetWhites> {
+    let cpath = c_path(path).ok()?;
+    let mut info = EmuRawInfo::empty();
+    let mut err = [0 as c_char; 256];
+    openmp_root();
+    let rc = unsafe { emu_raw_info(cpath.as_ptr(), &mut info, err.as_mut_ptr(), err.len()) };
+    if rc != 0 { return None; }
+    preset_whites_for(&info)
 }
 
 /// A decoded RAW.
@@ -443,6 +486,7 @@ pub fn decode_balanced(path: &Path, half: bool, gains: Option<[f32; 3]>) -> Resu
         return Err(format!("Could not decode RAW {}: {}", file_name(path), error_text(&err)));
     }
     let auto_white = crate::raf::auto_gains(path).and_then(|a| auto_white_for(&info, a));
+    let preset_whites = preset_whites_for(&info);
     let g = gains.unwrap_or([1.0; 3]);
     if gains.is_some() {
         info.cam_mul = [info.cam_mul[0] * g[0], info.cam_mul[1] * g[1], info.cam_mul[2] * g[2]];
@@ -483,7 +527,7 @@ pub fn decode_balanced(path: &Path, half: bool, gains: Option<[f32; 3]>) -> Resu
     } else { None };
     let noise = Some(crate::noiseprofiles::for_camera(&make, &model, info.iso));
     let colour = Some(source);
-    let camera = CameraMetadata { make, model, camera_to_working: m, neutral, baseline_gain: BASELINE_GAIN, noise, colour, auto_white };
+    let camera = CameraMetadata { make, model, camera_to_working: m, neutral, baseline_gain: BASELINE_GAIN, noise, colour, auto_white, preset_whites };
     Ok(Decoded { image: DynamicImage::ImageRgb32F(buf), white: white_for(&info), full_size, frame: frame_for(path, &info), camera_to_working: m, camera })
 }
 

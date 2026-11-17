@@ -38,6 +38,7 @@
 //   the crop is squeezed to 512 on both axes, so it is taken to mean the crop's shorter side.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+import { profileSettingsFor } from '../film/looks';
 import type { Recipe } from '../film/recipe';
 import type { RetouchShape, RetouchSpot } from '../film/retouch';
 import type { BrushNode } from '../film/masks';
@@ -300,12 +301,15 @@ export const digest = (s: string) => cyrb53(s, 0) + cyrb53(s, 0x9e3779b9);
  * decode settings, which the caller names), capture sharpening, lens correction, white balance
  * and noise reduction. Nothing after the step (Exposure, tones, the look).
  */
-export function preRetouchKey(source: string, recipe: Pick<Recipe, 'lens' | 'wb' | 'noiseReduction' | 'profiledDenoise' | 'captureSharpening'>): string {
+export function preRetouchKey(source: string, recipe: Pick<Recipe, 'lens' | 'wb' | 'noiseReduction' | 'profiledDenoise' | 'captureSharpening'> & Partial<Recipe>): string {
   const nr = recipe.noiseReduction?.enabled ? recipe.noiseReduction : null;
   const key: unknown[] = [source, recipe.captureSharpening, recipe.lens, 'auto', null, recipe.wb, nr];
   // 'auto', null stand where the retired camera profile choice was, so keys made before stay valid.
   // Appended only when present, so keys (and the native patch cache) made before it stay valid.
   if (recipe.profiledDenoise != null) key.push(recipe.profiledDenoise);
+  // A Fuji recipe look's white balance and shift (the white balance stage applies them).
+  const lut = recipe.lookEnabled ? profileSettingsFor(recipe as Recipe)?.lut : null;
+  if (lut?.kind === 'fuji') key.push({ fujiWb: recipe.wb ? null : lut.recipe.wb, shift: lut.recipe.wbShift, amount: recipe.lookAmount });
   return JSON.stringify(key);
 }
 

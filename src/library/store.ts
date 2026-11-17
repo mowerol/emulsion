@@ -129,10 +129,14 @@ export interface State {
     id: string; name: string; path: string; original: Recipe | null; past: (Recipe | null)[]; future: (Recipe | null)[]; start: { name: string; draft: Recipe }; matching?: object;
     /** The newest undo step's key and time, so a drag is one step, merged by the photo history's rule. */
     last?: { key: string; at: number };
+    /** A Fuji recipe open in the Fuji Editor: the draft's look snapshot carries it (film/fujilooks.ts). */
+    fuji?: boolean;
     /** The photo editing started on, once the draft has moved to a test photo (moveLookEdit). */
     home?: string;
     /** A test photo from outside the open photos, added to them while the draft is on it. */
     guest?: string;
+    /** The look folder chosen for saving (null: My looks); unset keeps the look's own or the default. */
+    folder?: string | null;
   } | null;
   /** The crop being edited, for the photo at `path` of size W × H; it is saved when cropping ends. */
   cropEdit: { path: string; draft: Crop; W: number; H: number; frame?: Rect | null } | null;
@@ -1688,12 +1692,12 @@ export function setPhotoCamera(path: string, camera: import('../film/profiles').
 }
 
 /** Open a custom look for editing on the photo at `path`, with `draft` (the look on its sliders) shown. */
-export function startLookEdit(path: string, id: string, name: string, draft: Recipe) {
+export function startLookEdit(path: string, id: string, name: string, draft: Recipe, fuji = false) {
   finishCrop(true);
   const p = get().photos.find((x) => photoId(x) === path);
   if (!p || get().lookEdit) return;
   set({
-    lookEdit: { id, name, path, original: p.recipe, past: [], future: [], start: { name, draft } }, picking: false, compare: false,
+    lookEdit: { id, name, path, original: p.recipe, past: [], future: [], start: { name, draft }, ...(fuji ? { fuji } : {}) }, picking: false, compare: false,
     photos: get().photos.map((x) => (photoId(x) === path ? { ...x, recipe: draft } : x)),
   });
 }
@@ -1704,14 +1708,22 @@ export function renameLookEdit(name: string) {
   if (e) set({ lookEdit: { ...e, name } });
 }
 
-/** Whether the look draft differs from where its editing started (its name or its settings). */
+/** Choose the look folder the draft saves into (null: My looks; undefined: the look's own). */
+export function setLookEditFolder(folder: string | null | undefined) {
+  const e = get().lookEdit;
+  if (!e) return;
+  const { folder: _, ...rest } = e;
+  set({ lookEdit: folder === undefined ? rest : { ...rest, folder } });
+}
+
+/** Whether the look draft differs from where its editing started (its name, folder or settings). */
 export function lookEditDirty(s: Pick<State, 'lookEdit' | 'photos'>): boolean {
   const e = s.lookEdit;
   if (!e) return false;
   const draft = s.photos.find((x) => photoId(x) === e.path)?.recipe ?? null;
   // Preview exposure is not saved with the look, so it alone leaves nothing unsaved.
   const look = (r: Recipe | null) => JSON.stringify(r && { ...r, exposure: 0 });
-  return e.name !== e.start.name || look(draft) !== look(e.start.draft);
+  return e.name !== e.start.name || e.folder !== undefined || look(draft) !== look(e.start.draft);
 }
 
 /** Stop editing a look: the photo gets its saved recipe back. Returns the draft it had. */

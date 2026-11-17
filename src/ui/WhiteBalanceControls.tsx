@@ -15,6 +15,8 @@ import {
   type Xy,
 } from '../engine/whitebalance';
 import { editActive, useApp } from '../library/store';
+import { effectiveWb, fujiWbLabel, lookFujiWb } from '../film/fujilooks';
+import type { PresetWhites } from '../film/profiles';
 import { LiveRange } from './LiveRange';
 
 /** Temperature slider steps; the scale is logarithmic, so equal steps look equal. */
@@ -37,19 +39,24 @@ export function wbPreset(wb: WhiteBalance | null | undefined, cameraAuto: WhiteB
   return WB_PRESETS.find((p) => p.wb.temperature === wb.temperature && p.wb.tint === wb.tint)?.id ?? 'custom';
 }
 
-export function WhiteBalanceControls({ recipe, white, autoWhite = null, toolsOnly = false }: { recipe: Recipe | null; white: Xy | null; autoWhite?: Xy | null; toolsOnly?: boolean }) {
+export function WhiteBalanceControls({ recipe, white, autoWhite = null, presetWhites = null, toolsOnly = false }: { recipe: Recipe | null; white: Xy | null; autoWhite?: Xy | null; presetWhites?: PresetWhites | null; toolsOnly?: boolean }) {
   const picking = useApp((s) => s.picking);
   const asShot = useMemo(() => {
     const { temperature, tint } = temperatureTint(white ?? D65_XY);
     return { temperature, tint: Math.round(tint) };
   }, [white]);
-  const wb = recipe?.wb ?? asShot;
+  // A Fuji recipe look brings its own white balance, which the photo uses until it is given one.
+  const recipeWb = lookFujiWb(recipe);
+  const wb = effectiveWb(recipe, { autoWhite, presetWhites }) ?? asShot;
   const disabled = !recipe;
 
   const set = (next: WhiteBalance | null) => editActive((r) => ({ ...(r ?? defaultRecipe()), wb: next ? clampWhiteBalance(next) : null }));
 
   const cameraAuto = useMemo(() => cameraAutoWb(autoWhite), [autoWhite]);
-  const preset = wbPreset(recipe?.wb, cameraAuto);
+  // With a recipe, no white balance of the photo's own is the recipe's; As shot is then stored.
+  const preset = recipeWb && !recipe?.wb ? 'recipe'
+    : recipeWb && recipe?.wb && Math.abs(recipe.wb.temperature - asShot.temperature) < 0.5 && Math.abs(recipe.wb.tint - asShot.tint) < 0.05 ? 'as-shot'
+    : wbPreset(recipe?.wb, cameraAuto);
 
   return (
     <div className="wb">
@@ -60,7 +67,8 @@ export function WhiteBalanceControls({ recipe, white, autoWhite = null, toolsOnl
           disabled={disabled}
           onChange={(e) => {
             const v = e.target.value;
-            if (v === 'as-shot') set(null);
+            if (v === 'recipe') set(null);
+            else if (v === 'as-shot') set(recipeWb ? asShot : null);
             else if (v === 'camera-auto') set(cameraAuto);
             else {
               const p = WB_PRESETS.find((q) => q.id === v);
@@ -68,6 +76,7 @@ export function WhiteBalanceControls({ recipe, white, autoWhite = null, toolsOnl
             }
           }}
         >
+          {recipeWb && <option value="recipe">Recipe ({fujiWbLabel(recipeWb)})</option>}
           <option value="as-shot">As shot</option>
           {cameraAuto && <option value="camera-auto">Camera Auto</option>}
           {WB_PRESETS.map((p) => (
@@ -90,7 +99,7 @@ export function WhiteBalanceControls({ recipe, white, autoWhite = null, toolsOnl
       </div>
 
       {!toolsOnly && <><div className="slider wb-temp">
-        <label htmlFor="wb-temp" onDoubleClick={() => recipe && set(null)} title="Double-click the name or the handle for as shot">
+        <label htmlFor="wb-temp" onDoubleClick={() => recipe && set(null)} title={recipeWb ? "Double-click the name or the handle for the recipe's" : 'Double-click the name or the handle for as shot'}>
           Temperature
         </label>
         <output htmlFor="wb-temp">{kelvin(wb.temperature)}</output>
@@ -110,7 +119,7 @@ export function WhiteBalanceControls({ recipe, white, autoWhite = null, toolsOnl
       </div>
 
       <div className="slider wb-tint">
-        <label htmlFor="wb-tint" onDoubleClick={() => recipe && set(null)} title="Double-click the name or the handle for as shot">
+        <label htmlFor="wb-tint" onDoubleClick={() => recipe && set(null)} title={recipeWb ? "Double-click the name or the handle for the recipe's" : 'Double-click the name or the handle for as shot'}>
           Tint
         </label>
         <output htmlFor="wb-tint">{signed(Math.round(wb.tint))}</output>

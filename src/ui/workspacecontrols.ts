@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Catalogue adapters use the same parameter ranges and recipe writers as the standard panels.
 import { SLIDERS, COLOR_CHANNELS, defaultRecipe, resetSection, sliderDefault, tidyColor, withSlider, type Recipe, type SectionId } from '../film/recipe';
+import { effectiveWb, type CameraWhites } from '../film/fujilooks';
 import { gradeDefault, gradeRange, gradeSoftRange, gradeValue, updateGrade, type GradeKey } from '../film/grading';
 import { CB_DEFAULTS } from '../engine/colorbalance';
 import { clampWhiteBalance, D65_XY, MAX_TEMPERATURE, MAX_TINT, MIN_TEMPERATURE, temperatureTint, type Xy } from '../engine/whitebalance';
@@ -8,7 +9,7 @@ import { LENS_DEFAULTS, lensSupport, normalizeLens, type LensMetadata } from '..
 import { normalizePerspective, PERSPECTIVE_DEFAULTS } from '../engine/perspective';
 import { CHROMA_ONLY, effectiveProfiled, NOISE_DEFAULTS, PROFILED_OFF, profiledEnabled, RAW_PROFILED_DEFAULT, type ProfiledDenoise } from '../film/noisereduction';
 
-export interface ControlContext { white: Xy | null; raw?: boolean; lens?: LensMetadata | null; cropping?: boolean }
+export interface ControlContext { white: Xy | null; raw?: boolean; lens?: LensMetadata | null; cropping?: boolean; camera?: CameraWhites }
 export interface WorkspaceSlider {
   id: string; label: string; category: string; hint?: string;
   min: number; max: number; step: number; soft?: [number, number]; log?: boolean; entryScale?: number;
@@ -36,8 +37,9 @@ const wb: WorkspaceSlider[] = (['temperature', 'tint'] as const).map(key => ({
   id: key, label: key === 'temperature' ? 'Temperature' : 'Tint', category: 'White balance',
   min: key === 'temperature' ? MIN_TEMPERATURE : -MAX_TINT, max: key === 'temperature' ? MAX_TEMPERATURE : MAX_TINT,
   step: 1, log: key === 'temperature',
-  value: (r, c) => (r.wb ?? asShot(c))[key], fallback: (_r, c) => asShot(c)[key],
-  set: (r, v, c) => ({ ...r, wb: clampWhiteBalance({ ...(r.wb ?? asShot(c)), [key]: v }) }),
+  // The white balance in effect: the photo's own, else its Fuji recipe look's, else as shot.
+  value: (r, c) => (effectiveWb(r, c.camera) ?? asShot(c))[key], fallback: (r, c) => (effectiveWb({ ...r, wb: null }, c.camera) ?? asShot(c))[key],
+  set: (r, v, c) => ({ ...r, wb: clampWhiteBalance({ ...(effectiveWb(r, c.camera) ?? asShot(c)), [key]: v }) }),
   format: key === 'temperature' ? v => `${Math.round(v / 10) * 10} K` : signed,
 }));
 const gradeLabel = (key: string) => {

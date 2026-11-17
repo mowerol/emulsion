@@ -908,7 +908,7 @@
     "name": "Classic Chrome",
     "category": "Emulsion x Fuji",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "settings": {
       "colorBalance": {
         "shadows_weight": 0.48,
@@ -1002,7 +1002,12 @@
           ]
         ]
       },
-      "lut": null,
+      "lut": {
+        "kind": "pack",
+        "pack": "emulsion-luts",
+        "stock": "lut:emulsion-luts:classic-chrome",
+        "amount": 1
+      },
       "color": {
         "hue": [
           -10,
@@ -3337,454 +3342,2473 @@
   {
     "id": "emulsion-fuji-reggies-portra",
     "name": "Reggie's Portra (Reggie B)",
-    "category": "Emulsion x Fuji Recipes",
+    "category": "Community Recipes",
     "bw": false,
-    "revision": 1,
-    "settings": {
-      "colorBalance": {
-        "shadows_weight": 0.48,
-        "white_fulcrum": -1.07,
-        "highlights_weight": 1.45,
-        "mask_grey_fulcrum": 0.0687,
-        "grey_fulcrum": 0.1821,
-        "saturation_global": -0.023,
-        "saturation_shadows": -0.007,
-        "saturation_midtones": 0.074,
-        "saturation_highlights": 0.053,
-        "chroma_global": -0.044,
-        "chroma_shadows": -0.031,
-        "chroma_midtones": 0.074,
-        "chroma_highlights": 0.084,
-        "vibrance": 0.008,
-        "shadows_C": 0.00836,
-        "shadows_H": 53.27,
-        "midtones_C": 0.0078,
-        "midtones_H": 88.53,
-        "highlights_C": 0.02553,
-        "highlights_H": 70.07
-      },
-      "curve": {
-        "rgb": [
-          [
-            0,
-            0
-          ],
-          [
-            0.06,
-            0.0104
-          ],
-          [
-            0.15,
-            0.055
-          ],
-          [
-            0.28,
-            0.2099
-          ],
-          [
-            0.42,
-            0.4043
-          ],
-          [
-            0.56,
-            0.6168
-          ],
-          [
-            0.7,
-            0.7789
-          ],
-          [
-            0.84,
-            0.9242
-          ],
-          [
-            1,
-            1
-          ]
+    "revision": 2,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-chrome",
+      "recipe": {
+        "wb": {
+          "mode": "auto"
+        },
+        "highlight": -1,
+        "shadow": -1,
+        "color": 2,
+        "chrome": "strong",
+        "blue": "weak",
+        "wbShift": [
+          2,
+          -4
         ],
-        "r": [
-          [
-            0,
-            0
-          ],
-          [
-            1,
-            1
-          ]
-        ],
-        "g": [
-          [
-            0,
-            0
-          ],
-          [
-            1,
-            1
-          ]
-        ],
-        "b": [
-          [
-            0,
-            0
-          ],
-          [
-            1,
-            1
-          ]
-        ]
-      },
-      "lut": {
-        "kind": "pack",
-        "pack": "emulsion-luts",
-        "stock": "lut:emulsion-luts:reggies-portra",
-        "amount": 1
-      },
-      "color": {
-        "hue": [
-          -12,
-          -40,
-          4,
-          27,
-          -14,
-          -56,
-          -11,
-          21
-        ],
-        "sat": [
-          3,
-          -4,
-          -12,
-          21,
-          25,
-          -10,
-          -43,
-          -21
-        ],
-        "bright": [
-          4,
-          1,
-          -40,
-          -19,
-          -2,
-          -3,
-          29,
-          48
-        ]
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": 0,
+        "sharpness": -2
       }
     }
   },
   {
     "id": "emulsion-fuji-classic-cuban-neg",
     "name": "Classic Cuban Neg (Osan B)",
-    "category": "Emulsion x Fuji Recipes",
+    "category": "Community Recipes",
     "bw": false,
-    "revision": 1,
-    "settings": {
-      "colorBalance": {
-        "shadows_C": 0.11427,
-        "shadows_H": 82.91,
-        "shadows_weight": 0.48,
-        "white_fulcrum": -1.07,
-        "highlights_weight": 1.45,
-        "chroma_shadows": 0.12,
-        "chroma_highlights": -0.093,
-        "chroma_global": -0.076,
-        "chroma_midtones": -0.296,
-        "saturation_global": 0.274,
-        "saturation_highlights": 0.162,
-        "saturation_midtones": 0.448,
-        "saturation_shadows": 0.216,
-        "hue_angle": -0.6,
-        "mask_grey_fulcrum": 0.0687,
-        "vibrance": 0.039,
-        "grey_fulcrum": 0.1821,
-        "midtones_C": 0.0049,
-        "midtones_H": 178.83,
-        "highlights_C": 0.04849,
-        "highlights_H": 64.86
-      },
-      "curve": {
-        "b": [
-          [
-            0,
-            0
-          ],
-          [
-            0.1479329755892256,
-            0.1680348625140291
-          ],
-          [
-            0.48189306257014586,
-            0.4859383768237935
-          ],
-          [
-            0.8460129068462402,
-            0.8684976501122335
-          ],
-          [
-            1,
-            1
-          ]
+    "revision": 2,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "auto"
+        },
+        "highlight": -2,
+        "shadow": 1,
+        "color": 4,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          4,
+          -5
         ],
-        "g": [
-          [
-            0,
-            0
-          ],
-          [
-            0.22839593855218857,
-            0.23404829545454545
-          ],
-          [
-            0.5247290614478115,
-            0.5274305555555555
-          ],
-          [
-            0.7971643518518519,
-            0.7958898007856341
-          ],
-          [
-            1,
-            1
-          ]
-        ],
-        "r": [
-          [
-            0,
-            0
-          ],
-          [
-            0.1872501052188552,
-            0.17221871492704832
-          ],
-          [
-            0.4968551837822671,
-            0.4886675785634118
-          ],
-          [
-            0.7729617354096522,
-            0.7868155513468014
-          ],
-          [
-            1,
-            1
-          ]
-        ],
-        "rgb": [
-          [
-            0,
-            0
-          ],
-          [
-            0.06,
-            0.0108
-          ],
-          [
-            0.15,
-            0.0566
-          ],
-          [
-            0.28,
-            0.1451
-          ],
-          [
-            0.42,
-            0.3442
-          ],
-          [
-            0.56,
-            0.6355
-          ],
-          [
-            0.7,
-            0.821
-          ],
-          [
-            0.84,
-            0.9358
-          ],
-          [
-            1,
-            1
-          ]
-        ]
-      },
-      "lut": {
-        "kind": "pack",
-        "pack": "emulsion-luts",
-        "stock": "lut:emulsion-luts:classic-cuban-neg",
-        "amount": 1
-      },
-      "color": {
-        "hue": [
-          15,
-          -17,
-          38,
-          97,
-          54,
-          -30,
-          15,
-          92
-        ],
-        "sat": [
-          -8,
-          -29,
-          -42,
-          -13,
-          10,
-          -18,
-          -71,
-          -46
-        ],
-        "bright": [
-          2,
-          -3,
-          -36,
-          -37,
-          -10,
-          1,
-          48,
-          60
-        ]
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -4,
+        "sharpness": 0
       }
     }
   },
   {
     "id": "emulsion-fuji-leica-x",
     "name": "Leica X (carlcruzsnaps)",
-    "category": "Emulsion x Fuji Recipes",
+    "category": "Community Recipes",
+    "bw": false,
+    "revision": 2,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-chrome",
+      "recipe": {
+        "wb": {
+          "mode": "auto"
+        },
+        "highlight": -1,
+        "shadow": 0,
+        "color": 4,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          1,
+          -2
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": 0,
+        "sharpness": 0
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-kodachrome-64",
+    "name": "Kodachrome 64",
+    "category": "Fuji X Weekly",
     "bw": false,
     "revision": 1,
-    "settings": {
-      "colorBalance": {
-        "shadows_weight": 0.48,
-        "white_fulcrum": -1.07,
-        "highlights_weight": 1.45,
-        "mask_grey_fulcrum": 0.0687,
-        "grey_fulcrum": 0.1821,
-        "saturation_global": -0.007,
-        "saturation_shadows": -0.064,
-        "saturation_midtones": 0.024,
-        "saturation_highlights": 0.093,
-        "chroma_global": -0.055,
-        "chroma_shadows": -0.079,
-        "chroma_midtones": 0.035,
-        "chroma_highlights": 0.076,
-        "vibrance": 0.006,
-        "shadows_C": 0.01026,
-        "shadows_H": 113.57,
-        "midtones_C": 0.00332,
-        "midtones_H": 105.71,
-        "highlights_C": 0.01717,
-        "highlights_H": 75.15
-      },
-      "curve": {
-        "rgb": [
-          [
-            0,
-            0
-          ],
-          [
-            0.06,
-            0.0063
-          ],
-          [
-            0.15,
-            0.0352
-          ],
-          [
-            0.28,
-            0.1676
-          ],
-          [
-            0.42,
-            0.3896
-          ],
-          [
-            0.56,
-            0.6069
-          ],
-          [
-            0.7,
-            0.7708
-          ],
-          [
-            0.84,
-            0.9203
-          ],
-          [
-            1,
-            1
-          ]
-        ],
-        "r": [
-          [
-            0,
-            0
-          ],
-          [
-            1,
-            1
-          ]
-        ],
-        "g": [
-          [
-            0,
-            0
-          ],
-          [
-            1,
-            1
-          ]
-        ],
-        "b": [
-          [
-            0,
-            0
-          ],
-          [
-            1,
-            1
-          ]
-        ]
-      },
-      "lut": {
-        "kind": "pack",
-        "pack": "emulsion-luts",
-        "stock": "lut:emulsion-luts:leica-x",
-        "amount": 1
-      },
-      "color": {
-        "hue": [
-          -11,
-          -39,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-chrome",
+      "recipe": {
+        "wb": {
+          "mode": "daylight"
+        },
+        "highlight": 0,
+        "shadow": 0,
+        "color": 2,
+        "chrome": "strong",
+        "blue": "weak",
+        "wbShift": [
           2,
-          29,
-          -14,
-          -49,
-          -8,
-          20
+          -5
         ],
-        "sat": [
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": 3,
+        "sharpness": 1
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-kodachrome-25",
+    "name": "Kodachrome 25",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-chrome",
+      "recipe": {
+        "wb": {
+          "mode": "daylight"
+        },
+        "highlight": 0.5,
+        "shadow": -0.5,
+        "color": 1,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          2,
+          -4
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": 3,
+        "sharpness": 3
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-kodak-portra-400",
+    "name": "Kodak Portra 400",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-chrome",
+      "recipe": {
+        "wb": {
+          "mode": "daylight"
+        },
+        "highlight": -1,
+        "shadow": -2,
+        "color": 2,
+        "chrome": "strong",
+        "blue": "weak",
+        "wbShift": [
           3,
-          -3,
-          -14,
-          18,
-          20,
-          -2,
-          -37,
-          -23
+          -5
         ],
-        "bright": [
-          -4,
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": 2,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-kodak-gold-v2",
+    "name": "Kodak Gold v2",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-chrome",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 5800
+        },
+        "highlight": 0,
+        "shadow": -1,
+        "color": -1,
+        "chrome": "weak",
+        "blue": "off",
+        "wbShift": [
+          2,
+          4
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -2,
+        "sharpness": -1
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-fujicolor-c200",
+    "name": "Fujicolor C200",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "daylight"
+        },
+        "highlight": 0.5,
+        "shadow": -0.5,
+        "color": 2,
+        "chrome": "weak",
+        "blue": "off",
+        "wbShift": [
           0,
-          -42,
-          -22,
-          -7,
-          -34,
-          17,
-          53
-        ]
+          -3
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -3,
+        "sharpness": -3
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-kodachrome-1",
+    "name": "Kodachrome 1",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-chrome",
+      "recipe": {
+        "wb": {
+          "mode": "auto"
+        },
+        "highlight": 4,
+        "shadow": -2,
+        "color": 4,
+        "chrome": "strong",
+        "blue": "weak",
+        "wbShift": [
+          2,
+          -4
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": 1,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-kodachrome-ii",
+    "name": "Kodachrome II",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-chrome",
+      "recipe": {
+        "wb": {
+          "mode": "auto"
+        },
+        "highlight": 1,
+        "shadow": 2,
+        "color": 1,
+        "chrome": "strong",
+        "blue": "weak",
+        "wbShift": [
+          3,
+          -4
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -2,
+        "sharpness": 1
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-mccurry-kodachrome",
+    "name": "McCurry Kodachrome",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-chrome",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 5900
+        },
+        "highlight": 0,
+        "shadow": 0,
+        "color": 2,
+        "chrome": "strong",
+        "blue": "off",
+        "wbShift": [
+          -1,
+          4
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": 0,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-kodak-portra-160",
+    "name": "Kodak Portra 160",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-chrome",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 4900
+        },
+        "highlight": -1,
+        "shadow": -2,
+        "color": 0,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          4,
+          -6
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -3,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-kodak-portra-400-v2",
+    "name": "Kodak Portra 400 v2",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-chrome",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 5200
+        },
+        "highlight": 0,
+        "shadow": -2,
+        "color": 2,
+        "chrome": "strong",
+        "blue": "weak",
+        "wbShift": [
+          1,
+          -6
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -2,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-kodak-portra-400-warm",
+    "name": "Kodak Portra 400 Warm",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-chrome",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 5500
+        },
+        "highlight": -1,
+        "shadow": -2,
+        "color": 2,
+        "chrome": "strong",
+        "blue": "off",
+        "wbShift": [
+          0,
+          -7
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -2,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-kodak-portra-800",
+    "name": "Kodak Portra 800",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-chrome",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 5200
+        },
+        "highlight": 1,
+        "shadow": 0,
+        "color": 3,
+        "chrome": "strong",
+        "blue": "weak",
+        "wbShift": [
+          1,
+          -5
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -4,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-kodak-portra-800-v2",
+    "name": "Kodak Portra 800 v2",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-chrome",
+      "recipe": {
+        "wb": {
+          "mode": "daylight"
+        },
+        "highlight": 0,
+        "shadow": -2,
+        "color": -4,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          3,
+          -6
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -5,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-kodak-ultramax-400",
+    "name": "Kodak Ultramax 400",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-chrome",
+      "recipe": {
+        "wb": {
+          "mode": "auto"
+        },
+        "highlight": 1,
+        "shadow": 1,
+        "color": 4,
+        "chrome": "weak",
+        "blue": "weak",
+        "wbShift": [
+          1,
+          -5
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": 3,
+        "sharpness": 0
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-kodak-portra-800-v3",
+    "name": "Kodak Portra 800 v3",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-chrome",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 6600
+        },
+        "highlight": -2,
+        "shadow": -0.5,
+        "color": 3,
+        "chrome": "strong",
+        "blue": "weak",
+        "wbShift": [
+          -1,
+          -3
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -3,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-kodak-max-800",
+    "name": "Kodak Max 800",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 7300
+        },
+        "highlight": -2,
+        "shadow": 1,
+        "color": -1,
+        "chrome": "strong",
+        "blue": "off",
+        "wbShift": [
+          -5,
+          -2
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -4,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-kodak-ektar-100",
+    "name": "Kodak Ektar 100",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-chrome",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 6050
+        },
+        "highlight": 1,
+        "shadow": -2,
+        "color": 4,
+        "chrome": "strong",
+        "blue": "weak",
+        "wbShift": [
+          3,
+          0
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": 3,
+        "sharpness": 0
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-elite-chrome-200",
+    "name": "Elite Chrome 200",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-chrome",
+      "recipe": {
+        "wb": {
+          "mode": "daylight"
+        },
+        "highlight": -1,
+        "shadow": 1,
+        "color": -1,
+        "chrome": "strong",
+        "blue": "weak",
+        "wbShift": [
+          -1,
+          -3
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -4,
+        "sharpness": -1
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-kodak-high-definition-plus-200",
+    "name": "Kodak High Definition Plus 200",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-chrome",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 4800
+        },
+        "highlight": 0,
+        "shadow": 1,
+        "color": 2,
+        "chrome": "weak",
+        "blue": "weak",
+        "wbShift": [
+          -2,
+          -7
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -3,
+        "sharpness": 0
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-old-ektachrome",
+    "name": "Old Ektachrome",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-chrome",
+      "recipe": {
+        "wb": {
+          "mode": "daylight"
+        },
+        "highlight": 2,
+        "shadow": 1,
+        "color": 3,
+        "chrome": "strong",
+        "blue": "weak",
+        "wbShift": [
+          3,
+          2
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -4,
+        "sharpness": 0
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-kodaneg-vc",
+    "name": "KodaNeg VC",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-film-provia",
+      "recipe": {
+        "wb": {
+          "mode": "auto"
+        },
+        "highlight": -1,
+        "shadow": 0.5,
+        "color": 4,
+        "chrome": "strong",
+        "blue": "off",
+        "wbShift": [
+          6,
+          -6
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -3,
+        "sharpness": 0
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-kodaneg-nc",
+    "name": "KodaNeg NC",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-film-provia",
+      "recipe": {
+        "wb": {
+          "mode": "auto"
+        },
+        "highlight": -1,
+        "shadow": 0.5,
+        "color": -4,
+        "chrome": "strong",
+        "blue": "off",
+        "wbShift": [
+          6,
+          -6
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -3,
+        "sharpness": 0
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-kodak-brilliance",
+    "name": "Kodak Brilliance",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-chrome",
+      "recipe": {
+        "wb": {
+          "mode": "daylight"
+        },
+        "highlight": 4,
+        "shadow": -2,
+        "color": 4,
+        "chrome": "strong",
+        "blue": "weak",
+        "wbShift": [
+          2,
+          -1
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": 2,
+        "sharpness": -1
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-classic-color",
+    "name": "Classic Color",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-chrome",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 5300
+        },
+        "highlight": -0.5,
+        "shadow": -2,
+        "color": 3,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          0,
+          -6
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -2,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-pure-negative",
+    "name": "Pure Negative",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-film-pro-neg-std",
+      "recipe": {
+        "wb": {
+          "mode": "auto"
+        },
+        "highlight": 1,
+        "shadow": 2,
+        "color": -4,
+        "chrome": "weak",
+        "blue": "off",
+        "wbShift": [
+          1,
+          -2
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -2,
+        "sharpness": 1
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-chrome-slide",
+    "name": "Chrome Slide",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "daylight"
+        },
+        "highlight": 1,
+        "shadow": 1,
+        "color": 4,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          -3,
+          1
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": 3,
+        "sharpness": 0
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-positive-film",
+    "name": "Positive Film",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 2950
+        },
+        "highlight": 1,
+        "shadow": 2,
+        "color": 4,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          7,
+          -9
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -4,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-september-summer",
+    "name": "September Summer",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 5500
+        },
+        "highlight": -1,
+        "shadow": -1,
+        "color": 1,
+        "chrome": "off",
+        "blue": "weak",
+        "wbShift": [
+          3,
+          -7
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -4,
+        "sharpness": 0
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-pacific-blues",
+    "name": "Pacific Blues",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 5800
+        },
+        "highlight": -2,
+        "shadow": 3,
+        "color": 4,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          1,
+          -3
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -3,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-nostalgia-color",
+    "name": "Nostalgia Color",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 6700
+        },
+        "highlight": -1,
+        "shadow": 3,
+        "color": -2,
+        "chrome": "strong",
+        "blue": "weak",
+        "wbShift": [
+          -4,
+          -1
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -4,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-nostalgic-print",
+    "name": "Nostalgic Print",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-film-pro-neg-std",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 4700
+        },
+        "highlight": -2,
+        "shadow": 0,
+        "color": -4,
+        "chrome": "weak",
+        "blue": "weak",
+        "wbShift": [
+          -3,
+          -4
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -3,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-nostalgic-negative",
+    "name": "Nostalgic Negative",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-chrome",
+      "recipe": {
+        "wb": {
+          "mode": "auto"
+        },
+        "highlight": -1,
+        "shadow": 0,
+        "color": 4,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          3,
+          -5
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -5,
+        "sharpness": 0
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-vintage-negative",
+    "name": "Vintage Negative",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 10000
+        },
+        "highlight": 1,
+        "shadow": 2,
+        "color": -3,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          -6,
+          -5
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -5,
+        "sharpness": -4
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-vintage-color",
+    "name": "Vintage Color",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-film-eterna",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 7350
+        },
+        "highlight": 2,
+        "shadow": 3,
+        "color": 1,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          -1,
+          -4
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -2,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-vintage-color-v2",
+    "name": "Vintage Color v2",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 7350
+        },
+        "highlight": 2,
+        "shadow": 3,
+        "color": -1,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          -1,
+          -4
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -3,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-vintage-analog",
+    "name": "Vintage Analog",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 9100
+        },
+        "highlight": 2,
+        "shadow": 0,
+        "color": -4,
+        "chrome": "off",
+        "blue": "weak",
+        "wbShift": [
+          -4,
+          4
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -2,
+        "sharpness": -1
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-vintage-print",
+    "name": "Vintage Print",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "daylight"
+        },
+        "highlight": 2,
+        "shadow": -2,
+        "color": -4,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          3,
+          -6
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -4,
+        "sharpness": -4
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-vintage-vibes",
+    "name": "Vintage Vibes",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 5200
+        },
+        "highlight": 0,
+        "shadow": -2,
+        "color": 2,
+        "chrome": "strong",
+        "blue": "weak",
+        "wbShift": [
+          1,
+          -6
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -2,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-timeless-negative",
+    "name": "Timeless Negative",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-film-eterna",
+      "recipe": {
+        "wb": {
+          "mode": "auto"
+        },
+        "highlight": 1,
+        "shadow": -1,
+        "color": 3,
+        "chrome": "strong",
+        "blue": "weak",
+        "wbShift": [
+          4,
+          -5
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -2,
+        "sharpness": 0
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-eterna-summer",
+    "name": "Eterna Summer",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-film-eterna",
+      "recipe": {
+        "wb": {
+          "mode": "daylight"
+        },
+        "highlight": 2.5,
+        "shadow": 0,
+        "color": 4,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          3,
+          -7
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -3,
+        "sharpness": -1
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-vintage-eterna",
+    "name": "Vintage Eterna",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-film-eterna",
+      "recipe": {
+        "wb": {
+          "mode": "auto"
+        },
+        "highlight": 3,
+        "shadow": -1,
+        "color": 2,
+        "chrome": "off",
+        "blue": "strong",
+        "wbShift": [
+          2,
+          -5
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -2,
+        "sharpness": -1
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-arizona-analog",
+    "name": "Arizona Analog",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-film-eterna",
+      "recipe": {
+        "wb": {
+          "mode": "daylight"
+        },
+        "highlight": -1,
+        "shadow": 3,
+        "color": -2,
+        "chrome": "weak",
+        "blue": "weak",
+        "wbShift": [
+          6,
+          -3
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -3,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-1981-kodak",
+    "name": "1981 Kodak",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-film-eterna",
+      "recipe": {
+        "wb": {
+          "mode": "daylight"
+        },
+        "highlight": 0,
+        "shadow": 4,
+        "color": -4,
+        "chrome": "strong",
+        "blue": "off",
+        "wbShift": [
+          7,
+          -7
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -4,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-fujicolor-reala-100",
+    "name": "Fujicolor Reala 100",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "daylight"
+        },
+        "highlight": -1,
+        "shadow": -1,
+        "color": 0,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          0,
+          0
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -3,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-fujicolor-superia-100",
+    "name": "Fujicolor Superia 100",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "daylight"
+        },
+        "highlight": -1,
+        "shadow": -2,
+        "color": 1,
+        "chrome": "strong",
+        "blue": "weak",
+        "wbShift": [
+          0,
+          -1
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -2,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-superia-xtra-400",
+    "name": "Superia Xtra 400",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "auto"
+        },
+        "highlight": 0,
+        "shadow": -1,
+        "color": 4,
+        "chrome": "off",
+        "blue": "strong",
+        "wbShift": [
+          3,
+          -5
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -2,
+        "sharpness": -1
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-superia-premium-400",
+    "name": "Superia Premium 400",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 4700
+        },
+        "highlight": -2,
+        "shadow": 0,
+        "color": 4,
+        "chrome": "strong",
+        "blue": "weak",
+        "wbShift": [
+          4,
+          -3
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -2,
+        "sharpness": -1
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-fujicolor-superia-800",
+    "name": "Fujicolor Superia 800",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "daylight"
+        },
+        "highlight": -1,
+        "shadow": 1,
+        "color": -1,
+        "chrome": "strong",
+        "blue": "weak",
+        "wbShift": [
+          -1,
+          -3
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -4,
+        "sharpness": -1
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-fujicolor-superia-1600",
+    "name": "Fujicolor Superia 1600",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "daylight"
+        },
+        "highlight": 0,
+        "shadow": 2,
+        "color": -3,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          3,
+          1
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -4,
+        "sharpness": -1
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-fujicolor-natura-1600",
+    "name": "Fujicolor Natura 1600",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 5500
+        },
+        "highlight": -1.5,
+        "shadow": 1.5,
+        "color": -2,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          -1,
+          -2
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -4,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-superia-summer",
+    "name": "Superia Summer",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 5300
+        },
+        "highlight": -1.5,
+        "shadow": -0.5,
+        "color": 1,
+        "chrome": "off",
+        "blue": "weak",
+        "wbShift": [
+          3,
+          -6
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -4,
+        "sharpness": -1
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-fujicolor-nps-160-pulled",
+    "name": "Fujicolor NPS 160 Pulled",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "auto"
+        },
+        "highlight": -2,
+        "shadow": -2,
+        "color": -4,
+        "chrome": "weak",
+        "blue": "strong",
+        "wbShift": [
+          -1,
+          -4
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -2,
+        "sharpness": 1
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-fujicolor-100-gold",
+    "name": "Fujicolor 100 Gold",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "daylight"
+        },
+        "highlight": -2,
+        "shadow": 1,
+        "color": 3,
+        "chrome": "off",
+        "blue": "off",
+        "wbShift": [
+          4,
+          -5
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -2,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-magenta-negative",
+    "name": "Magenta Negative",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 5100
+        },
+        "highlight": -2,
+        "shadow": -1,
+        "color": 0,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          4,
+          2
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -4,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-fujicolor-pro-400h",
+    "name": "Fujicolor Pro 400H",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 4900
+        },
+        "highlight": -2,
+        "shadow": 4,
+        "color": 4,
+        "chrome": "strong",
+        "blue": "weak",
+        "wbShift": [
+          0,
+          -4
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -4,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-fujicolor-nph",
+    "name": "Fujicolor NPH",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-film-provia",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 5250
+        },
+        "highlight": -1,
+        "shadow": 0,
+        "color": 0,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          -3,
+          -4
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -3,
+        "sharpness": 0
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-fujicolor-negative",
+    "name": "Fujicolor Negative",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "auto"
+        },
+        "highlight": -2,
+        "shadow": 3,
+        "color": -4,
+        "chrome": "off",
+        "blue": "off",
+        "wbShift": [
+          -1,
+          -6
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -3,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-fujicolor-analog",
+    "name": "Fujicolor Analog",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 6900
+        },
+        "highlight": -1,
+        "shadow": 0,
+        "color": -3,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          -5,
+          5
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -3,
+        "sharpness": 0
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-standard-provia",
+    "name": "Standard Provia",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-film-provia",
+      "recipe": {
+        "wb": {
+          "mode": "daylight"
+        },
+        "highlight": 2,
+        "shadow": 1,
+        "color": 2,
+        "chrome": "strong",
+        "blue": "weak",
+        "wbShift": [
+          -3,
+          0
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -3,
+        "sharpness": 0
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-fujichrome-provia-100f",
+    "name": "Fujichrome Provia 100F",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-chrome",
+      "recipe": {
+        "wb": {
+          "mode": "daylight"
+        },
+        "highlight": -1,
+        "shadow": 3,
+        "color": 4,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          -2,
+          5
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -3,
+        "sharpness": -1
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-color-negative-400",
+    "name": "Color Negative 400",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "auto"
+        },
+        "highlight": 0,
+        "shadow": 4,
+        "color": 4,
+        "chrome": "weak",
+        "blue": "weak",
+        "wbShift": [
+          -2,
+          -4
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -5,
+        "sharpness": 0
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-pro-negative-160c",
+    "name": "PRO Negative 160C",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-film-pro-neg-hi",
+      "recipe": {
+        "wb": {
+          "mode": "auto"
+        },
+        "highlight": 0.5,
+        "shadow": -1.5,
+        "color": 4,
+        "chrome": "strong",
+        "blue": "weak",
+        "wbShift": [
+          1,
+          -3
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -2,
+        "sharpness": -1
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-agfachrome-rs-100",
+    "name": "AgfaChrome RS 100",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "daylight"
+        },
+        "highlight": 1,
+        "shadow": -1,
+        "color": 2,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          -3,
+          5
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -3,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-agfa-ultra-100",
+    "name": "Agfa Ultra 100",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "daylight"
+        },
+        "highlight": 2,
+        "shadow": -2,
+        "color": 2,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          -2,
+          3
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -3,
+        "sharpness": -1
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-agfa-vista-100",
+    "name": "Agfa Vista 100",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 5600
+        },
+        "highlight": 1,
+        "shadow": -2,
+        "color": 2,
+        "chrome": "weak",
+        "blue": "weak",
+        "wbShift": [
+          -4,
+          -5
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": 3,
+        "sharpness": 0
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-amandas-classic-negative",
+    "name": "Amanda's Classic Negative",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "auto"
+        },
+        "highlight": 1,
+        "shadow": 1.5,
+        "color": 3,
+        "chrome": "strong",
+        "blue": "weak",
+        "wbShift": [
+          0,
+          0
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": 0,
+        "sharpness": 1
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-santacolor",
+    "name": "SantaColor",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-film-eterna",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 5100
+        },
+        "highlight": -2,
+        "shadow": 4,
+        "color": 4,
+        "chrome": "strong",
+        "blue": "off",
+        "wbShift": [
+          5,
+          -3
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -3,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-creamy-color",
+    "name": "Creamy Color",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 8700
+        },
+        "highlight": 4,
+        "shadow": 4,
+        "color": -4,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          4,
+          6
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -5,
+        "sharpness": -4
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-analog-gold",
+    "name": "Analog Gold",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-film-bleach",
+      "recipe": {
+        "wb": {
+          "mode": "daylight"
+        },
+        "highlight": -2,
+        "shadow": 1.5,
+        "color": 3,
+        "chrome": "strong",
+        "blue": "off",
+        "wbShift": [
+          4,
+          -9
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -4,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-gaf-500",
+    "name": "GAF 500",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-film-eterna",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 2900
+        },
+        "highlight": 2,
+        "shadow": 4,
+        "color": 0,
+        "chrome": "off",
+        "blue": "strong",
+        "wbShift": [
+          9,
+          -9
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -2,
+        "sharpness": -3
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-low-key",
+    "name": "Low Key",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "daylight"
+        },
+        "highlight": 1,
+        "shadow": 2,
+        "color": 4,
+        "chrome": "strong",
+        "blue": "weak",
+        "wbShift": [
+          -2,
+          -4
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -2,
+        "sharpness": -1
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-the-rockwell",
+    "name": "The Rockwell",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-film-velvia",
+      "recipe": {
+        "wb": {
+          "mode": "auto"
+        },
+        "highlight": -1,
+        "shadow": -1,
+        "color": 4,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          1,
+          -1
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": 5,
+        "sharpness": 4
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-vibrant-velvia",
+    "name": "Vibrant Velvia",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-film-velvia",
+      "recipe": {
+        "wb": {
+          "mode": "daylight"
+        },
+        "highlight": -2,
+        "shadow": -1,
+        "color": 4,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          -1,
+          1
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": 4,
+        "sharpness": 0
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-bleach-bypass",
+    "name": "Bleach Bypass",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "daylight"
+        },
+        "highlight": 2,
+        "shadow": 4,
+        "color": -4,
+        "chrome": "weak",
+        "blue": "strong",
+        "wbShift": [
+          -1,
+          1
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": 3,
+        "sharpness": -1
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-eterna-bleach-bypass",
+    "name": "Eterna Bleach Bypass recipe",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-film-bleach",
+      "recipe": {
+        "wb": {
+          "mode": "daylight"
+        },
+        "highlight": 2.5,
+        "shadow": -1.5,
+        "color": -4,
+        "chrome": "off",
+        "blue": "strong",
+        "wbShift": [
+          0,
+          0
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": 2,
+        "sharpness": 0
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-muted-color",
+    "name": "Muted Color",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-film-bleach",
+      "recipe": {
+        "wb": {
+          "mode": "auto"
+        },
+        "highlight": -0.5,
+        "shadow": 1,
+        "color": -4,
+        "chrome": "strong",
+        "blue": "weak",
+        "wbShift": [
+          3,
+          -8
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -2,
+        "sharpness": 0
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-ferrania-solaris-fg-400",
+    "name": "Ferrania Solaris FG 400",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-film-bleach",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 5200
+        },
+        "highlight": 0,
+        "shadow": -2,
+        "color": 2,
+        "chrome": "strong",
+        "blue": "weak",
+        "wbShift": [
+          1,
+          -6
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -2,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-silver-summer",
+    "name": "Silver Summer",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-film-bleach",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 5300
+        },
+        "highlight": -1,
+        "shadow": 1,
+        "color": 4,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          -3,
+          -6
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -3,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-kodachrome-blue",
+    "name": "Kodachrome Blue",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-film-bleach",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 6500
+        },
+        "highlight": 2.5,
+        "shadow": -0.5,
+        "color": 4,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          -6,
+          9
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": 3,
+        "sharpness": 1
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-expired-ecn-2-100t",
+    "name": "Expired ECN-2 100T",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-film-bleach",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 6000
+        },
+        "highlight": 0.5,
+        "shadow": -1,
+        "color": 1,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          -9,
+          -6
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -4,
+        "sharpness": -3
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-faded-negative",
+    "name": "Faded Negative",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-negative",
+      "recipe": {
+        "wb": {
+          "mode": "auto"
+        },
+        "highlight": 3,
+        "shadow": 4,
+        "color": -2,
+        "chrome": "strong",
+        "blue": "strong",
+        "wbShift": [
+          4,
+          -6
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": 0,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-cinestill-50d",
+    "name": "CineStill 50D",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-film-astia",
+      "recipe": {
+        "wb": {
+          "mode": "kelvin",
+          "kelvin": 6800
+        },
+        "highlight": -1,
+        "shadow": 0,
+        "color": -4,
+        "chrome": "strong",
+        "blue": "off",
+        "wbShift": [
+          -5,
+          -3
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -4,
+        "sharpness": 0
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-kodak-portra-do-sol",
+    "name": "Kodak Portra do Sol",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-chrome",
+      "recipe": {
+        "wb": {
+          "mode": "auto"
+        },
+        "highlight": -2,
+        "shadow": -2,
+        "color": 3,
+        "chrome": "strong",
+        "blue": "off",
+        "wbShift": [
+          2,
+          -6
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -1,
+        "sharpness": -2
+      }
+    }
+  },
+  {
+    "id": "emulsion-fxw-bright-kodak",
+    "name": "Bright Kodak",
+    "category": "Fuji X Weekly",
+    "bw": false,
+    "revision": 1,
+    "fuji": {
+      "sim": "emulsion-fuji-classic-chrome",
+      "recipe": {
+        "wb": {
+          "mode": "daylight"
+        },
+        "highlight": -2,
+        "shadow": -2,
+        "color": 4,
+        "chrome": "off",
+        "blue": "off",
+        "wbShift": [
+          3,
+          -7
+        ],
+        "grain": "off",
+        "grainSize": "small",
+        "clarity": -3,
+        "sharpness": -2
       }
     }
   }

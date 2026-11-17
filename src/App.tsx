@@ -33,6 +33,7 @@ import { Panel } from './ui/Panel';
 import { requestFolderSync, selectAllImports } from './ui/Folders';
 import { TopBar, chooseFolder } from './ui/TopBar';
 import { LookCreatorHeader, LookLutColumn, LookPreviewFooter } from './ui/LookCreator';
+import { FujiSimColumn } from './ui/FujiEditor';
 import { LookTestStrip } from './ui/LookTestStrip';
 
 const typingIn = (t: EventTarget | null) => {
@@ -251,6 +252,7 @@ export default function App() {
   useShortcuts();
   const dropping = useDesktop();
   const editingLook = useApp(s => !!s.lookEdit);
+  const editingFuji = useApp(s => !!s.lookEdit?.fuji);
   const fullscreen = useApp(s => isLibraryLoupe(s) && s.loupeFullscreen);
   const layout = useWorkspace(s => s.layout);
   const workflow = !editingLook && layout === 'workflow' && view === 'develop' && hasFolder;
@@ -261,7 +263,7 @@ export default function App() {
     <div className={`app${editingLook ? ' app-look-editor' : ''}${fullscreen ? ' app-loupe-fullscreen' : ''}${view === 'library' ? ' app-library' : ''}${importing ? ' app-import' : ''}`}>
       {editingLook ? <LookCreatorHeader /> : <TopBar />}
       {editingLook ? <div className="workspace workspace-look">
-        <LookLutColumn />
+        {editingFuji ? <FujiSimColumn /> : <LookLutColumn />}
         <div className="main look-preview"><Develop /><LookTestStrip /><LookPreviewFooter /></div>
         <Panel key="controls" />
       </div> :

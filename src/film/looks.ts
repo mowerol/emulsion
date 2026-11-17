@@ -4,6 +4,7 @@
 
 import type { Push, Recipe } from './recipe';
 import type { ProfileSettings } from './creative';
+import { fujiSliders, normalizeFujiRecipe, recipeLookSettings, type FujiRecipe } from './fujirecipe';
 import { STOCK, registerStock, type StockId } from './stocks';
 import catalogue from './lut-catalogue.json';
 import { LOCAL_LOOKS } from './local-looks';
@@ -24,6 +25,8 @@ export interface PackLook {
   missing?: boolean;
   /** A custom look's hidden settings and its LUT. */
   settings?: ProfileSettings;
+  /** A custom look's folder in the Look browser; none is My looks. */
+  folder?: string;
   /** Reference photo's display name for a LUT saved by the former photo match. */
   photoMatch?: string;
 }
@@ -65,8 +68,20 @@ const localPack = (id: PackId, name: string, hint: string, hidden = true): LookP
 /** Emulsion's own looks: hidden settings with no LUT, edited in development (library/builtinlooks.ts). */
 /** `category` puts a look in its own folder of the Look browser (default `Emulsion`). */
 export interface BuiltinLook { id: string; name: string; bw: boolean; revision: number; category?: string; settings: ProfileSettings }
+/**
+ * A look as the file keeps it. A Fuji recipe look keeps only its simulation and camera settings
+ * (`fuji`); its settings are the simulation's with the recipe on top, made here.
+ */
+type BuiltinLookFile = Omit<BuiltinLook, 'settings'> & { settings?: ProfileSettings; fuji?: { sim: string; recipe: unknown } };
 export const BUILTIN_CATEGORY = 'Emulsion';
-export const BUILTIN_LOOKS = emulsionLooks as BuiltinLook[];
+const lookFiles = emulsionLooks as BuiltinLookFile[];
+export const BUILTIN_LOOKS: BuiltinLook[] = lookFiles.map(({ fuji, ...l }) => {
+  if (!fuji) return l as BuiltinLook;
+  const base = lookFiles.find((s) => s.id === fuji.sim)?.settings;
+  const recipe = normalizeFujiRecipe(fuji.recipe);
+  if (!base || !recipe) throw new Error(`Built-in recipe ${l.id}: unknown simulation ${fuji.sim}`);
+  return { ...l, settings: recipeLookSettings(fuji.sim, base, recipe) };
+});
 for (const l of BUILTIN_LOOKS) registerBuiltinStock(l);
 
 /** The stock entry a built-in look is chosen by (its name and whether it is black and white). */
@@ -124,6 +139,7 @@ export function lookFile(pack: PackId, stock: StockId, push: Push): string | nul
     const lut = l.settings.lut;
     if (!lut) return null;
     if (lut.kind === 'file') return `${USER_LOOKS_DIR}${lut.hash}`;
+    if (lut.kind === 'fuji') return fujiLutFile(l.settings, push);
     return isPackId(lut.pack) && !PACK[lut.pack].user && lut.pack !== pack ? lookFile(lut.pack, lut.stock as StockId, push) : null;
   }
   if (PACK[pack].user) return l.file ? `${USER_LOOKS_DIR}${l.file}` : null;
@@ -150,7 +166,22 @@ export const recipeLookFile = (recipe: import('./recipe').Recipe | null): string
 
 function snapshotLutFile(r: Recipe): string | null {
   const lut = r.lookSnapshot?.settings.lut;
+  if (lut?.kind === 'fuji') return fujiLutFile(r.lookSnapshot!.settings, r.push);
   return !lut ? null : lut.kind === 'file' ? `${USER_LOOKS_DIR}${lut.hash}` : lookFile(lut.pack as PackId, lut.stock as StockId, r.push);
+}
+
+/** Generated Fuji recipe LUTs are keyed `fuji:` + what they are baked from (engine/lutstore.ts bakes them). */
+export const FUJI_LUT_PREFIX = 'fuji:';
+export interface FujiLutKey { sim: string | null; curve: ProfileSettings['curve']; recipe: FujiRecipe }
+/** A Fuji recipe look's LUT key: its simulation's LUT file, the curve the controls act after, and the recipe. */
+export function fujiLutFile(settings: ProfileSettings, push: Push): string | null {
+  const lut = settings.lut;
+  if (lut?.kind !== 'fuji') return null;
+  const sim = lut.simLut && isPackId(lut.simLut.pack) ? lookFile(lut.simLut.pack, lut.simLut.stock as StockId, push) : null;
+  // White balance acts on the photo's light (engine/params.ts), not in the LUT.
+  // Only what the LUT is baked from: white balance, grain, clarity and sharpness act elsewhere.
+  const key: FujiLutKey = { sim, curve: settings.curve, recipe: { ...lut.recipe, wb: { mode: 'auto' }, wbShift: [0, 0], grain: 'off', grainSize: 'small', clarity: 0, sharpness: 0 } };
+  return FUJI_LUT_PREFIX + JSON.stringify(key);
 }
 
 export const legacyLooks = new Map<string, { name: string; settings: ProfileSettings; kind?: 'lut' | 'look'; revision?: number }>();
@@ -205,8 +236,8 @@ function put(pack: UserPack, id: StockId, look: PackLook) {
 }
 
 /** Add a custom look (or update it); without settings it holds the place of one not installed. */
-export function registerCustomLook(id: string, name: string, settings: ProfileSettings | null, _legacyKind?: 'lut' | 'look', revision = 1) {
-  put('custom', customLookId(id), settings ? { file: '', name, category: PACK.custom.name, settings, kind: 'look', revision } : { file: '', name, missing: true });
+export function registerCustomLook(id: string, name: string, settings: ProfileSettings | null, _legacyKind?: 'lut' | 'look', revision = 1, folder?: string) {
+  put('custom', customLookId(id), settings ? { file: '', name, category: PACK.custom.name, settings, kind: 'look', revision, ...(folder ? { folder } : {}) } : { file: '', name, missing: true });
   if (settings?.lut?.kind === 'file') registerFileLut(settings.lut.hash, name, settings.lut.photoMatch);
 }
 
@@ -284,6 +315,8 @@ export function simulationLook(simulation: string | null | undefined): StockId |
 export function withLook(recipe: Recipe, pack: PackId, stock: StockId): Recipe {
   const settings = lookSettings(pack, stock);
   if (!settings) return recipe;
-  return { ...recipe, pack, stock, lookEnabled: true, lookAmount: 100, scannerFromLook: true,
+  // A Fuji recipe also sets the photo's Grain and Clarity sliders (film/fujirecipe.ts `fujiSliders`).
+  const sliders = settings.lut?.kind === 'fuji' ? fujiSliders(settings.lut.recipe) : {};
+  return { ...recipe, ...sliders, pack, stock, lookEnabled: true, lookAmount: 100, scannerFromLook: true,
     lookSnapshot: { id: stock, name: lookName(pack, stock), kind: 'look', revision: PACK[pack].looks[stock]?.revision ?? 1, settings: structuredClone(settings) } };
 }

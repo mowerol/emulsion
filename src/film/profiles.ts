@@ -16,6 +16,14 @@ export interface CameraMetadata {
   /** The camera's own Auto white point, CIE xy, when the file records it apart from the as-shot
    * one (Fujifilm RAWs shot with a white balance shift or a fixed white balance; src-tauri raw.rs). */
   autoWhite?: [number, number] | null;
+  /** The camera's own white balance presets as white points (src-tauri raw.rs `PresetWhites`): a
+   * Fuji recipe's Daylight or Kelvin white balance uses them. Absent when the file has none. */
+  presetWhites?: PresetWhites | null;
+}
+export interface PresetWhites {
+  daylight?: [number, number] | null;
+  /** Kelvin, x, y; rising Kelvin. */
+  kelvin: [number, number, number][];
 }
 export type ColourSource = { kind: 'camera' } | { kind: 'darktable' } | { kind: 'none' };
 export const cameraKey = (camera: Pick<CameraMetadata, 'make' | 'model'>): string => `${camera.make} ${camera.model}`.trim();

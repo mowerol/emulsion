@@ -118,23 +118,26 @@ export function parseHald(rgba: ArrayLike<number>, width: number, height: number
 /** Tetrahedral interpolation (darktable's _correct_pixel_tetrahedral); input clipped to [0, 1]. */
 export function tetrahedral(lut: Clut, rgb: ArrayLike<number>): [number, number, number] {
   const { level, data } = lut;
-  const d = [0, 1, 2].map((c) => Math.min(Math.max(rgb[c], 0), 1) * (level - 1));
-  const i = d.map((v) => Math.min(Math.max(Math.trunc(v), 0), level - 2));
-  const [r, g, b] = d.map((v, c) => v - i[c]);
-  const i000 = (i[0] + i[1] * level + i[2] * level * level) * 3;
+  // Scalar code (no per-call arrays or closures): the same arithmetic in the same order.
+  const top = level - 2;
+  const dr = Math.min(Math.max(rgb[0], 0), 1) * (level - 1);
+  const dg = Math.min(Math.max(rgb[1], 0), 1) * (level - 1);
+  const db = Math.min(Math.max(rgb[2], 0), 1) * (level - 1);
+  const ir = Math.min(Math.max(Math.trunc(dr), 0), top), ig = Math.min(Math.max(Math.trunc(dg), 0), top), ib = Math.min(Math.max(Math.trunc(db), 0), top);
+  const r = dr - ir, g = dg - ig, b = db - ib;
+  const i000 = (ir + ig * level + ib * level * level) * 3;
   const i100 = i000 + 3, i010 = i000 + 3 * level, i110 = i010 + 3;
   const i001 = i000 + 3 * level * level, i101 = i001 + 3, i011 = i000 + 3 * (level + level * level), i111 = i011 + 3;
   const out: [number, number, number] = [0, 0, 0];
   for (let c = 0; c < 3; c++) {
-    const L = (k: number) => data[k + c];
     if (r > g) {
-      if (g > b) out[c] = (1 - r) * L(i000) + (r - g) * L(i100) + (g - b) * L(i110) + b * L(i111);
-      else if (r > b) out[c] = (1 - r) * L(i000) + (r - b) * L(i100) + (b - g) * L(i101) + g * L(i111);
-      else out[c] = (1 - b) * L(i000) + (b - r) * L(i001) + (r - g) * L(i101) + g * L(i111);
+      if (g > b) out[c] = (1 - r) * data[i000 + c] + (r - g) * data[i100 + c] + (g - b) * data[i110 + c] + b * data[i111 + c];
+      else if (r > b) out[c] = (1 - r) * data[i000 + c] + (r - b) * data[i100 + c] + (b - g) * data[i101 + c] + g * data[i111 + c];
+      else out[c] = (1 - b) * data[i000 + c] + (b - r) * data[i001 + c] + (r - g) * data[i101 + c] + g * data[i111 + c];
     } else {
-      if (b > g) out[c] = (1 - b) * L(i000) + (b - g) * L(i001) + (g - r) * L(i011) + r * L(i111);
-      else if (b > r) out[c] = (1 - g) * L(i000) + (g - b) * L(i010) + (b - r) * L(i011) + r * L(i111);
-      else out[c] = (1 - g) * L(i000) + (g - r) * L(i010) + (r - b) * L(i110) + b * L(i111);
+      if (b > g) out[c] = (1 - b) * data[i000 + c] + (b - g) * data[i001 + c] + (g - r) * data[i011 + c] + r * data[i111 + c];
+      else if (b > r) out[c] = (1 - g) * data[i000 + c] + (g - b) * data[i010 + c] + (b - r) * data[i011 + c] + r * data[i111 + c];
+      else out[c] = (1 - g) * data[i000 + c] + (g - r) * data[i010 + c] + (r - b) * data[i110 + c] + b * data[i111 + c];
     }
   }
   return out;

@@ -6,7 +6,8 @@ import { describe, expect, it } from 'vitest';
 import catalogue from './lut-catalogue.json';
 import { LOCAL_LOOKS } from './local-looks';
 import { BUILTIN_LOOKS, DEFAULT_PACK, PACK, PACKS, customLookId, customLookOf, fileLutId, isPackId, lookFile, registerCustomLook, stockForPack, stocksForPack } from './looks';
-import { STOCK, isStockId, type StockId } from './stocks';
+import { STOCK, isStockId } from './stocks';
+import { fujiOf, fujiSimulations } from './fujilooks';
 import { defaultRecipe, normalizeRecipe, resetAdjustments, withSettingsFrom, withStock } from './recipe';
 import { parseCube, tetrahedral } from '../engine/lut3d';
 
@@ -30,15 +31,21 @@ describe('bundled look catalogues', () => {
     }
   });
 
-  it('gives each recipe look its fitted LUT, hidden from the look lists', () => {
-    expect(PACK['emulsion-luts'].hidden).toBe(true);
-    for (const look of BUILTIN_LOOKS.filter(l => l.category === 'Emulsion x Fuji Recipes')) {
-      const lut = look.settings.lut;
-      expect(lut, look.name).toMatchObject({ kind: 'pack', pack: 'emulsion-luts', amount: 1 });
-      if (lut?.kind !== 'pack') continue;
-      expect(catalogue.some(r => r.id === lut.stock && r.pack === 'emulsion-luts'), look.name).toBe(true);
-      expect(lookFile('emulsion-looks', look.id as StockId, 0), look.name).toBe(`emulsion-luts/${lut.stock.split(':').pop()}.cube`);
+  it('builds each recipe look from its simulation and camera settings, editable as a recipe', () => {
+    const sims = new Set(fujiSimulations().map(s => s.id as string));
+    for (const look of BUILTIN_LOOKS.filter(l => l.category === 'Community Recipes' || l.category === 'Fuji X Weekly')) {
+      const f = fujiOf(look.settings);
+      expect(f, look.name).not.toBeNull();
+      expect(sims.has(f!.sim), look.name).toBe(true);
+      // The simulation's own settings, with the recipe on top; grain is left to the photo.
+      const { lut: _, ...own } = look.settings;
+      const { lut: __, ...simOwn } = BUILTIN_LOOKS.find(l => l.id === f!.sim)!.settings;
+      expect(own, look.name).toEqual(simOwn);
+      expect(f!.recipe.grain, look.name).toBe('off');
     }
+    // The earlier fitted versions stay in the hidden pack, for photos that were given them.
+    expect(PACK['emulsion-luts'].hidden).toBe(true);
+    for (const id of ['reggies-portra', 'classic-cuban-neg', 'leica-x']) expect(catalogue.some(r => r.id === `lut:emulsion-luts:${id}`), id).toBe(true);
   });
 
   it('offers only supported presets and selects an actual look when changing packs', () => {

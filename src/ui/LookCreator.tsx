@@ -4,28 +4,43 @@
 // name and the save actions, the LUT chooser has its own column on the left, the
 // preview sits between with test photos under it (LookTestStrip), and the look's adjustments
 // are in the panel on the right.
-import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, Redo2, Undo2 } from 'lucide-react';
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { ChevronDown, Folder, Redo2, Undo2 } from 'lucide-react';
 import { open } from '@tauri-apps/plugin-dialog';
 import { PACK, PACKS, lookName, lutBase, withLook, type PackId } from '../film/looks';
 import { defaultRecipe, withStock, type Recipe } from '../film/recipe';
-import { settingsFromRecipe, withLutBase } from '../film/creative';
+import { settingsFromRecipe, withLutBase, type ProfileSettings } from '../film/creative';
+import { fujiSliders } from '../film/fujirecipe';
 import { importLutFile, lutSourceOf, saveLook, uuid } from '../library/userlooks';
+import { LookFolderChoices } from './LookFolderChoices';
 import { builtinOfEditId, saveBuiltinLook } from '../library/builtinlooks';
-import { activePhoto, editActive, endLookEdit, lookEditDirty, redo, renameLookEdit, showToast, undo, useApp } from '../library/store';
+import { activePhoto, editActive, endLookEdit, lookEditDirty, redo, renameLookEdit, setLookEditFolder, showToast, undo, useApp, type State } from '../library/store';
 import { LutBrowser, lutPacks, type LutCollection } from './TreatmentBrowser';
 import type { StockId } from '../film/stocks';
 import { LiveRange } from './LiveRange';
 
 const MOD = navigator.platform.startsWith('Mac') ? '⌘' : 'Ctrl+';
 const DEFAULT_NAME = 'My look';
+/** Where a new Fuji recipe is saved; it can be moved like any look. */
+const FUJI_FOLDER = 'Fuji recipes';
 const fail = (e: unknown) => showToast(String(e));
+/** A Fuji recipe's Grain, Clarity and Sharpness, which applying it puts on the photo's sliders. */
+const lookSliders = (settings: ProfileSettings | undefined) => settings?.lut?.kind === 'fuji' ? fujiSliders(settings.lut.recipe) : {};
 
 /** The header's name field asks for focus through this when a save needs a name. */
 let askForName: (() => void) | null = null;
 
 /** Whether the look being edited is already saved (a copy of it would then be a new look). */
 const isSavedLook = (id: string) => !!builtinOfEditId(id) || !!PACK.custom.looks[id as StockId];
+
+type LookEdit = NonNullable<State['lookEdit']>;
+/** The folder a look keeps unless another is chosen: its own, or Fuji recipes for a new recipe (null: My looks). */
+const ownFolder = (e: LookEdit): string | null => {
+  const saved = PACK.custom.looks[e.id as StockId];
+  return saved ? saved.folder ?? null : e.fuji ? FUJI_FOLDER : null;
+};
+/** The folder the draft saves into. */
+const saveFolder = (e: LookEdit): string | null => e.folder !== undefined ? e.folder : ownFolder(e);
 
 /**
  * Save the draft as a look (and apply it to the photo when `apply`), then leave the workspace.
@@ -39,15 +54,17 @@ async function saveDraft(apply: boolean, copy = false): Promise<void> {
   const builtin = copy ? null : builtinOfEditId(editing.id);
   const isNew = !builtin && !PACK.custom.looks[editing.id as StockId];
   if (!editing.name.trim() || isNew && !copy && editing.name.trim() === DEFAULT_NAME) { askForName?.(); return; }
-  // Preview exposure is not part of a look: settingsFromRecipe leaves exposure out.
-  const settings = settingsFromRecipe(photo.recipe, lutSourceOf(photo.recipe));
+  // Preview exposure is not part of a look: settingsFromRecipe leaves exposure out. A Fuji recipe
+  // is its look snapshot as it stands.
+  const settings = editing.fuji && photo.recipe.lookSnapshot ? structuredClone(photo.recipe.lookSnapshot.settings) : settingsFromRecipe(photo.recipe, lutSourceOf(photo.recipe));
   if (copy) {
     // A copy keeps a name given in this session, else is named after the look it was made from.
     const name = editing.name.trim() !== editing.start.name ? editing.name.trim() : `${editing.name.trim()} copy`;
-    const id = await saveLook(uuid(), name, settings);
+    // A copy goes in the chosen folder (by default the look's own; a new Fuji recipe's is Fuji recipes).
+    const id = await saveLook(uuid(), name, settings, saveFolder(editing));
     endLookEdit();
     const entry = PACK.custom.looks[id]!;
-    editActive(r => ({ ...withStock(r ?? defaultRecipe(), id), pack: 'custom', lookAmount: 100, scannerFromLook: true, lookSnapshot: { id, name: entry.name!, revision: entry.revision ?? 1, kind: 'look', settings: structuredClone(entry.settings!) } }), 'Apply saved look');
+    editActive(r => ({ ...withStock(r ?? defaultRecipe(), id), ...lookSliders(entry.settings), pack: 'custom', lookAmount: 100, scannerFromLook: true, lookSnapshot: { id, name: entry.name!, revision: entry.revision ?? 1, kind: 'look', settings: structuredClone(entry.settings!) } }), 'Apply saved look');
     showToast(`Saved and applied as a new look, ${name}`);
     return;
   }
@@ -58,11 +75,11 @@ async function saveDraft(apply: boolean, copy = false): Promise<void> {
     showToast(apply ? 'Built-in look saved and applied' : 'Built-in look saved');
     return;
   }
-  const id = await saveLook(editing.id, editing.name.trim(), settings);
+  const id = await saveLook(editing.id, editing.name.trim(), settings, saveFolder(editing));
   endLookEdit();
   if (apply) {
     const entry = PACK.custom.looks[id]!;
-    editActive(r => ({ ...withStock(r ?? defaultRecipe(), id), pack: 'custom', lookAmount: 100, scannerFromLook: true, lookSnapshot: { id, name: entry.name!, revision: entry.revision ?? 1, kind: 'look', settings: structuredClone(entry.settings!) } }), 'Apply saved look');
+    editActive(r => ({ ...withStock(r ?? defaultRecipe(), id), ...lookSliders(entry.settings), pack: 'custom', lookAmount: 100, scannerFromLook: true, lookSnapshot: { id, name: entry.name!, revision: entry.revision ?? 1, kind: 'look', settings: structuredClone(entry.settings!) } }), 'Apply saved look');
   }
   showToast(apply ? 'Look saved and applied' : 'Look saved to the library');
 }
@@ -82,6 +99,48 @@ function NameField() {
     onChange={e => setText(e.target.value)} onBlur={commit}
     onKeyDown={e => { if (e.key === 'Enter') commit(); else if (e.key === 'Escape') { e.stopPropagation(); setEditing(false); } }} />;
   return <button type="button" className="look-name" title="Rename the look" onClick={() => { setText(name); setEditing(true); }}>{name || 'Untitled'}</button>;
+}
+
+/** Which look folder the look saves into: its own (Fuji recipes for a new recipe), another, My looks, or a new one. */
+function FolderField() {
+  const edit = useApp(s => s.lookEdit);
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const close = (refocus = true) => { setOpen(false); if (refocus) trigger.current?.focus({ preventScroll: true }); };
+  useEffect(() => {
+    if (!open) return;
+    (ref.current?.querySelector<HTMLElement>('[aria-checked=true]') ?? ref.current?.querySelector<HTMLElement>('[role^=menuitem]'))?.focus();
+    const outside = (e: PointerEvent) => { if (!ref.current?.contains(e.target as Node)) close(false); };
+    const blur = () => close(false);
+    document.addEventListener('pointerdown', outside);
+    window.addEventListener('blur', blur);
+    return () => { document.removeEventListener('pointerdown', outside); window.removeEventListener('blur', blur); };
+  }, [open]);
+  if (!edit) return null;
+  const current = saveFolder(edit);
+  const own = ownFolder(edit);
+  const choose = (folder: string | null) => { setLookEditFolder(folder === own ? undefined : folder); close(); };
+  // Keys stay in the menu while it's open: arrows move between items, Escape closes it.
+  const onKeyDown = (e: ReactKeyboardEvent) => {
+    if (!open || (e.target as HTMLElement).tagName === 'INPUT') return;
+    const items = [...ref.current!.querySelectorAll<HTMLElement>('[role^=menuitem]')];
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    const go = (i: number) => { e.preventDefault(); e.stopPropagation(); items[(i + items.length) % items.length]?.focus(); };
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(); }
+    else if (e.key === 'ArrowDown') go(at + 1);
+    else if (e.key === 'ArrowUp') go(at - 1);
+    else if (e.key === 'Tab') { e.preventDefault(); close(false); }
+  };
+  return <div className="look-folder-field" ref={ref} onKeyDown={onKeyDown}>
+    <button type="button" ref={trigger} className="look-folder-pick" aria-haspopup="menu" aria-expanded={open} aria-label={`Save in ${current ?? 'My looks'}`} data-tip="Look folder it saves in" onClick={() => open ? close() : setOpen(true)}>
+      <Folder size={14} aria-hidden="true" /><span>{current ?? 'My looks'}</span><ChevronDown size={13} aria-hidden="true" />
+    </button>
+    {open && <div className="overflow-menu look-menu look-folder-list" role="menu" aria-label="Save in folder">
+      <div className="menu-title" aria-hidden="true">Save in</div>
+      <LookFolderChoices current={current} also={[own]} onChoose={choose} />
+    </div>}
+  </div>;
 }
 
 function SaveButton({ saving, onSave }: { saving: boolean; onSave: (apply: boolean, copy?: boolean) => void }) {
@@ -111,6 +170,7 @@ export function LookCreatorHeader() {
   const canUndo = useApp(s => !!s.lookEdit?.past.length);
   const canRedo = useApp(s => !!s.lookEdit?.future.length);
   const builtin = useApp(s => !!s.lookEdit && !!builtinOfEditId(s.lookEdit.id));
+  const fuji = useApp(s => !!s.lookEdit?.fuji);
   const [saving, setSaving] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const save = async (apply: boolean, copy = false) => {
@@ -141,8 +201,9 @@ export function LookCreatorHeader() {
       </div>}
     </div>
     <span className="look-header-sep" aria-hidden="true" />
-    <span className="look-header-label">Look</span>
+    <span className="look-header-label">{fuji ? 'Fuji recipe' : 'Look'}</span>
     <NameField />
+    {!builtin && <FolderField />}
     {builtin && <span className="look-builtin" title="Saving writes this look into Emulsion's built-in collection (src/film/emulsion-looks.json). Development only.">Built-in · dev</span>}
     {dirty && <span className="look-unsaved"><span aria-hidden="true" />Unsaved</span>}
     <span className="look-header-spacer" />
@@ -210,16 +271,21 @@ export function LookPreviewFooter() {
 export function LookLutSummary({ recipe }: { recipe: Recipe }) {
   if (!recipe.lookEnabled) return <div className="look-lut-summary look-lut-none">Choose a LUT on the left</div>;
   const photoMatch = PACK[recipe.pack]?.looks[recipe.stock]?.photoMatch;
-  const name = PACKS.some(p => p.id === recipe.pack) ? lookName(recipe.pack as PackId, recipe.stock) : recipe.stock;
+  // Emulsion's own looks keep their LUTs to themselves (a hidden pack): show the look, not the LUT.
+  // Only LUT packs and imported files are named as LUTs.
+  const emulsionOwn = recipe.pack === 'emulsion-luts';
+  const own = emulsionOwn ? Object.values(PACK['emulsion-looks'].looks).find(l => l?.settings?.lut?.kind === 'pack' && l.settings.lut.pack === recipe.pack && l.settings.lut.stock === recipe.stock) : null;
+  const name = emulsionOwn ? own?.name ?? 'Emulsion look' : PACKS.some(p => p.id === recipe.pack) ? lookName(recipe.pack as PackId, recipe.stock) : recipe.stock;
+  const kind = photoMatch ? 'Photo match' : emulsionOwn ? 'Emulsion look' : 'Base LUT';
   const set = (patch: Partial<Recipe>, label: string) => editActive(r => ({ ...(r ?? defaultRecipe()), ...patch }), label);
   return <div className="look-lut-summary">
     <div className="look-lut-row">
-      <span className="look-lut-name"><strong>{photoMatch ?? name}</strong><small>{photoMatch ? 'Photo match' : 'Base LUT'}</small></span>
+      <span className="look-lut-name"><strong>{photoMatch ?? name}</strong><small>{kind}</small></span>
       <button type="button" className="look-lut-remove" onClick={() => editActive(r => withLutBase(r ?? defaultRecipe(), null), 'Remove base LUT')}>Remove</button>
     </div>
     <label className="look-lut-slider">
       <span>Intensity</span>
-      <LiveRange aria-label={photoMatch ? 'Photo match intensity' : 'Base LUT intensity'} min="0" max="100" value={recipe.lookAmount} style={{ '--t': recipe.lookAmount / 100 } as React.CSSProperties}
+      <LiveRange aria-label={`${kind} intensity`} min="0" max="100" value={recipe.lookAmount} style={{ '--t': recipe.lookAmount / 100 } as React.CSSProperties}
         onChange={(v) => set({ lookAmount: v }, 'Base LUT intensity')} />
       <output>{Math.round(recipe.lookAmount)}%</output>
     </label>

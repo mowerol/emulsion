@@ -2,6 +2,7 @@ import { NoiseReductionControls, ProfiledDenoiseControls } from './NoiseReductio
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { TreatmentControls } from './TreatmentControls';
 import { LookLutSummary } from './LookCreator';
+import { FujiControls } from './FujiEditor';
 import { PresetControls } from './PresetControls';
 import { lookName } from '../film/looks';
 import { photoId } from '../library/copies';
@@ -460,7 +461,7 @@ export function Panel() {
 
   const classic = view === 'develop' ? ['profile', 'stock', 'presets', 'lens', 'crop', 'transform', 'adjust', 'curve', 'color', 'grading', 'masks', 'detail', 'optics', 'grain', 'noise'] : ['profile', 'stock', 'presets'];
   const custom = grouped && !editing && isLayoutWorkspace(workspace.group);
-  const visible: readonly string[] = editing ? ['look-editor', 'look-tone', 'curve', 'color', 'grading', 'scanner'] : grouped ? CONTROL_GROUPS.find(g => g.id === workspace.group)?.sections ?? [] : classic;
+  const visible: readonly string[] = editing?.fuji ? ['fuji-editor'] : editing ? ['look-editor', 'look-tone', 'curve', 'color', 'grading', 'scanner'] : grouped ? CONTROL_GROUPS.find(g => g.id === workspace.group)?.sections ?? [] : classic;
   /**
    * A section's Reset, offered only when the section differs from its defaults. Worked out only
    * for the sections on show (`slot`, the section's key below): hidden ones skip re-rendering,
@@ -483,7 +484,7 @@ export function Panel() {
     noise: <><ProfiledDenoiseControls recipe={base} raw={photo.raw} camera={photo.camera} /><NoiseReductionControls recipe={base} path={photo.path} raw={photo.raw} /></>,
     lens: photo.raw ? <LensControls recipe={base} metadata={photo.lens} /> : <p className="hint">Lens corrections are available for RAW photos.</p>,
     transform: <TransformControls recipe={base} />,
-    'wb-tools': <WhiteBalanceControls recipe={base} white={photo.white} autoWhite={photo.camera?.autoWhite} toolsOnly />,
+    'wb-tools': <WhiteBalanceControls recipe={base} white={photo.white} autoWhite={photo.camera?.autoWhite} presetWhites={photo.camera?.presetWhites} toolsOnly />,
     'detail-order': <DetailOrderToggle />,
     'grain-speed': <GrainSpeed recipe={base} />,
     'ai-noise-tools': <NoiseReductionControls recipe={base} path={photo.path} raw={photo.raw} hideAmount />,
@@ -495,12 +496,13 @@ export function Panel() {
     profile: <CameraColourWarning raw={photo.raw} camera={photo.camera??null} />,
     stock: !editing && <Section defaultOpen id="stock" title="Look" summary={base.lookEnabled ? base.lookSnapshot?.name ?? lookName(base.pack, base.stock) : 'None'}><TreatmentControls key={photoId(photo)} photo={photo} /></Section>,
     presets: grouped ? <PresetControls /> : <Section defaultOpen id="presets" title="Presets"><PresetControls /></Section>,
-    scanner: editing && scanner,
-    whitebalance: grouped && <Section id="whitebalance" title="White Balance" onReset={resetFor('whitebalance', 'White balance')}><WhiteBalanceControls recipe={base} white={photo.white} autoWhite={photo.camera?.autoWhite} /></Section>,
+    scanner: editing && !editing.fuji && scanner,
+    'fuji-editor': editing?.fuji && <Section defaultOpen id="fuji-editor" title="Recipe"><FujiControls /></Section>,
+    whitebalance: grouped && <Section id="whitebalance" title="White Balance" onReset={resetFor('whitebalance', 'White balance')}><WhiteBalanceControls recipe={base} white={photo.white} autoWhite={photo.camera?.autoWhite} presetWhites={photo.camera?.presetWhites} /></Section>,
     exposure: grouped && <Section id="exposure" title="Exposure" summary={changedSummary(recipe, ['exposure', 'contrast', 'toneCharacter', 'saturation', 'vibrance'])} onReset={resetFor('exposure', 'Exposure')}>{rows(['exposure', 'contrast', 'toneCharacter', 'saturation', 'vibrance'])}</Section>,
     hdr: grouped && <Section id="hdr" title="High Dynamic Range" summary={changedSummary(recipe, ['highlights', 'shadows', 'whites', 'blacks'])} onReset={resetFor('hdr', 'High Dynamic Range')}>{rows(['highlights', 'shadows', 'whites', 'blacks'])}</Section>,
     adjust: !grouped && <Section id="adjust" title="Adjustments" onReset={resetFor('adjust', 'Adjustments')}>
-      <WhiteBalanceControls recipe={base} white={photo.white} autoWhite={photo.camera?.autoWhite} />{rows(sliderGroup('adjust'))}
+      <WhiteBalanceControls recipe={base} white={photo.white} autoWhite={photo.camera?.autoWhite} presetWhites={photo.camera?.presetWhites} />{rows(sliderGroup('adjust'))}
     </Section>,
     curve: <Section id="curve" title="Tone curve" summary={curveSummary} onReset={resetFor('curve', 'Tone curve')}
       actions={<CurvePresetMenu curve={base.curve} onChange={setCurve} />}>
@@ -545,7 +547,7 @@ export function Panel() {
 
       <div className={grouped ? 'grouped-controls-body' : 'classic-controls-body'} ref={controlsBody}>
         {custom ? temporaryMasks ? <Section id="temporary-masks" title="Masks" onReset={sectionChanged(recipe, 'masks', photo ?? undefined) ? () => editActive((r, p) => r ? resetSection(r, 'masks', p) : r, 'Reset Masks') : undefined}><MaskControls /></Section>
-          : <><CameraColourWarning raw={photo.raw} camera={photo.camera ?? null} /><PersonalWorkspace recipe={base} context={{ white: photo.white, raw: photo.raw, lens: photo.lens, cropping }} blocks={bodies} actions={{ curve: <CurvePresetMenu curve={base.curve} onChange={setCurve} /> }} onCustomize={workspace.group === 'custom' ? () => openWorkspaceEditor() : undefined}
+          : <><CameraColourWarning raw={photo.raw} camera={photo.camera ?? null} /><PersonalWorkspace recipe={base} context={{ white: photo.white, raw: photo.raw, lens: photo.lens, cropping, camera: photo.camera }} blocks={bodies} actions={{ curve: <CurvePresetMenu curve={base.curve} onChange={setCurve} /> }} onCustomize={workspace.group === 'custom' ? () => openWorkspaceEditor() : undefined}
           renderGroup={(source, controls) => source === 'color' ? <ColorControls recipe={base} visibleControls={controls} /> : source === 'grading' ? <ColourGradingControls recipe={base} visibleControls={controls} /> : undefined} /></>
           : ordered.map(id => <SectionSlot key={id} hidden={!visible.includes(id)}>{sections[id]}</SectionSlot>)}
         {view !== 'develop' && <p className="hint panel-note">Open Develop to fine-tune exposure, colour, halation and grain.</p>}

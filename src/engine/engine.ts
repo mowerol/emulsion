@@ -3273,7 +3273,7 @@ export class Engine {
     const fullW = opts.width / view.w / frame.w, fullH = opts.height / view.h / frame.h;
     const turned = !!('orient' in frame && frame.orient && frame.orient.turns % 2);
     const u = developUniforms(recipe, {
-      width: turned ? fullH : fullW, height: turned ? fullW : fullH, seed: opts.seed, inputMode: src.mode, store: this.store, compare: opts.compare, white: src.white, look, maskShow: opts.maskShow,
+      width: turned ? fullH : fullW, height: turned ? fullW : fullH, seed: opts.seed, inputMode: src.mode, store: this.store, compare: opts.compare, white: src.white, cameraToWorking: src.camera?.cameraToWorking ?? null, camera: src.camera, look, maskShow: opts.maskShow,
     });
     u.uTextureLog = (this.detailOrder ?? Engine.detailOrder) === 'log' ? 1 : 0;
     if (opts.dither !== undefined) u.uDither = opts.dither;

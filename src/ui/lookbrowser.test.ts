@@ -23,12 +23,12 @@ describe('look browser folders', () => {
 
   it('puts Emulsion’s own looks first and each further category in its own folder', () => {
     const folders = lookGroups(items, []).filter(g => g.pack === 'emulsion-looks');
-    expect(folders.map(g => g.id)).toEqual(['emulsion-looks', 'emulsion-looks:Emulsion x Fuji', 'emulsion-looks:Emulsion x Fuji Recipes']);
+    expect(folders.map(g => g.id)).toEqual(['emulsion-looks', 'emulsion-looks:Emulsion x Fuji', 'emulsion-looks:Community Recipes', 'emulsion-looks:Fuji X Weekly']);
     expect(folders[0].entries.map(i => i.name)).toEqual(['Emulsion Standard', 'Emulsion Neg', 'Emulsion Chrome', 'Emulsion Gold', 'B&W Dynamic', 'B&W Classic']);
     expect(folders[1]).toMatchObject({ title: 'Emulsion x Fuji', label: 'Emulsion x Fuji' });
     expect(folders[1].entries.map(i => i.stock).slice(0, 2)).toEqual(['emulsion-fuji-classic-negative', 'emulsion-fuji-classic-chrome']);
     expect(folders[1].entries.every(i => PACK['emulsion-looks'].looks[i.stock]?.category === 'Emulsion x Fuji')).toBe(true);
-    expect(folders[2]).toMatchObject({ title: 'Emulsion x Fuji Recipes', label: 'Emulsion x Fuji Recipes' });
+    expect(folders[2]).toMatchObject({ title: 'Community Recipes', label: 'Community Recipes' });
     expect(folders[2].entries.map(i => i.name)).toContain("Reggie's Portra (Reggie B)");
   });
 
@@ -50,3 +50,17 @@ describe('look browser folders', () => {
 });
 
 beforeEach(() => setHiddenLookGroups([]));
+
+describe('custom look folders', () => {
+  it('groups the user’s looks by folder, A to Z, then the rest in My looks', async () => {
+    const { registerCustomLook, customLookId } = await import('../film/looks');
+    const settings = { colorBalance: null, curve: null, lut: null };
+    registerCustomLook('11111111-1111-4111-8111-111111111111', 'Warm', settings, 'look', 1, 'Travel');
+    registerCustomLook('22222222-2222-4222-8222-222222222222', 'Portra-ish', settings, 'look', 1, 'Fuji recipes');
+    registerCustomLook('33333333-3333-4333-8333-333333333333', 'Loose', settings, 'look', 1);
+    const groups = lookGroups(lookChoices(), []).filter(g => g.pack === 'custom');
+    expect(groups.map(g => g.title)).toEqual(['Fuji recipes', 'Travel', 'My looks']);
+    expect(groups[0].entries.map(e => e.stock)).toEqual([customLookId('22222222-2222-4222-8222-222222222222')]);
+    expect(groups[2].entries.map(e => e.name)).toContain('Loose');
+  });
+});

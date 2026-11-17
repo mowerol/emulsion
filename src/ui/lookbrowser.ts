@@ -31,8 +31,12 @@ const GMIC_CATEGORIES: [string, string][] = [
 export function lookGroups(items: LookChoice[], favourites: string[]): LookGroup[] {
   const groups: LookGroup[] = [
     { id: 'favourites', title: 'Favourites', label: 'Favourites', pack: null, entries: items.filter(i => favourites.includes(i.key)) },
-    { id: 'custom', title: 'My looks', label: 'My looks', pack: 'custom', entries: items.filter(i => i.custom) },
   ];
+  // The user's own looks: each folder, A to Z, then those in none (My looks).
+  const folderOf = (i: LookChoice) => PACK.custom.looks[i.stock]?.folder;
+  const folders = [...new Set(items.filter(i => i.custom).map(folderOf).filter((f): f is string => !!f))].sort((a, b) => a.localeCompare(b));
+  for (const f of folders) groups.push({ id: `custom:${f}`, title: f, label: f, pack: 'custom', entries: items.filter(i => i.custom && folderOf(i) === f) });
+  groups.push({ id: 'custom', title: 'My looks', label: 'My looks', pack: 'custom', entries: items.filter(i => i.custom && !folderOf(i)) });
   for (const p of PACKS.filter(p => !p.hidden && !p.user)) {
     const entries = items.filter(i => i.pack === p.id);
     if (p.id === 'emulsion-looks') {

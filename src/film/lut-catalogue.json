@@ -1132,5 +1132,14 @@
     "file": "classic-negative.cube",
     "iso": 400,
     "sha256": "ab0afd2223fdb0625df4b32c26035716007421147ae0e78a56cdb0e264c6aa6e"
+  },
+  {
+    "id": "lut:emulsion-luts:classic-chrome",
+    "pack": "emulsion-luts",
+    "name": "Classic Chrome (fitted LUT)",
+    "category": "Emulsion x Fuji",
+    "file": "classic-chrome.cube",
+    "iso": 400,
+    "sha256": "145365113fdbe73588818f1278a50cf7aa028263b265a4cc160f16cb8be6599b"
   }
 ]

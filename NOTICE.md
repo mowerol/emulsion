@@ -269,15 +269,18 @@ Implemented from the papers, not from code.
 
 ## Looks from community film simulation recipes
 
-These looks are matched to what a Fujifilm X-T30 II makes with each recipe's published settings. The settings are the
-recipe authors' work; the looks credit them in their names (the author's first name and initial, or their handle).
-The looks themselves, including their LUTs in `public/looks/emulsion-luts/`, are Emulsion's own work. Each recipe is
-used at DR100 with its grain off (Emulsion's grain defaults to 0). Its white balance shift's colour is part of the
-look, which leaves the photo's own white balance as it is.
+These looks are Fujifilm film simulation recipes: a recipe author's camera settings, put on one of Emulsion's Fuji
+simulations with Emulsion's recipe controls (Highlight, Shadow, Color, Color Chrome Effect, Color Chrome FX Blue,
+white balance and its shift, Clarity and Sharpness, in the camera's own units), which are matched to what a Fujifilm
+X-T30 II makes. The settings are the recipe authors' work; the looks and the controls are Emulsion's own. Each recipe is
+used with its grain off (Emulsion's grain defaults to 0; the recipe editor can add it) and without its dynamic range
+setting, noise reduction or exposure, which a RAW developer sets on the photo. Any look can be opened in the recipe
+editor and changed. Photos given the earlier versions of the first three looks (rev 1, matched LUTs in
+`public/looks/emulsion-luts/`) keep those.
 
 ### Reggie's Portra, by Reggie Ballesteros
 - Source: https://fujixweekly.com/2022/06/11/fujifilm-x-trans-iv-film-simulation-recipe-reggies-portra/ (published by Ritchie Roesch, Fuji X Weekly)
-- Settings: Classic Chrome, Highlight −1, Shadow −1, Color +2, Color Chrome Effect Strong, Color Chrome FX Blue Weak, white balance Auto R+2 B−4.
+- Settings: Classic Chrome, Highlight −1, Shadow −1, Color +2, Color Chrome Effect Strong, Color Chrome FX Blue Weak, Sharpness −2, white balance Auto R+2 B−4.
 - Look: `emulsion-fuji-reggies-portra` in `src/film/emulsion-looks.json`
 
 ### Classic Cuban Neg, by Osan B (@osanbilgi)
@@ -287,8 +290,103 @@ look, which leaves the photo's own white balance as it is.
 
 ### Leica X, by carlcruzsnaps
 - Source: https://carlcruzsnaps.com/leica-x.html
-- Settings: Classic Chrome, Highlight −1, Shadow 0, Color +4, Color Chrome Effect Strong, Color Chrome FX Blue Strong, white balance Auto R+1 B−2. Made on an X-Trans V camera (X100VI); fitted to the X-T30 II's (X-Trans IV) rendering of the same settings.
+- Settings: Classic Chrome, Highlight −1, Shadow 0, Color +4, Color Chrome Effect Strong, Color Chrome FX Blue Strong, white balance Auto R+1 B−2. Made on an X-Trans V camera (X100VI).
 - Look: `emulsion-fuji-leica-x`
+
+### Fuji X Weekly recipes
+Recipes for X-Trans IV cameras (X100V, X-Pro3, X-T4, X-S10, X-E4, X-T30 II) published on Fuji X Weekly
+(https://fujixweekly.com/fujifilm-x-trans-iv-recipes/), most of them by Ritchie Roesch. Each look is named as the
+recipe is, in the Fuji X Weekly folder (`emulsion-fxw-*` in `src/film/emulsion-looks.json`, with each recipe's
+settings). One is renamed where a simulation has the same name: Eterna Bleach Bypass recipe.
+Film and product names in the looks' names (Kodak, Kodachrome, Ektachrome, Ektar, Portra, Gold, Ultramax, Vision3,
+Fujicolor, Superia, Natura, Agfa, CineStill, Ferrania, LomoChrome, GAF and others) are trademarks of their owners, used
+as the recipes' authors use them, to describe the look a recipe is after. Emulsion is not affiliated with or endorsed by
+any of them.
+
+- 1981 Kodak, by Ritchie Roesch: https://fujixweekly.com/2025/01/22/1981-kodak-fujifilm-x100v-x-trans-iv-film-simulation-recipe/
+- Agfa Ultra 100, by Ritchie Roesch: https://fujixweekly.com/2022/02/14/fujifilm-x-pro3-x-trans-iv-film-simulation-recipe-agfa-ultra-100/
+- Agfa Vista 100, by Ritchie Roesch: https://fujixweekly.com/2020/09/28/fujifilm-x100v-film-simulation-recipe-agfa-vista-100/
+- AgfaChrome RS 100, by Ritchie Roesch: https://fujixweekly.com/2021/08/03/fujifilm-x-trans-iv-film-simulation-recipe-agfachrome-rs-100/
+- Amanda's Classic Negative, by Amanda Roesch: https://fujixweekly.com/2021/01/27/snow-fun-with-fujifilm-x-t4-fujinon-90mm-new-film-simulation-recipe-amandas-classic-negative/
+- Analog Gold, by Ritchie Roesch: https://fujixweekly.com/2022/09/27/fujifilm-x-e4-film-simulation-recipe-analog-gold/
+- Arizona Analog, by Ritchie Roesch: https://fujixweekly.com/2022/08/02/fujifilm-x-e4-x-trans-iv-film-simulation-recipe-arizona-analog/
+- Bleach Bypass, by Ritchie Roesch: https://fujixweekly.com/2020/07/08/fujifilm-x100v-film-simulation-recipe-bleach-bypass/
+- Bright Kodak, by Ritchie Roesch: https://fujixweekly.com/2022/06/10/fujifilm-x-trans-iv-film-simulation-recipe-bright-kodak/
+- Chrome Slide, by Ritchie Roesch: https://fujixweekly.com/2022/10/31/fujifilm-x-e4-x-trans-iv-film-simulation-recipe-chrome-slide/
+- CineStill 50D, by Ritchie Roesch: https://fujixweekly.com/2022/04/20/fujifilm-x-trans-iv-film-simulation-recipe-cinestill-50d/
+- Classic Color, by Ritchie Roesch: https://fujixweekly.com/2024/04/22/classic-color-fujifilm-x-t5-x-trans-v-and-x-e4-x-trans-iv-film-simulation-recipe/
+- Color Negative 400, by Ritchie Roesch: https://fujixweekly.com/2021/01/04/fujifilm-x100v-film-simulation-recipe-color-negative-400/
+- Creamy Color, by Immanuel Sander: https://fujixweekly.com/2021/02/23/fujifilm-x-trans-iv-film-simulation-recipe-creamy-color/
+- Elite Chrome 200, by Ritchie Roesch: https://fujixweekly.com/2021/11/01/fujifilm-x-trans-iv-film-simulation-recipe-elite-chrome-200/
+- Eterna Bleach Bypass recipe, by Ritchie Roesch: https://fujixweekly.com/2023/09/27/eterna-bleach-bypass-fujifilm-x-e4-x-trans-iv-film-simulation-recipe/
+- Eterna Summer, by Ritchie Roesch: https://fujixweekly.com/2024/04/08/eterna-summer-fujifilm-x-trans-iv-x-trans-v-film-simulation-recipe/
+- Expired ECN-2 100T, by Ritchie Roesch: https://fujixweekly.com/2024/02/01/expired-ecn-2-100t-fujifilm-x-trans-iv-x-trans-v-film-simulation-recipe/
+- Faded Negative, by Ritchie Roesch: https://fujixweekly.com/2021/02/22/fujifilm-x100v-film-simulation-recipe-faded-negative/
+- Ferrania Solaris FG 400, by Ritchie Roesch: https://fujixweekly.com/2021/11/05/fujifilm-x-e4-x-trans-iv-film-simulation-recipe-ferrania-solaris-fg-400/
+- Fujichrome Provia 100F, by Ritchie Roesch: https://fujixweekly.com/2022/10/05/fujifilm-x100v-x-trans-iv-film-simulation-recipe-fujichrome-provia-100f/
+- Fujicolor 100 Gold, by Ritchie Roesch: https://fujixweekly.com/2022/11/29/fujifilm-x100v-x-trans-iv-film-simulation-recipe-fujicolor-100-gold/
+- Fujicolor Analog, by Ritchie Roesch: https://fujixweekly.com/2022/08/17/fujifilm-x100v-x-trans-iv-film-simulation-recipe-fujicolor-analog/
+- Fujicolor C200, by George Coady: https://fujixweekly.com/2021/05/13/fujifilm-x-trans-iv-film-simulation-recipe-fujicolor-c200/
+- Fujicolor Natura 1600, by Ritchie Roesch: https://fujixweekly.com/2022/05/06/fujifilm-x-e4-film-simulation-recipe-fujicolor-natura-1600/
+- Fujicolor Negative, by Ritchie Roesch: https://fujixweekly.com/2021/05/09/fujifilm-x100v-x-trans-iv-film-simulation-recipe-fujicolor-negative/
+- Fujicolor NPH, by Ritchie Roesch: https://fujixweekly.com/2021/12/23/fujifilm-x-trans-iv-film-simulation-recipe-fujicolor-nph/
+- Fujicolor NPS 160 Pulled, by Thomas Schwab: https://fujixweekly.com/2021/05/30/fujifilm-x-trans-iv-x-pro3-x100v-x-t4-x-s10-x-e4-film-simulation-recipe-fujicolor-nps-160-pulled/
+- Fujicolor Pro 400H, by Ritchie Roesch: https://fujixweekly.com/2021/05/16/fujifilm-x100v-x-trans-iv-film-simulation-recipe-fujicolor-pro-400h/
+- Fujicolor Reala 100, by Ritchie Roesch: https://fujixweekly.com/2020/06/20/fujifilm-x100v-film-simulation-recipe-fujicolor-reala-100/
+- Fujicolor Superia 100, by Ritchie Roesch: https://fujixweekly.com/2020/06/09/fujifilm-x100v-film-simulation-recipe-fujicolor-superia-100/
+- Fujicolor Superia 1600, by Ritchie Roesch: https://fujixweekly.com/2020/06/29/fujifilm-x100v-film-simulation-recipe-fujicolor-superia-1600/
+- Fujicolor Superia 800, by Ritchie Roesch: https://fujixweekly.com/2020/07/27/fujifilm-x100v-film-simulation-recipe-fujicolor-superia-800/
+- GAF 500, by Ritchie Roesch: https://fujixweekly.com/2022/09/01/fujifilm-x-e4-x-trans-iv-film-simulation-recipe-gaf-500/
+- Kodachrome 1, by Ritchie Roesch: https://fujixweekly.com/2020/09/14/fujifilm-x100v-film-simulation-recipe-kodachrome-1/
+- Kodachrome 25, by Ritchie Roesch: https://fujixweekly.com/2021/11/30/fujifilm-x-e4-film-simulation-recipe-kodachrome-25/
+- Kodachrome 64, by Ritchie Roesch: https://fujixweekly.com/2020/05/27/my-fujifilm-x100v-kodachrome-64-film-simulation-recipe/
+- Kodachrome Blue, by Ritchie Roesch: https://fujixweekly.com/2025/05/19/kodachrome-blue-fujifilm-x-e4-x-trans-iv-film-simulation-recipe/
+- Kodachrome II, by Thomas Schwab: https://fujixweekly.com/2021/04/05/two-fujifilm-x-trans-iv-film-simulation-recipes-kodachrome-ii/
+- Kodak Brilliance, by Thomas Schwab: https://fujixweekly.com/2022/03/29/fujifilm-x-trans-iv-film-simulation-recipe-kodak-brilliance/
+- Kodak Ektar 100, by Ritchie Roesch: https://fujixweekly.com/2020/08/10/fujifilm-x100v-film-simulation-recipe-kodak-ektar-100/
+- Kodak Gold v2, by Anders Lindborg: https://fujixweekly.com/2022/01/18/fujifilm-x-trans-iv-film-simulation-recipe-kodak-gold-v2/
+- Kodak High Definition Plus 200, by Ritchie Roesch: https://fujixweekly.com/2021/12/14/fujifilm-x-e4-x-trans-iv-film-simulation-recipe-kodak-high-definition-plus-200/
+- Kodak Max 800, by Ritchie Roesch: https://fujixweekly.com/2022/08/23/fujifilm-x-e4-x-trans-iv-film-simulation-recipe-kodak-max-800/
+- Kodak Portra 160, by Ritchie Roesch: https://fujixweekly.com/2023/10/15/kodak-portra-160-fujifilm-x100v-x-trans-iv-film-simulation-recipe/
+- Kodak Portra 400, by Ritchie Roesch: https://fujixweekly.com/2020/06/10/fujifilm-x100v-film-simulation-kodak-portra-400/
+- Kodak Portra 400 v2, by Ritchie Roesch: https://fujixweekly.com/2020/12/30/fujifilm-x100v-film-simulation-recipe-kodak-portra-400-v2/
+- Kodak Portra 400 Warm, by Ritchie Roesch: https://fujixweekly.com/2021/07/06/fujifilm-x-trans-iv-film-simulation-recipe-kodak-portra-400-warm/
+- Kodak Portra 800, by Ritchie Roesch: https://fujixweekly.com/2020/11/03/fujifilm-x100v-film-simulation-recipe-kodak-portra-800/
+- Kodak Portra 800 v2, by Thomas Schwab: https://fujixweekly.com/2021/05/17/fujifilm-x-trans-iv-film-simulation-recipe-kodak-portra-800-v2/
+- Kodak Portra 800 v3, by Ritchie Roesch: https://fujixweekly.com/2024/02/14/kodak-portra-800-v3-fujifilm-x-t5-x-trans-v-x-e4-x-trans-iv-film-simulation-recipe/
+- Kodak Portra do Sol, by Gilson Teixeira: https://fujixweekly.com/2025/04/23/kodak-portra-do-sol-fujifilm-x-trans-iv-film-simulation-recipe/
+- Kodak Ultramax 400, by Ritchie Roesch: https://fujixweekly.com/2020/08/09/fujifilm-x100v-film-simulation-recipe-kodak-ultramax-400/
+- KodaNeg NC, by Ritchie Roesch: https://fujixweekly.com/2022/10/13/four-fujifilm-x-trans-iv-film-simulation-recipes-kodaneg-vc-nc/
+- KodaNeg VC, by Ritchie Roesch: https://fujixweekly.com/2022/10/13/four-fujifilm-x-trans-iv-film-simulation-recipes-kodaneg-vc-nc/
+- Low Key, by Ritchie Roesch: https://fujixweekly.com/2022/06/15/fujifilm-x-trans-iv-film-simulation-recipe-low-key/
+- Magenta Negative, by Ritchie Roesch: https://fujixweekly.com/2023/08/21/magenta-negative-fujifilm-x-e4-x-trans-iv-film-simulation-recipe/
+- McCurry Kodachrome, by Anders Lindborg and John Sevigny: https://fujixweekly.com/2024/01/25/mccurry-kodachrome-a-fujifilm-x-trans-iv-film-simulation-recipe/
+- Muted Color, by Ritchie Roesch: https://fujixweekly.com/2021/10/18/fujifilm-x-e4-x-trans-iv-film-simulation-recipe-muted-color/
+- Nostalgia Color, by Ritchie Roesch: https://fujixweekly.com/2022/04/04/fujifilm-x-trans-iv-film-simulation-recipe-nostalgia-color/
+- Nostalgic Negative, by Ritchie Roesch: https://fujixweekly.com/2021/02/07/new-nostalgic-negative-film-simulation-x-trans-iv-nostalgic-negative-recipe/
+- Nostalgic Print, by Ritchie Roesch: https://fujixweekly.com/2022/06/28/fujifilm-x-e4-x-trans-iv-film-simulation-recipe-nostalgic-print/
+- Old Ektachrome, by Ritchie Roesch: https://fujixweekly.com/2022/03/05/fujifilm-x-pro3-x-trans-iv-film-simulation-recipe-old-ektachrome/
+- Pacific Blues, by Ritchie Roesch: https://fujixweekly.com/2022/08/04/fujifilm-x-e4-x-trans-iv-film-simulation-recipe-pacific-blues/
+- Positive Film, by Ritchie Roesch: https://fujixweekly.com/2021/06/01/fujifilm-x-e4-x-trans-iv-film-simulation-recipe-positive-film/
+- PRO Negative 160C, by Ritchie Roesch: https://fujixweekly.com/2024/03/28/pro-negative-160c-film-simulation-recipe-for-fujifilm-x-trans-iv-x-trans-v/
+- Pure Negative, by Thomas Schwab: https://fujixweekly.com/2022/07/21/fujifilm-x-e4-x-trans-iv-film-simulation-recipe-pure-negative/
+- SantaColor, by Ritchie Roesch: https://fujixweekly.com/2022/06/29/fujifilm-x-e4-x-trans-iv-film-simulation-recipe-santacolor/
+- September Summer, by Ritchie Roesch: https://fujixweekly.com/2022/09/26/fujifilm-x-e4-x-trans-iv-film-simulation-recipe-september-summer/
+- Silver Summer, by Ritchie Roesch: https://fujixweekly.com/2021/10/13/fujifilm-x-e4-x-trans-iv-film-simulation-recipe-silver-summer/
+- Standard Provia, by Ritchie Roesch: https://fujixweekly.com/2022/02/17/fujifilm-x-pro3-x-trans-iv-film-simulation-recipe-standard-provia/
+- Superia Premium 400, by Ritchie Roesch: https://fujixweekly.com/2020/12/07/fujifilm-x100v-film-simulation-recipe-superia-premium-400/
+- Superia Summer, by Ritchie Roesch: https://fujixweekly.com/2023/03/09/fujifilm-x-e4-x-trans-iv-film-simulation-recipe-superia-summer/
+- Superia Xtra 400, by Thomas Schwab: https://fujixweekly.com/2020/11/10/fujifilm-x100v-film-simulation-recipe-superia-xtra-400/
+- The Rockwell, by Ritchie Roesch: https://fujixweekly.com/2020/07/18/fujifilm-x100v-film-simulation-recipe-the-rockwell-velvia/
+- Timeless Negative, by Ritchie Roesch: https://fujixweekly.com/2022/12/15/fujifilm-x100v-x-trans-iv-film-simulation-recipe-timeless-negative/
+- Vibrant Velvia, by Ritchie Roesch: https://fujixweekly.com/2022/05/15/fujifilm-x-e4-x-trans-iv-film-simulation-recipe-vibrant-velvia/
+- Vintage Analog, by Ritchie Roesch: https://fujixweekly.com/2022/09/07/fujifilm-x-e4-x-trans-iv-film-simulation-recipe-vintage-analog/
+- Vintage Color, by Ritchie Roesch: https://fujixweekly.com/2022/01/27/fujifilm-x100v-x-trans-iv-film-simulation-recipe-vintage-color/
+- Vintage Color v2, by Ritchie Roesch: https://fujixweekly.com/2022/02/07/fujifilm-x-pro3-x-trans-iv-film-simulation-recipe-vintage-color-v2/
+- Vintage Eterna, by Ritchie Roesch: https://fujixweekly.com/2024/02/05/vintage-eterna-fujifilm-x-trans-v-x-trans-iv-x-h1-film-simulation-recipes/
+- Vintage Negative, by Ritchie Roesch: https://fujixweekly.com/2021/11/30/fujifilm-x-trans-iv-film-simulation-recipe-vintage-negative/
+- Vintage Print, by Ritchie Roesch: https://fujixweekly.com/2024/01/12/vintage-print-fujifilm-x-e4-x-trans-iv-film-simulation-recipe/
+- Vintage Vibes, by Ritchie Roesch: https://fujixweekly.com/2021/04/21/fujifilm-x-trans-iv-film-simulation-recipe-vintage-vibes/
 
 ## Bundled libraries
 
