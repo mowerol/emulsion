@@ -17,6 +17,7 @@ use crate::ai_models::{Archive, Package, RUNTIME, root, installed, supported, in
 const SAM: Package = Package {
     id: "mask-object-sam21-small",
     url: "https://github.com/darktable-org/darktable-ai/releases/download/release-5.6.0/mask-object-sam21-small.dtmodel",
+    fallback_url: None,
     sha256: "06a629ac1adf40daec47d2191cbdbdac609d93769584a05f65f4276bf784663f",
     bytes: 169_639_526,
     archive: Archive::Zip,

@@ -132,6 +132,47 @@ Moving to a Developer ID means: a real identity, the hardened runtime back on wi
 `com.apple.security.cs.disable-library-validation` (or ONNX Runtime bundled and signed),
 and notarisation.
 
+## Hosting the ONNX Runtime download
+
+ONNX Runtime's MIT licence permits redistribution with its copyright and licence
+notice. Mirror the original `onnxruntime-osx-arm64-1.23.2.tgz` unchanged, including
+its `LICENSE` and `ThirdPartyNotices.txt`. Its pinned SHA-256 is:
+
+```text
+b4d513ab2b26f088c66891dbbc1408166708773d7cc4163de7bdca0e9bbb7856
+```
+
+Verify a candidate archive before uploading it:
+
+```sh
+printf '%s  %s\n' \
+  b4d513ab2b26f088c66891dbbc1408166708773d7cc4163de7bdca0e9bbb7856 \
+  onnxruntime-osx-arm64-1.23.2.tgz | shasum -a 256 -c -
+```
+
+The verified copy is hosted in the public
+[emulsion-assets release](https://github.com/mowerol/emulsion-assets/releases/tag/onnxruntime-1.23.2),
+with the checksum and both original notices attached. The app and denoise setup
+try Microsoft's original URL first and use this mirror if the download fails:
+
+```text
+https://github.com/mowerol/emulsion-assets/releases/download/onnxruntime-1.23.2/onnxruntime-osx-arm64-1.23.2.tgz
+```
+
+Both sources must match the same pinned checksum. A checksum mismatch stops
+installation. The app reports curl's detailed error, including both attempts if
+the primary and mirror fail. Its curl connection timeout is 10 seconds; a
+transfer stalled below one byte per second times out after 30 seconds, with the
+existing two retries before failover. Both sources use GitHub, so this mirror
+helps when the upstream repository is unavailable, but not during a GitHub-wide
+outage.
+
+For future mirrors, download the hosted file and verify the pinned checksum
+again before updating `RUNTIME.fallback_url` in `src-tauri/src/ai_models.rs` and
+`RUNTIME_MIRROR_URL` in `tools/denoise/setup.py`. Keep the checksum, package id
+and archive layout unchanged. An app update is needed for installed copies to
+use a new URL.
+
 ## Bundled LUTs
 
 Only packs with an explicit licence ship (`public/looks`):

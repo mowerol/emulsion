@@ -16,6 +16,7 @@ use tauri::{
 const MODEL: Package = Package {
     id: "remove-lama-fp32",
     url: "https://huggingface.co/Carve/LaMa-ONNX/resolve/c3c0c9e468934d62e79c329e35d82dd09ff8c444/lama_fp32.onnx",
+    fallback_url: None,
     sha256: MODEL_SHA256,
     bytes: 208_044_816,
     archive: Archive::File,

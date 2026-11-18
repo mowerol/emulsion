@@ -6,6 +6,7 @@ import hashlib
 import json
 import pathlib
 import platform
+import urllib.error
 import urllib.request
 import zipfile
 import tarfile
@@ -15,6 +16,7 @@ MODEL_URL = "https://github.com/darktable-org/darktable-ai/releases/download/rel
 MODEL_ARCHIVE_SHA = "d71b5f1e727c85a359e6f74dca9e2016c9d8fc3e2f7ac3e9b347d80ceca969af"
 MODEL_SHA = "df957efadcc152c007d5d3b0917bdff9e41c0d4a0efe56584ef30b36393cd181"
 RUNTIME_URL = "https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-osx-arm64-1.23.2.tgz"
+RUNTIME_MIRROR_URL = "https://github.com/mowerol/emulsion-assets/releases/download/onnxruntime-1.23.2/onnxruntime-osx-arm64-1.23.2.tgz"
 RUNTIME_SHA = "b4d513ab2b26f088c66891dbbc1408166708773d7cc4163de7bdca0e9bbb7856"
 
 
@@ -22,13 +24,23 @@ def sha(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def fetch(url, path, expected):
+def fetch(url, path, expected, fallback_url=None):
     if path.is_file() and sha(path) == expected:
         return
     print(f"Downloading {url}", flush=True)
     temporary = path.with_suffix(path.suffix + ".part")
     try:
-        urllib.request.urlretrieve(url, temporary)
+        try:
+            urllib.request.urlretrieve(url, temporary)
+        except (urllib.error.URLError, OSError) as primary_error:
+            if fallback_url is None:
+                raise
+            temporary.unlink(missing_ok=True)
+            print(f"Download failed: {primary_error}. Trying {fallback_url}", flush=True)
+            try:
+                urllib.request.urlretrieve(fallback_url, temporary)
+            except (urllib.error.URLError, OSError) as mirror_error:
+                raise RuntimeError(f"Could not download {url}: {primary_error}; mirror: {mirror_error}") from mirror_error
         if sha(temporary) != expected:
             raise RuntimeError(f"Checksum mismatch: {url}")
         temporary.replace(path)
@@ -52,7 +64,7 @@ def main():
             if name.endswith(".onnx") and hashlib.sha256(content).hexdigest() != MODEL_SHA:
                 raise RuntimeError("Unexpected linear model")
             (target / name).write_bytes(content)
-    fetch(RUNTIME_URL, target / "onnxruntime.tgz", RUNTIME_SHA)
+    fetch(RUNTIME_URL, target / "onnxruntime.tgz", RUNTIME_SHA, RUNTIME_MIRROR_URL)
     # Extract regular files only, keeping the original runtime licence/notices.
     with tarfile.open(target / "onnxruntime.tgz") as package:
         for member in package.getmembers():

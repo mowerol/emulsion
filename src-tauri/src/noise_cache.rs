@@ -179,6 +179,7 @@ fn trim(root: &Path, keep: &str) {
 const MODEL: Package = Package {
     id: "rawdenoise-nind",
     url: "https://github.com/darktable-org/darktable-ai/releases/download/release-5.6.0/rawdenoise-nind.dtmodel",
+    fallback_url: None,
     sha256: "d71b5f1e727c85a359e6f74dca9e2016c9d8fc3e2f7ac3e9b347d80ceca969af",
     bytes: 57_700_134,
     archive: Archive::Zip,

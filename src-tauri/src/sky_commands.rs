@@ -15,6 +15,7 @@ use tauri::{
 const MODEL: Package = Package {
     id: "mask-sky-u2net-fp16",
     url: "https://huggingface.co/voyagerfromeast/skyseg/resolve/d76f97cf68f049654f087d78d071dfd7505b2561/skyseg_fp16.onnx",
+    fallback_url: None,
     sha256: "74d87f4a69378a610a6be662f859c38cfbdfdd75ff74bbfc54842965ed6fc9f7",
     bytes: 88_084_505,
     archive: Archive::File,

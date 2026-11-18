@@ -4,7 +4,7 @@ use sha2::{Digest, Sha256};
 use std::{
     io::Read,
     path::{Path, PathBuf},
-    process::Command,
+    process::{Command, Stdio},
     sync::{Mutex, OnceLock},
 };
 use tauri::Manager;
@@ -19,6 +19,8 @@ pub(crate) enum Archive {
 pub(crate) struct Package {
     pub(crate) id: &'static str,
     pub(crate) url: &'static str,
+    /// Tried only if downloading from `url` fails; the pinned checksum still applies.
+    pub(crate) fallback_url: Option<&'static str>,
     pub(crate) sha256: &'static str,
     pub(crate) bytes: u64,
     pub(crate) archive: Archive,
@@ -32,6 +34,9 @@ pub(crate) struct Package {
 pub(crate) const RUNTIME: Package = Package {
     id: "onnxruntime-1.23.2",
     url: "https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-osx-arm64-1.23.2.tgz",
+    fallback_url: Some(
+        "https://github.com/mowerol/emulsion-assets/releases/download/onnxruntime-1.23.2/onnxruntime-osx-arm64-1.23.2.tgz",
+    ),
     sha256: "b4d513ab2b26f088c66891dbbc1408166708773d7cc4163de7bdca0e9bbb7856",
     bytes: 9_999_931,
     archive: Archive::Tgz,
@@ -80,6 +85,57 @@ fn run(cmd: &mut Command, what: &str) -> Result<(), String> {
     }
 }
 
+fn download(p: &Package, url: &str, part: &Path, progress: &impl Fn(u64)) -> Result<(), String> {
+    let mut child = Command::new("curl")
+        .args([
+            "-fsSL",
+            "--retry",
+            "2",
+            "--connect-timeout",
+            "10",
+            "--speed-limit",
+            "1",
+            "--speed-time",
+            "30",
+            "-o",
+        ])
+        .arg(part)
+        .arg(url)
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Download: {e}"))?;
+    // Drain stderr while curl runs so a full pipe cannot stall the download.
+    let mut stderr = child.stderr.take().expect("curl stderr is piped");
+    let error_reader = std::thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = stderr.read_to_end(&mut bytes);
+        bytes
+    });
+    let status = loop {
+        if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
+            break status;
+        }
+        progress(std::fs::metadata(part).map(|m| m.len()).unwrap_or(0));
+        std::thread::sleep(std::time::Duration::from_millis(200));
+    };
+    let stderr = error_reader.join().unwrap_or_default();
+    if !status.success() {
+        let _ = std::fs::remove_file(part);
+        let mut error = format!(
+            "Could not download {} (curl exit {})",
+            p.id,
+            status.code().unwrap_or(-1)
+        );
+        let detail = String::from_utf8_lossy(&stderr);
+        if !detail.trim().is_empty() {
+            error.push_str(": ");
+            error.push_str(detail.trim());
+        }
+        return Err(error);
+    }
+    Ok(())
+}
+
 /// Download, check and unpack one package; `progress` gets the bytes so far.
 pub(crate) fn install(root: &Path, p: &Package, progress: impl Fn(u64)) -> Result<(), String> {
     static INSTALL: Mutex<()> = Mutex::new(());
@@ -90,27 +146,15 @@ pub(crate) fn install(root: &Path, p: &Package, progress: impl Fn(u64)) -> Resul
     std::fs::create_dir_all(root).map_err(|e| e.to_string())?;
     let part = root.join(format!("{}.part", p.id));
     let _ = std::fs::remove_file(&part);
-    let mut child = Command::new("curl")
-        .args(["-fsSL", "--retry", "2", "-o"])
-        .arg(&part)
-        .arg(p.url)
-        .spawn()
-        .map_err(|e| format!("Download: {e}"))?;
-    let status = loop {
-        if let Some(status) = child.try_wait().map_err(|e| e.to_string())? {
-            break status;
-        }
-        progress(std::fs::metadata(&part).map(|m| m.len()).unwrap_or(0));
-        std::thread::sleep(std::time::Duration::from_millis(200));
-    };
-    if !status.success() {
+    download(p, p.url, &part, &progress).or_else(|primary_error| {
+        let Some(mirror) = p.fallback_url else {
+            return Err(primary_error);
+        };
         let _ = std::fs::remove_file(&part);
-        return Err(format!(
-            "Could not download {} (curl exit {})",
-            p.id,
-            status.code().unwrap_or(-1)
-        ));
-    }
+        progress(0);
+        download(p, mirror, &part, &progress)
+            .map_err(|mirror_error| format!("{primary_error}\nMirror: {mirror_error}"))
+    })?;
     progress(p.bytes);
     let actual = sha256_file(&part)?;
     if actual != p.sha256 {
@@ -157,6 +201,33 @@ mod tests {
     use super::*;
 
     #[test]
+    fn failed_download_includes_curl_error_and_removes_partial_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let missing = dir.path().join("missing.onnx");
+        let url = Box::leak(format!("file://{}", missing.display()).into_boxed_str());
+        let package = Package {
+            id: "test-download-error",
+            url,
+            fallback_url: None,
+            sha256: "unused",
+            bytes: 10,
+            archive: Archive::File,
+            check: "model.onnx",
+            license: None,
+        };
+        let root = dir.path().join("models");
+        let error = install(&root, &package, |_| {}).unwrap_err();
+        assert!(
+            error.contains("Could not download test-download-error (curl exit 37)"),
+            "{error}"
+        );
+        assert!(error.contains("curl: (37)"), "{error}");
+        assert!(error.contains("missing.onnx"), "{error}");
+        assert!(!installed(&root, &package));
+        assert!(!root.join("test-download-error.part").exists());
+    }
+
+    #[test]
     fn raw_model_install_checks_hash_before_publishing() {
         let dir = tempfile::tempdir().unwrap();
         let source = dir.path().join("source.onnx");
@@ -167,6 +238,8 @@ mod tests {
         let mut package = Package {
             id: "test",
             url,
+            // A healthy primary must work even when its mirror is unavailable.
+            fallback_url: Some("file:///nonexistent-emulsion-mirror.onnx"),
             sha256: "wrong",
             bytes: 10,
             archive: Archive::File,
@@ -192,6 +265,62 @@ mod tests {
             std::fs::read_to_string(root.join("test/LICENSE")).unwrap(),
             "test license"
         );
+    }
+
+    #[test]
+    fn mirror_recovers_failed_download_and_still_requires_pinned_hash() {
+        let dir = tempfile::tempdir().unwrap();
+        let source = dir.path().join("mirror.onnx");
+        std::fs::write(&source, b"verified mirror").unwrap();
+        let url =
+            Box::leak(format!("file://{}/upstream.onnx", dir.path().display()).into_boxed_str());
+        let mirror = Box::leak(format!("file://{}", source.display()).into_boxed_str());
+        let hash = Box::leak(sha256_file(&source).unwrap().into_boxed_str());
+        let mut package = Package {
+            id: "test-mirror",
+            url,
+            fallback_url: Some(mirror),
+            sha256: "wrong",
+            bytes: 15,
+            archive: Archive::File,
+            check: "model.onnx",
+            license: None,
+        };
+        let root = dir.path().join("models");
+        let error = install(&root, &package, |_| {}).unwrap_err();
+        assert!(error.contains("checksum"), "{error}");
+        assert!(!installed(&root, &package));
+        assert!(!root.join("test-mirror.part").exists());
+        package.sha256 = hash;
+        install(&root, &package, |_| {}).unwrap();
+        assert_eq!(
+            std::fs::read(root.join("test-mirror/model.onnx")).unwrap(),
+            b"verified mirror"
+        );
+    }
+
+    #[test]
+    fn failed_primary_and_mirror_preserve_both_curl_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let url =
+            Box::leak(format!("file://{}/upstream.onnx", dir.path().display()).into_boxed_str());
+        let mirror =
+            Box::leak(format!("file://{}/mirror.onnx", dir.path().display()).into_boxed_str());
+        let package = Package {
+            id: "test-both-fail",
+            url,
+            fallback_url: Some(mirror),
+            sha256: "unused",
+            bytes: 1,
+            archive: Archive::File,
+            check: "model.onnx",
+            license: None,
+        };
+        let root = dir.path().join("models");
+        let error = install(&root, &package, |_| {}).unwrap_err();
+        assert!(error.contains("upstream.onnx"), "{error}");
+        assert!(error.contains("mirror.onnx"), "{error}");
+        assert!(!root.join("test-both-fail.part").exists());
     }
 }
 
