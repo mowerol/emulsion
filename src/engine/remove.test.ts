@@ -23,7 +23,7 @@ describe('the fixed 8-bit sRGB encode and decode', () => {
   });
 });
 
-describe("IOPaint's crop around a Remove spot", () => {
+describe('the context crop around a Remove spot', () => {
   const circle = (cx: number, cy: number) => ({ kind: 'circle' as const, center: [cx, cy] as [number, number], radius: 0.01, border: 0.0005 });
 
   it('boxes every pixel the spot touches, with 128 pixels of margin each side', () => {
@@ -49,6 +49,43 @@ describe("IOPaint's crop around a Remove spot", () => {
 
   it('has nothing to fill when the spot is off the photo', () => {
     expect(removeCrop(circle(-0.5, 0.5), 6000, 4000)).toBeNull();
+  });
+
+  it('keeps surrounding context proportional to a large removal at either camera resolution', () => {
+    const shape = { ...circle(0.5, 0.5), radius: 0.1, border: 0.005 };
+    for (const [W, H] of [[6000, 4000], [12000, 8000]]) {
+      const crop = removeCrop(shape, W, H)!;
+      const { roi, mask } = spotMask(shape, W, H);
+      let left = W, right = 0;
+      for (let y = 0; y < roi.h; y++) for (let x = 0; x < roi.w; x++) {
+        if (Math.round(mask[y * roi.w + x] * 255) === 0) continue;
+        left = Math.min(left, roi.x + x); right = Math.max(right, roi.x + x + 1);
+      }
+      const width = right - left;
+      // The object occupies at most half the crop width, leaving useful context for LaMa.
+      expect(crop.w).toBeGreaterThanOrEqual(width * 2 - 1);
+    }
+  });
+
+  it('changes the cached patch identity when the model sees a different crop', () => {
+    const spot = newSpot(circle(0.5, 0.5), { tool: 'remove' });
+    const crop = removeCrop(spot.shape, 6000, 4000)!;
+    const setup = { scales: 0, mergeFrom: 0, show: 0 };
+    expect(patchKey('b', 'm', [spot], 0, crop, 6000, 4000, setup)).not.toBe(
+      patchKey('b', 'm', [spot], 0, { ...crop, x: crop.x - 100, w: crop.w + 200 }, 6000, 4000, setup),
+    );
+  });
+
+  it('keeps large edge removals inside the photo and takes context from the other side', () => {
+    const shape = { ...circle(0.005, 0.005), radius: 0.1, border: 0.005 };
+    const crop = removeCrop(shape, 12000, 8000)!;
+    expect(crop.x).toBe(0);
+    expect(crop.y).toBe(0);
+    // The visible mask reaches roughly 900 px: preserve the requested context on the right/bottom.
+    expect(crop.w).toBeGreaterThan(1700);
+    expect(crop.h).toBeGreaterThan(1700);
+    expect(crop.w).toBeLessThanOrEqual(12000);
+    expect(crop.h).toBeLessThanOrEqual(8000);
   });
 });
 

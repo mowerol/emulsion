@@ -69,8 +69,30 @@ for results.
 The native `inpaint-probe` runs the same Rust adapter as the desktop command.
 It accepts a prepared 512² PNG crop and mask, retains one session, and saves PNGs
 and load/per-patch timings. See [native commands and measurements](../../docs/research/lama-native.md).
-The app backend is implemented; the develop view, export and retouch bar still
-need to consume it.
+Develop and export use the same native adapter.
+
+## Remove context quality probe (#48)
+
+With the existing model environment prepared, run from the repo root:
+
+```sh
+src-tauri/target/inpaint/venv/bin/python tools/inpaint/quality.py --output /tmp/remove-quality
+```
+
+The output directory must be new. No downloads occur. The probe uses Vite to load
+the app's actual retouch code, then feeds its crop, resampled image and binary mask
+to the verified FP32 model on CPU. It tests a dark object over a known blue
+background: one small removal and large removals in synthetic 24 MP and 96 MP
+photos. It selects the preview or full source using the app's normal rule.
+
+`report.json` records source/model/input hashes, dependency versions, crop geometry,
+masked fraction, inference time and color error in the center of the removed
+object. The measured disk has one quarter of the spot's full-size radius, so the
+same part of the object is compared when the context changes. The numeric gate
+requires p99 absolute channel error below 10/255; it exits nonzero on failure.
+Inspect the input, mask and output PNGs separately. This narrow regression probe
+does not establish reconstruction quality on natural photographs or RAW files.
+See [the issue 48 findings](../../docs/research/issue-48-remove-context.md).
 
 ## Conditional MI-GAN candidate
 

@@ -1,0 +1,186 @@
+{
+  "date": "2026-11-18",
+  "baseline_commit": "299592d",
+  "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O",
+  "metric": "p99 absolute RGB channel error in 8-bit units, central disk with one quarter of the full-size spot radius",
+  "scope": "Synthetic flat-background color reconstruction; not a RAW-camera or natural-photo acceptance test",
+  "visual_review": "Inspected all three before/after output pairs. Small output unchanged; large outputs reduce central color drift but retain visible low-frequency variation.",
+  "baseline": {
+    "model_sha256": "1faef5301d78db7dda502fe59966957ec4b79dd64e16f03ed96913c7a4eb68d6",
+    "remove_source_sha256": "9ad406d472c84235279f95b6905e1fd9552b50feaf0a8b7f374300db890ee9c6",
+    "retouch_source_sha256": "b8e394d12a76afc819a6e97124dc5c23bd38150a6bb625cc73b363049b268bb3",
+    "versions": {
+      "onnxruntime": "1.23.2",
+      "numpy": "2.2.6",
+      "Pillow": "11.3.0"
+    },
+    "threshold_core_p99_8bit": 10,
+    "visual_review": "pending",
+    "cases": [
+      {
+        "name": "small",
+        "W": 6000,
+        "H": 4000,
+        "crop": {
+          "x": 2832,
+          "y": 1832,
+          "w": 336,
+          "h": 336
+        },
+        "source": "full",
+        "background": [
+          31,
+          102,
+          191
+        ],
+        "core_radius": 15.238095238095237,
+        "image_sha256": "143331e8209da3100379c66f6a102b017c87f1144096909fbd9665bab33f601e",
+        "mask_sha256": "be05e35b1d4e2b811c7294f54a10d5818c40f6f678c1df4f8406a98cabec62ef",
+        "masked_fraction": 0.046844482421875,
+        "core_mae_8bit": 2.1275336129820417,
+        "core_p99_8bit": 4.217721099853516,
+        "seconds": 2.301571249961853,
+        "numeric_pass": true
+      },
+      {
+        "name": "large-24mp",
+        "W": 6000,
+        "H": 4000,
+        "crop": {
+          "x": 2053,
+          "y": 1053,
+          "w": 1894,
+          "h": 1894
+        },
+        "source": "full",
+        "background": [
+          31,
+          102,
+          191
+        ],
+        "core_radius": 54.06546990496304,
+        "image_sha256": "f8ac3433cdd7bfd3463b39d786e32b3ca80cef897d9a4d4b939f01d70fcb3f87",
+        "mask_sha256": "8125d4759308767200d1239296170eff9d3520f049f29ecd6924889ded946896",
+        "masked_fraction": 0.591033935546875,
+        "core_mae_8bit": 4.601265213778769,
+        "core_p99_8bit": 13.52857696533203,
+        "seconds": 2.2727954578585923,
+        "numeric_pass": false
+      },
+      {
+        "name": "large-96mp",
+        "W": 12000,
+        "H": 8000,
+        "crop": {
+          "x": 4234,
+          "y": 2234,
+          "w": 3532,
+          "h": 3532
+        },
+        "source": "preview",
+        "background": [
+          31,
+          102,
+          191
+        ],
+        "core_radius": 57.9841449603624,
+        "image_sha256": "614c3728025a14298205bbf8e0835249ea12145174b254f3c97989e0bf90768c",
+        "mask_sha256": "38764163dc87de48796826e11c815c51361891dd1ae5fd19ca717f5cc3247113",
+        "masked_fraction": 0.6795005798339844,
+        "core_mae_8bit": 6.374467061167741,
+        "core_p99_8bit": 18.399208984375,
+        "seconds": 2.2973212089855224,
+        "numeric_pass": false
+      }
+    ]
+  },
+  "proportional_context": {
+    "model_sha256": "1faef5301d78db7dda502fe59966957ec4b79dd64e16f03ed96913c7a4eb68d6",
+    "remove_source_sha256": "a374b6058512c4731d7b177ff37d821f5bbe374772b108972d8df53647d479ce",
+    "retouch_source_sha256": "b8e394d12a76afc819a6e97124dc5c23bd38150a6bb625cc73b363049b268bb3",
+    "versions": {
+      "onnxruntime": "1.23.2",
+      "numpy": "2.2.6",
+      "Pillow": "11.3.0"
+    },
+    "threshold_core_p99_8bit": 10,
+    "visual_review": "pending",
+    "cases": [
+      {
+        "name": "small",
+        "W": 6000,
+        "H": 4000,
+        "crop": {
+          "x": 2832,
+          "y": 1832,
+          "w": 336,
+          "h": 336
+        },
+        "source": "full",
+        "background": [
+          31,
+          102,
+          191
+        ],
+        "core_radius": 15.238095238095237,
+        "image_sha256": "143331e8209da3100379c66f6a102b017c87f1144096909fbd9665bab33f601e",
+        "mask_sha256": "be05e35b1d4e2b811c7294f54a10d5818c40f6f678c1df4f8406a98cabec62ef",
+        "masked_fraction": 0.046844482421875,
+        "core_mae_8bit": 2.1275336129820417,
+        "core_p99_8bit": 4.217721099853516,
+        "seconds": 2.1676543329376727,
+        "numeric_pass": true
+      },
+      {
+        "name": "large-24mp",
+        "W": 6000,
+        "H": 4000,
+        "crop": {
+          "x": 1361,
+          "y": 361,
+          "w": 3278,
+          "h": 3278
+        },
+        "source": "preview",
+        "background": [
+          31,
+          102,
+          191
+        ],
+        "core_radius": 31.2385600976205,
+        "image_sha256": "8462ad79396b9f60543ca072d1b2c8f58e304fc25f21f874f5206bbf38e96688",
+        "mask_sha256": "08dcfe72105082be8bade717679955ef8d90efea24406456f0b59ded0031a99b",
+        "masked_fraction": 0.19803619384765625,
+        "core_mae_8bit": 3.9149803201915727,
+        "core_p99_8bit": 7.635196533203126,
+        "seconds": 2.152714333962649,
+        "numeric_pass": true
+      },
+      {
+        "name": "large-96mp",
+        "W": 12000,
+        "H": 8000,
+        "crop": {
+          "x": 2723,
+          "y": 723,
+          "w": 6554,
+          "h": 6554
+        },
+        "source": "preview",
+        "background": [
+          31,
+          102,
+          191
+        ],
+        "core_radius": 31.248092767775404,
+        "image_sha256": "da60de1430ceb888084f1d39de18f6e898aeaba557667fa3475c2d658307713f",
+        "mask_sha256": "7b9460aa4fa03519e83daee7241247cd1fcc9a9f954fab56ba71ac18ac999726",
+        "masked_fraction": 0.19818115234375,
+        "core_mae_8bit": 3.9702165143114616,
+        "core_p99_8bit": 7.6835174560546875,
+        "seconds": 2.130547459004447,
+        "numeric_pass": true
+      }
+    ]
+  }
+}

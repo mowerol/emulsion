@@ -25,6 +25,9 @@
 //   shrinking, so a 2000-pixel crop would alias. The mask goes down by taking every 512 cell any
 //   masked pixel touches: a cell the model leaves alone holds only the photo resampled, and the
 //   spot must not blend that in.
+// - The crop margin is at least half the mask box's longer side (and never below IOPaint's
+//   128 px). A fixed margin left almost no surrounding context for large high-resolution
+//   removals once squeezed to 512² (#48). Small spots retain IOPaint's original crop.
 // - IOPaint finds one box per contour (cv2.findContours, RETR_EXTERNAL); a spot's shape (a
 //   circle, an ellipse, or one brush path) is one connected area, so its one box is that box.
 //   Strokes painted together and applied at once ("Remove after each stroke" off) are split by
@@ -118,7 +121,8 @@ export function removeGroups(strokes: BrushNode[][], W: number, H: number): Brus
 }
 
 /**
- * The full-size crop the model sees for a Remove spot: IOPaint's boxes_from_mask then _crop_box,
+ * The full-size crop the model sees for a Remove spot: IOPaint's boxes_from_mask then _crop_box
+ * with a margin that grows with large masks,
  * or the whole photo when its longer side is at most CROP_TRIGGER_SIZE. Null when the spot
  * touches no pixel of the photo.
  */
@@ -139,7 +143,8 @@ export function removeCrop(shape: RetouchShape, W: number, H: number): Roi | nul
   const fl = Math.floor;
   const boxH = box[3] - box[1], boxW = box[2] - box[0];
   const cx = fl((box[0] + box[2]) / 2), cy = fl((box[1] + box[3]) / 2);
-  const w = boxW + CROP_MARGIN * 2, h = boxH + CROP_MARGIN * 2;
+  const margin = Math.max(CROP_MARGIN, Math.ceil(Math.max(boxW, boxH) / 2));
+  const w = boxW + margin * 2, h = boxH + margin * 2;
   const _l = cx - fl(w / 2), _r = cx + fl(w / 2), _t = cy - fl(h / 2), _b = cy + fl(h / 2);
   let l = Math.max(_l, 0), r = Math.min(_r, W), t = Math.max(_t, 0), b = Math.min(_b, H);
   // "try to get more context when crop around image edge"
@@ -315,7 +320,7 @@ export function preRetouchKey(source: string, recipe: Pick<Recipe, 'lens' | 'wb'
 
 /**
  * A Remove spot's patch key: the edits before the step (`base`), the model's hash, the spot's
- * shape, and the earlier spots that change the pixels in its crop (with everything they read,
+ * shape and crop, and the earlier spots that change the pixels in its crop (with everything they read,
  * retouchInputs' closure). Not a hash of pixels, so the preview and the full size share it; ids
  * and the spot's own opacity are left out, so virtual copies share it too.
  */
@@ -323,7 +328,7 @@ export function patchKey(base: string, model: string, spots: RetouchSpot[], inde
   const spot = spots[index];
   const earlier = retouchInputs(spots.slice(0, index), crop, W, H, 1, W, H, setup).spots.map(({ id: _id, ...rest }) => rest);
   const scales = earlier.some((s) => s.scale > 0) ? [setup.scales, setup.mergeFrom] : null;
-  return digest(JSON.stringify([base, model, W, H, spot.model ?? 'lama-fp32', spot.shape, earlier, scales]));
+  return digest(JSON.stringify([base, model, W, H, spot.model ?? 'lama-fp32', spot.shape, earlier, scales, crop]));
 }
 
 /** Retouch's display inputs retain their native encoding until the later input shader. */
