@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { defaultRecipe } from '../film/recipe';
 import { toneCurveFor, packCurve } from './tone';
 import { InputMode, developUniforms, needsPasses } from './params';
+import { DEFAULT_FUJI_SIM, fujiLookSettings, withFujiLook } from '../film/fujilooks';
+import { FUJI_NEUTRAL } from '../film/fujirecipe';
+import type { Mat3 } from '../film/stocks';
 
 const ctx = { width: 1600, height: 1067, seed: 3, inputMode: InputMode.DisplayLinear, store: 1 };
 
@@ -39,6 +42,21 @@ describe('develop uniforms', () => {
     // Balancing for tungsten light makes a daylight photo blue: blue gain beats red.
     expect(fromD65[8]).toBeGreaterThan(fromD65[0]);
     expect(fromWarm).not.toEqual(fromD65);
+  });
+
+  it('uses the recorded camera channel gains for a Fuji recipe\'s Auto white balance', () => {
+    const cameraToWorking: Mat3 = [[0.7288158, 0.51535386, -0.24416961], [-0.049517203, 1.4294661, -0.3799489], [0.0107025, -0.21646446, 1.205762]];
+    const r = withFujiLook(defaultRecipe('neutral'), 'r', 'Recipe', fujiLookSettings(DEFAULT_FUJI_SIM, FUJI_NEUTRAL)!);
+    const u = developUniforms(r, { ...ctx, inputMode: InputMode.SceneLinear, white: [0.32614687, 0.34293032], cameraToWorking, camera: { autoWhite: [0.34746826, 0.36284813] } });
+    const matrix = u.uWbMat as number[];
+    // Camera R/G and B/G coefficients: as shot 592/302, 481/302; Auto 539/302, 545/302.
+    for (const [channel, gain] of [[0, 539 / 592], [1, 1], [2, 545 / 481]]) {
+      const primary = cameraToWorking.map(row => row[channel]);
+      for (let i = 0; i < 3; i++) {
+        const got = primary.reduce((sum, v, k) => sum + matrix[k * 3 + i] * v, 0);
+        expect(got).toBeCloseTo(primary[i] * gain, 5);
+      }
+    }
   });
 
   it('sends contrast, vibrance, saturation and shadows to the colour balance stage, not the print', () => {

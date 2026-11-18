@@ -86,6 +86,21 @@ Each stage is one GLSL file in `src/engine/shaders/stages/`, included into `deve
 
 The neutral sigmoid’s maths is mirrored in `engine/tone.ts` so it can be unit-tested; the shader receives its constants from there. Emulsion's neutral curve uses sigmoid contrast 1.15 and skew 0.11 rather than darktable's 1.5 and 0, fitted to the curve the stocks were first tuned on, and a display black of 0 so the inverse is exact. Without a DCP tone curve, the base renders the neutral curve per channel, the exact inverse of the display-referred input stage.
 
+A Fuji recipe's white balance (Auto, Daylight or Kelvin) scales the camera's channels, as the
+camera does, when the RAW records the white point: its Camera Auto, or its own Daylight or Kelvin
+preset (`film/fujilooks.ts`, `fujiWhiteBalanceMatrix`). The camera-to-working transform and the
+white points recover the channel gain ratios with green unchanged. `developUniforms` composes that
+matrix with the recipe's R/B shift (`film/fujirecipe.ts`, `fujiShiftMatrix`, also in camera
+channels). Explicit photo WB and RAWs without those white points use CAT16 adaptation. Mask WB
+remains a relative CAT16 adjustment after the photo's WB.
+
+The recipe's other controls (Highlight, Shadow, Colour, Colour Chrome, FX Blue) are measured maps
+in `public/looks/fuji-controls/`, baked with the simulation's LUT and curve into the look's LUT
+(`bakeFujiLut`, loaded in `engine/lutstore.ts`). The shared maps serve every simulation. Where a
+simulation takes a control differently, its own maps sit in a subfolder
+(`FUJI_SIM_CONTROL_FILES`) and replace the shared ones on their side of 0 (`withSimControls`), so
+a step never mixes two simulations' measurements.
+
 ### Haze removal
 
 Dehaze is darktable's haze removal (`hazeremoval.c`, He et al.'s dark channel prior and guided filter), in darktable's place: on the scene-linear input, after lens correction, before exposure (`stageDehaze`, also in the tone equalizer map and highlight extraction passes). `engine/dehaze.ts` is the reference.

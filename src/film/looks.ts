@@ -172,15 +172,15 @@ function snapshotLutFile(r: Recipe): string | null {
 
 /** Generated Fuji recipe LUTs are keyed `fuji:` + what they are baked from (engine/lutstore.ts bakes them). */
 export const FUJI_LUT_PREFIX = 'fuji:';
-export interface FujiLutKey { sim: string | null; curve: ProfileSettings['curve']; recipe: FujiRecipe }
-/** A Fuji recipe look's LUT key: its simulation's LUT file, the curve the controls act after, and the recipe. */
+export interface FujiLutKey { sim: string | null; fujiSim?: string; curve: ProfileSettings['curve']; recipe: FujiRecipe }
+/** A Fuji recipe look's LUT key: its simulation's LUT file and look id (for its own control maps), the curve the controls act after, and the recipe. */
 export function fujiLutFile(settings: ProfileSettings, push: Push): string | null {
   const lut = settings.lut;
   if (lut?.kind !== 'fuji') return null;
   const sim = lut.simLut && isPackId(lut.simLut.pack) ? lookFile(lut.simLut.pack, lut.simLut.stock as StockId, push) : null;
   // White balance acts on the photo's light (engine/params.ts), not in the LUT.
   // Only what the LUT is baked from: white balance, grain, clarity and sharpness act elsewhere.
-  const key: FujiLutKey = { sim, curve: settings.curve, recipe: { ...lut.recipe, wb: { mode: 'auto' }, wbShift: [0, 0], grain: 'off', grainSize: 'small', clarity: 0, sharpness: 0 } };
+  const key: FujiLutKey = { sim, fujiSim: lut.sim, curve: settings.curve, recipe: { ...lut.recipe, wb: { mode: 'auto' }, wbShift: [0, 0], grain: 'off', grainSize: 'small', clarity: 0, sharpness: 0 } };
   return FUJI_LUT_PREFIX + JSON.stringify(key);
 }
 

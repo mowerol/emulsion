@@ -9,7 +9,9 @@ import { PACK, lookName, profileSettingsFor } from './looks';
 import type { CameraMetadata } from './profiles';
 import { WB_PRESETS, clampWhiteBalance, temperatureTint, type WhiteBalance, type Xy } from '../engine/whitebalance';
 import type { Recipe } from './recipe';
-import type { StockId } from './stocks';
+import type { Mat3, StockId, Vec3 } from './stocks';
+import { invert3, mulMat, mulVec } from '../engine/color';
+import { REC2020_TO_XYZ } from '../engine/colorbalance';
 
 const SIM_PACK = 'emulsion-looks';
 const SIM_CATEGORY = 'Emulsion x Fuji';
@@ -88,6 +90,33 @@ export function effectiveWb(recipe: Recipe | null, camera: CameraWhites): WhiteB
   if (recipe.wb) return recipe.wb;
   const wb = lookFujiWb(recipe);
   return wb ? fujiWhiteBalance(wb, camera) : null;
+}
+
+/** The camera's own white point for a recipe's white balance, when the RAW records it. */
+function cameraWhite(wb: FujiWb, camera: CameraWhites): Xy | null {
+  if (wb.mode === 'auto') return camera?.autoWhite ?? null;
+  if (wb.mode === 'daylight') return camera?.presetWhites?.daylight ?? null;
+  return camera?.presetWhites ? kelvinWhite(camera.presetWhites.kelvin, wb.kelvin) : null;
+}
+
+/**
+ * A recipe's white balance as the camera applies it: gains on the camera's own channels, green
+ * kept, from its Camera Auto or its Daylight or Kelvin preset, as RAW decoding does. Null without
+ * them (the white point is then adapted to, `fujiWhiteBalance`). Measured on its JPEGs (17 photos):
+ * Daylight R+4 B−5 1.81 → 1.20 ΔE, 5200 K R+1 B−6 1.86 → 1.42, against adapting to the same white.
+ */
+export function fujiWhiteBalanceMatrix(recipe: Recipe, camera: CameraWhites, from: Xy, cameraToWorking: Mat3): Mat3 | null {
+  if (recipe.wb) return null;
+  const wb = lookFujiWb(recipe);
+  const to = wb ? cameraWhite(wb, camera) : null;
+  if (!to) return null;
+  const xyz = ([x, y]: Xy): Vec3 => [x / y, 1, (1 - x - y) / y];
+  const xyzToCamera = invert3(mulMat(REC2020_TO_XYZ, cameraToWorking));
+  const a = mulVec(xyzToCamera, xyz(from)), b = mulVec(xyzToCamera, xyz(to));
+  const gain = a.map((v, k) => v / b[k]);
+  if (!gain.every(v => Number.isFinite(v) && v > 0)) return null;
+  const diagonal: Mat3 = [[gain[0] / gain[1], 0, 0], [0, 1, 0], [0, 0, gain[2] / gain[1]]];
+  return mulMat(mulMat(cameraToWorking, diagonal), invert3(cameraToWorking));
 }
 
 /** How a recipe's white balance reads in a menu: "Daylight", "5200 K", "Auto". */

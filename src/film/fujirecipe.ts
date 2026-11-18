@@ -115,8 +115,8 @@ export interface FujiControls {
 
 /** The bundled control files (public/looks/fuji-controls/), by where they go in FujiControls. */
 export const FUJI_CONTROL_FILES = {
-  highlight: { [-1]: 'highlight-m1.cube', 2: 'highlight-p2.cube', 4: 'highlight-p4.cube' },
-  shadow: { [-1]: 'shadow-m1.cube', 2: 'shadow-p2.cube', 4: 'shadow-p4.cube' },
+  highlight: { [-2]: 'highlight-m2.cube', [-1]: 'highlight-m1.cube', 2: 'highlight-p2.cube', 4: 'highlight-p4.cube' },
+  shadow: { [-2]: 'shadow-m2.cube', [-1]: 'shadow-m1.cube', 2: 'shadow-p2.cube', 4: 'shadow-p4.cube' },
   color: { [-4]: 'color-m4.cube', 2: 'color-p2.cube', 4: 'color-p4.cube' },
   chromeStrong: 'chrome-strong.cube',
   chromeStrongAtColor4: 'chrome-strong-color-p4.cube',
@@ -125,6 +125,51 @@ export const FUJI_CONTROL_FILES = {
   blueStrongAtColor4: 'blue-strong-color-p4.cube',
 } as const;
 export const FUJI_CONTROLS_DIR = 'fuji-controls/';
+
+type SteppedKey = 'highlight' | 'shadow' | 'color';
+/** A simulation's own measured maps, where the shared ones (measured on Classic Chrome) don't carry over. */
+export interface FujiSimControlFiles {
+  /** Folder under FUJI_CONTROLS_DIR. */
+  dir: string;
+  highlight?: Record<number, string>;
+  shadow?: Record<number, string>;
+  color?: Record<number, string>;
+  chromeStrong?: string;
+}
+/**
+ * By simulation look id (a recipe's `sim`). Only where a simulation's own measurement beat the
+ * shared map on photos it was not measured on: Classic Negative's Highlight and Shadow (its tone
+ * curve takes them differently: its positive Shadow darkens about 60% as much as Classic Chrome's),
+ * Astia's Colour Chrome.
+ */
+export const FUJI_SIM_CONTROL_FILES: Record<string, FujiSimControlFiles> = {
+  'emulsion-fuji-classic-negative': {
+    dir: 'classic-negative/',
+    highlight: { [-2]: 'highlight-m2.cube', [-1]: 'highlight-m1.cube', 2: 'highlight-p2.cube', 4: 'highlight-p4.cube' },
+    shadow: { [-2]: 'shadow-m2.cube', 2: 'shadow-p2.cube', 4: 'shadow-p4.cube' },
+  },
+  'emulsion-film-astia': { dir: 'astia/', chromeStrong: 'chrome-strong.cube' },
+};
+
+/**
+ * The shared controls with a simulation's own maps in place. A stepped control's own maps replace
+ * the shared ones on their side of 0 (so its steps never mix two simulations' measurements); the
+ * other side keeps the shared maps.
+ */
+export function withSimControls(shared: FujiControls, own: Partial<Pick<FujiControls, SteppedKey | 'chromeStrong'>>): FujiControls {
+  const merge = (a: Record<number, Clut>, b: Record<number, Clut> | undefined) => {
+    if (!b || !Object.keys(b).length) return a;
+    const sides = new Set(Object.keys(b).map((k) => Math.sign(Number(k))));
+    return { ...Object.fromEntries(Object.entries(a).filter(([k]) => !sides.has(Math.sign(Number(k))))), ...b };
+  };
+  return {
+    ...shared,
+    highlight: merge(shared.highlight, own.highlight),
+    shadow: merge(shared.shadow, own.shadow),
+    color: merge(shared.color, own.color),
+    chromeStrong: own.chromeStrong ?? shared.chromeStrong,
+  };
+}
 
 /** A stepped control at one setting: the measured transforms either side (null is no change) and the mix. */
 interface Step { a: Clut | null; b: Clut | null; t: number }
@@ -236,14 +281,18 @@ export function bakeFujiLut(base: Clut | null, curve: ToneCurve | null, controls
  * The camera's white balance shift as gains on its red and blue channels (green 1), as an X-T30 II
  * stores them: the shifted Auto multipliers over the unshifted ones, measured from its RAWs. Each
  * step between measured shifts is interpolated in log gain; beyond them the last step continues.
+ * Its RAWs only show red shifts above 0 and blue below; the other side mirrors them (a shift of −n
+ * is the inverse gain of +n), which matches its JPEGs: at 6800 K R−5 B−3 (CineStill 50D) the red
+ * gain that best fits them is 0.82, the mirror's 0.824, where continuing the first step gave 0.88.
  */
 const SHIFT_GAINS = {
-  red: { 0: 1, 1: 1.0252, 2: 1.06284, 3: 1.09779, 4: 1.13124 } as Record<number, number>,
+  red: { 0: 1, 1: 1.0252, 2: 1.06284, 3: 1.09779, 4: 1.13124, 5: 1.212982, 7: 1.384071 } as Record<number, number>,
   blue: { [-6]: 0.78078, [-5]: 0.8324, [-4]: 0.88257, [-3]: 0.91082, [-2]: 0.93037, 0: 1 } as Record<number, number>,
 };
 function shiftGain(table: Record<number, number>, steps: number): number {
   const points = Object.keys(table).map(Number).sort((a, b) => a - b);
   if (table[steps] !== undefined) return table[steps];
+  if (!points.some((p) => p * steps > 0)) return 1 / shiftGain(table, -steps);
   let i = points.findIndex((p) => p >= steps);
   if (i === -1) i = points.length - 1;
   else if (i === 0) i = 1;

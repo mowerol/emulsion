@@ -3,7 +3,7 @@
 
 import { STOCK, type Mat3 } from '../film/stocks';
 import { fujiShiftMatrix } from '../film/fujirecipe';
-import { effectiveWb, type CameraWhites } from '../film/fujilooks';
+import { effectiveWb, fujiWhiteBalanceMatrix, type CameraWhites } from '../film/fujilooks';
 import { diffusionFraction, halationStrength } from './optics';
 import { scannerFinish } from '../film/scannerfinish';
 import type { Recipe } from '../film/recipe';
@@ -144,7 +144,9 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
   const sc = scannerFinish(recipe);
   // The photo's own white balance, else its Fuji recipe's (film/fujilooks.ts).
   const chosenWb = effectiveWb(recipe, ctx.camera);
-  const photoWb = chosenWb ? whiteBalanceMatrix(ctx.white ?? D65_XY, whiteXy(chosenWb.temperature, chosenWb.tint)) : null;
+  const cameraWb = ctx.inputMode === InputMode.SceneLinear && ctx.white && ctx.cameraToWorking
+    ? fujiWhiteBalanceMatrix(recipe, ctx.camera, ctx.white, ctx.cameraToWorking) : null;
+  const photoWb = cameraWb ?? (chosenWb ? whiteBalanceMatrix(ctx.white ?? D65_XY, whiteXy(chosenWb.temperature, chosenWb.tint)) : null);
   // A Fuji recipe's white balance shift, on top of the photo's own white balance.
   const lookLut = profileSettingsFor(recipe)?.lut;
   const shift = lookLut?.kind === 'fuji' ? fujiShiftMatrix(lookLut.recipe.wbShift, ctx.cameraToWorking ?? null, recipe.lookAmount / 100) : null;

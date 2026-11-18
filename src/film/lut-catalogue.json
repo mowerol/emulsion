@@ -1122,7 +1122,7 @@
     "category": "Emulsion x Fuji",
     "file": "velvia.cube",
     "iso": 400,
-    "sha256": "f40776225a48c97b09f1472720512ab5b39300f76553d71b2fcf2f56d3ca5ae2"
+    "sha256": "0b8a0c0f45f75d21fd6e412b738a69eef13ceea823a2075e513d0f4685a1c3a2"
   },
   {
     "id": "lut:emulsion-luts:classic-negative",
@@ -1131,7 +1131,7 @@
     "category": "Emulsion x Fuji",
     "file": "classic-negative.cube",
     "iso": 400,
-    "sha256": "ab0afd2223fdb0625df4b32c26035716007421147ae0e78a56cdb0e264c6aa6e"
+    "sha256": "9ac366a750877a81b13344bf1823eeeb5bdceff3ad13d2b148b857e9465312f7"
   },
   {
     "id": "lut:emulsion-luts:classic-chrome",
@@ -1140,6 +1140,42 @@
     "category": "Emulsion x Fuji",
     "file": "classic-chrome.cube",
     "iso": 400,
-    "sha256": "145365113fdbe73588818f1278a50cf7aa028263b265a4cc160f16cb8be6599b"
+    "sha256": "e6ab0d01d73b193de925ca858dcfa8afd295d6f9bbc03b28c113949595a9849d"
+  },
+  {
+    "id": "lut:emulsion-luts:astia",
+    "pack": "emulsion-luts",
+    "name": "Astia (fitted LUT)",
+    "category": "Emulsion x Fuji",
+    "file": "astia.cube",
+    "iso": 400,
+    "sha256": "789a9cb176beae74b845c2c9738cb9da95d3d2317013d6d177de16feabcca6dc"
+  },
+  {
+    "id": "lut:emulsion-luts:provia",
+    "pack": "emulsion-luts",
+    "name": "Provia (fitted LUT)",
+    "category": "Emulsion x Fuji",
+    "file": "provia.cube",
+    "iso": 400,
+    "sha256": "825e720448303e8c174b7913bc1eb09e00257feccdb0646d762f1bc69e54e2e2"
+  },
+  {
+    "id": "lut:emulsion-luts:pro-neg-hi",
+    "pack": "emulsion-luts",
+    "name": "Pro Neg Hi (fitted LUT)",
+    "category": "Emulsion x Fuji",
+    "file": "pro-neg-hi.cube",
+    "iso": 400,
+    "sha256": "15b15b51fa7b8faaa576a601cd9d0094a4d81d50a8c5b14f749b775f558f7f80"
+  },
+  {
+    "id": "lut:emulsion-luts:eterna",
+    "pack": "emulsion-luts",
+    "name": "Eterna (fitted LUT)",
+    "category": "Emulsion x Fuji",
+    "file": "eterna.cube",
+    "iso": 400,
+    "sha256": "e2b1d0807c59af1fd758d1ab9fb278f634b7148aa23d93355360b90807c31b60"
   }
 ]

@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
+import { existsSync, readFileSync } from 'node:fs';
 import type { Clut } from '../engine/lut3d';
 import { tetrahedral } from '../engine/lut3d';
 import type { Vec3 } from './stocks';
 import { sampleCurve, type CurvePoint, type ToneCurve } from './curve';
 import {
-  FUJI_NEUTRAL, bakeFujiLut, fujiShiftGains, fujiShiftMatrix, fujiSliders, fujiTransform, isNeutralFujiRecipe, normalizeFujiRecipe, steppedControl,
+  FUJI_NEUTRAL, bakeFujiLut, fujiShiftGains, fujiShiftMatrix, fujiSliders, fujiTransform, isNeutralFujiRecipe, normalizeFujiRecipe, steppedControl, withSimControls, FUJI_CONTROLS_DIR, FUJI_SIM_CONTROL_FILES,
   type FujiControls, type FujiRecipe,
 } from './fujirecipe';
 
@@ -53,6 +54,27 @@ describe('steppedControl', () => {
     expect(steppedControl(maps, -2, grey)![0]).toBeCloseTo(0.46, 6);
     // Only -1 measured: +1 mirrors it.
     expect(steppedControl(controls.shadow, 1, grey)![0]).toBeCloseTo(0.51, 6);
+  });
+});
+
+describe('withSimControls', () => {
+  it("replaces the shared maps only on the side of 0 the simulation's own maps are on", () => {
+    const own = withSimControls(controls, { highlight: { [-2]: offset(-0.06) }, chromeStrong: offset(-0.05) });
+    expect(Object.keys(own.highlight).map(Number).sort((a, b) => a - b)).toEqual([-2, 2, 4]);
+    // -1 is now half of the simulation's own -2, not the shared -1.
+    expect(steppedControl(own.highlight, -1, grey)![0]).toBeCloseTo(0.47, 6);
+    expect(steppedControl(own.highlight, 2, grey)![0]).toBeCloseTo(0.53, 6);
+    expect(own.chromeStrong).not.toBe(controls.chromeStrong);
+    expect(own.shadow).toBe(controls.shadow);
+    expect(own.chromeStrongAtColor4).toBe(controls.chromeStrongAtColor4);
+  });
+  it('names bundled files for simulations that exist', () => {
+    const ids = new Set((JSON.parse(readFileSync('src/film/emulsion-looks.json', 'utf8')) as { id: string }[]).map((l) => l.id));
+    for (const [sim, own] of Object.entries(FUJI_SIM_CONTROL_FILES)) {
+      expect(ids.has(sim)).toBe(true);
+      const files = [...Object.values(own.highlight ?? {}), ...Object.values(own.shadow ?? {}), ...Object.values(own.color ?? {}), ...(own.chromeStrong ? [own.chromeStrong] : [])];
+      for (const f of files) expect(existsSync(`public/looks/${FUJI_CONTROLS_DIR}${own.dir}${f}`)).toBe(true);
+    }
   });
 });
 
@@ -122,13 +144,22 @@ describe('fujiShiftGains', () => {
     expect(fujiShiftGains([0, 0])).toEqual([1, 1, 1]);
     expect(fujiShiftGains([2, -4])).toEqual([1.06284, 1, 0.88257]);
   });
+  it('matches camera coefficients at high red shifts', () => {
+    // Auto -> shifted R/G coefficients from two X-T30 II RAFs, with G unchanged.
+    expect(fujiShiftGains([5, -6])[0]).toBeCloseTo(656 / 541, 2);
+    expect(fujiShiftGains([7, 7])[0]).toBeCloseTo(789 / 570, 2);
+  });
   it('interpolates in log gain and continues the last step beyond the measured shifts', () => {
     const [, , b1] = fujiShiftGains([0, -1]);
     expect(b1).toBeCloseTo(Math.sqrt(0.93037), 6);
     const [r9] = fujiShiftGains([9, 0]);
-    expect(r9).toBeCloseTo(1.13124 * (1.13124 / 1.09779) ** 5, 6);
-    const [rm1] = fujiShiftGains([-1, 0]);
-    expect(rm1).toBeCloseTo(1 / 1.0252, 6);
+    expect(r9).toBeCloseTo(1.384071 * (1.384071 / 1.212982), 6);
+  });
+  it('mirrors the measured side for red cuts and blue boosts', () => {
+    expect(fujiShiftGains([-1, 0])[0]).toBeCloseTo(1 / 1.0252, 6);
+    expect(fujiShiftGains([-5, 3])).toEqual([1 / 1.212982, 1, 1 / 0.91082]);
+    expect(fujiShiftGains([-6, 0])[0]).toBeCloseTo(1 / fujiShiftGains([6, 0])[0], 9);
+    expect(fujiShiftGains([-9, 9])).toEqual(fujiShiftGains([9, -9]).map((g) => 1 / g));
   });
 });
 

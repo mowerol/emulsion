@@ -5,7 +5,7 @@ import { useSyncExternalStore } from 'react';
 import { invoke } from '../backend/ipc';
 import { type Clut, parse3dl, parseCube, parseHald } from './lut3d';
 import { FUJI_LUT_PREFIX, USER_LOOKS_DIR, type FujiLutKey } from '../film/looks';
-import { FUJI_CONTROLS_DIR, FUJI_CONTROL_FILES, bakeFujiLut, type FujiControls } from '../film/fujirecipe';
+import { FUJI_CONTROLS_DIR, FUJI_CONTROL_FILES, FUJI_SIM_CONTROL_FILES, bakeFujiLut, withSimControls, type FujiControls } from '../film/fujirecipe';
 
 /** A loaded LUT; `id` keys the GPU texture and the maps downstream, `eightBit` picks its format. */
 export interface LoadedLut extends Clut {
@@ -118,32 +118,45 @@ export async function loadLut(file: string): Promise<LoadedLut | null> {
 }
 
 /**
- * The Fuji recipe controls' measured maps, loaded once. A map not bundled yet (a setting not
+ * The Fuji recipe controls' measured maps, loaded once per simulation: the shared maps with the
+ * simulation's own in place (FUJI_SIM_CONTROL_FILES). A map not bundled yet (a setting not
  * measured yet) is left out: the nearest measured step continues across it.
  */
-let fujiControls: Promise<FujiControls> | null = null;
-function loadFujiControls(): Promise<FujiControls> {
-  const one = async (name: string) => parseCube((await get(base + FUJI_CONTROLS_DIR + name, 'text')) as string);
-  const stepped = async (files: Record<number, string>): Promise<Record<number, Clut>> => Object.fromEntries((await Promise.all(Object.entries(files)
-    .map(async ([k, f]) => [Number(k), await one(f).catch(() => null)] as const))).filter((e): e is readonly [number, Clut] => e[1] !== null));
-  if (fujiControls) return fujiControls;
-  const loading = (async (): Promise<FujiControls> => ({
-    highlight: await stepped(FUJI_CONTROL_FILES.highlight),
-    shadow: await stepped(FUJI_CONTROL_FILES.shadow),
-    color: await stepped(FUJI_CONTROL_FILES.color),
-    chromeStrong: await one(FUJI_CONTROL_FILES.chromeStrong),
-    chromeStrongAtColor4: await one(FUJI_CONTROL_FILES.chromeStrongAtColor4),
-    blueWeak: await one(FUJI_CONTROL_FILES.blueWeak),
-    blueStrong: await one(FUJI_CONTROL_FILES.blueStrong),
-    blueStrongAtColor4: await one(FUJI_CONTROL_FILES.blueStrongAtColor4),
-  }))();
-  fujiControls = loading;
+const fujiControls = new Map<string, Promise<FujiControls>>();
+const controlFile = async (name: string) => parseCube((await get(base + FUJI_CONTROLS_DIR + name, 'text')) as string);
+const steppedFiles = async (files: Record<number, string>, dir = ''): Promise<Record<number, Clut>> => Object.fromEntries((await Promise.all(Object.entries(files)
+  .map(async ([k, f]) => [Number(k), await controlFile(dir + f).catch(() => null)] as const))).filter((e): e is readonly [number, Clut] => e[1] !== null));
+function loadFujiControls(sim: string | null | undefined): Promise<FujiControls> {
+  const own = sim ? FUJI_SIM_CONTROL_FILES[sim] : undefined;
+  const key = own ? sim! : '';
+  const have = fujiControls.get(key);
+  if (have) return have;
+  const loading = (async (): Promise<FujiControls> => {
+    const shared: FujiControls = {
+      highlight: await steppedFiles(FUJI_CONTROL_FILES.highlight),
+      shadow: await steppedFiles(FUJI_CONTROL_FILES.shadow),
+      color: await steppedFiles(FUJI_CONTROL_FILES.color),
+      chromeStrong: await controlFile(FUJI_CONTROL_FILES.chromeStrong),
+      chromeStrongAtColor4: await controlFile(FUJI_CONTROL_FILES.chromeStrongAtColor4),
+      blueWeak: await controlFile(FUJI_CONTROL_FILES.blueWeak),
+      blueStrong: await controlFile(FUJI_CONTROL_FILES.blueStrong),
+      blueStrongAtColor4: await controlFile(FUJI_CONTROL_FILES.blueStrongAtColor4),
+    };
+    if (!own) return shared;
+    return withSimControls(shared, {
+      highlight: own.highlight && await steppedFiles(own.highlight, own.dir),
+      shadow: own.shadow && await steppedFiles(own.shadow, own.dir),
+      color: own.color && await steppedFiles(own.color, own.dir),
+      chromeStrong: own.chromeStrong ? await controlFile(own.dir + own.chromeStrong) : undefined,
+    });
+  })();
+  fujiControls.set(key, loading);
   // A failed load is tried again next time.
-  loading.catch(() => { fujiControls = null; });
+  loading.catch(() => fujiControls.delete(key));
   return loading;
 }
 async function bakeFuji(key: FujiLutKey): Promise<LoadedLut> {
-  const [controls, sim] = await Promise.all([loadFujiControls(), key.sim ? loadLut(key.sim) : null]);
+  const [controls, sim] = await Promise.all([loadFujiControls(key.fujiSim), key.sim ? loadLut(key.sim) : null]);
   if (key.sim && !sim) throw new Error(`simulation LUT ${key.sim} did not load`);
   return { ...bakeFujiLut(sim, key.curve, controls, key.recipe), id: ++ids, eightBit: false };
 }

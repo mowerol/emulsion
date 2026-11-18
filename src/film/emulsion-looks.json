@@ -732,7 +732,7 @@
     "name": "Classic Negative",
     "category": "Emulsion x Fuji",
     "bw": false,
-    "revision": 2,
+    "revision": 3,
     "settings": {
       "colorBalance": {
         "shadows_C": 0.10005,
@@ -908,7 +908,7 @@
     "name": "Classic Chrome",
     "category": "Emulsion x Fuji",
     "bw": false,
-    "revision": 2,
+    "revision": 3,
     "settings": {
       "colorBalance": {
         "shadows_weight": 0.48,
@@ -1047,7 +1047,7 @@
     "name": "Pro Neg Hi",
     "category": "Emulsion x Fuji",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "settings": {
       "colorBalance": {
         "shadows_weight": 0.48,
@@ -1141,7 +1141,12 @@
           ]
         ]
       },
-      "lut": null,
+      "lut": {
+        "kind": "pack",
+        "pack": "emulsion-luts",
+        "stock": "lut:emulsion-luts:pro-neg-hi",
+        "amount": 1
+      },
       "color": {
         "hue": [
           -17,
@@ -1315,7 +1320,7 @@
     "name": "Provia",
     "category": "Emulsion x Fuji",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "settings": {
       "colorBalance": {
         "shadows_weight": 0.48,
@@ -1409,7 +1414,12 @@
           ]
         ]
       },
-      "lut": null,
+      "lut": {
+        "kind": "pack",
+        "pack": "emulsion-luts",
+        "stock": "lut:emulsion-luts:provia",
+        "amount": 1
+      },
       "color": {
         "hue": [
           -12,
@@ -1449,7 +1459,7 @@
     "name": "Velvia",
     "category": "Emulsion x Fuji",
     "bw": false,
-    "revision": 2,
+    "revision": 3,
     "settings": {
       "colorBalance": {
         "shadows_weight": 0.48,
@@ -1588,7 +1598,7 @@
     "name": "Astia",
     "category": "Emulsion x Fuji",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "settings": {
       "colorBalance": {
         "shadows_weight": 0.48,
@@ -1682,7 +1692,12 @@
           ]
         ]
       },
-      "lut": null,
+      "lut": {
+        "kind": "pack",
+        "pack": "emulsion-luts",
+        "stock": "lut:emulsion-luts:astia",
+        "amount": 1
+      },
       "color": {
         "hue": [
           -8,
@@ -1722,7 +1737,7 @@
     "name": "Eterna",
     "category": "Emulsion x Fuji",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "settings": {
       "colorBalance": {
         "shadows_weight": 0.48,
@@ -1816,7 +1831,12 @@
           ]
         ]
       },
-      "lut": null,
+      "lut": {
+        "kind": "pack",
+        "pack": "emulsion-luts",
+        "stock": "lut:emulsion-luts:eterna",
+        "amount": 1
+      },
       "color": {
         "hue": [
           3,
