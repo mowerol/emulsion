@@ -315,7 +315,7 @@ export function simulationLook(simulation: string | null | undefined): StockId |
 export function withLook(recipe: Recipe, pack: PackId, stock: StockId): Recipe {
   const settings = lookSettings(pack, stock);
   if (!settings) return recipe;
-  // A Fuji recipe also sets the photo's Grain and Clarity sliders (film/fujirecipe.ts `fujiSliders`).
+  // A Fuji recipe also sets the photo's Grain, Clarity and Sharpness sliders (film/fujirecipe.ts `fujiSliders`).
   const sliders = settings.lut?.kind === 'fuji' ? fujiSliders(settings.lut.recipe) : {};
   return { ...recipe, ...sliders, pack, stock, lookEnabled: true, lookAmount: 100, scannerFromLook: true,
     lookSnapshot: { id: stock, name: lookName(pack, stock), kind: 'look', revision: PACK[pack].looks[stock]?.revision ?? 1, settings: structuredClone(settings) } };

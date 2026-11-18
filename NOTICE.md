@@ -271,26 +271,29 @@ Implemented from the papers, not from code.
 
 These looks are Fujifilm film simulation recipes: a recipe author's camera settings, put on one of Emulsion's Fuji
 simulations with Emulsion's recipe controls (Highlight, Shadow, Color, Color Chrome Effect, Color Chrome FX Blue,
-white balance and its shift, Clarity and Sharpness, in the camera's own units), which are matched to what a Fujifilm
-X-T30 II makes. The settings are the recipe authors' work; the looks and the controls are Emulsion's own. Each recipe is
-used with its grain off (Emulsion's grain defaults to 0; the recipe editor can add it) and without its dynamic range
-setting, noise reduction or exposure, which a RAW developer sets on the photo. Any look can be opened in the recipe
-editor and changed. Photos given the earlier versions of the first three looks (rev 1, matched LUTs in
+white balance and its shift, in the camera's own units), which are matched to what a Fujifilm
+X-T30 II makes. The settings are the recipe authors' work; the looks and the controls are Emulsion's own. Each recipe
+also carries its published Grain Effect, grain size, Clarity and Sharpness. Applying it sets the photo's detail sliders
+through `fujiSliders` in `src/film/fujirecipe.ts`: Emulsion's own interpretation of those camera settings, using its
+existing grain, local contrast and sharpening, rather than a measured reproduction of the camera's detail processing.
+Dynamic range, noise reduction and exposure are left for the RAW developer to set on the photo. Any look can be opened
+in the recipe editor and changed. Saved edits retain their own detail sliders and look snapshots; reapplying a built-in
+recipe takes its current published defaults. Photos given the earlier versions of the first three looks (rev 1, matched LUTs in
 `public/looks/emulsion-luts/`) keep those.
 
 ### Reggie's Portra, by Reggie Ballesteros
 - Source: https://fujixweekly.com/2022/06/11/fujifilm-x-trans-iv-film-simulation-recipe-reggies-portra/ (published by Ritchie Roesch, Fuji X Weekly)
-- Settings: Classic Chrome, Highlight −1, Shadow −1, Color +2, Color Chrome Effect Strong, Color Chrome FX Blue Weak, Sharpness −2, white balance Auto R+2 B−4.
+- Settings: Classic Chrome, Highlight −1, Shadow −1, Color +2, Color Chrome Effect Strong, Color Chrome FX Blue Weak, Grain Weak/Small, Clarity 0, Sharpness −2, white balance Auto R+2 B−4.
 - Look: `emulsion-fuji-reggies-portra` in `src/film/emulsion-looks.json`
 
 ### Classic Cuban Neg, by Osan B (@osanbilgi)
 - Source: https://www.fujirumors.com/this-recipe-is-taking-the-fujifilm-community-by-storm-classic-cuban-neg/
-- Settings: Classic Negative, Highlight −2, Shadow +1, Color +4, Clarity −4, Color Chrome Effect Strong, Color Chrome FX Blue Strong, white balance Auto R+4 B−5.
+- Settings: Classic Negative, Highlight −2, Shadow +1, Color +4, Grain Strong/Large, Clarity −4, Sharpness 0, Color Chrome Effect Strong, Color Chrome FX Blue Strong, white balance Auto R+4 B−5.
 - Look: `emulsion-fuji-classic-cuban-neg`
 
 ### Leica X, by carlcruzsnaps
 - Source: https://carlcruzsnaps.com/leica-x.html
-- Settings: Classic Chrome, Highlight −1, Shadow 0, Color +4, Color Chrome Effect Strong, Color Chrome FX Blue Strong, white balance Auto R+1 B−2. Made on an X-Trans V camera (X100VI).
+- Settings: Classic Chrome, Highlight −1, Shadow 0, Color +4, Grain Off, Clarity 0, Sharpness 0, Color Chrome Effect Strong, Color Chrome FX Blue Strong, white balance Auto R+1 B−2. Made on an X-Trans V camera (X100VI).
 - Look: `emulsion-fuji-leica-x`
 
 ### Fuji X Weekly recipes

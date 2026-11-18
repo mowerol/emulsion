@@ -7,9 +7,43 @@ import { isStockId, type StockId } from './stocks';
 import { cbCommit, colorBalanceRgb } from '../engine/colorbalance';
 import { lookChoices } from '../ui/lookbrowser';
 import { lutSourceOf } from '../library/userlooks';
+import { fujiOf } from './fujilooks';
 import { developUniforms, InputMode } from '../engine/params';
 
 describe('Emulsion built-in looks', () => {
+  it.each([
+    ['emulsion-fxw-kodachrome-64', { grain: 25, grainIso: 200, clarity: 30, sharpen: 25 }],
+    ['emulsion-fxw-kodak-gold-v2', { grain: 50, grainIso: 800, clarity: -20, sharpen: 15 }],
+    ['emulsion-fxw-fujicolor-c200', { grain: 25, grainIso: 800, clarity: -30, sharpen: 5 }],
+    ['emulsion-fxw-kodachrome-25', { grain: 0, grainIso: 400, clarity: 30, sharpen: 35 }],
+    ['emulsion-fuji-reggies-portra', { grain: 25, grainIso: 200, clarity: 0, sharpen: 10 }],
+    ['emulsion-fuji-classic-cuban-neg', { grain: 50, grainIso: 800, clarity: -40, sharpen: 20 }],
+    ['emulsion-fuji-leica-x', { grain: 0, grainIso: 400, clarity: 0, sharpen: 20 }],
+  ] as const)('applies the published recipe detail settings for %s', (id, expected) => {
+    const applied = withLook({ ...defaultRecipe('neutral'), grainIso: 400, sharpen: 20 }, 'emulsion-looks', id as StockId);
+    expect(applied).toMatchObject(expected);
+    expect(developUniforms(applied, { width: 64, height: 64, seed: 1, inputMode: InputMode.SceneLinear, store: 1 }).uGrain)
+      .toEqual([expected.grain / 100, expect.any(Number), expect.any(Number), 1]);
+  });
+
+  it.each([0, 17])('preserves an older recipe edit with grain %s on reload until explicitly reapplied', (grain) => {
+    const stock = 'emulsion-fxw-kodachrome-64' as StockId;
+    const applied = withLook(defaultRecipe('neutral'), 'emulsion-looks', stock);
+    const settings = structuredClone(applied.lookSnapshot!.settings);
+    if (settings.lut?.kind !== 'fuji') throw new Error('Expected a Fuji recipe');
+    settings.lut.recipe.grain = 'off';
+    const saved = { ...applied, grain, grainIso: 400, clarity: 7, sharpen: 13,
+      lookSnapshot: { ...applied.lookSnapshot!, revision: 1, settings } };
+    const restored = normalizeRecipe(JSON.parse(JSON.stringify(saved)))!;
+    expect(restored).toEqual(saved);
+    const ctx = { width: 64, height: 64, seed: 1, inputMode: InputMode.SceneLinear, store: 1 };
+    expect(developUniforms(restored, ctx)).toEqual(developUniforms(saved, ctx));
+    expect(fujiOf(restored.lookSnapshot!.settings)!.recipe.grain).toBe('off');
+    const withoutSnapshot = { ...saved, lookSnapshot: undefined };
+    expect(normalizeRecipe(JSON.parse(JSON.stringify(withoutSnapshot)))).toMatchObject({ grain, grainIso: 400, clarity: 7, sharpen: 13 });
+    expect(withLook(restored, 'emulsion-looks', stock)).toMatchObject({ grain: 25, grainIso: 200, clarity: 30, sharpen: 25 });
+  });
+
   it('stores each look in the form a saved look is read back in', () => {
     expect(new Set(BUILTIN_LOOKS.map((l) => l.id)).size).toBe(BUILTIN_LOOKS.length);
     for (const l of BUILTIN_LOOKS) {

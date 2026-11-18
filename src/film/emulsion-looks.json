@@ -3364,7 +3364,7 @@
     "name": "Reggie's Portra (Reggie B)",
     "category": "Community Recipes",
     "bw": false,
-    "revision": 2,
+    "revision": 3,
     "fuji": {
       "sim": "emulsion-fuji-classic-chrome",
       "recipe": {
@@ -3380,7 +3380,7 @@
           2,
           -4
         ],
-        "grain": "off",
+        "grain": "weak",
         "grainSize": "small",
         "clarity": 0,
         "sharpness": -2
@@ -3392,7 +3392,7 @@
     "name": "Classic Cuban Neg (Osan B)",
     "category": "Community Recipes",
     "bw": false,
-    "revision": 2,
+    "revision": 3,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -3408,8 +3408,8 @@
           4,
           -5
         ],
-        "grain": "off",
-        "grainSize": "small",
+        "grain": "strong",
+        "grainSize": "large",
         "clarity": -4,
         "sharpness": 0
       }
@@ -3448,7 +3448,7 @@
     "name": "Kodachrome 64",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-chrome",
       "recipe": {
@@ -3464,7 +3464,7 @@
           2,
           -5
         ],
-        "grain": "off",
+        "grain": "weak",
         "grainSize": "small",
         "clarity": 3,
         "sharpness": 1
@@ -3504,7 +3504,7 @@
     "name": "Kodak Portra 400",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-chrome",
       "recipe": {
@@ -3520,7 +3520,7 @@
           3,
           -5
         ],
-        "grain": "off",
+        "grain": "strong",
         "grainSize": "small",
         "clarity": 2,
         "sharpness": -2
@@ -3532,7 +3532,7 @@
     "name": "Kodak Gold v2",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-chrome",
       "recipe": {
@@ -3549,8 +3549,8 @@
           2,
           4
         ],
-        "grain": "off",
-        "grainSize": "small",
+        "grain": "strong",
+        "grainSize": "large",
         "clarity": -2,
         "sharpness": -1
       }
@@ -3561,7 +3561,7 @@
     "name": "Fujicolor C200",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -3577,8 +3577,8 @@
           0,
           -3
         ],
-        "grain": "off",
-        "grainSize": "small",
+        "grain": "weak",
+        "grainSize": "large",
         "clarity": -3,
         "sharpness": -3
       }
@@ -3589,7 +3589,7 @@
     "name": "Kodachrome 1",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-chrome",
       "recipe": {
@@ -3605,7 +3605,7 @@
           2,
           -4
         ],
-        "grain": "off",
+        "grain": "strong",
         "grainSize": "small",
         "clarity": 1,
         "sharpness": -2
@@ -3617,7 +3617,7 @@
     "name": "Kodachrome II",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-chrome",
       "recipe": {
@@ -3633,7 +3633,7 @@
           3,
           -4
         ],
-        "grain": "off",
+        "grain": "weak",
         "grainSize": "small",
         "clarity": -2,
         "sharpness": 1
@@ -3645,7 +3645,7 @@
     "name": "McCurry Kodachrome",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-chrome",
       "recipe": {
@@ -3662,7 +3662,7 @@
           -1,
           4
         ],
-        "grain": "off",
+        "grain": "weak",
         "grainSize": "small",
         "clarity": 0,
         "sharpness": -2
@@ -3674,7 +3674,7 @@
     "name": "Kodak Portra 160",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-chrome",
       "recipe": {
@@ -3691,7 +3691,7 @@
           4,
           -6
         ],
-        "grain": "off",
+        "grain": "weak",
         "grainSize": "small",
         "clarity": -3,
         "sharpness": -2
@@ -3703,7 +3703,7 @@
     "name": "Kodak Portra 400 v2",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-chrome",
       "recipe": {
@@ -3720,7 +3720,7 @@
           1,
           -6
         ],
-        "grain": "off",
+        "grain": "strong",
         "grainSize": "small",
         "clarity": -2,
         "sharpness": -2
@@ -3732,7 +3732,7 @@
     "name": "Kodak Portra 400 Warm",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-chrome",
       "recipe": {
@@ -3749,7 +3749,7 @@
           0,
           -7
         ],
-        "grain": "off",
+        "grain": "strong",
         "grainSize": "small",
         "clarity": -2,
         "sharpness": -2
@@ -3761,7 +3761,7 @@
     "name": "Kodak Portra 800",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-chrome",
       "recipe": {
@@ -3778,8 +3778,8 @@
           1,
           -5
         ],
-        "grain": "off",
-        "grainSize": "small",
+        "grain": "strong",
+        "grainSize": "large",
         "clarity": -4,
         "sharpness": -2
       }
@@ -3790,7 +3790,7 @@
     "name": "Kodak Portra 800 v2",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-chrome",
       "recipe": {
@@ -3806,7 +3806,7 @@
           3,
           -6
         ],
-        "grain": "off",
+        "grain": "strong",
         "grainSize": "small",
         "clarity": -5,
         "sharpness": -2
@@ -3818,7 +3818,7 @@
     "name": "Kodak Ultramax 400",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-chrome",
       "recipe": {
@@ -3834,8 +3834,8 @@
           1,
           -5
         ],
-        "grain": "off",
-        "grainSize": "small",
+        "grain": "strong",
+        "grainSize": "large",
         "clarity": 3,
         "sharpness": 0
       }
@@ -3846,7 +3846,7 @@
     "name": "Kodak Portra 800 v3",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-chrome",
       "recipe": {
@@ -3863,8 +3863,8 @@
           -1,
           -3
         ],
-        "grain": "off",
-        "grainSize": "small",
+        "grain": "strong",
+        "grainSize": "large",
         "clarity": -3,
         "sharpness": -2
       }
@@ -3875,7 +3875,7 @@
     "name": "Kodak Max 800",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -3892,7 +3892,7 @@
           -5,
           -2
         ],
-        "grain": "off",
+        "grain": "strong",
         "grainSize": "small",
         "clarity": -4,
         "sharpness": -2
@@ -3933,7 +3933,7 @@
     "name": "Elite Chrome 200",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-chrome",
       "recipe": {
@@ -3949,8 +3949,8 @@
           -1,
           -3
         ],
-        "grain": "off",
-        "grainSize": "small",
+        "grain": "strong",
+        "grainSize": "large",
         "clarity": -4,
         "sharpness": -1
       }
@@ -3961,7 +3961,7 @@
     "name": "Kodak High Definition Plus 200",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-chrome",
       "recipe": {
@@ -3978,7 +3978,7 @@
           -2,
           -7
         ],
-        "grain": "off",
+        "grain": "weak",
         "grainSize": "small",
         "clarity": -3,
         "sharpness": 0
@@ -3990,7 +3990,7 @@
     "name": "Old Ektachrome",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-chrome",
       "recipe": {
@@ -4006,8 +4006,8 @@
           3,
           2
         ],
-        "grain": "off",
-        "grainSize": "small",
+        "grain": "strong",
+        "grainSize": "large",
         "clarity": -4,
         "sharpness": 0
       }
@@ -4018,7 +4018,7 @@
     "name": "KodaNeg VC",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-film-provia",
       "recipe": {
@@ -4034,7 +4034,7 @@
           6,
           -6
         ],
-        "grain": "off",
+        "grain": "weak",
         "grainSize": "small",
         "clarity": -3,
         "sharpness": 0
@@ -4046,7 +4046,7 @@
     "name": "KodaNeg NC",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-film-provia",
       "recipe": {
@@ -4062,7 +4062,7 @@
           6,
           -6
         ],
-        "grain": "off",
+        "grain": "weak",
         "grainSize": "small",
         "clarity": -3,
         "sharpness": 0
@@ -4074,7 +4074,7 @@
     "name": "Kodak Brilliance",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-chrome",
       "recipe": {
@@ -4090,7 +4090,7 @@
           2,
           -1
         ],
-        "grain": "off",
+        "grain": "weak",
         "grainSize": "small",
         "clarity": 2,
         "sharpness": -1
@@ -4102,7 +4102,7 @@
     "name": "Classic Color",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-chrome",
       "recipe": {
@@ -4119,7 +4119,7 @@
           0,
           -6
         ],
-        "grain": "off",
+        "grain": "strong",
         "grainSize": "small",
         "clarity": -2,
         "sharpness": -2
@@ -4131,7 +4131,7 @@
     "name": "Pure Negative",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-film-pro-neg-std",
       "recipe": {
@@ -4147,7 +4147,7 @@
           1,
           -2
         ],
-        "grain": "off",
+        "grain": "weak",
         "grainSize": "small",
         "clarity": -2,
         "sharpness": 1
@@ -4159,7 +4159,7 @@
     "name": "Chrome Slide",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -4175,7 +4175,7 @@
           -3,
           1
         ],
-        "grain": "off",
+        "grain": "weak",
         "grainSize": "small",
         "clarity": 3,
         "sharpness": 0
@@ -4187,7 +4187,7 @@
     "name": "Positive Film",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -4204,8 +4204,8 @@
           7,
           -9
         ],
-        "grain": "off",
-        "grainSize": "small",
+        "grain": "weak",
+        "grainSize": "large",
         "clarity": -4,
         "sharpness": -2
       }
@@ -4216,7 +4216,7 @@
     "name": "September Summer",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -4233,7 +4233,7 @@
           3,
           -7
         ],
-        "grain": "off",
+        "grain": "weak",
         "grainSize": "small",
         "clarity": -4,
         "sharpness": 0
@@ -4245,7 +4245,7 @@
     "name": "Pacific Blues",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -4262,8 +4262,8 @@
           1,
           -3
         ],
-        "grain": "off",
-        "grainSize": "small",
+        "grain": "strong",
+        "grainSize": "large",
         "clarity": -3,
         "sharpness": -2
       }
@@ -4274,7 +4274,7 @@
     "name": "Nostalgia Color",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -4291,8 +4291,8 @@
           -4,
           -1
         ],
-        "grain": "off",
-        "grainSize": "small",
+        "grain": "strong",
+        "grainSize": "large",
         "clarity": -4,
         "sharpness": -2
       }
@@ -4303,7 +4303,7 @@
     "name": "Nostalgic Print",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-film-pro-neg-std",
       "recipe": {
@@ -4320,7 +4320,7 @@
           -3,
           -4
         ],
-        "grain": "off",
+        "grain": "strong",
         "grainSize": "small",
         "clarity": -3,
         "sharpness": -2
@@ -4332,7 +4332,7 @@
     "name": "Nostalgic Negative",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-chrome",
       "recipe": {
@@ -4348,8 +4348,8 @@
           3,
           -5
         ],
-        "grain": "off",
-        "grainSize": "small",
+        "grain": "weak",
+        "grainSize": "large",
         "clarity": -5,
         "sharpness": 0
       }
@@ -4360,7 +4360,7 @@
     "name": "Vintage Negative",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -4377,8 +4377,8 @@
           -6,
           -5
         ],
-        "grain": "off",
-        "grainSize": "small",
+        "grain": "strong",
+        "grainSize": "large",
         "clarity": -5,
         "sharpness": -4
       }
@@ -4389,7 +4389,7 @@
     "name": "Vintage Color",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-film-eterna",
       "recipe": {
@@ -4406,8 +4406,8 @@
           -1,
           -4
         ],
-        "grain": "off",
-        "grainSize": "small",
+        "grain": "strong",
+        "grainSize": "large",
         "clarity": -2,
         "sharpness": -2
       }
@@ -4418,7 +4418,7 @@
     "name": "Vintage Color v2",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -4435,8 +4435,8 @@
           -1,
           -4
         ],
-        "grain": "off",
-        "grainSize": "small",
+        "grain": "strong",
+        "grainSize": "large",
         "clarity": -3,
         "sharpness": -2
       }
@@ -4447,7 +4447,7 @@
     "name": "Vintage Analog",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -4464,7 +4464,7 @@
           -4,
           4
         ],
-        "grain": "off",
+        "grain": "strong",
         "grainSize": "small",
         "clarity": -2,
         "sharpness": -1
@@ -4476,7 +4476,7 @@
     "name": "Vintage Print",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -4492,8 +4492,8 @@
           3,
           -6
         ],
-        "grain": "off",
-        "grainSize": "small",
+        "grain": "strong",
+        "grainSize": "large",
         "clarity": -4,
         "sharpness": -4
       }
@@ -4504,7 +4504,7 @@
     "name": "Vintage Vibes",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -4521,7 +4521,7 @@
           1,
           -6
         ],
-        "grain": "off",
+        "grain": "strong",
         "grainSize": "small",
         "clarity": -2,
         "sharpness": -2
@@ -4533,7 +4533,7 @@
     "name": "Timeless Negative",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-film-eterna",
       "recipe": {
@@ -4549,7 +4549,7 @@
           4,
           -5
         ],
-        "grain": "off",
+        "grain": "weak",
         "grainSize": "small",
         "clarity": -2,
         "sharpness": 0
@@ -4561,7 +4561,7 @@
     "name": "Eterna Summer",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-film-eterna",
       "recipe": {
@@ -4577,7 +4577,7 @@
           3,
           -7
         ],
-        "grain": "off",
+        "grain": "strong",
         "grainSize": "small",
         "clarity": -3,
         "sharpness": -1
@@ -4589,7 +4589,7 @@
     "name": "Vintage Eterna",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-film-eterna",
       "recipe": {
@@ -4605,8 +4605,8 @@
           2,
           -5
         ],
-        "grain": "off",
-        "grainSize": "small",
+        "grain": "strong",
+        "grainSize": "large",
         "clarity": -2,
         "sharpness": -1
       }
@@ -4617,7 +4617,7 @@
     "name": "Arizona Analog",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-film-eterna",
       "recipe": {
@@ -4633,7 +4633,7 @@
           6,
           -3
         ],
-        "grain": "off",
+        "grain": "strong",
         "grainSize": "small",
         "clarity": -3,
         "sharpness": -2
@@ -4645,7 +4645,7 @@
     "name": "1981 Kodak",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-film-eterna",
       "recipe": {
@@ -4661,7 +4661,7 @@
           7,
           -7
         ],
-        "grain": "off",
+        "grain": "strong",
         "grainSize": "small",
         "clarity": -4,
         "sharpness": -2
@@ -4673,7 +4673,7 @@
     "name": "Fujicolor Reala 100",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -4689,7 +4689,7 @@
           0,
           0
         ],
-        "grain": "off",
+        "grain": "weak",
         "grainSize": "small",
         "clarity": -3,
         "sharpness": -2
@@ -4701,7 +4701,7 @@
     "name": "Fujicolor Superia 100",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -4717,7 +4717,7 @@
           0,
           -1
         ],
-        "grain": "off",
+        "grain": "weak",
         "grainSize": "small",
         "clarity": -2,
         "sharpness": -2
@@ -4729,7 +4729,7 @@
     "name": "Superia Xtra 400",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -4745,7 +4745,7 @@
           3,
           -5
         ],
-        "grain": "off",
+        "grain": "strong",
         "grainSize": "small",
         "clarity": -2,
         "sharpness": -1
@@ -4757,7 +4757,7 @@
     "name": "Superia Premium 400",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -4774,7 +4774,7 @@
           4,
           -3
         ],
-        "grain": "off",
+        "grain": "strong",
         "grainSize": "small",
         "clarity": -2,
         "sharpness": -1
@@ -4786,7 +4786,7 @@
     "name": "Fujicolor Superia 800",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -4802,8 +4802,8 @@
           -1,
           -3
         ],
-        "grain": "off",
-        "grainSize": "small",
+        "grain": "strong",
+        "grainSize": "large",
         "clarity": -4,
         "sharpness": -1
       }
@@ -4814,7 +4814,7 @@
     "name": "Fujicolor Superia 1600",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -4830,8 +4830,8 @@
           3,
           1
         ],
-        "grain": "off",
-        "grainSize": "small",
+        "grain": "strong",
+        "grainSize": "large",
         "clarity": -4,
         "sharpness": -1
       }
@@ -4842,7 +4842,7 @@
     "name": "Fujicolor Natura 1600",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -4859,8 +4859,8 @@
           -1,
           -2
         ],
-        "grain": "off",
-        "grainSize": "small",
+        "grain": "strong",
+        "grainSize": "large",
         "clarity": -4,
         "sharpness": -2
       }
@@ -4871,7 +4871,7 @@
     "name": "Superia Summer",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -4888,7 +4888,7 @@
           3,
           -6
         ],
-        "grain": "off",
+        "grain": "weak",
         "grainSize": "small",
         "clarity": -4,
         "sharpness": -1
@@ -4900,7 +4900,7 @@
     "name": "Fujicolor NPS 160 Pulled",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -4916,7 +4916,7 @@
           -1,
           -4
         ],
-        "grain": "off",
+        "grain": "weak",
         "grainSize": "small",
         "clarity": -2,
         "sharpness": 1
@@ -4928,7 +4928,7 @@
     "name": "Fujicolor 100 Gold",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -4944,7 +4944,7 @@
           4,
           -5
         ],
-        "grain": "off",
+        "grain": "strong",
         "grainSize": "small",
         "clarity": -2,
         "sharpness": -2
@@ -4956,7 +4956,7 @@
     "name": "Magenta Negative",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -4973,8 +4973,8 @@
           4,
           2
         ],
-        "grain": "off",
-        "grainSize": "small",
+        "grain": "strong",
+        "grainSize": "large",
         "clarity": -4,
         "sharpness": -2
       }
@@ -4985,7 +4985,7 @@
     "name": "Fujicolor Pro 400H",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -5002,7 +5002,7 @@
           0,
           -4
         ],
-        "grain": "off",
+        "grain": "strong",
         "grainSize": "small",
         "clarity": -4,
         "sharpness": -2
@@ -5014,7 +5014,7 @@
     "name": "Fujicolor NPH",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-film-provia",
       "recipe": {
@@ -5031,8 +5031,8 @@
           -3,
           -4
         ],
-        "grain": "off",
-        "grainSize": "small",
+        "grain": "weak",
+        "grainSize": "large",
         "clarity": -3,
         "sharpness": 0
       }
@@ -5043,7 +5043,7 @@
     "name": "Fujicolor Negative",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -5059,7 +5059,7 @@
           -1,
           -6
         ],
-        "grain": "off",
+        "grain": "strong",
         "grainSize": "small",
         "clarity": -3,
         "sharpness": -2
@@ -5071,7 +5071,7 @@
     "name": "Fujicolor Analog",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -5088,7 +5088,7 @@
           -5,
           5
         ],
-        "grain": "off",
+        "grain": "weak",
         "grainSize": "small",
         "clarity": -3,
         "sharpness": 0
@@ -5100,7 +5100,7 @@
     "name": "Standard Provia",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-film-provia",
       "recipe": {
@@ -5116,7 +5116,7 @@
           -3,
           0
         ],
-        "grain": "off",
+        "grain": "weak",
         "grainSize": "small",
         "clarity": -3,
         "sharpness": 0
@@ -5128,7 +5128,7 @@
     "name": "Fujichrome Provia 100F",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-chrome",
       "recipe": {
@@ -5144,7 +5144,7 @@
           -2,
           5
         ],
-        "grain": "off",
+        "grain": "weak",
         "grainSize": "small",
         "clarity": -3,
         "sharpness": -1
@@ -5156,7 +5156,7 @@
     "name": "Color Negative 400",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -5172,8 +5172,8 @@
           -2,
           -4
         ],
-        "grain": "off",
-        "grainSize": "small",
+        "grain": "weak",
+        "grainSize": "large",
         "clarity": -5,
         "sharpness": 0
       }
@@ -5184,7 +5184,7 @@
     "name": "PRO Negative 160C",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-film-pro-neg-hi",
       "recipe": {
@@ -5200,7 +5200,7 @@
           1,
           -3
         ],
-        "grain": "off",
+        "grain": "weak",
         "grainSize": "small",
         "clarity": -2,
         "sharpness": -1
@@ -5212,7 +5212,7 @@
     "name": "AgfaChrome RS 100",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -5228,7 +5228,7 @@
           -3,
           5
         ],
-        "grain": "off",
+        "grain": "strong",
         "grainSize": "small",
         "clarity": -3,
         "sharpness": -2
@@ -5240,7 +5240,7 @@
     "name": "Agfa Ultra 100",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -5256,8 +5256,8 @@
           -2,
           3
         ],
-        "grain": "off",
-        "grainSize": "small",
+        "grain": "weak",
+        "grainSize": "large",
         "clarity": -3,
         "sharpness": -1
       }
@@ -5268,7 +5268,7 @@
     "name": "Agfa Vista 100",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -5285,7 +5285,7 @@
           -4,
           -5
         ],
-        "grain": "off",
+        "grain": "strong",
         "grainSize": "small",
         "clarity": 3,
         "sharpness": 0
@@ -5297,7 +5297,7 @@
     "name": "Amanda's Classic Negative",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -5313,7 +5313,7 @@
           0,
           0
         ],
-        "grain": "off",
+        "grain": "weak",
         "grainSize": "small",
         "clarity": 0,
         "sharpness": 1
@@ -5325,7 +5325,7 @@
     "name": "SantaColor",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-film-eterna",
       "recipe": {
@@ -5342,7 +5342,7 @@
           5,
           -3
         ],
-        "grain": "off",
+        "grain": "weak",
         "grainSize": "small",
         "clarity": -3,
         "sharpness": -2
@@ -5354,7 +5354,7 @@
     "name": "Creamy Color",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -5371,8 +5371,8 @@
           4,
           6
         ],
-        "grain": "off",
-        "grainSize": "small",
+        "grain": "strong",
+        "grainSize": "large",
         "clarity": -5,
         "sharpness": -4
       }
@@ -5383,7 +5383,7 @@
     "name": "Analog Gold",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-film-bleach",
       "recipe": {
@@ -5399,7 +5399,7 @@
           4,
           -9
         ],
-        "grain": "off",
+        "grain": "strong",
         "grainSize": "small",
         "clarity": -4,
         "sharpness": -2
@@ -5411,7 +5411,7 @@
     "name": "GAF 500",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-film-eterna",
       "recipe": {
@@ -5428,8 +5428,8 @@
           9,
           -9
         ],
-        "grain": "off",
-        "grainSize": "small",
+        "grain": "strong",
+        "grainSize": "large",
         "clarity": -2,
         "sharpness": -3
       }
@@ -5440,7 +5440,7 @@
     "name": "Low Key",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -5456,7 +5456,7 @@
           -2,
           -4
         ],
-        "grain": "off",
+        "grain": "weak",
         "grainSize": "small",
         "clarity": -2,
         "sharpness": -1
@@ -5468,7 +5468,7 @@
     "name": "The Rockwell",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-film-velvia",
       "recipe": {
@@ -5484,7 +5484,7 @@
           1,
           -1
         ],
-        "grain": "off",
+        "grain": "weak",
         "grainSize": "small",
         "clarity": 5,
         "sharpness": 4
@@ -5496,7 +5496,7 @@
     "name": "Vibrant Velvia",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-film-velvia",
       "recipe": {
@@ -5512,7 +5512,7 @@
           -1,
           1
         ],
-        "grain": "off",
+        "grain": "weak",
         "grainSize": "small",
         "clarity": 4,
         "sharpness": 0
@@ -5524,7 +5524,7 @@
     "name": "Bleach Bypass",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -5540,8 +5540,8 @@
           -1,
           1
         ],
-        "grain": "off",
-        "grainSize": "small",
+        "grain": "strong",
+        "grainSize": "large",
         "clarity": 3,
         "sharpness": -1
       }
@@ -5552,7 +5552,7 @@
     "name": "Eterna Bleach Bypass recipe",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-film-bleach",
       "recipe": {
@@ -5568,7 +5568,7 @@
           0,
           0
         ],
-        "grain": "off",
+        "grain": "weak",
         "grainSize": "small",
         "clarity": 2,
         "sharpness": 0
@@ -5580,7 +5580,7 @@
     "name": "Muted Color",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-film-bleach",
       "recipe": {
@@ -5596,7 +5596,7 @@
           3,
           -8
         ],
-        "grain": "off",
+        "grain": "weak",
         "grainSize": "small",
         "clarity": -2,
         "sharpness": 0
@@ -5608,7 +5608,7 @@
     "name": "Ferrania Solaris FG 400",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-film-bleach",
       "recipe": {
@@ -5625,7 +5625,7 @@
           1,
           -6
         ],
-        "grain": "off",
+        "grain": "strong",
         "grainSize": "small",
         "clarity": -2,
         "sharpness": -2
@@ -5637,7 +5637,7 @@
     "name": "Silver Summer",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-film-bleach",
       "recipe": {
@@ -5654,7 +5654,7 @@
           -3,
           -6
         ],
-        "grain": "off",
+        "grain": "strong",
         "grainSize": "small",
         "clarity": -3,
         "sharpness": -2
@@ -5666,7 +5666,7 @@
     "name": "Kodachrome Blue",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-film-bleach",
       "recipe": {
@@ -5683,7 +5683,7 @@
           -6,
           9
         ],
-        "grain": "off",
+        "grain": "weak",
         "grainSize": "small",
         "clarity": 3,
         "sharpness": 1
@@ -5695,7 +5695,7 @@
     "name": "Expired ECN-2 100T",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-film-bleach",
       "recipe": {
@@ -5712,8 +5712,8 @@
           -9,
           -6
         ],
-        "grain": "off",
-        "grainSize": "small",
+        "grain": "strong",
+        "grainSize": "large",
         "clarity": -4,
         "sharpness": -3
       }
@@ -5724,7 +5724,7 @@
     "name": "Faded Negative",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-negative",
       "recipe": {
@@ -5740,8 +5740,8 @@
           4,
           -6
         ],
-        "grain": "off",
-        "grainSize": "small",
+        "grain": "weak",
+        "grainSize": "large",
         "clarity": 0,
         "sharpness": -2
       }
@@ -5752,7 +5752,7 @@
     "name": "CineStill 50D",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-film-astia",
       "recipe": {
@@ -5769,7 +5769,7 @@
           -5,
           -3
         ],
-        "grain": "off",
+        "grain": "weak",
         "grainSize": "small",
         "clarity": -4,
         "sharpness": 0
@@ -5809,7 +5809,7 @@
     "name": "Bright Kodak",
     "category": "Fuji X Weekly",
     "bw": false,
-    "revision": 1,
+    "revision": 2,
     "fuji": {
       "sim": "emulsion-fuji-classic-chrome",
       "recipe": {
@@ -5825,8 +5825,8 @@
           3,
           -7
         ],
-        "grain": "off",
-        "grainSize": "small",
+        "grain": "strong",
+        "grainSize": "large",
         "clarity": -3,
         "sharpness": -2
       }

@@ -37,11 +37,10 @@ describe('bundled look catalogues', () => {
       const f = fujiOf(look.settings);
       expect(f, look.name).not.toBeNull();
       expect(sims.has(f!.sim), look.name).toBe(true);
-      // The simulation's own settings, with the recipe on top; grain is left to the photo.
+      // The simulation's own settings, with the recipe on top; detail settings go on the photo's sliders when applied.
       const { lut: _, ...own } = look.settings;
       const { lut: __, ...simOwn } = BUILTIN_LOOKS.find(l => l.id === f!.sim)!.settings;
       expect(own, look.name).toEqual(simOwn);
-      expect(f!.recipe.grain, look.name).toBe('off');
     }
     // The earlier fitted versions stay in the hidden pack, for photos that were given them.
     expect(PACK['emulsion-luts'].hidden).toBe(true);
