@@ -1,7 +1,7 @@
 const points = [
   {
-    title: 'The look and the editor, in one place',
-    body: 'Film looks belong at the start of an edit. Stop there, or keep going with masks, retouching and full RAW controls.',
+    title: 'Film recipes, full RAW editing',
+    body: 'Apply a Fujifilm recipe to your RAW, then keep shaping exposure, colour and detail. Start with community recipes or build and save your own.',
   },
   {
     title: 'Proven algorithms',

@@ -28,8 +28,8 @@ export default function Looks() {
           </h2>
         </div>
         <p data-reveal className="section-aside">
-          Every RAW opens on Emulsion Standard, a clean, neutral rendering, and a Fujifilm RAW on its film simulation.
-          Choose a look in one click, set how much of it you want, and keep editing on top.
+          Start with your RAW, add a film look or Fujifilm recipe, and keep editing. Choose a look in one click,
+          set how much of it you want, and refine exposure, colour and detail on top.
         </p>
       </div>
 
@@ -109,12 +109,16 @@ export default function Looks() {
             from the comparisons page's images (made with the private look tools at tools/lookfit). */}
         <article data-reveal className="card feature fuji-card">
           <div className="feature-text">
-            <h3 className="h3 h3-sm">Emulsion x Fuji</h3>
+            <h3 className="h3 h3-sm">Fujifilm recipes, developed from RAW</h3>
             <p className="body body-sm" style={{ maxWidth: '46ch' }}>
-              Eighteen looks fitted to Fujifilm’s own JPEGs, from Classic Chrome to Acros. A Fujifilm RAW opens on the
-              simulation it was shot with, framed the way the camera framed it.
+              Apply a Fuji X Weekly or community recipe to your RAW, then keep editing exposure, colour and detail.
+              Recreate a favourite recipe or build your own in the Fuji recipe editor, and save it to your library.
             </p>
-            <a className="look-more" href={`${import.meta.env.BASE_URL}comparisons/`}>See them beside the camera’s JPEGs</a>
+            <p className="body body-sm" style={{ maxWidth: '46ch' }}>
+              Film simulations from Classic Chrome to Acros are included too. A Fujifilm RAW opens on the simulation
+              it was shot with, framed the way the camera framed it.
+            </p>
+            <a className="look-more" href={`${import.meta.env.BASE_URL}comparisons/`}>Compare film simulations and recipes</a>
           </div>
           <div className="feature-media" style={{ aspectRatio: '3 / 2' }}>
             <Compare

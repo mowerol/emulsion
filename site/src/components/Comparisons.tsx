@@ -8,7 +8,7 @@ import { asset, site } from '../site.ts';
 
 /** `bw`: a black and white simulation, listed after the colour ones under their own heading. `recipe`: a community
  * recipe (its author and where its settings are published), listed last. */
-type Recipe = { author: string; url: string; base: string };
+type Recipe = { author: string; url: string; base: string; note?: string };
 type Simulation = { id: string; file: string; name: string; bw?: true; recipe?: Recipe };
 const SIMULATIONS: Simulation[] = [
   { id: 'classic-negative', file: 'classicneg', name: 'Classic Negative' },
@@ -31,6 +31,16 @@ const SIMULATIONS: Simulation[] = [
     recipe: { author: 'Osan B', base: 'Classic Negative', url: 'https://www.fujirumors.com/this-recipe-is-taking-the-fujifilm-community-by-storm-classic-cuban-neg/' } },
   { id: 'leica-x', file: 'leicax', name: 'Leica X',
     recipe: { author: 'carlcruzsnaps', base: 'Classic Chrome', url: 'https://carlcruzsnaps.com/leica-x.html' } },
+  { id: 'kodak-portra-400-v2', file: 'portra400v2', name: 'Kodak Portra 400 v2',
+    recipe: { author: 'Ritchie Roesch / Fuji X Weekly', base: 'Classic Chrome', url: 'https://fujixweekly.com/2020/12/30/fujifilm-x100v-film-simulation-recipe-kodak-portra-400-v2/' } },
+  { id: 'kodaneg-vc', file: 'kodanegvc', name: 'KodaNeg VC',
+    recipe: { author: 'Ritchie Roesch / Fuji X Weekly', base: 'Provia', note: 'The version without a diffusion filter.', url: 'https://fujixweekly.com/2022/10/13/four-fujifilm-x-trans-iv-film-simulation-recipes-kodaneg-vc-nc/' } },
+  { id: 'timeless-negative', file: 'timelessnegative', name: 'Timeless Negative',
+    recipe: { author: 'Ritchie Roesch / Fuji X Weekly', base: 'Eterna', url: 'https://fujixweekly.com/2022/12/15/fujifilm-x100v-x-trans-iv-film-simulation-recipe-timeless-negative/' } },
+  { id: 'pro-negative-160c', file: 'pronegative160c', name: 'PRO Negative 160C',
+    recipe: { author: 'Ritchie Roesch / Fuji X Weekly', base: 'Pro Neg. Hi', url: 'https://fujixweekly.com/2024/03/28/pro-negative-160c-film-simulation-recipe-for-fujifilm-x-trans-iv-x-trans-v/' } },
+  { id: 'cinestill-50d', file: 'cinestill50d', name: 'CineStill 50D',
+    recipe: { author: 'Ritchie Roesch / Fuji X Weekly', base: 'Astia', url: 'https://fujixweekly.com/2022/04/20/fujifilm-x-trans-iv-film-simulation-recipe-cinestill-50d/' } },
 ];
 const group = (s?: Simulation) => (s?.recipe ? 'recipe' : s?.bw ? 'bw' : 'colour');
 const GROUPS: { id: 'colour' | 'bw' | 'recipe'; jump: string; title?: string }[] = [
@@ -48,17 +58,24 @@ const PHOTOS: Photo[] = [
   { id: 'DSCF2168', aspect: '3 / 2', alt: 'A small teal car parked between houses on a Japanese street.' },
 ];
 
+// The same four scenes across all eight recipes, to compare their rendering as well as each pair.
+const RECIPE_PHOTOS: Photo[] = [
+  { id: '1OKK4879', aspect: '3 / 2', alt: 'A person walking a dog along a curving park path, with bare trees and a bridge under a blue sky.' },
+  { id: '1OKK5252', aspect: '3 / 2', alt: 'Sunlit stone and brick buildings seen from below against a blue sky.' },
+  { id: '1OKK6025', aspect: '3 / 2', alt: 'Weathered gravestones in a sunlit green lawn.' },
+  { id: '1OKK6381', aspect: '3 / 2', alt: 'Sunlight falling across a green woodland floor between dark tree trunks.' },
+];
+
 /** Pairs not made yet (the camera's JPEG wasn't exported), left out of that simulation's row. */
 const MISSING: Record<string, string[]> = { '1OKK3518': ['astia'] };
 
 const SOURCE = [
   'The same RAW on both sides, shot on a Fujifilm X-T30 II at DR100.',
-  'Fujifilm JPEG: made by the camera itself through FUJIFILM X RAW STUDIO, with each simulation at its base settings (tones, Color, Clarity and Color Chrome off, white balance as shot). The recipes, last, use their own settings.',
-  'Emulsion: the matching look at its defaults, with no adjustments to the photo.',
-  'Each look was made and rigorously tested against about 70 RAW and JPEG pairs, these photos among them.',
+  'Fujifilm JPEG: made by the camera itself through FUJIFILM X RAW STUDIO, with each simulation at its base settings (tones, Color, Clarity and Color Chrome off, white balance as shot). Recipe settings are described below.',
+  'Emulsion: the matching film simulation or recipe, with no extra exposure or colour adjustments.',
 ];
 
-const RECIPE_SOURCE = 'Popular film simulation recipes from the Fujifilm community. Here the camera’s JPEG uses each recipe’s published settings, at DR100 and with grain off, and Emulsion’s look includes the recipe’s white balance shift.';
+const RECIPE_SOURCE = 'Eight recipes from the Fujifilm community, including five from Fuji X Weekly, shown on the same four photos. Both sides use DR100, with grain off and Clarity at 0, to compare colour and tone. The recipe’s white balance, shift and remaining tone and colour settings are applied on both sides; these examples use no exposure compensation.';
 
 export default function Comparisons() {
   const home = import.meta.env.BASE_URL;
@@ -82,7 +99,7 @@ export default function Comparisons() {
           <p className="eyebrow">Film simulations</p>
           <h1 className="cmp-title">The camera’s JPEG and Emulsion, side by side</h1>
           <p className="lede">
-            Emulsion’s film simulation looks, beside the JPEGs a Fujifilm camera makes from the same RAW files. Drag across a photo to
+            Emulsion’s film simulations and selected community recipes, beside the JPEGs a Fujifilm camera makes from the same RAW files. Drag across a photo to
             compare: the camera’s JPEG is left of the divider, Emulsion right.
           </p>
           <ul className="cmp-source">
@@ -100,9 +117,9 @@ export default function Comparisons() {
             {group(s) !== 'colour' && group(SIMULATIONS[i - 1]) !== group(s) && <p className="eyebrow cmp-group">{GROUPS.find((g) => g.id === group(s))!.title}</p>}
             {s.recipe && group(SIMULATIONS[i - 1]) !== 'recipe' && <p className="cmp-recipe-note">{RECIPE_SOURCE}</p>}
             <h2 className="cmp-sim-title">{s.name}</h2>
-            {s.recipe && <p className="cmp-recipe-by">By {s.recipe.author}, on {s.recipe.base}. <a href={s.recipe.url}>The recipe’s settings</a></p>}
+            {s.recipe && <p className="cmp-recipe-by">By {s.recipe.author}, on {s.recipe.base}. {s.recipe.note && `${s.recipe.note} `}<a href={s.recipe.url}>The recipe’s settings</a></p>}
             <div className="cmp-grid">
-              {PHOTOS.filter((p) => !MISSING[p.id]?.includes(s.file)).map((p) => (
+              {(s.recipe ? RECIPE_PHOTOS : PHOTOS).filter((p) => !MISSING[p.id]?.includes(s.file)).map((p) => (
                 <figure key={p.id} className={`cmp-item${p.layout ? ` cmp-${p.layout}` : ''}`}>
                   <div className="cmp-stage" style={{ aspectRatio: p.aspect }}>
                     <Compare
