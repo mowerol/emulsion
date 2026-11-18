@@ -43,8 +43,9 @@ hand before the release PR merges, and nothing is tagged or announced before it 
 10. Tag the merge commit on `main` and push the tag: `git tag -a v<version> -m "Emulsion <version>"
     <merge commit> && git push origin v<version>`. `.github/workflows/release.yml` builds the
     same bundle on GitHub and attaches it to a **draft** release.
-11. Check the draft: the `.dmg`, `.sha256`, `INSTALL.txt`, `.app.tar.gz`, `.sig`, `latest.json`
-    and source maps are attached, and the text is the release notes.
+11. Check the draft: the `.dmg`, `.sha256`, `.app.tar.gz`, `.sig`, `latest.json`
+    and source maps are attached. The release text includes the installation instructions from
+    `INSTALL.txt` followed by the release notes.
 12. Check the draft's own `.dmg`, the exact file testers get (the local build in step 6 is built
     from the same commit, but on another machine): download it from the draft, check it against
     its `.sha256` (`shasum -a 256 -c`), install it from the `.dmg` into Applications, open it, see
@@ -61,8 +62,8 @@ hand before the release PR merges, and nothing is tagged or announced before it 
 
 ## Cutting a build
 
-1. Set the version in all three places: `package.json`, `src-tauri/tauri.conf.json`,
-   `src-tauri/Cargo.toml` (the script refuses if they differ).
+1. Set the version in all five files listed in the release checklist, including both lockfiles
+   (the script refuses if the app versions differ).
 2. Write `docs/release-notes/<version>.md`: what testers see in the update dialog and on the
    release page (the script refuses a clean build without it).
 3. Commit. The script refuses uncommitted changes (`--dirty` for trial builds only).
@@ -140,6 +141,7 @@ Only packs with an explicit licence ship (`public/looks`):
 | `gmic-film` (Pat David / RawTherapee film simulation: B&W and negatives, 121) | CC BY-SA 4.0 | `public/looks/gmic-film/SOURCES.md` |
 | `t3mujinpack` (João Almeida, 8) | MIT | `public/looks/t3mujinpack/LICENSE.txt` |
 | `emulsion-luts` (Emulsion's own, used by some of its looks; hidden) | GPL-3.0-or-later | `public/looks/emulsion-luts/LICENSE.txt` |
+| `fuji-controls` (Emulsion's own Fuji recipe controls; hidden) | GPL-3.0-or-later | `public/looks/fuji-controls/LICENSE.txt` |
 
 PictureFX and Pat David's slide and instant sets were dropped before the 0.1.0 beta; the
 CineStill/SX-70 packs were never bundled. `local-looks/` (Fuji X-Trans III, Fuji GFX tests, spektrafilm) is git-ignored and
