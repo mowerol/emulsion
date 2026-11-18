@@ -33,14 +33,8 @@ const SIMULATIONS: Simulation[] = [
     recipe: { author: 'carlcruzsnaps', base: 'Classic Chrome', url: 'https://carlcruzsnaps.com/leica-x.html' } },
   { id: 'kodak-portra-400-v2', file: 'portra400v2', name: 'Kodak Portra 400 v2',
     recipe: { author: 'Ritchie Roesch / Fuji X Weekly', base: 'Classic Chrome', url: 'https://fujixweekly.com/2020/12/30/fujifilm-x100v-film-simulation-recipe-kodak-portra-400-v2/' } },
-  { id: 'kodaneg-vc', file: 'kodanegvc', name: 'KodaNeg VC',
-    recipe: { author: 'Ritchie Roesch / Fuji X Weekly', base: 'Provia', note: 'The version without a diffusion filter.', url: 'https://fujixweekly.com/2022/10/13/four-fujifilm-x-trans-iv-film-simulation-recipes-kodaneg-vc-nc/' } },
-  { id: 'timeless-negative', file: 'timelessnegative', name: 'Timeless Negative',
-    recipe: { author: 'Ritchie Roesch / Fuji X Weekly', base: 'Eterna', url: 'https://fujixweekly.com/2022/12/15/fujifilm-x100v-x-trans-iv-film-simulation-recipe-timeless-negative/' } },
-  { id: 'pro-negative-160c', file: 'pronegative160c', name: 'PRO Negative 160C',
-    recipe: { author: 'Ritchie Roesch / Fuji X Weekly', base: 'Pro Neg. Hi', url: 'https://fujixweekly.com/2024/03/28/pro-negative-160c-film-simulation-recipe-for-fujifilm-x-trans-iv-x-trans-v/' } },
-  { id: 'cinestill-50d', file: 'cinestill50d', name: 'CineStill 50D',
-    recipe: { author: 'Ritchie Roesch / Fuji X Weekly', base: 'Astia', url: 'https://fujixweekly.com/2022/04/20/fujifilm-x-trans-iv-film-simulation-recipe-cinestill-50d/' } },
+  { id: 'kodak-gold-200', file: 'gold200', name: 'Kodak Gold 200',
+    recipe: { author: 'Ritchie Roesch / Fuji X Weekly', base: 'Classic Chrome', note: 'A custom recipe using the published X-Trans V settings.', url: 'https://fujixweekly.com/2023/10/24/kodak-gold-200-fujifilm-x-t5-x-trans-v-film-simulation-recipe/' } },
 ];
 const group = (s?: Simulation) => (s?.recipe ? 'recipe' : s?.bw ? 'bw' : 'colour');
 const GROUPS: { id: 'colour' | 'bw' | 'recipe'; jump: string; title?: string }[] = [
@@ -58,7 +52,7 @@ const PHOTOS: Photo[] = [
   { id: 'DSCF2168', aspect: '3 / 2', alt: 'A small teal car parked between houses on a Japanese street.' },
 ];
 
-// The same four scenes across all eight recipes, to compare their rendering as well as each pair.
+// The same four scenes across all five recipes, to compare their rendering as well as each pair.
 const RECIPE_PHOTOS: Photo[] = [
   { id: '1OKK4879', aspect: '3 / 2', alt: 'A person walking a dog along a curving park path, with bare trees and a bridge under a blue sky.' },
   { id: '1OKK5252', aspect: '3 / 2', alt: 'Sunlit stone and brick buildings seen from below against a blue sky.' },
@@ -75,7 +69,7 @@ const SOURCE = [
   'Emulsion: the matching film simulation or recipe, with no extra exposure or colour adjustments.',
 ];
 
-const RECIPE_SOURCE = 'Eight recipes from the Fujifilm community, including five from Fuji X Weekly, shown on the same four photos. Both sides use DR100, with grain off and Clarity at 0, to compare colour and tone. The recipe’s white balance, shift and remaining tone and colour settings are applied on both sides; these examples use no exposure compensation.';
+const RECIPE_SOURCE = 'Five recipes from the Fujifilm community, shown on the same four photos. Both sides use DR100, with grain off and Clarity at 0, to compare colour and tone. The recipe’s white balance, shift and remaining tone and colour settings are applied on both sides; these examples use no exposure compensation.';
 
 export default function Comparisons() {
   const home = import.meta.env.BASE_URL;
