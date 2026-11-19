@@ -17,6 +17,7 @@ import { stillEngine, StillsLost, type StillClient } from './stillclient';
 import type { RemoveContext } from '../engine/removequeue';
 import { prepareRemovals } from './removal';
 import { reportError } from '../backend/trail';
+import { blendWatermark, prepareWatermark, type WatermarkSettings } from './watermark';
 
 export interface ExportOptions {
   /** The folder every frame goes to, or null for each photo's own folder. */
@@ -31,6 +32,7 @@ export interface ExportOptions {
   naming?: ExportNaming;
   /** What metadata to embed (Lightroom's Metadata section); absent embeds none. */
   metadata?: ExportMetadataOptions;
+  watermark?: WatermarkSettings;
 }
 
 export interface ExportMetadataOptions {
@@ -134,6 +136,7 @@ export async function exportPhotos(
   onUnfilled?: (photo: Photo, error: string) => Promise<boolean>,
 ): Promise<ExportResult> {
   const names = planExportNames(photos, opts.naming, p => exportDirFor(p, opts));
+  const watermark = opts.watermark?.enabled ? await prepareWatermark(opts.watermark) : null;
   // Fail before developing anything when a folder can't be made or written.
   for (const dir of new Set(photos.map(p => exportDirFor(p, opts)))) await checkExportDir(dir);
   let [engine, maxTexture] = await startEngine();
@@ -195,6 +198,8 @@ export async function exportPhotos(
         frame = await develop(p);
       }
       if (!frame) { result.canceled = true; break; }
+      if (watermark) blendWatermark(frame[0], frame[1], frame[2], watermark(frame[1], frame[2]));
+      if (signal.canceled) { result.canceled = true; break; }
       const written = await writeExport(dir, stem, ...frame, opts.format, opts.existing, p.path, opts.metadata && metadataRequest(p, opts.metadata));
       if (written.skipped) result.skipped.push(photoName(p));
       else result.written.push(written.path);

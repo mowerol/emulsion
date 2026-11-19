@@ -2,6 +2,13 @@
 import { describe, expect, it } from 'vitest';
 import { EXPORT_DEFAULTS, exportOptions, normalizeExportSettings } from './exportsettings';
 import { cleanSubfolder, exportDirFor, parentDir } from './export';
+import { WATERMARK_DEFAULTS } from './watermark';
+
+it('includes the active watermark in exports and preserves its settings when turned off', () => {
+  const s = normalizeExportSettings({ watermark: { enabled: true, text: '© Photographer', opacity: 40 } });
+  expect(exportOptions(s, '/photos').watermark).toEqual({ ...WATERMARK_DEFAULTS, enabled: true, text: '© Photographer', opacity: 40 });
+  expect(exportOptions({ ...s, watermark: { ...s.watermark, enabled: false } }, '/photos').watermark).toBeUndefined();
+});
 
 it('starts where exports always went, and repairs stored settings', () => {
   expect(normalizeExportSettings(null)).toEqual(EXPORT_DEFAULTS);

@@ -35,3 +35,13 @@ it('rejects ambiguous names and repairs old or malformed preset settings', () =>
     { id: 'a', name: 'Web', settings: EXPORT_DEFAULTS },
   ]);
 });
+
+it('saves independent watermark settings and embeds the image in the preset', () => {
+  const settings = { ...EXPORT_DEFAULTS, watermark: { ...EXPORT_DEFAULTS.watermark, enabled: true, kind: 'image' as const, image: 'data:image/png;base64,YQ==', imageName: 'signature.png' } };
+  const p = saveExportPreset('Signed', settings);
+  settings.watermark.opacity = 20;
+  expect(p.settings.watermark.opacity).toBe(70);
+  expect(p.settings.watermark.image).toBe('data:image/png;base64,YQ==');
+  expect(sameExportSettings(p.settings, settings)).toBe(false);
+  expect(exportOptions(p.settings, '/photos').watermark).toEqual(p.settings.watermark);
+});

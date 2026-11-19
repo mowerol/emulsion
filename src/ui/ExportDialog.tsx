@@ -10,6 +10,8 @@ import { deleteExportPreset, exportPresetNameError, sameExportSettings, saveExpo
 import { personKeywords } from '../library/keywords';
 import { setExportOpen, showToast, sourcePhotos, useApp, withCaptures, type Photo } from '../library/store';
 import { useSourceDefinitions } from '../library/catalog';
+import { ExportWatermark } from './ExportWatermark';
+import { watermarkError } from '../library/watermark';
 
 type Scope = 'active' | 'selected' | 'developed' | 'all';
 const SIZES: { value: number | null; label: string }[] = [
@@ -47,6 +49,7 @@ export function ExportDialog() {
 
   const [scope, setScope] = useState<Scope>('developed');
   const [settings, setSettings] = useState<ExportSettings>(readExportSettings);
+  const [loadingWatermark, setLoadingWatermark] = useState(false);
   const set = (patch: Partial<ExportSettings>) => setSettings(s => { const next = { ...s, ...patch }; saveExportSettings(next); return next; });
   const presets = useExportPresets(s => s.presets);
   const [presetId, setPresetId] = useState<string | null>(null);
@@ -102,6 +105,7 @@ export function ExportDialog() {
   const modified = !!preset && !sameExportSettings(preset.settings, s);
   const nameError = presetName === null ? null : exportPresetNameError(presetName);
   const namingError = s.rename ? templateError(s.filenameTemplate) : null;
+  const markError = watermarkError(s.watermark);
   const sampleName = chosen[0] && `${exportName(chosen[0], opts.naming, 0)}.${FORMAT_EXT[s.format]}`;
 
   const applyPreset = (id: string) => {
@@ -129,7 +133,7 @@ export function ExportDialog() {
   };
 
   const run = async () => {
-    if (namingError) return;
+    if (namingError || markError || loadingWatermark) return;
     cancel.current = { canceled: false };
     setProgress({ done: 0, total: chosen.length, current: '' });
     try {
@@ -199,7 +203,7 @@ export function ExportDialog() {
     }}>
       <div className="dialog export-dialog" role="dialog" aria-modal="true" aria-labelledby="export-title">
         <header><h2 id="export-title">Export</h2></header>
-        <div className="export-body"><fieldset className="export-fields" disabled={running}>
+        <div className="export-body"><fieldset className="export-fields" disabled={running || loadingWatermark}>
           <div className="export-rail">
             <fieldset>
               <legend>Frames</legend>
@@ -394,6 +398,7 @@ export function ExportDialog() {
                 </div>
               </div>
             </section>
+            <ExportWatermark settings={s.watermark} onChange={patch => set({ watermark: { ...s.watermark, ...patch } })} onBusy={setLoadingWatermark} />
           </div>
         </fieldset></div>
         {unfilled && <div className="export-remove-warning" role="alertdialog" aria-modal="true" aria-labelledby="unfilled-title" aria-describedby="unfilled-description"
@@ -421,7 +426,7 @@ export function ExportDialog() {
           </div>
         )}
         {!unfilled && <footer className="export-footer">
-          <span className="export-summary">{fileLabel} · {SIZES.find(z => z.value === s.longEdge)?.label ?? `${s.longEdge} px`} · .{FORMAT_EXT[s.format]}</span>
+          <span className="export-summary">{fileLabel} · {SIZES.find(z => z.value === s.longEdge)?.label ?? `${s.longEdge} px`} · .{FORMAT_EXT[s.format]}{s.watermark.enabled ? ' · Watermarked' : ''}</span>
           <div className="dialog-actions">
             {running ? (
               <button type="button" className="btn" onClick={() => (cancel.current.canceled = true)}>
@@ -432,7 +437,7 @@ export function ExportDialog() {
                 Cancel
               </button>
             )}
-            <button type="button" className="btn primary" disabled={running || !chosen.length || !!namingError || (s.useSubfolder && !sub.length)} onClick={run}>
+            <button type="button" className="btn primary" disabled={running || loadingWatermark || !chosen.length || !!namingError || !!markError || (s.useSubfolder && !sub.length)} onClick={run}>
               Export {chosen.length} {chosen.length === 1 ? 'frame' : 'frames'}
             </button>
           </div>

@@ -86,6 +86,64 @@ async function main() {
     const r = el.getBoundingClientRect();
     assert(r.left >= dialog.left && r.right <= dialog.right, `${el.textContent} overflows horizontally`);
   }
-  document.body.dataset.result = JSON.stringify({ pass: true, presets: 1, naming: 'Lisbon-20261111-007.jpg', scope: 'selected', theme: query.get('theme') ?? 'mid', width: innerWidth });
+  document.getElementById('export-watermark-on')!.click(); await wait();
+  assert(button('Export 2 frames').disabled, 'Empty watermark should disable export');
+  await change('export-watermark-text', '© Oli · Photography');
+  assert(!button('Export 2 frames').disabled, 'Text watermark should permit export');
+  await document.fonts.ready; await wait();
+  const preview = document.querySelector<HTMLCanvasElement>('.export-watermark-preview canvas')!;
+  const coverage = () => [...preview.getContext('2d')!.getImageData(0, 0, preview.width, preview.height).data].filter((_, i) => i % 4 === 3);
+  assert(coverage().some(a => a > 0), 'Text watermark preview is blank');
+  await change('export-watermark-position', 'top-left');
+  await change('export-watermark-opacity', '40');
+  assert(coverage().every(a => a <= 102), 'Preview ignored opacity');
+  button('Update').click(); await wait();
+  assert(presets.useExportPresets.getState().presets[0].settings.watermark.position === 'top-left', 'Preset did not save watermark');
+  await change('export-watermark-kind', 'image');
+  assert(button('Export 2 frames').disabled, 'Missing logo should disable export');
+  // A real file import retains transparent pixels and embeds a portable PNG in the settings.
+  const logo = document.createElement('canvas'); logo.width = 40; logo.height = 20;
+  const ctx = logo.getContext('2d')!; ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, 20, 20);
+  const blob = await new Promise<Blob>(resolve => logo.toBlob(b => resolve(b!), 'image/png'));
+  const files = new DataTransfer(); files.items.add(new File([blob], 'signature.png', { type: 'image/png' }));
+  const picker = document.querySelector<HTMLInputElement>('input[aria-label="Watermark image"]')!;
+  picker.files = files.files; picker.dispatchEvent(new Event('change', { bubbles: true }));
+  for (let i = 0; i < 30 && (button('Export 2 frames').disabled || !coverage().some(a => a > 0)); i++) await wait();
+  assert(!button('Export 2 frames').disabled, 'Logo import did not enable export');
+  const saved = JSON.parse(localStorage.getItem('emulsion.export')!);
+  assert(saved.watermark.image.startsWith('data:image/png;base64,') && saved.watermark.imageName === 'signature.png', 'Logo not embedded');
+  const { prepareWatermark, blendWatermark } = await import('../../src/library/watermark');
+  const render = await prepareWatermark(saved.watermark);
+  const mark = render(300, 200);
+  const deep = new Uint16Array(300 * 200 * 3).fill(12345);
+  blendWatermark(deep, 300, 200, mark);
+  assert(deep.some(v => v > 12345) && deep[(mark.y * 300 + mark.x + mark.width - 1) * 3] === 12345, 'Transparent logo did not composite correctly into RGB16');
+  // Reject unsupported files without losing the existing logo or leaving the dialog disabled.
+  const unsupported = new DataTransfer(); unsupported.items.add(new File(['no'], 'bad.svg', { type: 'image/svg+xml' }));
+  picker.files = unsupported.files; picker.dispatchEvent(new Event('change', { bubbles: true })); await wait();
+  assert(document.querySelector('#export-watermark ~ [role=alert]') || document.querySelector('[role=alert]')?.textContent?.includes('PNG'), 'Missing import error');
+  assert(!button('Export 2 frames').disabled, 'Failed import disabled valid prior watermark');
+  // Applying the text preset restores its mode, content and placement.
+  button('Web deliveryModified').click(); await wait();
+  assert((document.getElementById('export-watermark-kind') as HTMLSelectElement).value === 'text', 'Preset did not restore text mode');
+  await change('export-watermark-position', 'bottom-right');
+  await change('export-watermark-opacity', '70');
+  const beforeClose = JSON.parse(localStorage.getItem('emulsion.export')!).watermark;
+  button('Cancel').click(); await wait(); useApp.setState({ exportOpen: true }); await wait();
+  assert((document.getElementById('export-watermark-text') as HTMLInputElement).value === beforeClose.text, 'Reopening lost watermark');
+  if (query.get('watermark') === 'image') {
+    await change('export-watermark-kind', 'image');
+    const imagePicker = document.querySelector<HTMLInputElement>('input[aria-label="Watermark image"]')!;
+    const imageFiles = new DataTransfer(); imageFiles.items.add(new File([blob], 'signature.png', { type: 'image/png' }));
+    imagePicker.files = imageFiles.files; imagePicker.dispatchEvent(new Event('change', { bubbles: true }));
+    for (let i = 0; i < 30 && button('Export 2 frames').disabled; i++) await wait();
+    assert(!button('Export 2 frames').disabled, 'Final image import did not complete');
+  }
+  document.querySelector('.export-watermark-preview')!.scrollIntoView({ block: 'end' }); await wait();
+  for (const el of document.querySelectorAll<HTMLElement>('.export-watermark-preview, #export-watermark ~ .settings-row')) {
+    const r = el.getBoundingClientRect();
+    assert(r.left >= dialog.left && r.right <= dialog.right, 'Watermark controls overflow horizontally');
+  }
+  document.body.dataset.result = 'PASS: ' + JSON.stringify({ pass: true, presets: 1, watermark: 'text + transparent image, 16-bit composite', theme: query.get('theme') ?? 'mid', width: innerWidth });
 }
 main().catch(e => { console.error(e); document.body.dataset.result = JSON.stringify({ pass: false, error: String(e), stack: e.stack }); });

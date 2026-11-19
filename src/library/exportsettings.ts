@@ -4,6 +4,7 @@
 import type { ExistingFiles, ExportFormat } from '../backend/api';
 import type { ExportOptions } from './export';
 import { getSetting, setSetting } from './appsettings';
+import { normalizeWatermark, WATERMARK_DEFAULTS, type WatermarkSettings } from './watermark';
 
 export interface ExportSettings {
   /** A chosen folder, or each photo's own folder ("Same folder as original photo"). */
@@ -30,6 +31,7 @@ export interface ExportSettings {
   removeLocation: boolean;
   /** Lightroom's Write Keywords as Lightroom Hierarchy. */
   hierarchy: boolean;
+  watermark: WatermarkSettings;
 }
 
 export type MetadataInclude = 'copyright' | 'copyrightContact' | 'allExceptCamera' | 'all';
@@ -47,6 +49,7 @@ export const EXPORT_DEFAULTS: ExportSettings = {
   longEdge: null, existing: 'rename',
   rename: false, filenameTemplate: '{filename}-{sequence}', sequenceStart: 1,
   metadata: 'all', removePerson: false, removeLocation: false, hierarchy: false,
+  watermark: WATERMARK_DEFAULTS,
 };
 
 const pick = <T,>(value: unknown, allowed: readonly T[], fallback: T): T => allowed.includes(value as T) ? value as T : fallback;
@@ -74,6 +77,7 @@ export function normalizeExportSettings(input: unknown): ExportSettings {
     removePerson: typeof p.removePerson === 'boolean' ? p.removePerson : d.removePerson,
     removeLocation: typeof p.removeLocation === 'boolean' ? p.removeLocation : d.removeLocation,
     hierarchy: typeof p.hierarchy === 'boolean' ? p.hierarchy : d.hierarchy,
+    watermark: normalizeWatermark(p.watermark),
   };
 }
 
@@ -94,6 +98,7 @@ export function exportOptions(s: ExportSettings, openFolder: string, personKeywo
     existing: s.existing,
     ...(s.rename ? { naming: { template: s.filenameTemplate, start: s.sequenceStart } } : {}),
     metadata: { include: s.metadata, removePerson: s.removePerson, removeLocation: s.removeLocation, hierarchy: s.hierarchy, personKeywords },
+    ...(s.watermark.enabled ? { watermark: s.watermark } : {}),
   };
 }
 

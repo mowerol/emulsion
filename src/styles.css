@@ -634,6 +634,10 @@ input.range:disabled { opacity: 0.35; cursor: default; }
 .export-quality { gap: 12px; align-items: center; }
 .export-quality input { flex: 1; min-width: 0; }
 .export-quality output { width: 3ch; text-align: right; font-size: 13px; font-variant-numeric: tabular-nums; }
+.export-watermark-range output { width: 4ch; }
+.export-watermark-preview { gap: 6px; }
+.export-watermark-preview canvas { display: block; width: 100%; height: auto; background: #777; border-radius: 4px; }
+.export-watermark-preview figcaption { color: var(--text2); }
 .export-static { font-size: 13px; color: var(--text3); }
 .export-checks { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; }
 .export-checks label { display: inline-flex; align-items: center; gap: 6px; }

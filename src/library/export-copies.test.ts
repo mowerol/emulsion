@@ -18,6 +18,7 @@ import { defaultRecipe, uneditedRecipe } from '../film/recipe';
 import { exportPhotos } from './export';
 import { newCircleSpot } from '../film/retouch';
 import type { Photo } from './store';
+import * as watermark from './watermark';
 
 beforeEach(() => { vi.clearAllMocks(); vi.mocked(removeInpaint).mockReset().mockResolvedValue(new Uint8Array(512 * 512 * 4)); });
 
@@ -129,6 +130,29 @@ it('retains completed earlier patches when export continues past a later failed 
 const plain: Photo = { path: '/p.jpg', rel: 'p.jpg', name: 'p.jpg', size: 1, modified: 0, recipe: null,
   seed: 1, white: null, rating: 0, label: null, flag: null, raw: false, pair: null };
 const opts = { dir: '/exports', subfolder: '', longEdge: null, format: { kind: 'jpeg' as const, quality: 92 }, existing: 'rename' as const };
+
+it('composites the watermark after development at the final size before writing both bit depths', async () => {
+  const mark = { ...watermark.WATERMARK_DEFAULTS, enabled: true, text: 'Photographer' };
+  const render = vi.fn(() => ({ x: 1, y: 0, width: 1, height: 1, pixels: new Uint8ClampedArray([255, 0, 0, 255]) }));
+  const prepare = vi.spyOn(watermark, 'prepareWatermark').mockResolvedValue(render);
+  try {
+    const eight = await exportPhotos([plain], { ...opts, watermark: mark }, vi.fn(), { canceled: false });
+    expect(eight.failed).toEqual([]);
+    expect(prepare).toHaveBeenCalledWith(mark);
+    expect(render).toHaveBeenCalledWith(2, 1);
+    expect([...vi.mocked(writeExport).mock.calls[0][2]]).toEqual([0, 0, 0, 0, 255, 0, 0, 0]);
+    await exportPhotos([plain], { ...opts, format: { kind: 'png', bits: 16 }, watermark: mark }, vi.fn(), { canceled: false });
+    const deep = vi.mocked(writeExport).mock.calls[1][2];
+    expect(deep).toBeInstanceOf(Uint16Array);
+    expect([...deep]).toEqual([0, 0, 0, 65535, 0, 0]);
+  } finally { prepare.mockRestore(); }
+});
+
+it('rejects an empty active watermark before developing or writing any photos', async () => {
+  await expect(exportPhotos([plain], { ...opts, watermark: { ...watermark.WATERMARK_DEFAULTS, enabled: true } }, vi.fn(), { canceled: false })).rejects.toThrow('watermark text');
+  expect(loadImage).not.toHaveBeenCalled();
+  expect(writeExport).not.toHaveBeenCalled();
+});
 
 it('checks the destination before developing anything', async () => {
   const { checkExportDir } = await import('../backend/api');
