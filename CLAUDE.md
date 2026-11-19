@@ -44,6 +44,8 @@ Headless Chrome understates what Oli feels: the app runs in WKWebView on his Ret
 
 ## Running
 
+Whenever you make a change, ensure the project's dev server is running before handing back to Oli, including after documentation or configuration changes. Reuse a running instance; otherwise start `npm run tauri dev` with the Cargo environment loaded, verify the dev server responds and the desktop app launches, and leave it running. Include the dev URL in your handoff.
+
 `source ~/.cargo/env` before cargo or `npm run tauri dev` (Rust is installed with rustup). The dev app relaunches itself when Rust changes (the open folder has to be reopened) and hot-reloads the interface; after engine or shader changes, Oli presses Cmd+R in the window.
 
 ## Gotchas that have cost time
