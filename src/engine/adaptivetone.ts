@@ -76,7 +76,7 @@ export function adaptiveToneCurve(analysis: ToneAnalysis, controls: ToneControls
   const shadowEnd = clamp(highlight, SCENE_GREY_EV, SCENE_GREY_EV + 1);
   const highlightStart = clamp(shadow, SCENE_GREY_EV - 1.5, SCENE_GREY_EV - 0.5);
   const highlightEnd = clamp(highlight + 1, SCENE_GREY_EV + 1, SCENE_GREY_EV + 3);
-  const s = controls.shadows >= 0 ? 4 * Math.log1p(controls.shadows / 25) / Math.log(5) : 3 * controls.shadows / 100;
+  const s = controls.shadows >= 0 ? 3.5 * Math.log1p(controls.shadows / 25) / Math.log(5) : 3 * controls.shadows / 100;
   const h = 3 * controls.highlights / 100;
   const w = 2 * Math.min(controls.whites, 0) / 100;
   const step = (TONE_EV_MAX - TONE_EV_MIN) / (TONE_CURVE_SIZE - 1);

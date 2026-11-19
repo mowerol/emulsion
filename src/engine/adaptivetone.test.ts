@@ -19,10 +19,10 @@ describe('adaptive tone', () => {
     outliers.forEach((v, i) => expect(Math.abs(v - analysis[i])).toBeLessThan(0.03));
     expect(analyzeTone([NaN, Infinity])).toEqual(analyzeTone([]));
   });
-  it('gives full Shadows four stops and Highlights three stops of reach without the old bright-end taper', () => {
+  it('gives full Shadows 3.5 stops and Highlights three stops of reach without the old bright-end taper', () => {
     const shadow = adaptiveToneCurve(analysis, { ...NONE, shadows: 100 });
     const highlight = adaptiveToneCurve(analysis, { ...NONE, highlights: -100 });
-    expect(Math.log2(adaptiveToneGain(2 ** -12, shadow))).toBeCloseTo(4, 2);
+    expect(Math.log2(adaptiveToneGain(2 ** -12, shadow))).toBeCloseTo(3.5, 2);
     expect(Math.log2(adaptiveToneGain(2 ** 5, highlight))).toBeCloseTo(-3, 2);
     expect(Math.log2(adaptiveToneGain(2 ** -12, highlight))).toBeCloseTo(0, 2);
   });
@@ -36,7 +36,8 @@ describe('adaptive tone', () => {
     const darkScene = Array.from({ length: 1000 }, (_, i) => i < 850 ? -11 + i / 170 : -3 + (i - 850) / 50);
     const a = analyzeTone(darkScene);
     const curve = adaptiveToneCurve(a, { ...NONE, shadows: 100 });
-    expect(Math.log2(adaptiveToneGain(2 ** -5, curve))).toBeGreaterThan(2);
+    // The gentler maximum still gives a visible backlit subject nearly two stops of lift.
+    expect(Math.log2(adaptiveToneGain(2 ** -5, curve))).toBeGreaterThan(1.9);
     expect(Math.log2(adaptiveToneGain(2 ** 0, curve))).toBeLessThan(0.05);
   });
   it('gives Blacks a real lifted or clipped endpoint and anchors Whites above middle grey', () => {

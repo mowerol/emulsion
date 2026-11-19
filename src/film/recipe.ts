@@ -178,7 +178,7 @@ export const SLIDERS: SliderDef[] = [
   { key: 'toneCharacter', label: 'Tone character', group: 'adjust', min: -100, max: 100, step: 1, default: 0, format: formatSigned, hint: 'Softer ← 0 → Harder. Changes the output tone curve independently of grain.' },
   { key: 'contrast', label: 'Contrast', group: 'adjust', min: -50, max: 50, step: 1, format: formatSigned },
   { key: 'highlights', label: 'Highlights', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned, hint: 'Recover or brighten lighter regions using ranges adapted to the photo, while retaining local detail.' },
-  { key: 'shadows', label: 'Shadows', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned, hint: 'Lift or deepen darker regions using ranges adapted to the photo, with up to four stops of lift through the shadow range.' },
+  { key: 'shadows', label: 'Shadows', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned, hint: 'Lift or deepen darker regions using ranges adapted to the photo, with up to 3.5 stops of lift through the shadow range.' },
   { key: 'whites', label: 'Whites', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned, hint: 'Set the bright endpoint. Positive values bring more bright tones to white; negative values soften the brightest tones.' },
   { key: 'blacks', label: 'Blacks', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned, hint: 'Set the dark endpoint. Negative values deepen and clip the darkest tones; positive values lift the black floor.' },
   { key: 'vibrance', label: 'Vibrance', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
