@@ -137,7 +137,7 @@ export function describe(before: Recipe | null, after: Recipe | null): string {
   }
   if (before && !after) return 'Reset photo';
   if (!before || !after) return 'Edit';
-  const keys = keysChanged(before, after);
+  const keys = keysChanged(before, after).filter(k => k !== 'toneVersions');
   if (keys.length === 0) return 'Edit';
   if (keys.includes('stock')) return STOCK[after.stock].name;
   if (keys.length > 1) return 'Several settings';

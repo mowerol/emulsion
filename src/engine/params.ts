@@ -35,6 +35,7 @@ import { EXPOSURE_BOOST, FEATHERING, SMOOTHING, bandFactors, bandGains } from '.
 import { clarityParams } from './locallaplacian';
 import type { LoadedLut } from './lutstore';
 import { VIGNETTE_FEATHER, vignetteStrength } from './vignette';
+import { adaptiveToneTransform, legacyShadowValue, DEFAULT_TONE_ANALYSIS, type ToneControls } from './adaptivetone';
 
 export type UniformValue = number | number[];
 export type Uniforms = Record<string, UniformValue>;
@@ -127,6 +128,12 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uLutTex: LUT_UNIT,
     uLutOn: 0,
     uLutColor: 0,
+    uToneOn: 0,
+    uTeqLegacy: 0,
+    uToneControls: [0, 0, 0, 0],
+    uToneCurve: new Array<number>(128).fill(0),
+    uToneBlack: 0,
+    uToneWhite: 1,
     // The engine sets the crop's own (Engine.render); without one the whole source is the crop.
     uVigScale: 1,
     uVigInner: (1 - VIGNETTE_FEATHER / 100) / Math.SQRT2,
@@ -153,12 +160,22 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
   const wb = shift && photoWb ? mulMat(shift, photoWb) : shift ?? photoWb;
   const wbMat = wb ? columnMajor(wb) : IDENTITY;
 
-  const teqOn = recipe.highlights !== 0;
-  const teq = teqOn ? bandFactors(bandGains(recipe.highlights)) : [0, 0, 0, 0, 0, 0, 0, 0];
-  const cb = colorBalanceParams(recipe.contrast, recipe.vibrance, recipe.saturation, recipe.shadows);
+  const legacyHighlights = recipe.highlights !== 0 && recipe.toneVersions?.highlights !== 2;
+  const teq = legacyHighlights ? bandFactors(bandGains(recipe.highlights)) : [0, 0, 0, 0, 0, 0, 0, 0];
+  const cb = colorBalanceParams(recipe.contrast, recipe.vibrance, recipe.saturation, legacyShadowValue(recipe.shadows, recipe.toneVersions));
   // A custom look's hidden settings, scaled by its Amount.
   const profile = profileSettingsFor(recipe);
   const profileCb = scaledColorBalance(profile, recipe.lookAmount / 100);
+  const tone: ToneControls = {
+    shadows: (recipe.toneVersions?.shadows === 2 ? recipe.shadows : 0) + (profile?.adaptiveShadows ?? 0) * recipe.lookAmount / 100,
+    highlights: recipe.toneVersions?.highlights === 2 ? recipe.highlights : 0,
+    blacks: recipe.toneVersions?.blacks === 2 ? recipe.blacks : 0,
+    whites: recipe.toneVersions?.whites === 2 ? recipe.whites : 0,
+  };
+  const toneOn = Object.values(tone).some(v => v !== 0);
+  const transform = adaptiveToneTransform(DEFAULT_TONE_ANALYSIS, tone);
+  const legacyWhites = recipe.toneVersions?.whites === 2 ? 0 : recipe.whites;
+  const legacyBlacks = recipe.toneVersions?.blacks === 2 ? 0 : recipe.blacks;
 
   return {
     ...base,
@@ -170,7 +187,13 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uCompare: 0,
     uExposure: recipe.exposure,
     uCurveOn: isIdentity(recipe.curve) && (isIdentity(profile?.curve ?? null) || recipe.lookAmount === 0) ? 0 : 1,
-    uTeqOn: teqOn ? 1 : 0,
+    uTeqOn: legacyHighlights || toneOn ? 1 : 0,
+    uTeqLegacy: legacyHighlights ? 1 : 0,
+    uToneOn: toneOn ? 1 : 0,
+    uToneControls: [tone.shadows, tone.highlights, tone.blacks, tone.whites],
+    uToneCurve: transform.curve,
+    uToneBlack: transform.black,
+    uToneWhite: transform.white,
     uClarityOn: recipe.clarity !== 0 ? 1 : 0,
     uClarityScale: 1,
     uDehazeOn: recipe.dehaze !== 0 ? 1 : 0,
@@ -187,9 +210,9 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uTeqF0: teq.slice(0, 4),
     uTeqF1: teq.slice(4, 8),
     uTeqParams: [EXPOSURE_BOOST, FEATHERING, 2 * SMOOTHING * SMOOTHING],
-    uExpBlack: recipe.blacks < 0 ? (-recipe.blacks / 100) * MAX_BLACK_LEVEL : 0,
-    uSigS: packCurve(toneCurveFor(recipe.whites, recipe.blacks, recipe.toneCharacter)),
-    uSigMag: whiteTargetFor(recipe.whites) / 100,
+    uExpBlack: legacyBlacks < 0 ? (-legacyBlacks / 100) * MAX_BLACK_LEVEL : 0,
+    uSigS: packCurve(toneCurveFor(legacyWhites, legacyBlacks, recipe.toneCharacter)),
+    uSigMag: whiteTargetFor(legacyWhites) / 100,
     uWbMat: wbMat,
     uVigScale: Math.pow(2, -vignetteStrength(recipe.vignette)),
     uVigInner: (1 - VIGNETTE_FEATHER / 100) / Math.SQRT2,
@@ -264,7 +287,7 @@ export function maskUniforms(masks: Mask[], recipe: Recipe, ctx: Pick<RenderCont
     local.push(teqOn ? 1 : 0, teqOn ? ++teqTile : 0, 0, 0);
     // [diffusion fraction, its field's layer, Glow size (the field's key), 0].
     glow.push(...(m.glow > 0 ? [diffusionFraction(m.glow), glowLayer++, m.glowSize, 0] : [0, 0, 0, 0]));
-    cb.push(...(cbOn ? cbUniform(cbCommit(sliderParams(colorBalanceParams(m.contrast, m.vibrance, m.saturation, m.shadows)))) : CB_NONE));
+    cb.push(...(cbOn ? cbUniform(cbCommit(sliderParams(colorBalanceParams(m.contrast, m.vibrance, m.saturation, legacyShadowValue(m.shadows, m.toneVersions))))) : CB_NONE));
   }
   return {
     uMaskCount: index.length, uMaskShapeCount: count, uMaskShapes: shapes, uMaskMeta: meta, uMaskWb: wb, uMaskCb: cb,

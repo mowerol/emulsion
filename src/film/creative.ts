@@ -5,13 +5,14 @@
 // balance as a second instance just before the photo's own, the curve composed in front of the
 // photo's own curve. A look can also author one scanner finish; grain stays on the photo.
 
-import { CB_DEFAULTS, colorBalanceParams, sliderParams, type CbParams } from '../engine/colorbalance';
+import { CB_DEFAULTS, MAX_SHADOWS_LIFT, colorBalanceParams, sliderParams, type CbParams } from '../engine/colorbalance';
 import { CURVE_RES, curveTable, isIdentity, normalizeCurve, type ToneCurve } from './curve';
 import { isScannerId, type ScannerId } from './scanners';
 import { normalizeGrading } from './grading';
 import { normalizeColor, tidyColor, type ColorAdjust, type Recipe } from './recipe';
 import { profileSettingsFor, registerFileLut } from './looks';
 import { normalizeFujiRecipe, type FujiRecipe } from './fujirecipe';
+import { copyToneVersions, legacyShadowValue } from '../engine/adaptivetone';
 
 /**
  * A custom look's LUT, with how much of it applies (0 to 1): a system look it refers to, or a LUT
@@ -34,6 +35,8 @@ export type LutSource = (
 };
 
 export interface ProfileSettings {
+  /** The adaptive Shadows instance, in slider units; absent keeps a saved look's original grade. */
+  adaptiveShadows?: number;
   /** A colour balance rgb instance, darktable's units (the photo's own sliders and grading, combined). */
   colorBalance: Partial<CbParams> | null;
   curve: ToneCurve | null;
@@ -51,7 +54,8 @@ const SCALED = /(_Y|_C)$|^(chroma|saturation|brilliance)_|^(vibrance|contrast|hu
 
 /** The photo's colour and tone settings, as a profile's hidden settings. */
 export function settingsFromRecipe(r: Recipe, lut: LutSource | null): ProfileSettings {
-  const cb: CbParams = { ...sliderParams(colorBalanceParams(r.contrast, r.vibrance, r.saturation, r.shadows)), ...r.grading };
+  const adaptive = r.toneVersions?.shadows === 2;
+  const cb: CbParams = { ...sliderParams(colorBalanceParams(r.contrast, r.vibrance, r.saturation, legacyShadowValue(r.shadows, r.toneVersions))), ...r.grading };
   const changed = Object.fromEntries(
     (Object.keys(cb) as (keyof CbParams)[]).filter((k) => cb[k] !== CB_DEFAULTS[k] && k !== 'grey_fulcrum').map((k) => [k, cb[k]]),
   ) as Partial<CbParams>;
@@ -61,6 +65,7 @@ export function settingsFromRecipe(r: Recipe, lut: LutSource | null): ProfileSet
     colorBalance: any ? { ...changed, grey_fulcrum: cb.grey_fulcrum } : null,
     curve: isIdentity(r.curve) ? null : r.curve,
     lut,
+    ...(adaptive && r.shadows !== 0 ? { adaptiveShadows: r.shadows } : {}),
     ...(r.scanner !== 'straight' ? { scanner: r.scanner } : {}),
     ...(tidyColor(r.color) ? { color: structuredClone(r.color!) } : {}),
   };
@@ -74,12 +79,14 @@ export function settingsFromRecipe(r: Recipe, lut: LutSource | null): ProfileSet
 export function recipeFromSettings(r: Recipe, s: ProfileSettings): Recipe {
   if (s.lut?.kind === 'file' && s.lut.photoMatch) registerFileLut(s.lut.hash, undefined, s.lut.photoMatch);
   const cb = s.colorBalance ?? {};
+  const extended = (cb.shadows_Y ?? 0) > 1;
   const out: Recipe = {
     ...r,
     contrast: (cb.contrast ?? 0) * 100,
     vibrance: (cb.vibrance ?? 0) * 100,
     saturation: (cb.saturation_global ?? 0) * 100,
-    shadows: (cb.shadows_Y ?? 0) * 100,
+    shadows: s.adaptiveShadows ?? (cb.shadows_Y ?? 0) * (extended ? 25 : 100),
+    toneVersions: copyToneVersions(s.adaptiveShadows !== undefined ? { shadows: 2 } : extended ? { shadows: 1 } : undefined, r.toneVersions, ['shadows']),
     grading: normalizeGrading(cb),
     curve: s.curve,
     color: s.color ? structuredClone(s.color) : null,
@@ -123,6 +130,7 @@ export function scaledSettings(s: ProfileSettings, amount: number): ProfileSetti
     colorBalance: changed && Object.keys(changed).length ? changed : null,
     curve: amount > 0 ? curve : null,
     lut: s.lut && { ...s.lut, amount: s.lut.amount * amount },
+    ...(s.adaptiveShadows ? { adaptiveShadows: s.adaptiveShadows * Math.max(0, Math.min(1, amount)) } : {}),
     ...(s.scanner ? { scanner: s.scanner } : {}),
     ...(scaledColor(s.color, amount) ? { color: scaledColor(s.color, amount)! } : {}),
   };
@@ -141,7 +149,7 @@ export function scaledColor(c: ColorAdjust | null | undefined, amount: number): 
 /** The HSL of the recipe's look (its colour equalizer instance before the photo's), at the look's Amount. */
 export const lookColorFor = (r: Recipe): ColorAdjust | null => scaledColor(profileSettingsFor(r)?.color, r.lookAmount / 100);
 
-export const hasSettings = (s: ProfileSettings | null | undefined) => !!s && (!!s.colorBalance || !!s.curve || !!s.color || !!s.scanner && s.scanner !== 'straight');
+export const hasSettings = (s: ProfileSettings | null | undefined) => !!s && (!!s.adaptiveShadows || !!s.colorBalance || !!s.curve || !!s.color || !!s.scanner && s.scanner !== 'straight');
 
 /** A profile's colour balance at `amount` (0 to 1), or null when it has none. */
 export function scaledColorBalance(s: ProfileSettings | null, amount: number): CbParams | null {
@@ -194,13 +202,13 @@ export function normalizeSettings(input: unknown): ProfileSettings | null {
     // The recipe's grading normaliser clamps darktable's ranges; it knows every key but the sliders'.
     const graded = normalizeGrading(cb) ?? {};
     const sliders = Object.fromEntries((['contrast', 'vibrance', 'saturation_global', 'shadows_Y', 'grey_fulcrum'] as const)
-      .filter((k) => finite(cb[k])).map((k) => [k, Math.min(Math.max(cb[k] as number, -1), 1)]));
+      .filter((k) => finite(cb[k])).map((k) => [k, Math.min(Math.max(cb[k] as number, -1), k === 'shadows_Y' ? MAX_SHADOWS_LIFT : 1)]));
     if (finite(cb.grey_fulcrum)) sliders.grey_fulcrum = cb.grey_fulcrum as number;
     const merged = { ...graded, ...sliders } as Partial<CbParams>;
     colorBalance = Object.keys(merged).length ? merged : null;
   }
   const color = normalizeColor(o.color);
-  return { colorBalance, curve: normalizeCurve(o.curve), lut: normalizeLut(o.lut ?? (o.look && { kind: 'pack', ...(o.look as object) })), ...(isScannerId(o.scanner) ? { scanner: o.scanner } : {}), ...(color ? { color } : {}) };
+  return { colorBalance, curve: normalizeCurve(o.curve), lut: normalizeLut(o.lut ?? (o.look && { kind: 'pack', ...(o.look as object) })), ...(finite(o.adaptiveShadows) && o.adaptiveShadows !== 0 ? { adaptiveShadows: Math.min(100, Math.max(-100, o.adaptiveShadows as number)) } : {}), ...(isScannerId(o.scanner) ? { scanner: o.scanner } : {}), ...(color ? { color } : {}) };
 }
 
 /** A look's LUT read from a file. Looks saved first wrote a system look as `look: { pack, stock, amount }`. */

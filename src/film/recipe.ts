@@ -16,6 +16,8 @@ import { normalizeCrop, type Crop } from './crop';
 import { normalizeMasks, type Mask } from './masks';
 import { normalizeRetouch, normalizeRetouchScales, type RetouchScales, type RetouchSpot } from './retouch';
 import { ISO_MAX, ISO_MIN } from '../engine/grain';
+import { MAX_SHADOWS_LIFT } from '../engine/colorbalance';
+import { ADAPTIVE_TONE, TONE_KEYS, copyToneVersions, normalizeToneVersions, type ToneVersions } from '../engine/adaptivetone';
 import { DEFAULT_PACK, PACK, isPackId, resolveUserLook, simulationLook, withLook, type PackId } from './looks';
 
 export const RECIPE_VERSION = 1;
@@ -28,6 +30,8 @@ export interface Recipe {
   /** denoise (profiled): a setting, null (off) or 'auto' (the photo kind's default; see noisereduction.ts). */
   profiledDenoise?: import('./noisereduction').ProfiledSetting;
   v: typeof RECIPE_VERSION;
+  /** Processing follows each HDR control independently, including partial copies and presets. */
+  toneVersions?: ToneVersions;
   lookSnapshot?: { id: string; name: string; revision: number; kind?: 'lut' | 'look'; settings: ProfileSettings };
   /** A creative look is optional; the camera's standard matrix is always the base. */
   lookEnabled: boolean;
@@ -144,7 +148,7 @@ export function normalizeColor(input: unknown): ColorAdjust | null {
   return tidyColor({ hue: list(o.hue, -HUE_MAX, HUE_MAX), sat: list(o.sat, -100, 100), bright: list(o.bright, -100, 100) });
 }
 
-export type SliderKey = Exclude<keyof Recipe, 'halationVersion' | 'glowVersion' | 'noiseReduction' | 'profiledDenoise' | 'v' | 'lookEnabled' | 'stock' | 'pack' | 'lookBlend' | 'push' | 'scanner' | 'scannerFromLook' | 'curve' | 'wb' | 'crop' | 'color' | 'grading' | 'lens' | 'transform' | 'masks' | 'retouch' | 'retouchScales' | 'lookSnapshot'>;
+export type SliderKey = Exclude<keyof Recipe, 'toneVersions' | 'halationVersion' | 'glowVersion' | 'noiseReduction' | 'profiledDenoise' | 'v' | 'lookEnabled' | 'stock' | 'pack' | 'lookBlend' | 'push' | 'scanner' | 'scannerFromLook' | 'curve' | 'wb' | 'crop' | 'color' | 'grading' | 'lens' | 'transform' | 'masks' | 'retouch' | 'retouchScales' | 'lookSnapshot'>;
 
 export interface SliderDef {
   key: SliderKey;
@@ -173,10 +177,10 @@ export const SLIDERS: SliderDef[] = [
   { key: 'exposure', label: 'Exposure', group: 'adjust', min: -5, max: 5, step: 0.05, format: formatEv },
   { key: 'toneCharacter', label: 'Tone character', group: 'adjust', min: -100, max: 100, step: 1, default: 0, format: formatSigned, hint: 'Softer ← 0 → Harder. Changes the output tone curve independently of grain.' },
   { key: 'contrast', label: 'Contrast', group: 'adjust', min: -50, max: 50, step: 1, format: formatSigned },
-  { key: 'highlights', label: 'Highlights', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
-  { key: 'shadows', label: 'Shadows', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
-  { key: 'whites', label: 'Whites', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
-  { key: 'blacks', label: 'Blacks', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
+  { key: 'highlights', label: 'Highlights', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned, hint: 'Recover or brighten lighter regions using ranges adapted to the photo, while retaining local detail.' },
+  { key: 'shadows', label: 'Shadows', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned, hint: 'Lift or deepen darker regions using ranges adapted to the photo, with up to four stops of lift through the shadow range.' },
+  { key: 'whites', label: 'Whites', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned, hint: 'Set the bright endpoint. Positive values bring more bright tones to white; negative values soften the brightest tones.' },
+  { key: 'blacks', label: 'Blacks', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned, hint: 'Set the dark endpoint. Negative values deepen and clip the darkest tones; positive values lift the black floor.' },
   { key: 'vibrance', label: 'Vibrance', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'saturation', label: 'Saturation', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'texture', label: 'Texture', group: 'detail', min: -100, max: 100, step: 1, format: formatSigned },
@@ -224,6 +228,7 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
   const s = STOCK[stock];
   return {
     v: RECIPE_VERSION,
+    toneVersions: { ...ADAPTIVE_TONE },
     noiseReduction: null,
     profiledDenoise: 'auto',
     lookEnabled: stock !== 'neutral',
@@ -336,12 +341,13 @@ export function resetSection(recipe: Recipe, section: SectionId, photo?: { raw: 
   const base = { ...defaultRecipe(recipe.stock), ...kindDefaults(photo) };
   const out = { ...recipe } as Record<keyof Recipe, unknown>;
   for (const k of SECTION_FIELDS[section]) out[k] = base[k];
+  out.toneVersions = copyToneVersions(base.toneVersions, recipe.toneVersions, SECTION_FIELDS[section]);
   return out as unknown as Recipe;
 }
 
 /** Whether a section differs from its defaults. */
 export const sectionChanged = (recipe: Recipe | null, section: SectionId, photo?: { raw: boolean }) =>
-  !!recipe && JSON.stringify(resetSection(recipe, section, photo)) !== JSON.stringify(recipe);
+  !!recipe && JSON.stringify({ ...resetSection(recipe, section, photo), toneVersions: undefined }) !== JSON.stringify({ ...recipe, toneVersions: undefined });
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
 
@@ -374,6 +380,7 @@ export function normalizeRecipe(input: unknown): Recipe | null {
   const push = typeof o.push === 'number' && [-1, 0, 1, 2].includes(o.push) ? (o.push as Push) : 0;
   const lookEnabled = supplied && (typeof o.lookEnabled === 'boolean' ? o.lookEnabled : true);
   const out: Recipe = { ...base, noiseReduction: normalizeNoiseReduction(o.noiseReduction), lookEnabled, pack, push, lookBlend: o.lookBlend === 'color' ? 'color' : 'normal', curve: normalizeCurve(o.curve), wb: normalizeWhiteBalance(o.wb), crop: normalizeCrop(o.crop), color: normalizeColor(o.color), grading: normalizeGrading(o.grading), lens: normalizeLens(o.lens), transform: normalizePerspective(o.transform), masks: normalizeMasks(o.masks), retouch: normalizeRetouch(o.retouch), retouchScales: normalizeRetouchScales(o.retouchScales) };
+  out.toneVersions = normalizeToneVersions(o.toneVersions);
   // Capture sharpening was saved as `sharpening` before the unsharp mask came. Edits saved before
   // either existed had them off, and keep them off rather than taking today's defaults.
   const read = (key: string) =>
@@ -381,6 +388,11 @@ export function normalizeRecipe(input: unknown): Recipe | null {
   for (const def of SLIDERS) {
     const v = read(def.key);
     if (typeof v === 'number' && Number.isFinite(v)) out[def.key] = clamp(v, def.min, def.max);
+  }
+  // Preserve edits saved with the former extended positive range without exposing +400 in UI.
+  if (out.toneVersions?.shadows !== 2 && out.toneVersions?.shadows !== 1 && typeof o.shadows === 'number' && Number.isFinite(o.shadows) && o.shadows > 100) {
+    out.shadows = clamp(o.shadows / MAX_SHADOWS_LIFT, 0, 100);
+    out.toneVersions = { ...out.toneVersions, shadows: 1 };
   }
   // Only active old effects need the legacy renderer. New adjustments start with the new model.
   out.halationVersion = out.halation === 0 ? 3 : o.halationVersion === 2 || o.halationVersion === 3 ? o.halationVersion : undefined;
@@ -391,7 +403,7 @@ export function normalizeRecipe(input: unknown): Recipe | null {
   const snap = o.lookSnapshot as Recipe['lookSnapshot'];
   if (snap && typeof snap.id === 'string' && typeof snap.name === 'string' && Number.isSafeInteger(snap.revision)) {
     const settings = normalizeSettings(snap.settings);
-    if (settings) out.lookSnapshot = { id: snap.id, name: snap.name, revision: snap.revision, kind: snap.kind === 'lut' || snap.kind === 'look' ? snap.kind : settings.colorBalance || settings.curve || settings.color || settings.scanner && settings.scanner !== 'straight' ? 'look' : 'lut', settings };
+    if (settings) out.lookSnapshot = { id: snap.id, name: snap.name, revision: snap.revision, kind: snap.kind === 'lut' || snap.kind === 'look' ? snap.kind : settings.adaptiveShadows || settings.colorBalance || settings.curve || settings.color || settings.scanner && settings.scanner !== 'straight' ? 'look' : 'lut', settings };
   }
   return captureLook(out);
 }
@@ -401,6 +413,8 @@ export const recipeKey = (r: Recipe | null) => (r ? JSON.stringify(r) : 'origina
 /** Keep an active legacy effect until it is cleared, or its new size control is used. */
 export function withSlider(recipe: Recipe, key: SliderKey, value: number): Recipe {
   const out = { ...recipe, [key]: value };
+  // Existing active edits keep their processing. Clearing a control makes its next use adaptive.
+  if (TONE_KEYS.some(k => k === key) && (recipe[key] === 0 || value === 0)) out.toneVersions = { ...recipe.toneVersions, [key]: 2 };
   if (key === 'halationSize' || key === 'halation' && (recipe.halation === 0 || value === 0)) out.halationVersion = 3;
   if (key === 'glowSize' || key === 'glow' && (recipe.glow === 0 || value === 0)) out.glowVersion = 2;
   return out;

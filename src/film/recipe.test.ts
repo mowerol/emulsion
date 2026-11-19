@@ -3,6 +3,29 @@ import { describe, expect, it } from 'vitest';
 import { SLIDERS, defaultRecipe, normalizeRecipe, recipeKey, resetAdjustments, resetSection, sectionChanged, withSettingsFrom, withStock } from './recipe';
 import { withSlider } from './recipe';
 
+it('preserves saved HDR processing and adopts adaptive processing only when an old control is clear', () => {
+  const legacy = normalizeRecipe({ shadows: 70, highlights: -80, whites: 25, blacks: -10 })!;
+  expect(legacy.toneVersions).toBeUndefined();
+  expect(withSlider(legacy, 'shadows', 100).toneVersions).toBeUndefined();
+  const cleared = withSlider(legacy, 'shadows', 0);
+  expect(withSlider(cleared, 'shadows', 100).toneVersions).toEqual({ shadows: 2 });
+  expect(resetSection(legacy, 'hdr').toneVersions).toEqual(defaultRecipe().toneVersions);
+  const saved = { ...defaultRecipe(), shadows: 80, highlights: -60, whites: 30, blacks: -20 };
+  expect(normalizeRecipe(JSON.parse(JSON.stringify(saved)))).toEqual(saved);
+});
+
+it('keeps extended legacy shadow rendering while presenting a -100 to +100 slider', () => {
+  for (const value of [150, 250, 400]) {
+    const saved = normalizeRecipe({ shadows: value })!;
+    expect(saved.shadows).toBe(value / 4);
+    expect(saved.toneVersions).toEqual({ shadows: 1 });
+    expect(normalizeRecipe(JSON.parse(JSON.stringify(saved)))).toEqual(saved);
+  }
+  const transitional = normalizeRecipe({ shadows: 400, toneVersions: { shadows: 2 } })!;
+  expect(transitional.shadows).toBe(100);
+  expect(transitional.toneVersions).toEqual({ shadows: 2 });
+});
+
 it('preserves active legacy optics across save, edits, copy, and reset', () => {
   const old = { ...defaultRecipe(), halation: 40, glow: 30, halationVersion: undefined, glowVersion: undefined };
   const restored = normalizeRecipe(JSON.parse(JSON.stringify(old)))!;

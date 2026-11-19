@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
 import { defaultRecipe, normalizeRecipe, resetSection, resetAdjustments, withSettingsFrom } from './recipe';
-import { gradeValue, normalizeGrading, updateGrade } from './grading';
+import { gradeRange, gradeValue, normalizeGrading, updateGrade } from './grading';
 import { CB_DEFAULTS, cbCommit, cbUniform, colorBalanceParams, sliderParams } from '../engine/colorbalance';
 import { developUniforms, InputMode } from '../engine/params';
 
@@ -29,6 +29,19 @@ describe('Colour Grading', () => {
     expect(withSettingsFrom(edited, null).grading).toEqual(edited.grading);
     expect(resetSection(edited, 'grading')).toEqual(before);
     expect(resetAdjustments(edited).grading).toBeNull();
+  });
+  it('keeps extended Shadows linked to wheel Lightness and preserves both old and new sidecar values', () => {
+    expect(gradeRange('shadows_Y')).toEqual([-1, 1, 0.001]);
+    for (const shadows of [-100, 0, 25, 60, 100]) {
+      const recipe = updateGrade(defaultRecipe(), { shadows_Y: shadows / 100 });
+      const restored = normalizeRecipe(JSON.parse(JSON.stringify(recipe)))!;
+      expect(restored).toEqual(recipe);
+      expect(gradeValue(restored, 'shadows_Y')).toBe(shadows / 100);
+      expect((developUniforms(restored, ctx).uCbP as number[])[20]).toBeCloseTo(1, 6);
+      expect((developUniforms(restored, ctx).uToneControls as number[])[0]).toBe(shadows);
+    }
+    expect(normalizeRecipe({ shadows: 900 })!.shadows).toBe(100);
+    expect(normalizeRecipe({ shadows: -900 })!.shadows).toBe(-100);
   });
   it('feeds the recipe instance when a LUT is active, without enabling the stock grade', () => {
     const recipe = updateGrade(defaultRecipe('pro400h'), { global_H: 45, global_C: 0.008, chroma_shadows: 0.2 });

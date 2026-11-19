@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { defaultRecipe, normalizeRecipe, type Recipe } from './recipe';
+import { copyToneVersions } from '../engine/adaptivetone';
 
 export const PRESET_GROUPS = {
   Treatment: ['lookEnabled', 'stock', 'pack', 'lookAmount', 'lookBlend', 'lookSnapshot'],
   Exposure: ['exposure'],
   'White balance': ['wb'],
-  Tone: ['contrast', 'toneCharacter', 'highlights', 'shadows', 'whites', 'blacks'],
+  Tone: ['contrast', 'toneCharacter', 'highlights', 'shadows', 'whites', 'blacks', 'toneVersions'],
   Curve: ['curve'],
   Colour: ['vibrance', 'saturation', 'color'],
   'Colour Grading': ['grading'],
@@ -34,6 +35,7 @@ export function applyPreset(p: Preset, target: Recipe | null): Recipe {
   for (const group of p.groups) for (const key of PRESET_GROUPS[group]) {
     Object.assign(result, { [key]: structuredClone(p.recipe[key]) });
   }
+  result.toneVersions = copyToneVersions(p.recipe.toneVersions, result.toneVersions, p.groups.flatMap(group => [...PRESET_GROUPS[group]]));
   return result;
 }
 

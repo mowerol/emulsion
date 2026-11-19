@@ -110,6 +110,15 @@ describe('darktable group', () => {
 });
 
 describe('mask recipes', () => {
+  it('preserves extended shadow lift in saved masks and sends the full gain to the GPU', () => {
+    const mask = { ...newMask(newGradient(), 0), toneVersions: undefined, shadows: 400 };
+    const [restored] = normalizeMasks(JSON.parse(JSON.stringify([mask])));
+    expect(restored).toMatchObject({ shadows: 100, toneVersions: { shadows: 1 } });
+    const u = maskUniforms([restored], defaultRecipe(), {});
+    expect((u.uMaskCb as number[])[20]).toBeCloseTo(5, 6);
+    expect(normalizeMasks([{ ...mask, shadows: 900 }])[0].shadows).toBe(100);
+  });
+
   it('normalises what a sidecar holds', () => {
     const masks = normalizeMasks([
       { name: 'Sky', exposure: -9, ranges: { hue: { points: [300, 200, 400, 10] }, chroma: 'x' }, shapes: [{ kind: 'gradient', anchor: [0.5, 0.3], rotation: 10, compression: 4, mode: 'nope' }, { kind: 'star' }] },
@@ -192,7 +201,7 @@ describe('mask uniforms', () => {
     // Tile 0 is the photo's instance; the masked instances follow in mask order.
     expect(u.uMaskLocal).toEqual([1, 1, 0, 0, 0, 0, 0, 0, 1, 2, 0, 0]);
     expect(u.uTeqTiles).toBe(3);
-    const photo = developUniforms({ ...defaultRecipe(), highlights: -60 }, ctx);
+    const photo = developUniforms({ ...defaultRecipe(), toneVersions: undefined, highlights: -60 }, ctx);
     expect((u.uMaskTeq as number[]).slice(0, 8)).toEqual([...(photo.uTeqF0 as number[]), ...(photo.uTeqF1 as number[])]);
     expect((u.uMaskTeq as number[]).slice(8, 16)).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
     // A mask's Highlights alone turns the stage on.

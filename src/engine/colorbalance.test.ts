@@ -8,6 +8,7 @@ import {
   XYZ_TO_REC2020,
   buildGamutLut,
   colorBalance,
+  colorBalanceParams,
   lmsToYrg,
   lookupGamut,
   shadowsGain,
@@ -123,6 +124,23 @@ describe('colour balance', () => {
 });
 
 describe('shadows lift', () => {
+  it('retains the extended legacy lift, with protected highlights and ordered tones', () => {
+    const p = colorBalanceParams(0, 0, 0, 400);
+    const dark: Vec3 = [0.01, 0.01, 0.01];
+    const stops = Math.log2(colorBalance(dark, p)[1] / dark[1]);
+    expect(stops).toBeGreaterThanOrEqual(2);
+    expect(stops).toBeLessThanOrEqual(3);
+    expect(colorBalance([1, 1, 1], p)[1]).toBeCloseTo(1, 2);
+
+    let previous = 0;
+    for (let e = -12; e <= 3; e += 0.05) {
+      const y = 0.18 * 2 ** e;
+      const out = colorBalance([y, y, y], p)[1];
+      expect(out).toBeGreaterThan(previous);
+      previous = out;
+    }
+  });
+
   // darktable's masks at their defaults centre middle grey (0.1845) in the shadows and
   // highlights sigmoids, so the lift there is a quarter of the full gain.
   it('gains nearly 1 + lift in deep shadows, a quarter of it at middle grey and almost nothing in highlights', () => {
@@ -143,8 +161,8 @@ describe('shadows lift', () => {
     }
   });
 
-  it('lifts luminance and keeps chromaticity', () => {
-    const p = { ...NONE, shadows: 0.7 };
+  it.each([0.7, 4])('lifts luminance and keeps chromaticity at lift %s', (shadows) => {
+    const p = { ...NONE, shadows };
     for (const c of [SKIN.map((v) => v * 0.15) as Vec3, FOLIAGE, [0.02, 0.02, 0.02] as Vec3]) {
       const out = colorBalance(c, p);
       expect(out[1]).toBeGreaterThan(c[1]);

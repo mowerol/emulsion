@@ -2,6 +2,7 @@
 // Copy scopes keep coupled settings together (a Look and its snapshot, a sharpening amount
 // and its radius). Unchecked fields always belong to the destination photo.
 import { defaultRecipe, type Recipe } from './recipe';
+import { copyToneVersions } from '../engine/adaptivetone';
 
 export const COPY_GROUPS = {
   Look: ['lookEnabled', 'stock', 'pack', 'lookAmount', 'lookBlend', 'lookSnapshot'],
@@ -61,5 +62,6 @@ export function applyCopiedSettings(clip: CopiedSettings, target: Recipe | null)
   for (const group of clip.groups) for (const key of COPY_GROUPS[group]) {
     Object.assign(result, { [key]: structuredClone(clip.recipe[key]) });
   }
+  result.toneVersions = copyToneVersions(clip.recipe.toneVersions, result.toneVersions, clip.groups.flatMap(group => [...COPY_GROUPS[group]]));
   return result;
 }

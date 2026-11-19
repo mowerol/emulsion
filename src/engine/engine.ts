@@ -38,6 +38,8 @@ import { type LoadedLut, loadLut, lutFor, lutPending } from './lutstore';
 import { recipeLookFile } from '../film/looks';
 import { GLOW_SIGMA, HALATION_SIGMA, blurPlan, pyramidFor, type Pyramid } from './pyramid';
 import { MASK_SIGMA } from './toneequalizer';
+import { adaptiveToneTransform, type ToneAnalysis } from './adaptivetone';
+import { AdaptiveToneGpu } from './adaptivetonegpu';
 import { ANALYSIS_MAX, SQRT_EPS, ambientLight, minTransmission, windows } from './dehaze';
 import { GAMMAS, LOG_GAMMAS, clarityScale, levelSize, numLevels } from './locallaplacian';
 import { amountScales, scales, regionFineScales, isRegionCoarse } from './equalizer';
@@ -155,6 +157,7 @@ interface Chain {
   teqTmp?: Target;
   /** The tone equalizer instances' blurred maps side by side (the photo's, then each masked one's). */
   teqAtlas?: Target;
+  teqMade?: { input: WebGLTexture; key: string };
 }
 
 /** Haze removal's working images at one source size, all 32-bit (see Engine.dehazeMap). */
@@ -249,6 +252,7 @@ const maskGlowInstances = (u: Uniforms): MaskedGlow[] => {
  * of the frame), and haze removal's ambient light and depth.
  */
 interface Products {
+  toneAnalysis?: ToneAnalysis;
   maskedAmbient?: Map<number, { A0: [number, number, number]; distanceMax: number }>;
   mask?: WebGLTexture;
   texture?: Map<number, { target: Target; source: Source }>;
@@ -310,6 +314,7 @@ type ColorCache = Pick<Lane, 'ce' | 'ceScene' | 'ceMade' | 'ceLookMade'>;
  * roi.md) never evict each other's caches.
  */
 class Lane {
+  adaptiveTone: AdaptiveToneGpu | null = null;
   textureBoundaries = new Map<number, { target: Target; source: Source }>();
   clarityBoundaries = new Map<number, ClarityBoundary>();
   stack: MaskStack;
@@ -454,6 +459,7 @@ export class Engine {
   private L: Lane;
   /** During a region render, what it takes from the whole photo. */
   private inject: Products | null = null;
+  private toneAnalysisP: Program;
   private regionProductsSource: WebGLTexture | null = null;
   private regionP: Program;
   private viewSourceP: Program;
@@ -569,6 +575,7 @@ export class Engine {
     this.dehazeGfP = this.gpu.program(SHADERS.vertex, SHADERS.dehazeGf);
     this.extract = this.gpu.program(SHADERS.vertex, SHADERS.extract);
     this.teqMask = this.gpu.program(SHADERS.vertex, SHADERS.toneeqmask);
+    this.toneAnalysisP = this.gpu.program(SHADERS.vertex, SHADERS.toneanalysis);
     const programs: LanePrograms = {
       brush: this.gpu.program(SHADERS.brushVert, SHADERS.brushFrag),
       object: this.gpu.program(SHADERS.vertex, SHADERS.objectFrag),
@@ -795,6 +802,7 @@ export class Engine {
     L.ceDisplayDelta = L.ceDisplayDeltaMade = null;
     L.ceDelta = L.ceDeltaMade = null;
     L.lls.clear();
+    L.adaptiveTone?.dispose(); L.adaptiveTone = null;
     L.refiner.release();
     L.stack.release();
     L.brushes.reset();
@@ -1793,13 +1801,17 @@ export class Engine {
     const g = this.gpu;
     const gl = g.gl;
     const ch = this.chain(src.w, src.h);
+    const tiles = (u.uTeqTiles as number | undefined) ?? 1;
+    // Tile 0 precedes the photo's HDR controls, so every amount can reuse it. Masked
+    // instances follow that adjustment and therefore also depend on its current curve.
+    const key = `${pick(u, BEFORE_MASKS)}|${tiles}|${u.uTeqOn}|${tiles > 1 ? pick(u, ['uToneCurve', 'uToneBlack', 'uToneOn', 'uTeqLegacy', 'uTeqF0', 'uTeqF1']) : ''}`;
+    if (ch.teqAtlas && ch.teqMade?.input === src.tex && ch.teqMade.key === key) return ch.teqAtlas.tex;
     const top = ch.pyramid.halation;
     if (!ch.teq || !ch.teqTmp) {
       ch.teq = ch.pyramid.sizes.slice(0, top + 1).map(([w, h]) => g.target(w, h, true, g.float32));
       ch.teqTmp = g.target(ch.teq[top].w, ch.teq[top].h, true, g.float32);
     }
     const level = ch.teq[top];
-    const tiles = (u.uTeqTiles as number | undefined) ?? 1;
     if (ch.teqAtlas && ch.teqAtlas.w !== level.w * tiles) {
       g.free(ch.teqAtlas);
       ch.teqAtlas = undefined;
@@ -1825,6 +1837,7 @@ export class Engine {
       gl.blitFramebuffer(0, 0, level.w, level.h, tile * level.w, 0, (tile + 1) * level.w, level.h, gl.COLOR_BUFFER_BIT, gl.NEAREST);
       gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     }
+    ch.teqMade = { input: src.tex, key };
     return atlas.tex;
   }
 
@@ -3482,6 +3495,13 @@ export class Engine {
         this.L.refineMade = { tex: src.tex, key };
       }
     }
+    let toneAnalysis: ToneAnalysis | undefined;
+    if (u.uToneOn === 1 && !picking) {
+      toneAnalysis = this.inject?.toneAnalysis ?? (this.L.adaptiveTone ??= new AdaptiveToneGpu(g, this.toneAnalysisP)).analyze(src.tex, u, dehaze);
+      const [shadows, highlights, blacks, whites] = u.uToneControls as number[];
+      const transform = adaptiveToneTransform(toneAnalysis, { shadows, highlights, blacks, whites });
+      u.uToneCurve = transform.curve; u.uToneBlack = transform.black; u.uToneWhite = transform.white;
+    }
     if (teqLocal) teq = this.inject ? this.inject.teq ?? g.blackTexture : this.toneEqualizerMap(src, u, maskTex, dehaze);
     if (highlights && this.inject) {
       hal = this.inject.hal ?? g.blackTexture;
@@ -3535,7 +3555,7 @@ export class Engine {
     }
     g.bindArray(MASK_GLOW_UNIT, maskGlow);
     if (opts.products) {
-      Object.assign(opts.products, { teq: teqLocal ? teq : undefined, hal, glow, maskGlow, mask: maskTex, ambient: photoDehaze ? this.dehazeAmbient(src, u) : null });
+      Object.assign(opts.products, { toneAnalysis, teq: teqLocal ? teq : undefined, hal, glow, maskGlow, mask: maskTex, ambient: photoDehaze ? this.dehazeAmbient(src, u) : null });
       opts.products.maskedAmbient = new Map(dehazeMasked.flatMap((m, i) => this.L.dhMasked[i]?.ambient ? [[m.slot, this.L.dhMasked[i].ambient!] as const] : []));
       if (!passes.clarity && !passes.texture && !maskClarity.length && !maskTexture.length && !colorDraft && !(opts.live && passes.usm)) return;
     }

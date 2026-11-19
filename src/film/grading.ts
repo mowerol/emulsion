@@ -1,13 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import type { Recipe } from './recipe';
 import { CB_DEFAULTS, type CbParams } from '../engine/colorbalance';
+import { withSlider } from './recipe';
 
 export type GradingKey = Exclude<keyof CbParams, 'contrast' | 'vibrance' | 'saturation_global' | 'shadows_Y'>;
 export type ColourGrading = Partial<Pick<CbParams, GradingKey>>;
 export type GradeKey = keyof CbParams;
 
-/** Native parameter limits from darktable colorbalancergb.c at 20891f6c. */
+/** Native limits from darktable colorbalancergb.c at 20891f6c; shared Shadows uses normalized units. */
 export function gradeRange(key: GradeKey): [number, number, number] {
+  if (key === 'shadows_Y') return [-1, 1, 0.001];
   if (key === 'midtones_Y') return [-0.999, 1, 0.001];
   if (key.endsWith('_H')) return [0, 360, 0.1];
   if (key.endsWith('_C')) return [0, 1, 0.001];
@@ -44,7 +46,7 @@ export function updateGrade(recipe: Recipe, patch: Partial<Record<GradeKey, numb
   const grading = { ...recipe.grading };
   for (const [key, value] of Object.entries(patch) as [GradeKey, number][]) {
     const field = linked(key);
-    if (field) next = { ...next, [field]: value * 100 };
+    if (field) next = withSlider(next, field, value * 100);
     else Object.assign(grading, { [key]: value });
   }
   return { ...next, grading: normalizeGrading(grading) };

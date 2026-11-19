@@ -251,9 +251,16 @@ export interface ColorBalance {
   vibrance: number;
   /** -1 to 1; darktable's `saturation_global`, darktable UCS formula. */
   saturation: number;
-  /** -1 to 1; darktable's `shadows_Y`, the luminance of the shadows lift. */
+  /** -1 to MAX_SHADOWS_LIFT; darktable's `shadows_Y`, the luminance of the shadows lift. */
   shadows: number;
 }
+
+/**
+ * Extended shadows_Y limit: about 2.2 stops in deep shadows. Keep the original mapping so
+ * saved recipes and looks render identically. Larger lifts can reverse the tonal curve
+ * through the default masks' transition, so leave some margin below that point (about 5.35).
+ */
+export const MAX_SHADOWS_LIFT = 4;
 
 /**
  * Contrast pivots on Emulsion's middle grey rather than darktable's default
@@ -465,7 +472,7 @@ export function colorBalance(rgb: Vec3, p: ColorBalance, lut: ArrayLike<number> 
   return colorBalanceRgb(rgb, cbCommit(sliderParams(p)), lut);
 }
 
-/** Recipe sliders (-100 to 100, contrast -50 to 50) to the stage's parameters. */
+/** Legacy colour controls in percentage units; reconstructed legacy Shadows can reach +400. */
 export function colorBalanceParams(contrast: number, vibrance: number, saturation: number, shadows: number): ColorBalance {
   return { contrast: contrast / 100, vibrance: vibrance / 100, saturation: saturation / 100, shadows: shadows / 100 };
 }

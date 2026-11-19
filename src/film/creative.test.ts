@@ -10,7 +10,7 @@ import { defaultRecipe, type Recipe } from './recipe';
 
 const S = { rgb: [[0, 0.05], [0.5, 0.42], [1, 0.97]], r: [[0, 0], [0.5, 0.55], [1, 1]], g: [[0, 0], [1, 1]], b: [[0, 0.04], [1, 1]] } as Recipe['curve'];
 const graded = (): Recipe => ({
-  ...defaultRecipe('portra400'), lookEnabled: true, pack: 't3mujinpack', lookAmount: 70,
+  ...defaultRecipe('portra400'), toneVersions: undefined, lookEnabled: true, pack: 't3mujinpack', lookAmount: 70,
   contrast: 20, vibrance: -10, saturation: 15, shadows: 30, exposure: 0.4, clarity: 25,
   grading: { shadows_C: 0.05, shadows_H: 220, highlights_C: 0.04, highlights_H: 50, brilliance_midtones: 0.1 },
   curve: S,
@@ -47,6 +47,28 @@ describe('creative profiles', () => {
     const half = developUniforms({ ...after, lookAmount: 50 }, { ...ctx, look: lut });
     expect(half.uLutAmount).toBeCloseTo(0.35, 12);
     expect(developUniforms({ ...after, lookAmount: 0 }, ctx).uCurveOn).toBe(0);
+  });
+
+  it('retains extended shadow lift when saving, reopening and fading a custom look', () => {
+    const r = { ...defaultRecipe(), shadows: 100 };
+    const saved = normalizeSettings(JSON.parse(JSON.stringify(settingsFromRecipe(r, null))))!;
+    expect(saved.adaptiveShadows).toBe(100);
+    expect(recipeFromSettings(defaultRecipe(), saved).shadows).toBe(100);
+    expect(scaledSettings(saved, 0.5).adaptiveShadows).toBe(50);
+    const reopened = recipeFromSettings(defaultRecipe(), saved);
+    expect(developUniforms(reopened, ctx).uCbP).toEqual(developUniforms(r, ctx).uCbP);
+    expect(developUniforms(reopened, ctx).uToneControls).toEqual(developUniforms(r, ctx).uToneControls);
+    expect(colourAtRest(reopened)).toBe(false);
+    expect(normalizeSettings({ colorBalance: { shadows_Y: 99 } })!.colorBalance?.shadows_Y).toBe(4);
+  });
+
+  it('detaches old extended shadow grades onto normalized controls without changing the grade', () => {
+    const settings = normalizeSettings({ colorBalance: { shadows_Y: 4 } })!;
+    const recipe = recipeFromSettings(defaultRecipe('neutral'), settings);
+    expect(recipe.shadows).toBe(100);
+    expect(recipe.toneVersions?.shadows).toBe(1);
+    expect(settingsFromRecipe(recipe, null).colorBalance?.shadows_Y).toBe(4);
+    expect((developUniforms(recipe, ctx).uCbP as number[])[20]).toBeCloseTo(5, 6);
   });
 
   it('scales a profile towards doing nothing, keeping its hues and fulcrums', () => {

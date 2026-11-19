@@ -11,7 +11,7 @@ import { activePhoto, startLookEdit, useApp } from '../../src/library/store';
 
 (window as any).__TAURI_INTERNALS__ = { invoke: async () => undefined };
 const base = new URLSearchParams(location.search).has('builtin')
-  ? recipeFromSettings(defaultRecipe(), normalizeSettings(builtinLooks.find(l => l.id === 'emulsion-film-neg')!.settings)!) : defaultRecipe();
+  ? recipeFromSettings(defaultRecipe(), normalizeSettings(builtinLooks.find(l => l.id === 'emulsion-film-neg')!.settings)!) : defaultRecipe('neutral');
 const photo = { path: '/grading.orf', name: 'Grading', rel: 'grading.orf', size: 1, modified: 1,
   recipe: base, seed: 1, white: null, rating: 0, label: null, raw: true, pair: null };
 useApp.setState({ photos: [photo], active: 0, selected: new Set([photo.path]), view: 'develop' });
@@ -80,6 +80,34 @@ setTimeout(async () => {
         await setNumber(key, initial);
       }
     }
+    // Extended Shadows stays linked to wheel Lightness, including after profile persistence.
+    wheelButtons()[0].click();
+    await pause();
+    const shadowInput = document.getElementById('grade-shadows_Y') as HTMLInputElement;
+    const shadowSlider = shadowInput.closest('.grade-row')!.querySelector<HTMLInputElement>('.range')!;
+    assert(Number(shadowSlider.min) === -1 && Number(shadowSlider.max) === 1, 'Shadow Lightness must use a normalized range');
+    await setNumber('shadows_Y', 0);
+    assert(Number(shadowSlider.value) === 0, 'Zero is not centered');
+    for (const [position, shadows] of [[-1, -100], [-0.5, -50], [0, 0], [0.5, 50], [1, 100]]) {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(shadowSlider, String(position));
+      shadowSlider.dispatchEvent(new Event('input', { bubbles: true }));
+      shadowSlider.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowRight', bubbles: true }));
+      await pause();
+      assert(recipe().shadows === shadows, `Centered slider position ${position} gave ${recipe().shadows}, expected ${shadows}`);
+    }
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(shadowSlider, '1');
+    shadowSlider.dispatchEvent(new Event('input', { bubbles: true }));
+    shadowSlider.dispatchEvent(new KeyboardEvent('keyup', { key: 'ArrowRight', bubbles: true }));
+    await pause();
+    assert(recipe().shadows === 100 && Number(shadowInput.value) === 100, 'Normalized Shadows lost its wheel link');
+    const lifted = engine.readPixels(source, recipe(), W, H, 1);
+    assert(Math.max(...lifted.map((v, i) => Math.abs(v - original[i]))) >= 3, 'Extended Shadows did not change GPU pixels');
+    const shadowSettings = normalizeSettings(JSON.parse(JSON.stringify(settingsFromRecipe(recipe(), null))))!;
+    const reopenedShadows = recipeFromSettings(base, shadowSettings);
+    const reopenedPixels = engine.readPixels(source, reopenedShadows, W, H, 1);
+    assert(reopenedShadows.shadows === 100 && reopenedPixels.every((v, i) => v === lifted[i]), 'Normalized Shadows changed after save/reopen');
+    results.push('normalized Shadows +100: centered controls and saved GPU pixels match');
+    await setNumber('shadows_Y', base.shadows);
     rangeButtons()[0].click();
     await pause();
     const beforeRange = document.querySelector('.grade-range-selected')!.getAttribute('d');

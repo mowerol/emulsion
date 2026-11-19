@@ -10,6 +10,22 @@ import type { Mat3 } from '../film/stocks';
 const ctx = { width: 1600, height: 1067, seed: 3, inputMode: InputMode.DisplayLinear, store: 1 };
 
 describe('develop uniforms', () => {
+  it('routes new HDR controls through one adaptive stage and leaves the legacy controls independent', () => {
+    for (const key of ['shadows', 'highlights', 'blacks', 'whites'] as const) {
+      const r = { ...defaultRecipe('neutral'), [key]: 50 };
+      const u = developUniforms(r, ctx);
+      expect(u.uToneOn).toBe(1);
+      expect(u.uTeqLegacy).toBe(0);
+      expect(needsPasses(u).toneEqualizer).toBe(true);
+      expect((u.uCbP as number[])[20]).toBeCloseTo(1, 6);
+      expect(u.uExpBlack).toBe(0);
+      expect(u.uSigMag).toBe(1);
+    }
+    const mixed = developUniforms({ ...defaultRecipe(), toneVersions: { shadows: 2 }, shadows: 100, highlights: -50, blacks: -40 }, ctx);
+    expect(mixed.uToneOn).toBe(1);
+    expect(mixed.uTeqLegacy).toBe(1);
+    expect(mixed.uExpBlack).toBeCloseTo(0.0032, 8);
+  });
   it("applies a look LUT at the recipe's Amount, with the stock's own colour switched off", () => {
     const lut = { level: 2, data: new Float32Array(24), id: 7, eightBit: true };
     const r = { ...defaultRecipe('portra400'), lookAmount: 40 };
@@ -61,7 +77,7 @@ describe('develop uniforms', () => {
 
   it('sends contrast, vibrance, saturation and shadows to the colour balance stage, not the print', () => {
     const base = developUniforms(defaultRecipe(), ctx);
-    const u = developUniforms({ ...defaultRecipe(), contrast: 40, vibrance: -30, saturation: 25, shadows: 60 }, ctx);
+    const u = developUniforms({ ...defaultRecipe(), toneVersions: undefined, contrast: 40, vibrance: -30, saturation: 25, shadows: 60 }, ctx);
     const P = u.uCbP as number[];
     expect([P[0], P[1], P[8]]).toEqual([1.4, -0.3, 0.25]);
     expect(P[20]).toBeCloseTo(1.6, 6);
@@ -105,17 +121,17 @@ describe('develop uniforms', () => {
     expect(u.uDehazeA0).toEqual([1, 1, 1]);
   });
 
-  it('runs the tone equalizer only when Highlights is set', () => {
+  it('keeps the legacy tone equalizer limited to Highlights', () => {
     expect(needsPasses(developUniforms(defaultRecipe(), ctx)).toneEqualizer).toBe(false);
-    expect(needsPasses(developUniforms({ ...defaultRecipe(), shadows: 40 }, ctx)).toneEqualizer).toBe(false);
-    const u = developUniforms({ ...defaultRecipe(), highlights: -40 }, ctx);
+    expect(needsPasses(developUniforms({ ...defaultRecipe(), toneVersions: undefined, shadows: 40 }, ctx)).toneEqualizer).toBe(false);
+    const u = developUniforms({ ...defaultRecipe(), toneVersions: undefined, highlights: -40 }, ctx);
     expect(needsPasses(u).toneEqualizer).toBe(true);
     expect((u.uTeqF0 as number[]).length).toBe(4);
     expect(needsPasses(developUniforms({ ...defaultRecipe(), highlights: -10 }, { ...ctx, compare: true })).toneEqualizer).toBe(false);
   });
 
   it('maps whites to the display white and blacks to a lift or a cut', () => {
-    const at = (whites: number, blacks: number) => developUniforms({ ...defaultRecipe(), whites, blacks }, ctx);
+    const at = (whites: number, blacks: number) => developUniforms({ ...defaultRecipe(), toneVersions: undefined, whites, blacks }, ctx);
     expect(at(0, 0).uSigMag).toBe(1);
     expect(at(100, 0).uSigMag).toBeCloseTo(Math.SQRT2, 9);
     expect(at(0, 0).uExpBlack).toBe(0);
@@ -142,7 +158,7 @@ describe('develop uniforms', () => {
 describe('LUT white and black targets', () => {
   const lut = { level: 2, data: new Float32Array(24), id: 1, eightBit: true };
   it('sets the curve for Whites and Blacks, preserving the zero path', () => {
-    const r = defaultRecipe('portra400');
+    const r = { ...defaultRecipe('portra400'), toneVersions: undefined };
     const at = (whites: number, blacks: number) => developUniforms({ ...r, whites, blacks }, { ...ctx, look: lut });
     expect(at(0, -100).uExpBlack).toBeCloseTo(0.008, 9);
     expect(at(50, 25).uSigS).toEqual(packCurve(toneCurveFor(50, 25)));

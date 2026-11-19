@@ -16,6 +16,8 @@ uniform vec4 uSigN;
 uniform vec4 uSigS;
 // Display white the print's curve approaches (1 = 100%).
 uniform float uSigMag;
+// Adaptive Whites stretches the upper print around middle grey to a measured clipping point.
+uniform float uToneWhite;
 
 float srgbEotf1(float v) { return v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4); }
 float srgbOetf1(float l) { l = max(l, 0.0); return l <= 0.0031308 ? l * 12.92 : 1.055 * pow(l, 1.0 / 2.4) - 0.055; }
@@ -51,7 +53,12 @@ float sCurve(float v, float c, float p) {
 
 // The camera profile's print: the neutral curve per channel, with the Whites and Blacks targets.
 vec3 stageToneProfile(vec3 x) {
-  return vec3(srgbOetf1(sigmoid(x.r, uSigS, uSigMag)),
+  vec3 e = vec3(srgbOetf1(sigmoid(x.r, uSigS, uSigMag)),
               srgbOetf1(sigmoid(x.g, uSigS, uSigMag)),
               srgbOetf1(sigmoid(x.b, uSigS, uSigMag)));
+  if (uToneWhite > 1.0) {
+    float pivot = srgbOetf1(sigmoid(0.18, uSigN, 1.0));
+    e += max(e - pivot, vec3(0.0)) * (uToneWhite - 1.0);
+  }
+  return e;
 }

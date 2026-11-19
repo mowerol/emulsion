@@ -14,6 +14,11 @@
 
 // 1 when Shadows or Highlights is set.
 uniform float uTeqOn;
+uniform float uTeqLegacy;
+uniform float uToneOn;
+uniform float uToneBlack;
+// 128 log-lightness gains over -16..+8 EV, fitted to the whole photo's robust percentiles.
+uniform vec4 uToneCurve[32];
 // 1 to use the blurred map (edge-aware); 0 for a plain per-pixel correction.
 uniform float uTeqLocal;
 // Blurred maps: .r mean brightness, .g mean of brightness squared. An atlas of uTeqTiles maps
@@ -43,7 +48,7 @@ float teqCorrection(float lum, vec4 f0, vec4 f1) {
 }
 
 // The instance's gain for x at uv, its map in atlas tile `tile` (EIGF, then the bands).
-float teqGain(vec3 x, vec2 uv, float tile, vec4 f0, vec4 f1) {
+float teqGuide(vec3 x, vec2 uv, float tile) {
   float lum = teqLuminance(x);
   if (uTeqLocal > 0.5) {
     float tiles = max(uTeqTiles, 1.0);
@@ -54,10 +59,34 @@ float teqGain(vec3 x, vec2 uv, float tile, vec4 f0, vec4 f1) {
     float a = nv / (nv + uTeqParams.y);
     lum = max(lum * a + (avg - a * avg), TEQ_MIN_FLOAT);
   }
-  return teqCorrection(lum, f0, f1);
+  return lum;
+}
+
+float teqGain(vec3 x, vec2 uv, float tile, vec4 f0, vec4 f1) {
+  return teqCorrection(teqGuide(x, uv, tile), f0, f1);
+}
+
+float adaptiveToneGain(float lum) {
+  float p = clamp((log2(max(lum, TEQ_MIN_FLOAT)) + 16.0) / 24.0, 0.0, 1.0) * 127.0;
+  int i = min(int(floor(p)), 126);
+  float a = uToneCurve[i / 4][i % 4];
+  float b = uToneCurve[(i + 1) / 4][(i + 1) % 4];
+  return exp2(mix(a, b, p - float(i)));
 }
 
 vec3 stageToneEqualizer(vec3 x, vec2 uv) {
   if (uTeqOn < 0.5) return x;
-  return x * teqGain(x, uv, 0.0, uTeqF0, uTeqF1);
+  float lum = teqGuide(x, uv, 0.0);
+  if (uToneOn < 0.5) return x * teqCorrection(lum, uTeqF0, uTeqF1);
+  float gain = uToneOn > 0.5 ? adaptiveToneGain(lum) : 1.0;
+  if (uTeqLegacy > 0.5) gain *= teqCorrection(lum, uTeqF0, uTeqF1);
+  x = max(x * gain, vec3(0.0));
+  if (uToneOn > 0.5 && uToneBlack != 0.0) {
+    float lumOut = uTeqParams.x * length(x);
+    float target = uToneBlack > 0.0
+      ? lumOut + uToneBlack * exp(-lumOut / (4.0 * uToneBlack))
+      : max(0.0, lumOut + uToneBlack);
+    x = lumOut > 1e-20 ? x * (target / lumOut) : vec3(target / (uTeqParams.x * 1.7320508075688772));
+  }
+  return x;
 }

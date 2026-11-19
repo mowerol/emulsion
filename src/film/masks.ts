@@ -12,6 +12,7 @@
 
 import { NO_REFINE, type MaskRefine } from '../engine/maskrefine';
 import { normalizeRaster, type ObjectRaster } from './objectmask';
+import { normalizeToneVersions, type ToneVersions } from '../engine/adaptivetone';
 
 /** darktable's mask states DT_MASKS_STATE_UNION ... EXCLUSION, as Lightroom names them. */
 export type MaskMode = 'add' | 'intersect' | 'subtract' | 'sum' | 'exclude';
@@ -173,6 +174,8 @@ export const fullRange = (c: RangeChannel): MaskRange => {
 export const NO_RANGES: MaskRanges = { luminance: null, chroma: null, hue: null };
 
 export interface Mask extends MaskAdjust {
+  /** Retains the original positive lift while showing a normalized Shadows range. */
+  toneVersions?: ToneVersions;
   id: string;
   name: string;
   /** Off leaves the photo as if the mask were not there. */
@@ -243,7 +246,7 @@ export function newBrush(mode: MaskMode = 'add'): BrushShape {
 }
 
 export function newMask(shape: MaskShape, index: number): Mask {
-  return { id: newId(), name: `Mask ${index + 1}`, on: true, opacity: 100, shapes: [shape], ranges: NO_RANGES, refine: NO_REFINE, ...NO_ADJUST };
+  return { id: newId(), name: `Mask ${index + 1}`, on: true, opacity: 100, shapes: [shape], ranges: NO_RANGES, refine: NO_REFINE, toneVersions: { shadows: 1 }, ...NO_ADJUST };
 }
 
 /** Whether a mask changes anything. */
@@ -345,6 +348,12 @@ export function normalizeMasks(input: unknown): Mask[] {
     shapes += list.length;
     const m: Mask = { id: str(o.id, newId()), name: str(o.name, `Mask ${out.length + 1}`), on: o.on !== false, opacity: num(o.opacity, 100, 0, 100), shapes: list, ranges: normalizeRanges(o.ranges), refine: normalizeRefine(o.refine), ...NO_ADJUST };
     for (const d of MASK_SLIDERS) m[d.key] = num(o[d.key], maskSliderDefault(d), d.min, d.max);
+    const versions = normalizeToneVersions(o.toneVersions);
+    m.toneVersions = versions?.shadows === 1 ? { shadows: 1 } : undefined;
+    if (!m.toneVersions?.shadows && typeof o.shadows === 'number' && Number.isFinite(o.shadows) && o.shadows > 100) {
+      m.shadows = Math.min(100, o.shadows / 4);
+      m.toneVersions = { shadows: 1 };
+    }
     out.push(m);
   }
   return out;

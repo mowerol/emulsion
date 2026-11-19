@@ -7,10 +7,22 @@ import { newEllipse, newMask } from './masks';
 import { newCircleSpot } from './retouch';
 import { defaultRecipe, withSettingsFrom } from './recipe';
 
+it('copies HDR processing only for the selected control, including legacy controls', () => {
+  const legacy = { ...defaultRecipe(), toneVersions: undefined, highlights: -70 };
+  const target = { ...defaultRecipe(), shadows: 180, highlights: -10 };
+  const copied = applyCopiedSettings({ recipe: legacy, groups: ['Highlights'] }, target);
+  expect(copied.highlights).toBe(-70);
+  expect(copied.toneVersions).toEqual({ shadows: 2, blacks: 2, whites: 2 });
+  const adaptive = applyCopiedSettings({ recipe: target, groups: ['Shadows'] }, legacy);
+  expect(adaptive.toneVersions).toEqual({ shadows: 2 });
+  expect(adaptive.highlights).toBe(-70);
+});
+
 it('covers every recipe setting once and presents each copy option once', () => {
   const fields = Object.values(COPY_GROUPS).flat();
   expect(new Set(fields).size).toBe(fields.length);
-  for (const key of Object.keys(defaultRecipe())) if (key !== 'v') expect(fields).toContain(key);
+  // Processing metadata follows each selected HDR value rather than being a separate copy option.
+  for (const key of Object.keys(defaultRecipe())) if (key !== 'v' && key !== 'toneVersions') expect(fields).toContain(key);
   const visible = COPY_SECTIONS.flatMap(s => [...s.groups]);
   expect([...visible].sort()).toEqual([...ALL_COPY_GROUPS].sort());
 });
