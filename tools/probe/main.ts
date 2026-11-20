@@ -6,6 +6,7 @@ import { planRemovals, removeContext, removeSetup, removalIdentity } from '../..
 // numerically. See docs/ARCHITECTURE.md, "Testing".
 import { parsePayload } from '../../src/backend/api';
 import lensFixtures from '../../src/engine/fixtures/lens-metadata.json';
+import sonyZV1Lens from '../../src/engine/fixtures/sony-zv1-lens.json';
 import { LENS_DEFAULTS, lensCenter, lensColourUniforms, lensCorrectPixels, lensSpline, lensUniforms, type LensMetadata } from '../../src/engine/lenscorrection';
 import { setPrefs } from '../../src/ui/prefs';
 import { setWorkspace } from '../../src/ui/workspace';
@@ -1393,9 +1394,18 @@ try {
     gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA32F,width,height,0,gl.RGBA,gl.FLOAT,pixels);g.params(false);
     const prog=g.program(SHADERS.vertex,SHADERS.lenscorrect),target=g.target(width,height,true,true);
     const cases: Record<string,number>={};
-    for(const [index,metadata] of (lensFixtures as LensMetadata[]).entries()) {
-      for(const orientation of [1,8]) for(const enabled of [true,false]) {
-        const model=lensSpline(metadata.correction!,width,height,{...LENS_DEFAULTS,distortion:enabled})!;
+    const lensProfiles = [...lensFixtures, sonyZV1Lens] as LensMetadata[];
+    const lensSettings = {
+      all: LENS_DEFAULTS,
+      noDistortion: { ...LENS_DEFAULTS, distortion: false },
+      noCA: { ...LENS_DEFAULTS, ca: false },
+      noVignette: { ...LENS_DEFAULTS, vignette: false },
+      vignetteOnly: { ...LENS_DEFAULTS, distortion: false, ca: false },
+      fineTune: { ...LENS_DEFAULTS, distortionAmount: .6, redAmount: 1.4, blueAmount: .8, vignetteAmount: 2 },
+    };
+    for(const [index,metadata] of lensProfiles.entries()) {
+      for(const orientation of [1,8]) for(const [setting,adjust] of Object.entries(lensSettings)) {
+        const model=lensSpline(metadata.correction!,width,height,adjust)!;
         if(!model)continue;
         const center=lensCenter(orientation,width,height);
         const colour={...metadata,cameraToWorking:[[0.8,0.15,0.05],[0.05,0.9,0.05],[0.1,0.05,0.85]] as import('../../src/film/stocks').Mat3};
@@ -1403,7 +1413,7 @@ try {
         const got=new Float32Array(pixels.length);gl.readPixels(0,0,width,height,gl.RGBA,gl.FLOAT,got);
         const reference=lensCorrectPixels(pixels,width,height,model,center,colour.cameraToWorking);
         let error=0;for(let i=0;i<got.length;i++)error=Math.max(error,Math.abs(got[i]-reference[i]));
-        cases[`${index}_${orientation}_${enabled}`]=error;
+        cases[`${index}_${orientation}_${setting}`]=error;
       }
     }
     out.lens={worstAbsoluteError:Math.max(...Object.values(cases)),byCase:cases,glError:gl.getError()};
@@ -1416,8 +1426,9 @@ try {
     const again=engine.readPixels(source,recipe,width,height,1);
     out.lensCache={equal:first.every((v,i)=>v===again[i]),glError:gl.getError()};
     if(new URLSearchParams(location.search).has('lenspanel')) {
-      useApp.setState({ photos:[{path:'/probe/lens.raw',rel:'lens.raw',name:'Lens test',size:1,modified:0,recipe:defaultRecipe('neutral','straight'),seed:1,white:null,rating:0,label:null,flag:null,raw:true,pair:null,lens:(lensFixtures as LensMetadata[])[0]}],active:0,view:'develop' });
-      localStorage.setItem('emulsion.folded',JSON.stringify(['stock','development','scanner','crop','adjust','curve','color','grading','detail','optics','grain']));
+      setWorkspace({ group: 'refine' });
+      useApp.setState({ photos:[{path:'/probe/lens.raw',rel:'lens.raw',name:'Lens test',size:1,modified:0,recipe:defaultRecipe('neutral','straight'),seed:1,white:null,rating:0,label:null,flag:null,raw:true,pair:null,lens:new URLSearchParams(location.search).has('zv1') ? sonyZV1Lens as LensMetadata : (lensFixtures as LensMetadata[])[0]}],active:0,view:'develop' });
+      localStorage.setItem('emulsion.folded',JSON.stringify(['stock','development','scanner','crop','adjust','curve','color','grading','detail','optics','grain','noise']));
       const host=document.createElement('div');host.style.cssText='position:fixed;inset:0 auto 0 0;width:340px;display:grid;z-index:100';document.body.append(host);createRoot(host).render(createElement(Panel));
       setTimeout(()=>{const panel=host.querySelector('.panel') as HTMLElement;panel.scrollTop=(panel.querySelector('#section-lens')?.parentElement?.offsetTop??0)-170;},300);
     }

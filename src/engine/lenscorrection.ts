@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Port of lens.cc _init_coeffs_md_v2, _interpolate_linear_spline and _process_md
 // at darktable 20891f6c. Centered radial profiles, MAXKNOTS=16; bilinear resampling.
+// Agreed extension (2026-11-20): Sony vignette tables use their own sample count
+// and the same upstream knot/formula convention, for mixed-count ZV-1 profiles.
 import { columnMajor, invert3, mulVec } from './color';
 import type { Mat3, Vec3 } from '../film/stocks';
 
@@ -48,15 +50,23 @@ export function lensSpline(c: EmbeddedCorrection, width: number, height: number,
       knots.push(rin/m);
       factors.push([d*(ca?1+spline(ki,ri,rin):1),d,d*(ca?1+spline(ki,bi,rin):1)]);
     }
+  } else if (c.kind === 'sony') {
+    const nv = c.vignette.length;
+    if (n < 2 || n > 16 || nv < 2 || nv > 16 || c.red.length !== n || c.blue.length !== n) return null;
+    for (let i=0;i<n;i++) {
+      knots.push((i+0.5)/(n-1));
+      const d=dist?1+p.distortionAmount*c.distortion[i]*2**-14:1;
+      factors.push([d*(ca?1+p.redAmount*c.red[i]*2**-21:1),d,d*(ca?1+p.blueAmount*c.blue[i]*2**-21:1)]);
+    }
+    for (let i=0;i<nv;i++) {
+      vigKnots.push((i+0.5)/(nv-1));
+      vig.push(vignette?2**(0.5-2**(p.vignetteAmount*c.vignette[i]*2**-13-1)):1);
+    }
   } else for (let i=0;i<n;i++) {
-    const r=c.kind==='sony'?(i+0.5)/(n-1):i/(n-1), r2=r*r;
+    const r=i/(n-1), r2=r*r;
     knots.push(r);vigKnots.push(r);
     let f:Vec3=[1,1,1], v=1;
-    if (c.kind==='sony') {
-      const d=dist?1+p.distortionAmount*c.distortion[i]*2**-14:1;
-      f=[d*(ca?1+p.redAmount*c.red[i]*2**-21:1),d,d*(ca?1+p.blueAmount*c.blue[i]*2**-21:1)];
-      if(vignette) v=2**(0.5-2**(p.vignetteAmount*c.vignette[i]*2**-13-1));
-    } else if (c.kind==='olympus') {
+    if (c.kind==='olympus') {
       const [k2,k4,k6,rs]=c.distortion??[0,0,0,1], rs2=(r*rs)**2;
       const d=dist?1+p.distortionAmount*(rs*(1+rs2*(k2+rs2*(k4+rs2*k6)))-1):1;
       f=[d,d,d];

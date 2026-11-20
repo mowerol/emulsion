@@ -148,3 +148,11 @@ The first layer is implemented for embedded Fuji RAF (both table generations), O
 - A before/after board and real Lens panel were rendered from Oli's Fuji RAW locally. The user's photographs and decoded binary are not checked into the repo.
 
 Next: lensfun database matching and models for lenses without supported embedded data, then remembered per-camera/lens assignment and user-loaded LCP files. Return to LUT import/pack selection afterwards.
+
+## Sony mixed-count extension (2026-11-20)
+
+Oli approved extending the pinned port to accept Sony vignetting independently of geometry/CA. A local ZV-1 ARW has distortion count 11, CA count 22 (11 per colour) and vignette count 16. Both the pinned darktable reader and RawTherapee's corresponding reader reject that layout because they require a shared count. Emulsion previously showed “No embedded correction profile found.”
+
+The reader now bounds geometry and vignette counts independently to 2–16, validates both payload lengths and still requires CA count `2 * geometryCount`. Padding is ignored after each active count. The spline builder retains all vignette entries, placing them at `(i + 0.5)/(vignetteCount - 1)` with the unchanged upstream vignette formula. Geometry uses its own count and unchanged autoscale. The GPU already supports separate vignette arrays/counts. Matching-count profiles follow the same arithmetic as before.
+
+This extension applies the upstream radial convention to each table independently; it is not an independently measured Sony calibration. `sony-zv1-lens.json` retains the correction numbers from the diagnosed RAW without any image pixels or personal EXIF. Parser regression tests use those same numbers; the engine tests cover the full vignette table, strengths and switches, and `?lensprobe` includes this mixed-count profile alongside the pinned upstream cases. The upstream C-reference fixture remains restricted to layouts upstream supports.

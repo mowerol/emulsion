@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Bounded TIFF/maker-note readers for darktable's embedded lens metadata v2.
 //! Source: darktable common/exif.cc and common/dng_opcode.c at 20891f6c.
+//! Agreed extension (2026-11-20): Sony vignette tables retain their own active count,
+//! independent of geometry/CA, to support the ZV-1's 11/16-point layout.
 use serde::Serialize;
 use std::{
     cell::RefCell,
@@ -300,12 +302,15 @@ fn sony(t: &Tiff, tags: &[Tag]) -> Option<Correction> {
     let c = values(t, tags, 0x7035)?;
     let v = values(t, tags, 0x7032)?;
     let n = *d.first()? as usize;
+    let nv = *v.first()? as usize;
     if !(2..=16).contains(&n)
+        || !(2..=16).contains(&nv)
+        || d[0] != n as f64
+        || v[0] != nv as f64
         || d.len() < n + 1
         || c.len() < 2 * n + 1
-        || v.len() < n + 1
+        || v.len() < nv + 1
         || c[0] != 2.0 * n as f64
-        || v[0] != n as f64
     {
         return None;
     }
@@ -313,7 +318,7 @@ fn sony(t: &Tiff, tags: &[Tag]) -> Option<Correction> {
         distortion: d[1..=n].to_vec(),
         red: c[1..=n].to_vec(),
         blue: c[n + 1..=2 * n].to_vec(),
-        vignette: v[1..=n].to_vec(),
+        vignette: v[1..=nv].to_vec(),
     })
 }
 fn olympus(t: &Tiff, tags: &[Tag]) -> Option<Correction> {
@@ -735,6 +740,50 @@ mod tests {
                     _ => panic!("Fuji"),
                 }
             }
+        }
+    }
+    #[test]
+    fn sony_zv1_uses_independent_vignette_count() {
+        // Correction tables read directly from a ZV-1 ARW: 11 geometry/CA, 16 vignette.
+        // Keep only the metadata, not the user's photograph, in the regression fixture.
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../src/engine/fixtures/sony-zv1-lens.json"
+        )).unwrap();
+        let c = &fixture["correction"];
+        let array = |name: &str| -> Vec<i16> {
+            c[name].as_array().unwrap().iter().map(|v| v.as_i64().unwrap() as i16).collect()
+        };
+        let d = array("distortion");
+        let ca = [array("red"), array("blue")].concat();
+        let v = array("vignette");
+        let tags = [(0x7037, d), (0x7035, ca), (0x7032, v)].into_iter().map(|(id, values)| {
+            let count = values.len() + 1;
+            let bytes = [vec![values.len() as i16], values].concat().into_iter().flat_map(i16::to_le_bytes).collect();
+            (id, 8, count as u32, bytes)
+        }).collect();
+        let profile = read_bytes(&tiff(tags)).unwrap().correction.expect("ZV-1 correction");
+        let actual = serde_json::to_value(profile).unwrap();
+        assert_eq!(actual["kind"], c["kind"]);
+        for name in ["distortion", "red", "blue", "vignette"] {
+            let numbers = |v: &serde_json::Value| -> Vec<f64> {
+                v.as_array().unwrap().iter().map(|x| x.as_f64().unwrap()).collect()
+            };
+            assert_eq!(numbers(&actual[name]), numbers(&c[name]), "{name}");
+        }
+    }
+    #[test]
+    fn sony_rejects_invalid_or_truncated_independent_tables() {
+        let array = |v: Vec<i16>| v.into_iter().flat_map(i16::to_le_bytes).collect::<Vec<_>>();
+        for (d, ca, v) in [
+            (vec![2, -12, -30], vec![4, 60, 70, -20, -30], vec![3, 10, 20]),
+            (vec![2, -12, -30], vec![2, 60, 70, -20, -30], vec![3, 10, 20, 30]),
+        ].into_iter().chain([0, 1, 17, -1].into_iter().flat_map(|bad| [
+            (vec![bad, -12, -30], vec![4, 60, 70, -20, -30], vec![3, 10, 20, 30]),
+            (vec![2, -12, -30], vec![4, 60, 70, -20, -30], vec![bad, 10, 20, 30]),
+        ])) {
+            let tags = [(0x7037, d), (0x7035, ca), (0x7032, v)].into_iter()
+                .map(|(id, values)| (id, 8, values.len() as u32, array(values))).collect();
+            assert!(read_bytes(&tiff(tags)).unwrap().correction.is_none());
         }
     }
     #[test]
