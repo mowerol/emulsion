@@ -24,6 +24,19 @@ beforeEach(() => {
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('app settings file', () => {
+  it('persists zoom sensitivity in settings.json across app launches', async () => {
+    const s = await import('./appsettings');
+    await s.loadAppSettings();
+    const zoom = await import('../ui/zoomsettings');
+    zoom.setZoomSensitivity(0.2);
+    await s.flushAppSettings();
+    expect(file!['emulsion.zoomSensitivity']).toBe(0.2);
+    storage.clear();
+    vi.resetModules();
+    await (await import('./appsettings')).loadAppSettings();
+    expect((await import('../ui/zoomsettings')).useZoomSettings.getState().sensitivity).toBe(0.2);
+  });
+
   it('moves settings out of the webview storage once, and the file wins after that', async () => {
     storage.set('emulsion.lookBrowser', JSON.stringify({ x: 'a' }));
     storage.set('emulsion.presetFavourites', '{ broken');

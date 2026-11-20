@@ -13,6 +13,7 @@ import { setPrefs, usePrefs } from './prefs';
 import { CullPreviews, previewKey, type CullPreview } from './cullpreviews';
 import { onViewCommand, firstOf } from './menubridge';
 import { FIT, layout, pan, zoomAt, step as zoomStep, type Zoom } from './zoom';
+import { usePhotoNavigation } from './zoominput';
 
 /** Preserve an already-fullscreen window. Cleanup also handles exiting during the async enter. */
 let fullscreenQueue: Promise<void> = Promise.resolve();
@@ -50,6 +51,17 @@ function Preview({ preview, name, toolbar }: { preview: CullPreview; name: strin
     : zoomAt(current, scale, fx, fy, box.w, box.h, box.dpr, preview.width, preview.height));
   const latest = useRef({ current, zoom, box, at });
   latest.current = { current, zoom, box, at };
+  usePhotoNavigation(stage, {
+    enabled: true,
+    zoom: (factor, pointer) => {
+      const r = stage.current!.getBoundingClientRect();
+      const imageLeft = r.left + (box.w - current.cssW) / 2, imageTop = r.top + (box.h - current.cssH) / 2;
+      at(current.scale * factor, Math.max(0, Math.min(1, (pointer.clientX - imageLeft) / current.cssW)), Math.max(0, Math.min(1, (pointer.clientY - imageTop) / current.cssH)));
+    },
+    scroll: (dx, dy) => {
+      if (zoom.scale !== null) setZoom(pan(zoom, current, -dx, -dy, box.dpr, preview.width, preview.height));
+    },
+  });
   useEffect(() => {
     const command = (c: string) => {
       const { zoom, at, current, box } = latest.current;
@@ -73,22 +85,7 @@ function Preview({ preview, name, toolbar }: { preview: CullPreview; name: strin
       }
     };
     window.addEventListener('keydown', down, true);
-    const el = stage.current!;
-    const wheel = (e: WheelEvent) => {
-      e.preventDefault();
-      const { zoom, current, box, at } = latest.current;
-      if (e.ctrlKey || e.metaKey) {
-        const r = el.getBoundingClientRect();
-        const imageLeft = r.left + (box.w - current.cssW) / 2, imageTop = r.top + (box.h - current.cssH) / 2;
-        at(current.scale * Math.exp(-e.deltaY * .01), Math.max(0, Math.min(1, (e.clientX - imageLeft) / current.cssW)), Math.max(0, Math.min(1, (e.clientY - imageTop) / current.cssH)));
-      }
-      else if (zoom.scale !== null) {
-        const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? box.h : 1;
-        setZoom(pan(zoom, current, -e.deltaX * unit, -e.deltaY * unit, box.dpr, preview.width, preview.height));
-      }
-    };
-    el.addEventListener('wheel', wheel, { passive: false });
-    return () => { remove(); window.removeEventListener('keydown', down, true); el.removeEventListener('wheel', wheel); };
+    return () => { remove(); window.removeEventListener('keydown', down, true); };
   }, [preview]);
   const displayW = preview.width * current.scale / box.dpr, displayH = preview.height * current.scale / box.dpr;
   return <>

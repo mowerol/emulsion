@@ -25,6 +25,7 @@ export const APP_SETTING_KEYS = [
   'emulsion.catalogBackup',
   'emulsion.updates',
   'emulsion.lookTestPhotos',
+  'emulsion.zoomSensitivity',
 ] as const;
 export type AppSettingKey = (typeof APP_SETTING_KEYS)[number];
 

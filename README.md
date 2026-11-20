@@ -89,7 +89,7 @@ A built app also opens a folder or photo passed as its first argument.
 | `\` (hold) | Show the original |
 | `Z`, or click the photo | Toggle Fit and 100% at that point |
 | Cmd/Ctrl `=` / `-` / `0` | Zoom in / out / fit |
-| Pinch, or Ctrl+scroll | Zoom at the cursor |
+| Pinch, or Control/Command-scroll | Zoom at the pointer; adjust speed in Settings → Tools → Zoom sensitivity |
 | Drag, or scroll | Pan when zoomed in |
 | `J` | Show clipped highlights (red) and shadows (blue) |
 | `Y` | Split before and after (drag the divider) |

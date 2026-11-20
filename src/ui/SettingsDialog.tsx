@@ -13,6 +13,7 @@ import { BACKUP_FREQUENCIES, backupFolder, chooseBackupFolder, restoreCatalog, s
 import { promptBackup } from './CatalogBackupDialog';
 import { useEditStorage, setEditStorage } from '../library/editstorage';
 import { checkForUpdates, setUpdateSettings, useUpdateSettings } from '../library/updates';
+import { DEFAULT_ZOOM_SENSITIVITY, MAX_ZOOM_SENSITIVITY, MIN_ZOOM_SENSITIVITY, setZoomSensitivity, useZoomSettings } from './zoomsettings';
 
 function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
   return <div className="settings-row">
@@ -32,6 +33,7 @@ function Seg<T extends string | number>({ label, value, options, onChange }: {
 function Sheet({ onClose }: { onClose: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
   const prefs = usePrefs();
+  const sensitivity = useZoomSettings(s => s.sensitivity);
   const columns = useWorkspace(w => w.imageColumns);
   const stageColor = useApp(s => s.stageColor);
   const foldJpegs = useApp(s => s.foldJpegs);
@@ -84,6 +86,16 @@ function Sheet({ onClose }: { onClose: () => void }) {
 
       <section aria-labelledby="settings-tools">
         <h3 id="settings-tools">Tools</h3>
+        <Row label="Zoom sensitivity" hint="Control/Command-scroll and pinch in Develop and Library Loupe. Lower is slower.">
+          <div className="settings-zoom">
+            <input className="range" type="range" aria-label="Zoom sensitivity" aria-valuetext={`${Math.round(sensitivity * 100)}%`}
+              min={MIN_ZOOM_SENSITIVITY * 100} max={MAX_ZOOM_SENSITIVITY * 100} step={10} value={Math.round(sensitivity * 100)}
+              onChange={e => setZoomSensitivity(Number(e.target.value) / 100)} />
+            <output>{Math.round(sensitivity * 100)}%</output>
+            <button type="button" className="btn" aria-label="Reset zoom sensitivity" title="Reset zoom sensitivity to 100%"
+              disabled={sensitivity === DEFAULT_ZOOM_SENSITIVITY} onClick={() => setZoomSensitivity(DEFAULT_ZOOM_SENSITIVITY)}>Reset</button>
+          </div>
+        </Row>
         <Row label="Crop overlay" hint="O steps through them while cropping">
           <select aria-label="Crop overlay" value={prefs.cropOverlay} onChange={e => setPrefs({ cropOverlay: e.target.value as InterfacePreferences['cropOverlay'] })}>
             {CROP_OVERLAYS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}

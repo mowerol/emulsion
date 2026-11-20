@@ -37,6 +37,7 @@ import { ensureCapture, loadCachedImage, prepareFullImage, thumbs } from '../lib
 import { Filmstrip } from './Filmstrip';
 import { FullResolutionStatus } from './FullResolutionStatus';
 import { FIT, imagePoint, label, layout, pan, step, zoomAt, type Layout, type Zoom } from './zoom';
+import { usePhotoNavigation } from './zoominput';
 import { firstOf, onViewCommand, type ViewCommand } from './menubridge';
 import { MaskOverlay } from './MaskOverlay';
 import { setMaskUi, updateMask, useMaskUi } from './maskui';
@@ -673,29 +674,27 @@ export function Develop() {
   };
 
   // Pinch or Ctrl+scroll zooms at the cursor; scrolling pans when zoomed in.
-  useEffect(() => {
-    const el = boxRef.current;
-    if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      if (!current || !src) return;
-      e.preventDefault();
-      if (cropping) return;
+  usePhotoNavigation(boxRef, {
+    enabled: !!current && !!src && !cropping,
+    zoom: (factor, pointer) => {
+      if (!current) return;
       engineRef.current?.motion();
-      if (e.ctrlKey || e.metaKey) {
-        const [fx, fy] = fraction(e);
-        zoomTo(current.scale * Math.exp(-e.deltaY * 0.01), fx, fy);
-      } else if (healing && !compare && e.altKey) {
+      const [fx, fy] = fraction(pointer);
+      zoomTo(current.scale * factor, fx, fy);
+    },
+    scroll: (dx, dy, e) => {
+      if (!current) return;
+      engineRef.current?.motion();
+      if (healing && !compare && e.altKey) {
         // Heal and Remove: ⌥+scroll sizes the spot, ⌥⇧+scroll turns an ellipse (darktable sizes on a
         // plain scroll; here plain scroll keeps panning, so zooming in to work stays easy).
-        const d = e.deltaY || e.deltaX;
+        const d = dy || dx;
         if (d) scrollSpot(d < 0, e.shiftKey ? 'rotation' : 'size', photo?.recipe?.retouch ?? []);
       } else if (zoom.scale !== null) {
-        setZoom(pan(zoom, current, -e.deltaX, -e.deltaY, dpr(), frameW, frameH));
+        setZoom(pan(zoom, current, -dx, -dy, dpr(), frameW, frameH));
       }
-    };
-    el.addEventListener('wheel', onWheel, { passive: false });
-    return () => el.removeEventListener('wheel', onWheel);
-  }, [current, src, zoom, zoomTo, cropping, frameW, frameH, healing, compare, photo]);
+    },
+  });
 
   // Keys: Z toggles fit and 100%, Cmd/Ctrl with = - 0 zoom, J shows clipping.
   useEffect(() => {
