@@ -125,6 +125,7 @@ fn run() -> Result<(), String> {
         }
         source = image::imageops::crop_imm(&source, x, y, w, h).to_image();
     }
+    let source_gain = metadata["camera"]["baselineGain"].as_f64().ok_or("Missing source exposure gain")? as f32;
     let mut runs = Vec::new();
     let mut denoised = Rgb32FImage::new(0, 0);
     for run in 0..repeat {
@@ -134,7 +135,7 @@ fn run() -> Result<(), String> {
             source.width(),
             source.height()
         );
-        let (image, stats) = denoiser.process(&source, strength, |done, total| {
+        let (image, stats) = denoiser.process(&source, source_gain, strength, |done, total| {
             if done == 1 || done % 10 == 0 || done == total {
                 eprintln!("  tile {done}/{total}");
             }

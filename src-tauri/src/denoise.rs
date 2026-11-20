@@ -151,15 +151,18 @@ impl Denoiser {
     }
 
     /// Explicit provider selection keeps CPU/CoreML comparisons honest. The
-    /// caller may retry the whole image on CPU if the CoreML run fails.
+    /// caller may retry the whole image on CPU if the CoreML run fails. `baseline`
+    /// is the decoded camera metadata’s total gain, including Fuji DR compensation.
     pub fn process(
         &mut self,
         source: &Rgb32FImage,
+        baseline: f32,
         strength: f32,
         progress: impl FnMut(usize, usize),
     ) -> Result<(Rgb32FImage, Stats), String> {
         tiled(
             source,
+            baseline,
             strength,
             |input| {
                 let tensor = TensorRef::from_array_view(([1, 3, TILE, TILE], input))
@@ -227,10 +230,14 @@ fn match_gain(input: &[f32], output: &mut [f32]) -> Result<f32, String> {
 
 fn tiled(
     source: &Rgb32FImage,
+    baseline: f32,
     strength: f32,
     mut infer: impl FnMut(&[f32]) -> Result<Vec<f32>, String>,
     mut progress: impl FnMut(usize, usize),
 ) -> Result<(Rgb32FImage, Stats), String> {
+    if !baseline.is_finite() || baseline <= 0.0 {
+        return Err("Source exposure gain must be finite and positive".into());
+    }
     if !strength.is_finite() || !(0.0..=1.0).contains(&strength) {
         return Err("Strength must be between 0 and 1".into());
     }
@@ -252,7 +259,6 @@ fn tiled(
     let plane = TILE * TILE;
     let mut input = vec![0.0; plane * 3];
     let src = source.as_raw();
-    let baseline = crate::raw::BASELINE_GAIN;
     for ty in 0..rows {
         for tx in 0..cols {
             let (xb, yb) = (tx * STEP, ty * STEP);
@@ -335,6 +341,7 @@ mod tests {
             });
             let (out, _) = tiled(
                 &source,
+                crate::raw::BASELINE_GAIN,
                 0.65,
                 |v| Ok(v.iter().map(|x| x * -2.5).collect()),
                 |_, _| {},
@@ -351,10 +358,26 @@ mod tests {
     }
 
     #[test]
+    fn dr_gain_is_removed_for_inference_and_restored_afterwards() {
+        for baseline in [1.8f32, 3.6, 7.2] {
+            let source = Rgb32FImage::from_pixel(1, 1, image::Rgb([baseline * 0.125; 3]));
+            let (out, _) = tiled(&source, baseline, 1.0, |v| {
+                assert!(v.iter().all(|&x| x == 0.125), "model must see sensor-domain values");
+                Ok(v.to_vec())
+            }, |_, _| {}).unwrap();
+            assert_eq!(out, source);
+        }
+        let source = Rgb32FImage::new(1, 1);
+        for bad in [0.0, -1.0, f32::NAN, f32::INFINITY] {
+            assert!(tiled(&source, bad, 1.0, |_| unreachable!(), |_, _| {}).is_err());
+        }
+    }
+
+    #[test]
     fn off_bypasses_inference_exactly() {
         let source = Rgb32FImage::from_pixel(2, 3, image::Rgb([-0.01, 0.23, 1.9]));
         let (out, stats) =
-            tiled(&source, 0.0, |_| panic!("off must not infer"), |_, _| {}).unwrap();
+            tiled(&source, crate::raw::BASELINE_GAIN, 0.0, |_| panic!("off must not infer"), |_, _| {}).unwrap();
         assert_eq!(source, out);
         assert_eq!(stats.tiles, 0);
     }
@@ -362,8 +385,8 @@ mod tests {
     #[test]
     fn invalid_inference_does_not_make_an_image() {
         let source = Rgb32FImage::from_pixel(2, 3, image::Rgb([0.1; 3]));
-        assert!(tiled(&source, 1.0, |v| Ok(vec![f32::NAN; v.len()]), |_, _| {}).is_err());
-        assert!(tiled(&source, 1.0, |_| Ok(vec![]), |_, _| {}).is_err());
-        assert!(tiled(&source, f32::NAN, |_| unreachable!(), |_, _| {}).is_err());
+        assert!(tiled(&source, crate::raw::BASELINE_GAIN, 1.0, |v| Ok(vec![f32::NAN; v.len()]), |_, _| {}).is_err());
+        assert!(tiled(&source, crate::raw::BASELINE_GAIN, 1.0, |_| Ok(vec![]), |_, _| {}).is_err());
+        assert!(tiled(&source, crate::raw::BASELINE_GAIN, f32::NAN, |_| unreachable!(), |_, _| {}).is_err());
     }
 }

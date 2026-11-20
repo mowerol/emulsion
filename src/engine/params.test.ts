@@ -10,8 +10,8 @@ import type { Mat3 } from '../film/stocks';
 const ctx = { width: 1600, height: 1067, seed: 3, inputMode: InputMode.DisplayLinear, store: 1 };
 
 describe('develop uniforms', () => {
-  it('routes new HDR controls through one adaptive stage and leaves the legacy controls independent', () => {
-    for (const key of ['shadows', 'highlights', 'blacks', 'whites'] as const) {
+  it('routes broad HDR controls through the adaptive stage and leaves legacy controls independent', () => {
+    for (const key of ['shadows', 'highlights', 'whites'] as const) {
       const r = { ...defaultRecipe('neutral'), [key]: 50 };
       const u = developUniforms(r, ctx);
       expect(u.uToneOn).toBe(1);
@@ -25,6 +25,21 @@ describe('develop uniforms', () => {
     expect(mixed.uToneOn).toBe(1);
     expect(mixed.uTeqLegacy).toBe(1);
     expect(mixed.uExpBlack).toBeCloseTo(0.0032, 8);
+  });
+  it('lifts Blacks with the darktable sigmoid target, without adding a scene-light offset', () => {
+    for (const blacks of [25, 50, 100]) {
+      const u = developUniforms({ ...defaultRecipe('neutral'), blacks }, ctx);
+      expect(u.uToneBlack).toBe(0);
+      expect(u.uToneOn).toBe(0);
+      expect(needsPasses(u).toneEqualizer).toBe(false);
+      expect(u.uSigS).toEqual(packCurve(toneCurveFor(0, blacks * 1.4)));
+      const legacy = developUniforms({ ...defaultRecipe('neutral'), blacks, toneVersions: undefined }, ctx);
+      expect(legacy.uSigS).toEqual(packCurve(toneCurveFor(0, blacks)));
+    }
+    const down = developUniforms({ ...defaultRecipe('neutral'), blacks: -100 }, ctx);
+    expect(down.uToneOn).toBe(1);
+    expect(down.uToneBlack).toBeLessThan(0);
+    expect(down.uExpBlack).toBe(0);
   });
   it("applies a look LUT at the recipe's Amount, with the stock's own colour switched off", () => {
     const lut = { level: 2, data: new Float32Array(24), id: 7, eightBit: true };

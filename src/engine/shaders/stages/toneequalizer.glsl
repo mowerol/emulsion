@@ -11,6 +11,8 @@
 //
 // Tone equalizer, in scene light: exposure by brightness band through an
 // edge-aware brightness map, for the Shadows and Highlights sliders.
+// Adaptive negative Blacks is Emulsion endpoint policy; positive Blacks stays in tone.glsl's
+// darktable sigmoid. No custom positive black-floor offset is applied here.
 
 // 1 when Shadows or Highlights is set.
 uniform float uTeqOn;
@@ -83,9 +85,7 @@ vec3 stageToneEqualizer(vec3 x, vec2 uv) {
   x = max(x * gain, vec3(0.0));
   if (uToneOn > 0.5 && uToneBlack != 0.0) {
     float lumOut = uTeqParams.x * length(x);
-    float target = uToneBlack > 0.0
-      ? lumOut + uToneBlack * exp(-lumOut / (4.0 * uToneBlack))
-      : max(0.0, lumOut + uToneBlack);
+    float target = max(0.0, lumOut + min(uToneBlack, 0.0));
     x = lumOut > 1e-20 ? x * (target / lumOut) : vec3(target / (uTeqParams.x * 1.7320508075688772));
   }
   return x;

@@ -141,7 +141,7 @@ pub fn resize_to(img: DynamicImage, max_edge: Option<u32>) -> DynamicImage {
         img
     } else if let DynamicImage::ImageRgb32F(buf) = &img {
         // The image crate clamps float pixels to 0..1 when it resizes, which clipped RAW
-        // previews (sensor clipping sits at BASELINE_GAIN, out-of-gamut values are negative)
+        // previews (sensor clipping sits at the camera’s total exposure gain, out-of-gamut values are negative)
         // and HDR float TIFFs. Same triangle filter, without the clamp.
         DynamicImage::ImageRgb32F(resize_rgb32f(buf, nw, nh))
     } else {

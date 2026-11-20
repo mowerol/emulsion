@@ -208,3 +208,14 @@ it.each(['missing', 'unreadable', 'truncated'])('regenerates when the cached pat
   expect(infer).toHaveBeenCalledTimes(1);
   expect(context.patches.get(recipe.retouch[0].id)?.pixels).toBe(pixels);
 });
+
+
+it('invalidates Remove patches when RAW exposure normalization changes', () => {
+  const src = { origin: 'photo.RAF', fullW: 6000, fullH: 4000, mode: 2, white: [.3, .3] };
+  const original = removalIdentity(src);
+  const identity = (baselineGain: number) => removalIdentity({ ...src, camera: { baselineGain } });
+  expect(identity(1.8)).toBe(original); // DR100 keeps existing cache entries.
+  const key = (baselineGain: number) => planRemovals(removeContext(identity(baselineGain), recipe, 1), recipe, 6000, 4000)[0].key;
+  expect(key(3.6)).not.toBe(key(1.8));
+  expect(key(7.2)).not.toBe(key(3.6));
+});

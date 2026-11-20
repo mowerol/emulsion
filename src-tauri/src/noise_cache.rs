@@ -47,7 +47,7 @@ struct Meta {
 fn key(path: &Path) -> Result<String, String> {
     let m = path.metadata().map_err(|e| e.to_string())?;
     let id = format!(
-        "raw-nind-v1-libraw0223-darktable2-baseline{}|{}|{}|{}|{}",
+        "raw-nind-v2-libraw0223-darktable2-fuji-dr1-baseline{}|{}|{}|{}|{}",
         raw::BASELINE_GAIN,
         path.canonicalize().map_err(|e| e.to_string())?.display(),
         m.len(),
@@ -347,7 +347,7 @@ fn load_cached(
                     .model
                     .as_mut()
                     .unwrap()
-                    .process(&original, 1.0, notify)
+                    .process(&original, raw.camera.baseline_gain, 1.0, notify)
                 {
                     Ok((image, _)) => image,
                     Err(_) => {
@@ -362,7 +362,7 @@ fn load_cached(
                             .model
                             .as_mut()
                             .unwrap()
-                            .process(&original, 1.0, notify)?
+                            .process(&original, raw.camera.baseline_gain, 1.0, notify)?
                             .0
                     }
                 };

@@ -38,6 +38,8 @@ struct EmuRawInfo {
   float wb_daylight[3];
   float wbct[64][4];
   int wbct_count;
+  // Fuji maker-note tags 0x1402 (mode), 0x1403 (manual %) and 0x140b (auto %).
+  int fuji_dr[3];
 };
 
 struct EmuRawThumb {
@@ -156,6 +158,10 @@ static void fill_colour_info(LibRaw *raw, EmuRawInfo *info) {
   // For DNGs, LibRaw colours from the file's matrix, not its table: do the same.
   dng_cam_xyz(raw, info->cam_xyz);
   info->dng = raw->imgdata.idata.dng_version != 0;
+  const libraw_fuji_info_t &fuji = raw->imgdata.makernotes.fuji;
+  info->fuji_dr[0] = fuji.DynamicRangeSetting;
+  info->fuji_dr[1] = fuji.DevelopmentDynamicRange;
+  info->fuji_dr[2] = fuji.AutoDynamicRange;
   // Fujifilm stores its Daylight preset as Fine Weather; other makes as Daylight.
   const int *day = raw->imgdata.color.WB_Coeffs[LIBRAW_WBI_FineWeather];
   if (day[0] <= 0 || day[1] <= 0 || day[2] <= 0) day = raw->imgdata.color.WB_Coeffs[LIBRAW_WBI_Daylight];

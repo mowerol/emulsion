@@ -3,9 +3,9 @@
 import { Engine, InputMode, type Source } from '../../src/engine/engine';
 import { defaultRecipe, normalizeRecipe, type Recipe } from '../../src/film/recipe';
 import { normalizeSettings, recipeFromSettings, settingsFromRecipe } from '../../src/film/creative';
-import { adaptiveToneTransform, adaptiveToneGain, adaptiveBlackBrightness, adaptiveWhiteValue, type ToneAnalysis } from '../../src/engine/adaptivetone';
+import { adaptiveToneTransform, adaptiveToneGain, adaptiveBlackLift, adaptiveBlackBrightness, adaptiveWhiteValue, type ToneAnalysis } from '../../src/engine/adaptivetone';
 import { EXPOSURE_BOOST, eigf } from '../../src/engine/toneequalizer';
-import { toneForward } from '../../src/engine/tone';
+import { toneForward, toneProfileRgb, SIGMOID_GREY } from '../../src/engine/tone';
 import { DEFAULT_FUJI_SIM, fujiLookSettings, fujiSimulations, withFujiLook, fujiOf } from '../../src/film/fujilooks';
 import { FUJI_NEUTRAL } from '../../src/film/fujirecipe';
 import { recipeLookFile } from '../../src/film/looks';
@@ -71,6 +71,24 @@ async function main() {
       const expected = Math.min(255, Math.round(adaptiveWhiteValue(toneForward(scene), transform.white) * 255));
       assert(Math.abs(sample(edited, band) - expected) <= 2, `GPU/reference mismatch in band ${band}: ${sample(edited, band)} vs ${expected}`);
     }
+    for (const blacks of [-100, -50, 50, 100]) for (const whites of [0, 50]) {
+      const blackControls = { shadows: 0, highlights: 0, whites, blacks };
+      const blackTransform = adaptiveToneTransform(measured, blackControls);
+      const pixels = read(a, { ...base, ...blackControls });
+      for (let band = 0; band < 16; band++) {
+        const scale = Math.sqrt(3) * EXPOSURE_BOOST;
+        const scene = adaptiveBlackBrightness(2 ** (-10 + band * 0.8) * scale, blackTransform.black) / scale;
+        const print = toneProfileRgb([scene, scene, scene], 0, adaptiveBlackLift(blacks))[0];
+        const expected = Math.min(255, Math.round(adaptiveWhiteValue(print, blackTransform.white) * 255));
+        assert(Math.abs(sample(pixels, band) - expected) <= 2, `Blacks ${blacks}: GPU/reference mismatch in band ${band}`);
+      }
+      if (blacks > 0 && whites === 0) {
+        const legacyLift = read(a, { ...base, blacks: adaptiveBlackLift(blacks), toneVersions: { ...base.toneVersions, blacks: undefined } });
+        assert(same(pixels, legacyLift), 'Positive Blacks differs from the darktable sigmoid at the mapped target');
+        const exported = await engine.readPixels16Async(a, { ...base, ...blackControls }, W, H, 7);
+        for (let i = 0; i < exported.length; i++) assert(Math.abs(exported[i] / 257 - pixels[Math.floor(i / 3) * 4 + i % 3]) <= 2, 'Positive Blacks: 16-bit export differs from preview');
+      }
+    }
     for (let i = 0; i < 12; i++) read(a, { ...r, shadows: 8 * i, highlights: -i * 7 });
     assert(lane().adaptiveTone.analyses === built, 'A tone slider drag repeated image analysis');
     const saved = normalizeRecipe(JSON.parse(JSON.stringify(r)))!;
@@ -91,6 +109,8 @@ async function main() {
     read(darker, r);
     const other: ToneAnalysis = lane().adaptiveTone.made.analysis;
     assert(measured.some((v, i) => Math.abs(v - other[i]) > 0.8), 'Analysis did not adapt to a darker photo');
+    const grey = source(1, Math.log2(SIGMOID_GREY) + 10);
+    assert(Math.abs(sample(read(grey, { ...base, blacks: 100 }), 0) - sample(read(grey, base), 0)) <= 1, 'Positive Blacks moved middle grey');
     const legacy = { ...r, toneVersions: undefined };
     assert(same(read(a, legacy), read(a, normalizeRecipe(JSON.parse(JSON.stringify(legacy)))!)), 'Legacy processing changed after sidecar reload');
     const extended = { ...legacy, shadows: 400 };
@@ -98,7 +118,7 @@ async function main() {
     // Fuji's camera Highlight/Shadow controls remain in the baked recipe transform. The photo's
     // adaptive HDR controls adjust its input, retaining WB shifts and the camera controls exactly.
     setLooksBase('/looks/');
-    const negative = fujiSimulations().find(s => s.id === 'emulsion-fuji-classic-negative')!.id;
+    const negative = fujiSimulations().find(s => String(s.id) === 'emulsion-fuji-classic-negative')!.id;
     for (const sim of [DEFAULT_FUJI_SIM, negative]) {
       const cameraRecipe = { ...FUJI_NEUTRAL, highlight: -1, shadow: 2, wbShift: [2, -3] as [number, number] };
       const fuji = withFujiLook(base, `tone-${sim}`, 'Tone test', fujiLookSettings(sim, cameraRecipe)!);

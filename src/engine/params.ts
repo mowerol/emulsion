@@ -35,7 +35,7 @@ import { EXPOSURE_BOOST, FEATHERING, SMOOTHING, bandFactors, bandGains } from '.
 import { clarityParams } from './locallaplacian';
 import type { LoadedLut } from './lutstore';
 import { VIGNETTE_FEATHER, vignetteStrength } from './vignette';
-import { adaptiveToneTransform, legacyShadowValue, DEFAULT_TONE_ANALYSIS, type ToneControls } from './adaptivetone';
+import { adaptiveToneTransform, adaptiveBlackLift, legacyShadowValue, DEFAULT_TONE_ANALYSIS, type ToneControls } from './adaptivetone';
 
 export type UniformValue = number | number[];
 export type Uniforms = Record<string, UniformValue>;
@@ -172,10 +172,11 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     blacks: recipe.toneVersions?.blacks === 2 ? recipe.blacks : 0,
     whites: recipe.toneVersions?.whites === 2 ? recipe.whites : 0,
   };
-  const toneOn = Object.values(tone).some(v => v !== 0);
+  const toneOn = tone.shadows !== 0 || tone.highlights !== 0 || tone.whites !== 0 || tone.blacks < 0;
   const transform = adaptiveToneTransform(DEFAULT_TONE_ANALYSIS, tone);
   const legacyWhites = recipe.toneVersions?.whites === 2 ? 0 : recipe.whites;
   const legacyBlacks = recipe.toneVersions?.blacks === 2 ? 0 : recipe.blacks;
+  const printBlacks = recipe.toneVersions?.blacks === 2 ? adaptiveBlackLift(recipe.blacks) : Math.max(recipe.blacks, 0);
 
   return {
     ...base,
@@ -211,7 +212,8 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uTeqF1: teq.slice(4, 8),
     uTeqParams: [EXPOSURE_BOOST, FEATHERING, 2 * SMOOTHING * SMOOTHING],
     uExpBlack: legacyBlacks < 0 ? (-legacyBlacks / 100) * MAX_BLACK_LEVEL : 0,
-    uSigS: packCurve(toneCurveFor(legacyWhites, legacyBlacks, recipe.toneCharacter)),
+    // Both generations lift Blacks with darktable's middle-grey-anchored sigmoid target.
+    uSigS: packCurve(toneCurveFor(legacyWhites, printBlacks, recipe.toneCharacter)),
     uSigMag: whiteTargetFor(legacyWhites) / 100,
     uWbMat: wbMat,
     uVigScale: Math.pow(2, -vignetteStrength(recipe.vignette)),

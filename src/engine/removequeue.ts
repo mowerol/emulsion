@@ -14,8 +14,12 @@ export interface RemoveContext {
 }
 export interface RemoveState { spot: string; key: string; status: 'pending' | 'ready' | 'failed'; error?: string }
 
-export function removalIdentity(src: { origin?: string; fullW: number; fullH: number; mode: number; white: unknown; denoised?: unknown }, fallback = '', version?: string) {
-  return JSON.stringify([src.origin ?? fallback, src.fullW, src.fullH, src.mode, src.white, !!src.denoised, version ?? null]);
+export function removalIdentity(src: { origin?: string; fullW: number; fullH: number; mode: number; white: unknown; denoised?: unknown; camera?: { baselineGain: number } | null }, fallback = '', version?: string) {
+  const identity: unknown[] = [src.origin ?? fallback, src.fullW, src.fullH, src.mode, src.white, !!src.denoised, version ?? null];
+  // Older IDs omitted the decoder's fixed 1.8 gain. Retain them for unchanged
+  // sources, but regenerate patches made from the darker DR200/400 decode.
+  if (src.camera && src.camera.baselineGain !== 1.8) identity.push('rawExposure', src.camera.baselineGain);
+  return JSON.stringify(identity);
 }
 
 export function removeContext(identity: string, recipe: Recipe, previewScale: number, patches = new Map<string, Patch>()): RemoveContext {

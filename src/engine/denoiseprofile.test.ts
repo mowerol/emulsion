@@ -89,16 +89,16 @@ describe('pieces', () => {
     expect(shrink(0.1, 0.2)).toBe(0);
   });
 
-  it('maps the RAW source to darktable domain and back', () => {
+  it.each([1.8, 3.6, 7.2])('maps the RAW source with gain %s to darktable domain and back', (gain) => {
     const m: Mat3 = [[1.6, -0.5, -0.1], [-0.2, 1.4, -0.2], [0, -0.4, 1.4]];
     const neutral: Vec3 = [0.45, 1, 0.7]; // green the smallest multiplier, as on most cameras
-    const { toDt, fromDt } = domainMatrices(m, neutral, 1.8);
+    const { toDt, fromDt } = domainMatrices(m, neutral, gain);
     const v: Vec3 = [0.3, 0.2, 0.1];
     const back = mulVec(fromDt, mulVec(toDt, v));
     back.forEach((x, c) => expect(x).toBeCloseTo(v[c], 12));
     // A neutral grey in camera RGB (LibRaw scale) stays neutral, at green's scale.
     const cam: Vec3 = [0.25, 0.25, 0.25];
-    const working = mulVec(m, cam.map((x) => x * 1.8) as Vec3);
+    const working = mulVec(m, cam.map((x) => x * gain) as Vec3);
     mulVec(toDt, working).forEach((x) => expect(x).toBeCloseTo(0.25, 12));
     expect(wbFromNeutral(neutral)).toEqual([1 / 0.45, 1, 1 / 0.7]);
     expect(invert3(m)).toBeTruthy();

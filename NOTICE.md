@@ -20,6 +20,18 @@ assets and local experiments, see [Open-source foundations](docs/OPEN_SOURCE.md)
   profile shall have the original identification and copyright information removed and shall
   not be misrepresented as the original profile.
 
+## Fuji RAW dynamic range metadata
+
+The X/GFX DR100/200/400 exposure interpretation follows Dan Torop's
+[darktable `fujifilm_dynamic_range` documentation](https://docs.darktable.org/lua/stable/lua.scripts.manual/scripts/contrib/fujifilm_dynamic_range/)
+(retrieved 2026-11-20): Manual selects DevelopmentDynamicRange, Auto selects
+AutoDynamicRange, and DR200/DR400 differ from DR100 by one/two stops.
+`src-tauri/src/raw.rs` implements that relative correction using tags already
+parsed by the bundled LibRaw 0.22.3. This is an implementation from the published
+metadata description, with no upstream code copied and no upstream source commit.
+Emulsion retains its existing DR100 baseline gain rather than adding the full
+RawExposureBias, which also contains Fuji's base exposure offset.
+
 ## Code ported from other projects
 
 Every port is listed here with its source, upstream licence, the upstream commit it came from, and what changed. See [docs/PORTING.md](docs/PORTING.md) for the format.
@@ -102,14 +114,14 @@ Template:
 - Licence: GPL-3.0-or-later
 - Copyright: Copyright (C) 2020-2026 darktable developers
 - Ported to: `src/engine/tone.ts` (reference and curve constants) and `src/engine/shaders/stages/tone.glsl`
-- Changes: translated from C to TypeScript and GLSL. The log-logistic curve per channel, without the module's hue preservation or primaries. Added an exact inverse of the per-channel curve for display-referred input, and sRGB encoding of the output. Emulsion's neutral settings are contrast 1.15, skew 0.11 and display black 0. Blacks below zero use the black level of darktable's exposure module (`src/iop/exposure.c`, same commit, Copyright (C) 2009-2026 darktable developers)
+- Changes: translated from C to TypeScript and GLSL. The log-logistic curve per channel, without the module's hue preservation or primaries. Added an exact inverse of the per-channel curve for display-referred input, and sRGB encoding of the output. Emulsion's neutral settings are contrast 1.15, skew 0.11 and display black 0. Positive Blacks of both generations use sigmoid's target-black parameter (legacy 0–2%, adaptive 0–2.8% display white), retaining its middle-grey anchor and curve shape. Legacy Blacks below zero use the black level of darktable's exposure module (`src/iop/exposure.c`, same commit, Copyright (C) 2009-2026 darktable developers)
 
 ### Tone equalizer, from darktable
 - Upstream: https://github.com/darktable-org/darktable, `src/iop/toneequal.c`, `src/common/eigf.h`, `src/common/luminance_mask.h` and `src/iop/choleski.h`, commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release 5.6.2)
 - Licence: GPL-3.0-or-later
 - Copyright: Copyright (C) 2018-2026 darktable developers. Copyright (C) 2019-2024 darktable developers (exposure-independent guided filter; Cholesky least squares). Copyright (C) 2019-2023 darktable developers (luminance mask)
 - Ported to: `src/engine/toneequalizer.ts` (reference and band solving), `src/engine/shaders/stages/toneequalizer.glsl` and `src/engine/shaders/toneeqmask.frag.glsl`
-- Changes: translated from C to TypeScript and GLSL. Only the euclidean RGB norm and the exposure-independent guided filter without quantization or contrast boost, with one iteration. The filter's local averages are computed on the GPU on a small fixed-size map with Emulsion's blur, and negative variance from rounding is clamped. The Highlights slider drives the upper bands in the shape of darktable's "compress shadows/highlights" presets (3:5:5:3 over -3 to 0 EV), with their exposure boost of -1.57 EV
+- Changes: translated from C to TypeScript and GLSL. Only the euclidean RGB norm and the exposure-independent guided filter without quantization or contrast boost, with one iteration. The filter's local averages are computed on the GPU on a small fixed-size map with Emulsion's blur, and negative variance from rounding is clamped. The Highlights slider drives the upper bands in the shape of darktable's "compress shadows/highlights" presets (3:5:5:3 over -3 to 0 EV), with their exposure boost of -1.57 EV. Adaptive range selection, monotone curve fitting and negative Blacks endpoint offsets in `src/engine/adaptivetone.ts` are Emulsion policy, not upstream tone-equalizer algorithms. Positive Blacks uses the separately credited sigmoid port.
 
 ### Retouch (clone, heal, fill and blur, with wavelet scales), from darktable
 - Upstream: https://github.com/darktable-org/darktable, `src/iop/retouch.c`, `src/common/heal.c`, `src/common/dwt.c`, `src/common/bilateral.c`, `src/common/gaussian.c`, `src/develop/masks/circle.c` and `src/develop/masks/ellipse.c`, commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release 5.6.2)

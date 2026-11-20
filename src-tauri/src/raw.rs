@@ -34,11 +34,12 @@ struct EmuRawInfo {
     wb_daylight: [f32; 3],
     wbct: [[f32; 4]; 64],
     wbct_count: c_int,
+    fuji_dr: [c_int; 3],
 }
 
 impl EmuRawInfo {
     fn empty() -> Self {
-        EmuRawInfo { width: 0, height: 0, cam_xyz: [[0.0; 3]; 3], cam_mul: [0.0; 3], full_width: 0, full_height: 0, make: [0; 64], model: [0; 64], iso: 0.0, shutter: 0.0, aperture: 0.0, focal_length: 0.0, focal_length35: 0.0, dng: 0, left_margin: 0, top_margin: 0, flip: 0, wb_daylight: [0.0; 3], wbct: [[0.0; 4]; 64], wbct_count: 0 }
+        EmuRawInfo { width: 0, height: 0, cam_xyz: [[0.0; 3]; 3], cam_mul: [0.0; 3], full_width: 0, full_height: 0, make: [0; 64], model: [0; 64], iso: 0.0, shutter: 0.0, aperture: 0.0, focal_length: 0.0, focal_length35: 0.0, dng: 0, left_margin: 0, top_margin: 0, flip: 0, wb_daylight: [0.0; 3], wbct: [[0.0; 4]; 64], wbct_count: 0, fuji_dr: [-1; 3] }
     }
 }
 
@@ -108,6 +109,28 @@ const REC2020_TO_XYZ: Mat3 = [
 /// sensor clipping sits 3.3 stops over middle grey, which sigmoid renders at
 /// about 87% of display white.
 pub const BASELINE_GAIN: f32 = 1.8;
+
+/// Fuji X/GFX highlight-preservation exposure, relative to DR100. The tag
+/// selection and relative stops follow darktable's fujifilm_dynamic_range docs:
+/// https://docs.darktable.org/lua/stable/lua.scripts.manual/scripts/contrib/fujifilm_dynamic_range/
+/// LibRaw already reads these tags; do not confuse DynamicRange's enum (0x1400)
+/// with the percentage. Its RawExposureBias also includes Fuji's DR100 base
+/// offset, already covered by our baseline: only add the extra DR stops here.
+/// Unsupported/missing tags and converted DNGs keep their existing brightness.
+fn baseline_gain_for(info: &EmuRawInfo) -> f32 {
+    let make = error_text(&info.make);
+    let model = error_text(&info.model);
+    if info.dng != 0 || !make.eq_ignore_ascii_case("Fujifilm")
+        || !(model.starts_with('X') || model.starts_with("GFX")) {
+        return BASELINE_GAIN;
+    }
+    let percent = match info.fuji_dr {
+        [1, manual, _] => manual,
+        [0, _, auto] => auto,
+        _ => return BASELINE_GAIN,
+    };
+    BASELINE_GAIN * match percent { 200 => 2.0, 400 => 4.0, _ => 1.0 }
+}
 
 fn mul(a: &Mat3, b: &Mat3) -> Mat3 {
     let mut m = [[0f32; 3]; 3];
@@ -303,6 +326,7 @@ pub struct CameraMetadata {
     pub model: String,
     pub camera_to_working: Mat3,
     pub neutral: Option<[f32; 3]>,
+    /// Total scene gain, including Fuji DR compensation; remove it for sensor-domain work.
     pub baseline_gain: f32,
     /// darktable's noise profile for this camera at the shot's ISO (denoise, profiled).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -358,7 +382,7 @@ pub fn camera_preset_whites(path: &Path) -> Option<PresetWhites> {
 
 /// A decoded RAW.
 pub struct Decoded {
-    /// Scene-linear Rec.2020, scaled by [`BASELINE_GAIN`], white balanced as shot.
+    /// Scene-linear Rec.2020, scaled by the camera metadata’s total `baseline_gain`, white balanced as shot.
     pub image: DynamicImage,
     /// The as-shot white point, CIE 1931 xy, when the file records one.
     pub white: Option<[f32; 2]>,
@@ -439,7 +463,7 @@ pub fn as_shot_white(path: &Path) -> Result<Option<[f32; 2]>, String> {
 
 /// The matrix from the engine's scene-linear Rec.2020 back to the 16-bit
 /// white-balanced camera RGB LibRaw decodes to (0 to 65535 at sensor
-/// clipping), undoing `decode`'s conversion and `BASELINE_GAIN`.
+/// clipping), undoing `decode`'s conversion and total exposure gain.
 pub fn working_to_camera(path: &Path) -> Result<Mat3, String> {
     let cpath = c_path(path)?;
     let mut info = EmuRawInfo::empty();
@@ -452,7 +476,7 @@ pub fn working_to_camera(path: &Path) -> Result<Mat3, String> {
     let (matrix, _) = colour_of(&info);
     let m = matrix.and_then(|cx| camera_to(&cx, &REC2020_TO_XYZ)).unwrap_or([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]);
     let inv = invert(&m).ok_or("singular camera matrix")?;
-    let k = 65535.0 / BASELINE_GAIN;
+    let k = 65535.0 / baseline_gain_for(&info);
     Ok(inv.map(|row| row.map(|v| v * k)))
 }
 
@@ -505,7 +529,8 @@ pub fn decode_balanced(path: &Path, half: bool, gains: Option<[f32; 3]>) -> Resu
 
     let n = w as usize * h as usize * 3;
     let src = unsafe { std::slice::from_raw_parts(pixels, n) };
-    let scale = BASELINE_GAIN / 65535.0;
+    let baseline_gain = baseline_gain_for(&info);
+    let scale = baseline_gain / 65535.0;
     let mut out = vec![0f32; n];
     out.par_chunks_mut(3).zip(src.par_chunks(3)).for_each(|(o, s)| {
         let c = [s[0] as f32 * scale * g[0], s[1] as f32 * scale * g[1], s[2] as f32 * scale * g[2]];
@@ -527,7 +552,7 @@ pub fn decode_balanced(path: &Path, half: bool, gains: Option<[f32; 3]>) -> Resu
     } else { None };
     let noise = Some(crate::noiseprofiles::for_camera(&make, &model, info.iso));
     let colour = Some(source);
-    let camera = CameraMetadata { make, model, camera_to_working: m, neutral, baseline_gain: BASELINE_GAIN, noise, colour, auto_white, preset_whites };
+    let camera = CameraMetadata { make, model, camera_to_working: m, neutral, baseline_gain, noise, colour, auto_white, preset_whites };
     Ok(Decoded { image: DynamicImage::ImageRgb32F(buf), white: white_for(&info), full_size, frame: frame_for(path, &info), camera_to_working: m, camera })
 }
 
@@ -649,6 +674,96 @@ pub fn embedded_preview(path: &Path) -> Result<DynamicImage, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fuji_dr_gain_uses_the_selected_mode_and_preserves_other_sources() {
+        let mut info = EmuRawInfo::empty();
+        for (out, byte) in info.make.iter_mut().zip(b"Fujifilm") { *out = *byte as c_char; }
+        for (out, byte) in info.model.iter_mut().zip(b"X-T30 II") { *out = *byte as c_char; }
+        for (tags, gain) in [
+            ([1, 100, 400], 1.0), ([1, 200, 100], 2.0), ([1, 400, 100], 4.0),
+            ([0, 400, 100], 1.0), ([0, 100, 200], 2.0), ([0, 100, 400], 4.0),
+            ([-1; 3], 1.0), ([65535; 3], 1.0), ([1, 0, 400], 1.0),
+            ([0, 200, 65535], 1.0), ([1, 800, 100], 1.0), ([256, 200, 400], 1.0),
+        ] {
+            info.fuji_dr = tags;
+            assert_eq!(baseline_gain_for(&info), BASELINE_GAIN * gain, "{tags:?}");
+        }
+        info.model.fill(0);
+        for (out, byte) in info.model.iter_mut().zip(b"GFX100RF") { *out = *byte as c_char; }
+        info.fuji_dr = [1, 400, 100];
+        assert_eq!(baseline_gain_for(&info), BASELINE_GAIN * 4.0);
+        info.dng = 1;
+        assert_eq!(baseline_gain_for(&info), BASELINE_GAIN);
+        info.dng = 0;
+        info.model[0] = b'S' as c_char; // Legacy SuperCCD modes have different semantics.
+        assert_eq!(baseline_gain_for(&info), BASELINE_GAIN);
+        info.model[0] = b'X' as c_char;
+        info.make[0] = b'O' as c_char;
+        assert_eq!(baseline_gain_for(&info), BASELINE_GAIN);
+    }
+
+    /// Copies of one real RAF isolate metadata compensation from sensor exposure,
+    /// metering, white balance and film rendering. Original bytes are never edited.
+    #[test]
+    #[ignore = "set OMP_THREAD_LIMIT=1 and EMULSION_DR_RAW to an X/GFX RAF with manual DR tags"]
+    fn fuji_dr_real_decode_compensates_without_changing_sensor_values() {
+        // LibRaw’s parallel half decode varies at a few edge pixels between runs.
+        assert_eq!(std::env::var("OMP_THREAD_LIMIT").as_deref(), Ok("1"));
+        let path = std::env::var("EMULSION_DR_RAW").expect("set EMULSION_DR_RAW");
+        let pristine = std::fs::read(&path).unwrap();
+        let base = pristine.windows(12).position(|v| v == b"FUJIFILM\x0c\0\0\0").expect("Fuji maker note");
+        let directory = base + u32::from_le_bytes(pristine[base + 8..base + 12].try_into().unwrap()) as usize;
+        let count = u16::from_le_bytes(pristine[directory..directory + 2].try_into().unwrap()) as usize;
+        let entry = |tag: u16| {
+            (0..count).map(|i| directory + 2 + i * 12)
+                .find(|&p| u16::from_le_bytes(pristine[p..p + 2].try_into().unwrap()) == tag).unwrap()
+        };
+        let (setting, development, auto) = (entry(0x1402), entry(0x1403), entry(0x1400));
+        let half = std::env::var_os("EMULSION_DR_FULL").is_none();
+        let temp = tempfile::tempdir().unwrap();
+        let mut control: Option<Vec<f32>> = None;
+        for (name, mode, dr, stale, gain) in [
+            ("dr100", 1u16, 100u16, 100u16, 1.0f32),
+            ("dr200", 1, 200, 100, 2.0),
+            ("dr400", 1, 400, 100, 4.0),
+            ("auto100", 0, 100, 400, 1.0),
+            ("auto200", 0, 200, 100, 2.0),
+            ("auto400", 0, 400, 100, 4.0),
+        ] {
+            let mut bytes = pristine.clone();
+            // Repurpose the non-informative DynamicRange entry as AutoDynamicRange.
+            bytes[auto..auto + 2].copy_from_slice(&0x140bu16.to_le_bytes());
+            bytes[setting + 8..setting + 12].copy_from_slice(&(mode as u32).to_le_bytes());
+            bytes[development + 8..development + 12].copy_from_slice(&(if mode == 1 { dr } else { stale } as u32).to_le_bytes());
+            bytes[auto + 8..auto + 12].copy_from_slice(&(dr as u32).to_le_bytes());
+            let copy = temp.path().join(format!("{name}.RAF"));
+            std::fs::write(&copy, bytes).unwrap();
+            let decoded = decode(&copy, half).unwrap();
+            let image = decoded.image.into_rgb32f();
+            let fingerprint = blake3::hash(&image.as_raw().iter().flat_map(|v| v.to_le_bytes()).collect::<Vec<_>>());
+            println!("{name}: gain {} pixels {fingerprint}", decoded.camera.baseline_gain);
+            assert_eq!(decoded.camera.baseline_gain, BASELINE_GAIN * gain, "{name}");
+            if let Some(control) = &control {
+                for (&actual, &base) in image.as_raw().iter().zip(control) {
+                    assert!((actual - base * gain).abs() < 2e-6, "{name}: {actual} != {base} * {gain}");
+                }
+            } else {
+                control = Some(image.as_raw().clone());
+            }
+            // The capture-sharpening inverse must remove the entire exposure gain.
+            let inverse = working_to_camera(&copy).unwrap();
+            let forward = decoded.camera.camera_to_working;
+            let round_trip = mul(&inverse, &forward);
+            for (i, row) in round_trip.iter().enumerate() {
+                for (j, &v) in row.iter().enumerate() {
+                    let expected = if i == j { 65535.0 / decoded.camera.baseline_gain } else { 0.0 };
+                    assert!((v - expected).abs() < 0.02, "{name}: inverse [{i}][{j}] {v} != {expected}");
+                }
+            }
+        }
+        assert_eq!(std::fs::read(path).unwrap(), pristine, "original RAF must remain untouched");
+    }
 
     const SRGB_TO_XYZ: Mat3 = [[0.412_453, 0.357_580, 0.180_423], [0.212_671, 0.715_160, 0.072_169], [0.019_334, 0.119_193, 0.950_227]];
 
