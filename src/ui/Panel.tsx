@@ -109,6 +109,7 @@ const SliderRow = memo(function SliderRow({ def, recipe, raw, onChange }: Slider
       <div className="track">
         <LiveRange
           id={id}
+          centerZero={def.key === 'blacks'}
           min={def.log ? 0 : def.min}
           max={def.log ? LOG_STEPS : def.max}
           step={def.log ? 1 : def.step}

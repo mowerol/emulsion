@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
 import { adaptiveToneCurve, adaptiveToneGain, adaptiveToneTransform, adaptiveBlackLift, adaptiveBlackBrightness, adaptiveWhiteValue, TONE_PRINT_PIVOT, analyzeTone, copyToneVersions, type ToneControls, type ToneAnalysis } from './adaptivetone';
-import { toneForward, toneProfileRgb, SIGMOID_GREY } from './tone';
+import { blackToeLift, toneForward, toneInverse, SIGMOID_GREY } from './tone';
 import { EXPOSURE_BOOST } from './toneequalizer';
 
 const NONE: ToneControls = { shadows: 0, highlights: 0, blacks: 0, whites: 0 };
@@ -50,11 +50,12 @@ describe('adaptive tone', () => {
     expect(Math.log2(adaptiveToneGain(2 ** -5, curve))).toBeGreaterThan(1.5);
     expect(Math.log2(adaptiveToneGain(2 ** 0, curve))).toBeLessThan(0.05);
   });
-  it('gives Blacks a real lifted or clipped endpoint and anchors Whites above middle grey', () => {
+  it('opens near-black detail without a grey floor, clips negative Blacks and anchors Whites', () => {
     const up = adaptiveToneTransform(analysis, { ...NONE, blacks: 100 });
     const down = adaptiveToneTransform(analysis, { ...NONE, blacks: -100 });
     expect(up.black).toBe(0);
-    expect(toneProfileRgb([0, 0, 0], 0, 100)[0]).toBeGreaterThan(0);
+    expect(blackToeLift(0, adaptiveBlackLift(100))).toBe(0);
+    expect(blackToeLift(5 / 255, adaptiveBlackLift(100))).toBeGreaterThan(5 / 255);
     expect(adaptiveBlackBrightness(2 ** analysis[0], down.black)).toBeCloseTo(0, 12);
     expect(adaptiveBlackBrightness(1, up.black)).toBeCloseTo(1, 5);
     const white = adaptiveToneTransform(analysis, { ...NONE, whites: 100 });
@@ -72,12 +73,13 @@ describe('adaptive tone', () => {
       const gentle = adaptiveToneTransform(a, { ...NONE, blacks: -25 });
       const print = (scene: number, offset: number, lift = 0) => {
         const y = adaptiveBlackBrightness(scene * scale, offset) / scale;
-        return toneProfileRgb([y, y, y], 0, adaptiveBlackLift(lift))[0];
+        return blackToeLift(toneForward(y), adaptiveBlackLift(lift));
       };
-      expect(print(0.01, up.black, 100) - toneForward(0.01)).toBeGreaterThan(0.03);
+      expect(print(toneInverse(10 / 255), up.black, 100) - 10 / 255).toBeGreaterThan(1 / 255);
+      expect(print(toneInverse(60 / 255), up.black, 100)).toBeCloseTo(60 / 255, 10);
       expect(print(SIGMOID_GREY, up.black, 100)).toBeCloseTo(toneForward(SIGMOID_GREY), 6);
-      expect(print(0.036, down.black)).toBe(0);
-      expect(print(0.065, down.black)).toBeGreaterThan(0);
+      expect(print(0.042, down.black)).toBe(0);
+      expect(print(0.076, down.black)).toBeGreaterThan(0);
       expect(toneForward(0.18) - print(0.18, gentle.black)).toBeLessThan(0.04);
       expect(toneForward(1) - print(1, down.black)).toBeLessThan(0.03);
     }

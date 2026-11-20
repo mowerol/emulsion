@@ -17,6 +17,7 @@ import { normalizeMasks, type Mask } from './masks';
 import { normalizeRetouch, normalizeRetouchScales, type RetouchScales, type RetouchSpot } from './retouch';
 import { ISO_MAX, ISO_MIN } from '../engine/grain';
 import { MAX_SHADOWS_LIFT } from '../engine/colorbalance';
+import { BLACK_LIFT_MAX } from '../engine/tone';
 import { ADAPTIVE_TONE, TONE_KEYS, copyToneVersions, normalizeToneVersions, type ToneVersions } from '../engine/adaptivetone';
 import { DEFAULT_PACK, PACK, isPackId, resolveUserLook, simulationLook, withLook, type PackId } from './looks';
 
@@ -180,7 +181,7 @@ export const SLIDERS: SliderDef[] = [
   { key: 'highlights', label: 'Highlights', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned, hint: 'Recover or brighten lighter regions using ranges adapted to the photo, while retaining local detail.' },
   { key: 'shadows', label: 'Shadows', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned, hint: 'Lift or deepen darker regions using ranges adapted to the photo, with up to 3.5 stops of lift through the shadow range.' },
   { key: 'whites', label: 'Whites', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned, hint: 'Set the bright endpoint. Positive values bring more bright tones to white; negative values soften the brightest tones.' },
-  { key: 'blacks', label: 'Blacks', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned, hint: 'Set the dark endpoint. Negative values deepen and clip the darkest tones; positive values lift the black floor.' },
+  { key: 'blacks', label: 'Blacks', group: 'adjust', min: -100, max: BLACK_LIFT_MAX, step: 1, format: formatSigned, hint: 'Set the dark endpoint. Negative values deepen and clip the darkest tones; positive values open near-black detail while keeping true black anchored.' },
   { key: 'vibrance', label: 'Vibrance', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'saturation', label: 'Saturation', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'texture', label: 'Texture', group: 'detail', min: -100, max: 100, step: 1, format: formatSigned },

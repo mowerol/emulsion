@@ -2,8 +2,9 @@
 // Image-adaptive tone controls. Analysis belongs to the whole, exposed photo, before tone
 // adjustments; neither the viewport nor the controls themselves change that analysis.
 // Range selection and the negative Blacks endpoint are Emulsion policy, not darktable ports.
-// Positive Blacks uses darktable's unchanged sigmoid target via tone.ts/params.ts instead.
-import { toneForward, toneProfileRgb } from './tone';
+// Positive Blacks lowers darktable sigmoid contrast inside the requested 0–60 print toe,
+// retaining true black instead of raising the display-black target.
+import { BLACK_LIFT_MAX, blackToeLift, toneForward } from './tone';
 import { EXPOSURE_BOOST } from './toneequalizer';
 
 export const TONE_KEYS = ['shadows', 'highlights', 'blacks', 'whites'] as const;
@@ -114,8 +115,8 @@ export function adaptiveToneGain(brightness: number, curve: ArrayLike<number>): 
 const BRIGHTNESS_SCALE = Math.sqrt(3) * EXPOSURE_BOOST;
 export const TONE_PRINT_PIVOT = toneForward(0.18);
 
-/** Slider mapping onto sigmoid's unchanged black target: +100 gives 2.8% display white. */
-export const adaptiveBlackLift = (blacks: number) => Math.max(blacks, 0) * 1.4;
+/** Positive slider amount for the black-anchored sigmoid toe. */
+export const adaptiveBlackLift = (blacks: number) => clamp(blacks, 0, BLACK_LIFT_MAX);
 
 /** Negative black endpoint after the broad-range correction. Positive lift belongs to sigmoid. */
 export function adaptiveBlackBrightness(brightness: number, offset: number): number {
@@ -132,13 +133,13 @@ export function adaptiveToneTransform(analysis: ToneAnalysis, controls: ToneCont
   // Keep a usable toe adjustment even when the photo already contains true blacks.
   // Keep its reference point within a consistent range across photos.
   const blackAnchor = clamp(dark * adaptiveToneGain(dark, curve), 0.004, 0.006);
-  const black = blackAnchor * Math.min(controls.blacks, 0) / 100 * 6;
+  const black = blackAnchor * Math.min(controls.blacks, 0) / 100 * 7;
   const amount = clamp(controls.whites / 100, 0, 1);
   // Progressively bring the clipping point in from the robust white percentile, ignoring
   // isolated speculars. An enforced distance above grey keeps flat scenes well-behaved.
   const bright = 2 ** (analysis[3] - amount * (analysis[3] - analysis[2]) * 0.25);
   const scene = adaptiveBlackBrightness(bright * adaptiveToneGain(bright, curve), black) / BRIGHTNESS_SCALE;
-  const endpoint = Math.max(TONE_PRINT_PIVOT + 0.15, toneProfileRgb([scene, scene, scene], 0, adaptiveBlackLift(controls.blacks))[0]);
+  const endpoint = Math.max(TONE_PRINT_PIVOT + 0.15, blackToeLift(toneForward(scene), adaptiveBlackLift(controls.blacks)));
   const white = 1 + amount * ((1 - TONE_PRINT_PIVOT) / (endpoint - TONE_PRINT_PIVOT) - 1);
   return { curve, black, white };
 }

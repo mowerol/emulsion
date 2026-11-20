@@ -13,8 +13,46 @@ import {
   toneNeutralRgb,
   toneProfileRgb,
   toneCurveFor,
+  blackToeLift,
+  BLACK_TOE_END,
+  blackToeCurve,
 } from './tone';
 import { srgbEotf } from './color';
+
+describe('adaptive positive Blacks toe', () => {
+  it('lifts only the requested encoded 0–60 range without changing the upstream curve', () => {
+    for (const lift of [25, 50, 100, 150, 200]) {
+      expect(blackToeLift(0, lift)).toBe(0);
+      expect(blackToeLift(10 / 255, lift)).toBeGreaterThan(10 / 255);
+      for (const value of [BLACK_TOE_END, 60 / 255, .5, 1, 2]) expect(blackToeLift(value, lift)).toBe(value);
+    }
+    // Open near-black detail without replacing true black with a grey floor.
+    expect(blackToeLift(5 / 255, 100) * 255).toBeGreaterThan(10);
+    expect(blackToeLift(30 / 255, 100) * 255).toBeGreaterThan(33);
+    for (let i = 0; i <= 4096; i++) expect(blackToeLift(i / 4096, 0)).toBe(i / 4096);
+  });
+  it('keeps the original 0…100 mapping and continues beyond it without a grey floor', () => {
+    for (const lift of [0, 25, 50, 75, 100]) {
+      expect(blackToeCurve(lift)).toEqual(sigmoidCurve({ ...NEUTRAL, contrast: NEUTRAL.contrast * (1 - 0.5 * lift / 100) }));
+    }
+    for (const value of [1, 5, 10, 20, 30, 40]) {
+      expect(blackToeLift(value / 255, 200)).toBeGreaterThan(blackToeLift(value / 255, 100));
+    }
+    expect(blackToeCurve(200)).toEqual(sigmoidCurve({ ...NEUTRAL, contrast: NEUTRAL.contrast * 0.25 }));
+  });
+  it('preserves tone order and joins the untouched greys continuously', () => {
+    for (const lift of [1, 25, 50, 100, 150, 200]) {
+      let previous = -Infinity;
+      for (let i = 0; i <= 4096; i++) {
+        const input = i / 4096, output = blackToeLift(input, lift);
+        expect(output).toBeGreaterThanOrEqual(previous - 1e-12);
+        expect(output).toBeGreaterThanOrEqual(input - 1e-12);
+        previous = output;
+      }
+      expect(blackToeLift(BLACK_TOE_END - 1e-8, lift)).toBeCloseTo(BLACK_TOE_END, 6);
+    }
+  });
+});
 
 describe('sigmoid', () => {
   it('meets its targets: grey to grey, zero to black, white approached but never clipped', () => {

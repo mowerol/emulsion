@@ -14,6 +14,14 @@ it('preserves saved HDR processing and adopts adaptive processing only when an o
   expect(normalizeRecipe(JSON.parse(JSON.stringify(saved)))).toEqual(saved);
 });
 
+it('lets Blacks travel to +200 and preserves that value across save and reopen', () => {
+  const def = SLIDERS.find(d => d.key === 'blacks')!;
+  expect([def.min, def.max]).toEqual([-100, 200]);
+  const recipe = withSlider(defaultRecipe(), 'blacks', 200);
+  expect(normalizeRecipe(JSON.parse(JSON.stringify(recipe)))).toEqual(recipe);
+  expect(normalizeRecipe({ ...recipe, blacks: 999 })!.blacks).toBe(200);
+});
+
 it('keeps extended legacy shadow rendering while presenting a -100 to +100 slider', () => {
   for (const value of [150, 250, 400]) {
     const saved = normalizeRecipe({ shadows: value })!;

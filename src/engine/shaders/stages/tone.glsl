@@ -3,6 +3,10 @@
 // (release 5.6.2). Translated from C to GLSL; the per-channel log-logistic curve, plus an exact
 // inverse of it and sRGB encoding of the output. Mirrors src/engine/tone.ts, which computes the
 // curve constants.
+// Adaptive Blacks' encoded 0–60 toe range is Emulsion policy requested by Oli, wrapping
+// the unchanged sigmoid and its neutral inverse instead of changing the upstream curve.
+// The positive slider reduces upstream contrast with display black fixed at zero, opening
+// near-black tones while retaining pure black rather than raising a grey floor.
 // Deviation (same values): darktable's isnan check on the curve's result is replaced by holding
 // the film term below float overflow, the only way that NaN arises (see sigmoid below).
 // SPDX-License-Identifier: GPL-3.0-or-later
@@ -18,6 +22,10 @@ uniform vec4 uSigS;
 uniform float uSigMag;
 // Adaptive Whites stretches the upper print around middle grey to a measured clipping point.
 uniform float uToneWhite;
+// Adaptive positive Blacks: (encoded upper edge, scale onto the sigmoid's grey anchor).
+// Edge 0 bypasses the toe exactly. The curve has display magnitude 1.
+uniform vec2 uBlackToe;
+uniform vec4 uBlackToeCurve;
 
 float srgbEotf1(float v) { return v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4); }
 float srgbOetf1(float l) { l = max(l, 0.0); return l <= 0.0031308 ? l * 12.92 : 1.055 * pow(l, 1.0 / 2.4) - 0.055; }
@@ -40,6 +48,12 @@ float sigmoidInverse(float y, vec4 c, float magnitude) {
 // Display-encoded value to scene light: the exact inverse of the neutral curve.
 float toneInverse(float e) { return sigmoidInverse(srgbEotf1(clamp(e, 0.0, 1.0)), uSigN, 1.0); }
 
+float blackToeLift(float e) {
+  if (e <= 0.0 || e >= uBlackToe.x) return e;
+  float scene = toneInverse(e * uBlackToe.y);
+  return srgbOetf1(sigmoid(scene, uBlackToeCurve, 1.0)) / uBlackToe.y;
+}
+
 // The original: the neutral curve per channel, so input and output round-trip.
 vec3 stageToneNeutral(vec3 x) {
   return vec3(srgbOetf1(sigmoid(x.r, uSigN, 1.0)), srgbOetf1(sigmoid(x.g, uSigN, 1.0)), srgbOetf1(sigmoid(x.b, uSigN, 1.0)));
@@ -56,6 +70,7 @@ vec3 stageToneProfile(vec3 x) {
   vec3 e = vec3(srgbOetf1(sigmoid(x.r, uSigS, uSigMag)),
               srgbOetf1(sigmoid(x.g, uSigS, uSigMag)),
               srgbOetf1(sigmoid(x.b, uSigS, uSigMag)));
+  if (uBlackToe.x > 0.0) e = vec3(blackToeLift(e.r), blackToeLift(e.g), blackToeLift(e.b));
   if (uToneWhite > 1.0) {
     float pivot = srgbOetf1(sigmoid(0.18, uSigN, 1.0));
     e += max(e - pivot, vec3(0.0)) * (uToneWhite - 1.0);

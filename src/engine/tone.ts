@@ -2,6 +2,10 @@
 // Ported from darktable src/iop/sigmoid.c at commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773
 // (release 5.6.2). Translated from C to TypeScript; the per-channel log-logistic curve, plus an
 // exact inverse of it and sRGB encoding of the output.
+// Adaptive Blacks range mapping is Emulsion policy requested by Oli: the unchanged sigmoid
+// is normalized into the encoded 0–60/255 toe, rather than altering its upstream curve shape.
+// Positive Blacks reduces its contrast (1.15 → 0.575 at +100 → 0.2875 at +200), with display black fixed at zero:
+// near-black tones open while pure black stays black, instead of becoming a grey floor.
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Reference implementation of the tone stage (stages/tone.glsl). The shader
@@ -117,6 +121,33 @@ export const toneForward = (x: number): number => srgbOetf(sigmoid(x, NEUTRAL_CU
 
 /** Display-encoded value to scene-linear value: the exact inverse of `toneForward`. */
 export const toneInverse = (e: number): number => sigmoidInverse(srgbEotf(Math.min(Math.max(e, 0), 1)), NEUTRAL_CURVE);
+
+/** The requested upper edge of adaptive positive Blacks, in encoded print values. */
+export const BLACK_TOE_END = 60 / 255;
+/** Extra positive travel requested by Oli; negative crush remains −100…0. */
+export const BLACK_LIFT_MAX = 200;
+/** Map that edge onto the upstream sigmoid's existing fixed middle-grey anchor. */
+export const BLACK_TOE_SCALE = srgbOetf(SIGMOID_GREY) / BLACK_TOE_END;
+
+/** Slider mapping onto upstream contrast inside the toe, with both endpoints anchored. */
+export function blackToeCurve(lift: number): SigmoidCurve {
+  const amount = Math.min(BLACK_LIFT_MAX, Math.max(0, lift)) / 100;
+  // Preserve 0…100 exactly, then continue reducing contrast without reaching zero.
+  // The two mappings meet with the same value and slope at +100.
+  const contrast = amount <= 1 ? 1 - 0.5 * amount : 0.5 / amount;
+  return sigmoidCurve({ ...NEUTRAL, contrast: NEUTRAL.contrast * contrast });
+}
+
+/**
+ * Reuse the anchored sigmoid inside the toe. `lift` is the positive slider (0–200).
+ * The neutral inverse and shared grey anchor keep the upper edge continuous and monotone.
+ * Values at/above the edge are exactly unchanged.
+ */
+export function blackToeLift(value: number, lift: number): number {
+  if (lift <= 0 || value <= 0 || value >= BLACK_TOE_END) return value;
+  const scene = toneInverse(value * BLACK_TOE_SCALE);
+  return srgbOetf(sigmoid(scene, blackToeCurve(lift))) / BLACK_TOE_SCALE;
+}
 
 /** The camera profile's print (stageToneProfile): the curve per channel under Whites and Blacks. */
 export function toneProfileRgb(x: Vec3, whites: number, blacks: number, character = 0): Vec3 {

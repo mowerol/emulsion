@@ -28,7 +28,7 @@ const PersonalSlider = memo(function PersonalSlider({ def, recipe, context }: { 
       const v = Number(text.trim().replace(',', '.').replace(/−/g, '-')) / (def.entryScale ?? 1);
       if (text.trim() && Number.isFinite(v)) set(Math.max(def.min, Math.min(def.max, Math.round(v / def.step) * def.step)));
     }} />
-    <div className="track"><LiveRange id={id} min={def.log ? 0 : min} max={def.log ? 1000 : max} step={def.log ? 1 : def.step} value={toPosition(value)} aria-valuetext={def.format(value)} disabled={!!unavailable} aria-describedby={unavailable ? `${id}-reason` : undefined}
+    <div className="track"><LiveRange id={id} centerZero={def.id === 'blacks'} min={def.log ? 0 : min} max={def.log ? 1000 : max} step={def.log ? 1 : def.step} value={toPosition(value)} aria-valuetext={def.format(value)} disabled={!!unavailable} aria-describedby={unavailable ? `${id}-reason` : undefined}
       onChange={v => set(fromPosition(v))} onDoubleClick={reset}
       onPointerDown={e => { drag.current = `personal:${def.id}:${++gestureId}`; mask(e.altKey); }}
       onPointerUp={() => { drag.current = null; mask(false); }} onPointerCancel={() => { drag.current = null; mask(false); }} onBlur={() => { drag.current = null; mask(false); }} /></div>

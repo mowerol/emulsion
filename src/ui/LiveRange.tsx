@@ -10,6 +10,8 @@ import { useEffect, useRef, useState, type InputHTMLAttributes, type PointerEven
 type Props = Omit<InputHTMLAttributes<HTMLInputElement>, 'type' | 'value' | 'onChange'> & {
   value: number;
   onChange: (value: number) => void;
+  /** Give each side of zero half the track, even when their numeric ranges differ. */
+  centerZero?: boolean;
 };
 
 /**
@@ -40,9 +42,15 @@ export function useFrameLatest<T>(onSend: (value: T) => void) {
   return { local: local ? local.v : null, push, flush };
 }
 
-export function LiveRange({ value, onChange, onPointerUp, onPointerCancel, onBlur, onKeyUp, ...rest }: Props) {
+export function LiveRange({ value, onChange, centerZero, onPointerUp, onPointerCancel, onBlur, onKeyUp, onKeyDown, ...rest }: Props) {
   // The value shown while one is waiting to be sent; null shows the app's.
   const { local, push: input, flush } = useFrameLatest<number>(onChange);
+  const min = Number(rest.min ?? 0), max = Number(rest.max ?? 100);
+  const centered = centerZero && min < 0 && max > 0;
+  const step = Number(rest.step) > 0 ? Number(rest.step) : 1;
+  const current = local ?? value;
+  const position = (v: number) => v < 0 ? v / -min : v / max;
+  const quantize = (v: number) => Math.min(max, Math.max(min, Number((Math.round(v / step) * step).toFixed(6))));
   const released = (handler?: (e: ReactPointerEvent<HTMLInputElement>) => void) => (e: ReactPointerEvent<HTMLInputElement>) => {
     flush();
     handler?.(e);
@@ -54,8 +62,26 @@ export function LiveRange({ value, onChange, onPointerUp, onPointerCancel, onBlu
       // restyles the slider for each write a selector can see (~7 ms a frame while dragging).
       className={rest.className ? `range ${rest.className}` : 'range'}
       type="range"
-      value={local ?? value}
-      onChange={(e) => input(Number(e.target.value))}
+      min={centered ? -1 : rest.min}
+      max={centered ? 1 : rest.max}
+      step={centered ? 'any' : rest.step}
+      value={centered ? position(current) : current}
+      aria-valuemin={centered ? min : rest['aria-valuemin']}
+      aria-valuemax={centered ? max : rest['aria-valuemax']}
+      aria-valuenow={centered ? current : rest['aria-valuenow']}
+      onChange={(e) => {
+        const p = Number(e.target.value);
+        input(centered ? quantize(p * (p < 0 ? -min : max)) : p);
+      }}
+      onKeyDown={(e) => {
+        onKeyDown?.(e);
+        if (!centered || e.defaultPrevented) return;
+        const next = ({ ArrowRight: current + step, ArrowUp: current + step,
+          ArrowLeft: current - step, ArrowDown: current - step,
+          PageUp: current + 10 * step, PageDown: current - 10 * step,
+          Home: min, End: max } as Record<string, number>)[e.key];
+        if (next !== undefined) { e.preventDefault(); input(quantize(next)); }
+      }}
       onPointerUp={released(onPointerUp)}
       onPointerCancel={released(onPointerCancel)}
       onBlur={(e) => { flush(); onBlur?.(e); }}

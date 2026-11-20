@@ -8,7 +8,7 @@ import { diffusionFraction, halationStrength } from './optics';
 import { scannerFinish } from '../film/scannerfinish';
 import type { Recipe } from '../film/recipe';
 import { REC2020_TO_SRGB, SRGB_TO_REC2020, columnMajor, mulMat, mulVec } from './color';
-import { NEUTRAL, packCurve, sigmoidCurve, toneCurveFor, whiteTargetFor } from './tone';
+import { BLACK_TOE_END, BLACK_TOE_SCALE, blackToeCurve, NEUTRAL, packCurve, sigmoidCurve, toneCurveFor, whiteTargetFor } from './tone';
 import {
   CB_DEFAULTS,
   GRADING_TO_LMS,
@@ -134,6 +134,8 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uToneCurve: new Array<number>(128).fill(0),
     uToneBlack: 0,
     uToneWhite: 1,
+    uBlackToe: [0, 1],
+    uBlackToeCurve: NEUTRAL_CURVE,
     // The engine sets the crop's own (Engine.render); without one the whole source is the crop.
     uVigScale: 1,
     uVigInner: (1 - VIGNETTE_FEATHER / 100) / Math.SQRT2,
@@ -176,7 +178,8 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
   const transform = adaptiveToneTransform(DEFAULT_TONE_ANALYSIS, tone);
   const legacyWhites = recipe.toneVersions?.whites === 2 ? 0 : recipe.whites;
   const legacyBlacks = recipe.toneVersions?.blacks === 2 ? 0 : recipe.blacks;
-  const printBlacks = recipe.toneVersions?.blacks === 2 ? adaptiveBlackLift(recipe.blacks) : Math.max(recipe.blacks, 0);
+  const toeLift = recipe.toneVersions?.blacks === 2 ? adaptiveBlackLift(recipe.blacks) : 0;
+  const printBlacks = Math.max(legacyBlacks, 0);
 
   return {
     ...base,
@@ -212,9 +215,11 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uTeqF1: teq.slice(4, 8),
     uTeqParams: [EXPOSURE_BOOST, FEATHERING, 2 * SMOOTHING * SMOOTHING],
     uExpBlack: legacyBlacks < 0 ? (-legacyBlacks / 100) * MAX_BLACK_LEVEL : 0,
-    // Both generations lift Blacks with darktable's middle-grey-anchored sigmoid target.
+    // Legacy uses the full sigmoid; adaptive lift acts only inside the encoded print toe.
     uSigS: packCurve(toneCurveFor(legacyWhites, printBlacks, recipe.toneCharacter)),
     uSigMag: whiteTargetFor(legacyWhites) / 100,
+    uBlackToe: toeLift > 0 ? [BLACK_TOE_END, BLACK_TOE_SCALE] : [0, 1],
+    uBlackToeCurve: toeLift > 0 ? packCurve(blackToeCurve(toeLift)) : NEUTRAL_CURVE,
     uWbMat: wbMat,
     uVigScale: Math.pow(2, -vignetteStrength(recipe.vignette)),
     uVigInner: (1 - VIGNETTE_FEATHER / 100) / Math.SQRT2,

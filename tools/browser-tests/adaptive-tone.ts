@@ -5,7 +5,7 @@ import { defaultRecipe, normalizeRecipe, type Recipe } from '../../src/film/reci
 import { normalizeSettings, recipeFromSettings, settingsFromRecipe } from '../../src/film/creative';
 import { adaptiveToneTransform, adaptiveToneGain, adaptiveBlackLift, adaptiveBlackBrightness, adaptiveWhiteValue, type ToneAnalysis } from '../../src/engine/adaptivetone';
 import { EXPOSURE_BOOST, eigf } from '../../src/engine/toneequalizer';
-import { toneForward, toneProfileRgb, SIGMOID_GREY } from '../../src/engine/tone';
+import { blackToeLift, toneForward, toneProfileRgb, SIGMOID_GREY } from '../../src/engine/tone';
 import { DEFAULT_FUJI_SIM, fujiLookSettings, fujiSimulations, withFujiLook, fujiOf } from '../../src/film/fujilooks';
 import { FUJI_NEUTRAL } from '../../src/film/fujirecipe';
 import { recipeLookFile } from '../../src/film/looks';
@@ -71,20 +71,25 @@ async function main() {
       const expected = Math.min(255, Math.round(adaptiveWhiteValue(toneForward(scene), transform.white) * 255));
       assert(Math.abs(sample(edited, band) - expected) <= 2, `GPU/reference mismatch in band ${band}: ${sample(edited, band)} vs ${expected}`);
     }
-    for (const blacks of [-100, -50, 50, 100]) for (const whites of [0, 50]) {
+    for (const blacks of [-100, -50, 50, 100, 200]) for (const whites of [0, 50]) {
       const blackControls = { shadows: 0, highlights: 0, whites, blacks };
       const blackTransform = adaptiveToneTransform(measured, blackControls);
       const pixels = read(a, { ...base, ...blackControls });
       for (let band = 0; band < 16; band++) {
         const scale = Math.sqrt(3) * EXPOSURE_BOOST;
         const scene = adaptiveBlackBrightness(2 ** (-10 + band * 0.8) * scale, blackTransform.black) / scale;
-        const print = toneProfileRgb([scene, scene, scene], 0, adaptiveBlackLift(blacks))[0];
+        const print = blackToeLift(toneForward(scene), adaptiveBlackLift(blacks));
         const expected = Math.min(255, Math.round(adaptiveWhiteValue(print, blackTransform.white) * 255));
         assert(Math.abs(sample(pixels, band) - expected) <= 2, `Blacks ${blacks}: GPU/reference mismatch in band ${band}`);
       }
       if (blacks > 0 && whites === 0) {
-        const legacyLift = read(a, { ...base, blacks: adaptiveBlackLift(blacks), toneVersions: { ...base.toneVersions, blacks: undefined } });
-        assert(same(pixels, legacyLift), 'Positive Blacks differs from the darktable sigmoid at the mapped target');
+        const legacyLift = read(a, { ...base, blacks, toneVersions: { ...base.toneVersions, blacks: undefined } });
+        assert(!same(pixels, legacyLift), 'Adaptive lift must be narrower than the legacy full sigmoid');
+        for (let band = 0; band < 16; band++) {
+          const scene = 2 ** (-10 + band * 0.8);
+          const expected = Math.round(toneProfileRgb([scene, scene, scene], 0, blacks)[0] * 255);
+          assert(Math.abs(sample(legacyLift, band) - expected) <= 2, 'Legacy positive Blacks changed');
+        }
         const exported = await engine.readPixels16Async(a, { ...base, ...blackControls }, W, H, 7);
         for (let i = 0; i < exported.length; i++) assert(Math.abs(exported[i] / 257 - pixels[Math.floor(i / 3) * 4 + i % 3]) <= 2, 'Positive Blacks: 16-bit export differs from preview');
       }

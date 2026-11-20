@@ -24,7 +24,8 @@ import { vignetteAt } from '../../src/engine/vignette';
 import { geometryFramePoint, geometryMatrix, type Perspective } from '../../src/engine/perspective';
 import { invert3 } from '../../src/engine/color';
 import type { Vec3 } from '../../src/film/stocks';
-import { toneForward, toneProfileRgb } from '../../src/engine/tone';
+import { blackToeLift, toneForward, toneProfileRgb } from '../../src/engine/tone';
+import { adaptiveBlackLift } from '../../src/engine/adaptivetone';
 import { histogram } from '../../src/engine/histogram';
 import { drawHistogram } from '../../src/ui/Histogram';
 import { createElement } from 'react';
@@ -403,9 +404,13 @@ function probeColorBalance(eng: Engine) {
 function probeTone(eng: Engine) {
   const settings = { neutral: [0, 0, 0], whitesUp: [80, 0, 0], whitesDown: [-80, 0, 0], blacksUp: [0, 70, 0], both: [-60, 50, 0], softer: [0, 0, -100], harder: [0, 0, 100], characterTargets: [-40, 30, 70] };
   const cases = Object.fromEntries(Object.entries(settings).map(([name, [whites, blacks, toneCharacter]]) => [name, {
-    uniforms: developUniforms({ ...defaultRecipe(), whites, blacks, toneCharacter }, stageCtx),
+    uniforms: developUniforms({ ...defaultRecipe(), toneVersions: undefined, whites, blacks, toneCharacter }, stageCtx),
     ref: (c: Vec3) => toneProfileRgb(c, whites, blacks, toneCharacter),
   }]));
+  for (const blacks of [25, 50, 100, 200]) cases[`adaptiveToe${blacks}`] = {
+    uniforms: developUniforms({ ...defaultRecipe(), blacks }, stageCtx),
+    ref: (c: Vec3) => toneProfileRgb(c, 0, 0).map(v => blackToeLift(v, adaptiveBlackLift(blacks))) as Vec3,
+  };
   // Very large scene values too: the curve's film term overflows floats there (darktable's NaN check).
   const tone = probeStage(eng, ['stages/tone.glsl'], 'stageToneProfile(c)', [...COLOURS, [1e6, 1e15, 1e30], [3e38, 1e20, 50]], cases);
   // The input stage's inverse followed by the original's neutral curve must give back the display value.
@@ -914,7 +919,11 @@ view.width = W; view.height = H;
 document.body.append(view);
 const out: Record<string, unknown> = {};
 try {
-  if (new URLSearchParams(location.search).has('vignette')) {
+  if (new URLSearchParams(location.search).has('tone')) {
+    const eng = new Engine(view);
+    Object.assign(out, probeTone(eng));
+    out.glError = eng.gpu.gl.getError();
+  } else if (new URLSearchParams(location.search).has('vignette')) {
     // ?vignette: RawTherapee's post-crop vignette. The lens stage alone against the reference at
     // points across a crop (plain, and straightened with perspective), then the whole engine on a
     // flat grey: the cropped frame's four corners darken alike, the centre stays.
@@ -2399,7 +2408,7 @@ if (photoArg) {
       const settings: Record<string, { uniforms: Record<string, unknown>; ref: (c: Vec3) => Vec3 }> = {};
       const clamp01 = (v: number) => Math.max(0, Math.min(1, v));
       for (const amount of [0, 50, 100]) for (const [label, whites, blacks] of [['rest', 0, 0], ['whiteDown', -100, 0], ['whiteUp', 100, 0], ['blackUp', 0, 100], ['both', -60, 50]] as const) {
-        const recipe = { ...defaultRecipe('portra400'), whites, blacks, lookAmount: amount };
+        const recipe = { ...defaultRecipe('portra400'), toneVersions: undefined, whites, blacks, lookAmount: amount };
         settings[`${label}_${amount}`] = {
           uniforms: developUniforms(recipe, { ...stageCtx, look: hald }),
           ref: (c: Vec3) => {
