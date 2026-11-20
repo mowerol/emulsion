@@ -140,7 +140,7 @@ describe('undo in the store', () => {
     expect(useApp.getState().active).toBe(1);
     expect([...useApp.getState().selected]).toEqual(['b']);
     // With nothing matching, the active photo stays.
-    setFilter({ flags: [], minRating: 5 });
+    setFilter({ flags: [], rating: 5 });
     expect(useApp.getState().active).toBe(1);
     setFilter(NO_FILTER);
   });

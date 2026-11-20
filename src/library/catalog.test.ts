@@ -100,7 +100,7 @@ it('reads a source\'s members once per state, not once per caller', async () => 
 it('combines toolbar filters with the source, gives a real empty state, and retains the active edit', async () => {
   await importFolder('/filters', ['a.jpg', 'b.jpg']);
   const active = useApp.getState().active;
-  setFilter({ minRating: 5 });
+  setFilter({ rating: 5 });
   expect(shown()).toEqual([]);
   expect(useApp.getState().active).toBe(active);
   setFilter(NO_FILTER);
@@ -328,4 +328,25 @@ it('keeps a collection\'s members through an edit, and drops a photo an edit tak
   expect(sourcePhotos()[1].rating).toBe(3);
   useApp.setState(s => ({ photos: s.photos.map((p, i) => i === 1 ? { ...p, recipe: defaultRecipe() } : p) }));
   expect(sourcePhotos().map(p => p.name)).toEqual(['a.orf', 'c.orf']);
+});
+
+it('moves to a matching photo for star comparisons, persists them, and handles no matches', async () => {
+  await importFolder('/ratings', ['zero.jpg', 'three.jpg', 'five.jpg']);
+  useApp.setState(s => ({ photos: s.photos.map((p, i) => ({ ...p, rating: [0, 3, 5][i] })) }));
+  setFilter({ rating: 3, ratingComparison: '<' });
+  expect(shown()).toEqual([0]);
+  setFilter({ ratingComparison: '=' });
+  expect(useApp.getState().active).toBe(1);
+  expect(shown()).toEqual([1]);
+  setFilter({ ratingComparison: '>' });
+  expect(useApp.getState().active).toBe(2);
+  expect(shown()).toEqual([2]);
+  expect(JSON.parse(localStorage.getItem('emulsion.filter')!)).toMatchObject({ rating: 3, ratingComparison: '>' });
+  setFilter({ rating: 5 });
+  expect(shown()).toEqual([]);
+  setFilter({ rating: 0, ratingComparison: '=' });
+  expect(useApp.getState().active).toBe(0);
+  expect(shown()).toEqual([0]);
+  setFilter(NO_FILTER);
+  expect(shown()).toEqual([0, 1, 2]);
 });

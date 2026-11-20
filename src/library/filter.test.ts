@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
 import { defaultRecipe } from '../film/recipe';
-import { NO_FILTER, isFiltering, matchCount, normalizeFilter, passes, rangeWithin, shownIndices, stepWithin, type Filter } from './filter';
+import { NO_FILTER, isFiltering, matchCount, normalizeFilter, passes, rangeWithin, shownIndices, stepWithin, type Filter, type RatingComparison } from './filter';
 import type { Flag, Label } from './marks';
 
 const look = defaultRecipe();
@@ -21,7 +21,7 @@ describe('library filter', () => {
   });
 
   it('filters by at least so many stars, by any chosen flag and by any chosen tag', () => {
-    expect(shownIndices(photos, f({ minRating: 3 }), 0)).toEqual([0, 1]);
+    expect(shownIndices(photos, f({ rating: 3 }), 0)).toEqual([0, 1]);
     expect(shownIndices(photos, f({ flags: ['pick'] }), 0)).toEqual([0, 3]);
     expect(shownIndices(photos, f({ flags: ['none'] }), 1)).toEqual([1, 4]);
     expect(shownIndices(photos, f({ flags: ['pick', 'none'] }), 0)).toEqual([0, 1, 3, 4]);
@@ -29,10 +29,41 @@ describe('library filter', () => {
     expect(shownIndices(photos, f({ labels: ['red', 'green'] }), 0)).toEqual([0, 3]);
   });
 
+  it.each<[RatingComparison, number[]]>([
+    ['<', [0, 1, 2]], ['<=', [0, 1, 2, 3]], ['=', [3]],
+    ['!=', [0, 1, 2, 4, 5]], ['>=', [3, 4, 5]], ['>', [4, 5]],
+  ])('compares stars using %s', (ratingComparison, expected) => {
+    const ratings = [0, 1, 2, 3, 4, 5];
+    const filter = f({ rating: 3, ratingComparison });
+    expect(ratings.filter(r => passes(p(null, r), filter))).toEqual(expected);
+    expect(matchCount(ratings.map(r => p(null, r)), filter)).toBe(expected.length);
+  });
+
+  it('distinguishes unrated from any rating and handles boundary comparisons', () => {
+    expect(isFiltering(f({ ratingComparison: '=' }))).toBe(true);
+    const unrated = f({ rating: 0, ratingComparison: '=' });
+    expect(isFiltering(unrated)).toBe(true);
+    expect(photos.filter(photo => passes(photo, unrated))).toEqual([photos[3], photos[4]]);
+    expect(matchCount(photos, f({ rating: 0, ratingComparison: '<' }))).toBe(0);
+    expect(matchCount(photos, f({ rating: 5, ratingComparison: '>' }))).toBe(0);
+    expect(shownIndices(photos, unrated, 0)).toEqual([0, 3, 4]);
+  });
+
+  it('round-trips comparisons and migrates saved minimums without changing their meaning', () => {
+    expect(normalizeFilter({ minRating: 0 })).toEqual(NO_FILTER);
+    expect(normalizeFilter({ minRating: 3 })).toEqual(f({ rating: 3 }));
+    const unrated = f({ rating: 0, ratingComparison: '=' });
+    expect(normalizeFilter(JSON.parse(JSON.stringify(unrated)))).toEqual(unrated);
+    expect(normalizeFilter({ rating: null, minRating: 3 })).toEqual(NO_FILTER);
+    expect(normalizeFilter({ rating: 2.6, ratingComparison: 'bad' })).toEqual(f({ rating: 3 }));
+    expect(normalizeFilter({ rating: NaN })).toEqual(NO_FILTER);
+    expect(normalizeFilter({ rating: Infinity })).toEqual(NO_FILTER);
+  });
+
   it('combines criteria', () => {
     expect(shownIndices(photos, f({ flags: ['pick'], edit: 'unedited' }), 3)).toEqual([3]);
-    expect(shownIndices(photos, f({ minRating: 1, labels: ['blue'] }), 2)).toEqual([2]);
-    expect(matchCount(photos, f({ minRating: 1, edit: 'edited' }))).toBe(2);
+    expect(shownIndices(photos, f({ rating: 1, labels: ['blue'] }), 2)).toEqual([2]);
+    expect(matchCount(photos, f({ rating: 1, edit: 'edited' }))).toBe(2);
   });
 
   it('keeps the active photo even when it no longer matches', () => {
@@ -60,7 +91,7 @@ describe('library filter', () => {
 
   it('reads a saved filter, dropping anything unexpected', () => {
     expect(normalizeFilter({ edit: 'edited', minRating: 9, flags: ['reject', 'none', 'maybe'], labels: ['blue', 'orange'] })).toEqual({
-      edit: 'edited', minRating: 5, flags: ['none', 'reject'], labels: ['blue'], keyword: '',
+      edit: 'edited', rating: 5, ratingComparison: '>=', flags: ['none', 'reject'], labels: ['blue'], keyword: '',
     });
     // Saved before flags replaced hearts.
     expect(normalizeFilter({ heart: true })).toEqual({ ...NO_FILTER, flags: ['pick'] });

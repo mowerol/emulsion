@@ -12,14 +12,14 @@ import { useWorkspace } from './workspace';
 import { ChevronDown, Pencil } from 'lucide-react';
 import { setPrefs, usePrefs } from './prefs';
 import { LABEL } from '../library/marks';
-import { EDIT_FILTERS, FLAG_FILTERS, type Filter } from '../library/filter';
+import { EDIT_FILTERS, FLAG_FILTERS, RATING_COMPARISONS, type Filter } from '../library/filter';
 import { rowWindow, scrollNearest, useViewport } from './virtual';
 
 /** The active filters as short chips, shown while the filters are folded away. */
 function FilterChips({ filter }: { filter: Filter }) {
   const chips = [
     filter.edit !== 'all' && EDIT_FILTERS.find(f => f.value === filter.edit)?.label,
-    filter.minRating > 0 && `${filter.minRating}★${filter.minRating < 5 ? ' +' : ''}`,
+    (filter.rating > 0 || filter.ratingComparison !== '>=') && `${RATING_COMPARISONS.find(c => c.value === filter.ratingComparison)!.symbol} ${filter.rating}★`,
     ...filter.flags.map(f => FLAG_FILTERS.find(x => x.value === f)!.label),
     ...filter.labels.map(l => `● ${LABEL[l].name}`),
   ].filter(Boolean) as string[];

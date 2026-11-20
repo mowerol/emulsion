@@ -2,7 +2,7 @@
 import { memo } from 'react';
 import { setFilter, sourcePhotos, useApp, type Photo } from '../library/store';
 import { overPhotos } from '../library/photolist';
-import { EDIT_FILTERS, FLAG_FILTERS, NO_FILTER, isFiltering, matchCount, passes, type Filter } from '../library/filter';
+import { EDIT_FILTERS, FLAG_FILTERS, NO_FILTER, isFiltering, matchCount, passes, RATING_COMPARISONS, type RatingComparison, type Filter } from '../library/filter';
 import { LABELS } from '../library/marks';
 import { Star } from 'lucide-react';
 import { useSourceDefinitions } from '../library/catalog';
@@ -17,7 +17,7 @@ function countMatching(photos: Photo[], filter: Filter) {
   return counted.count(photos);
 }
 
-/** What the Library grid and the filmstrip show: edited or not, stars and up, flags (any of picked,
+/** What the Library grid and the filmstrip show: edited or not, a star comparison, flags (any of picked,
  *  unflagged, rejected, as Lightroom's three flag toggles), colour tags.
  *  Without `summary` the match count and Clear are left to the caller (the Images pane puts them in its heading). */
 export const FilterBar = memo(function FilterBar({ summary = true, showCount = true }: { summary?: boolean; showCount?: boolean }) {
@@ -34,18 +34,22 @@ export const FilterBar = memo(function FilterBar({ summary = true, showCount = t
     <div className="filter-bar" role="group" aria-label="Filter photos">
       <Segmented label="Edited or not" options={EDIT_FILTERS} value={filter.edit} onChange={(edit) => setFilter({ edit })} />
       <span className="filter-stars" role="group" aria-label="Rating">
+        <select className="filter-rating-comparison" aria-label="Rating comparison" title={`${RATING_COMPARISONS.find(c => c.value === filter.ratingComparison)!.label} — change comparison`}
+          value={filter.ratingComparison} onChange={e => setFilter({ ratingComparison: e.target.value as RatingComparison })}>
+          {RATING_COMPARISONS.map(c => <option key={c.value} value={c.value} aria-label={c.label}>{c.symbol}</option>)}
+        </select>
         {[1, 2, 3, 4, 5].map((n) => (
           <button
             key={n}
             type="button"
-            className={`mark-btn star${n <= filter.minRating ? ' on' : ''}`}
-            aria-pressed={n === filter.minRating}
-            aria-label={n === 5 ? '5 stars' : `${n} stars and up`}
-            title={n === filter.minRating ? 'Any rating' : n === 5 ? '5 stars' : `${n} ${n === 1 ? 'star' : 'stars'} and up`}
-            // Clicking the chosen rating again turns the rating filter off.
-            onClick={() => setFilter({ minRating: n === filter.minRating ? 0 : n })}
+            className={`mark-btn star${n <= filter.rating ? ' on' : ''}`}
+            aria-pressed={n === filter.rating}
+            aria-label={`${n} ${n === 1 ? 'star' : 'stars'}`}
+            title={n === filter.rating ? 'Clear stars' : `${RATING_COMPARISONS.find(c => c.value === filter.ratingComparison)!.label} ${n} ${n === 1 ? 'star' : 'stars'}`}
+            // Clicking the chosen rating again empties the stars (unrated).
+            onClick={() => setFilter({ rating: n === filter.rating ? 0 : n })}
           >
-            <Star size={15} fill="currentColor" strokeWidth={1.8} />
+            <Star size={15} fill={n <= filter.rating ? 'currentColor' : 'none'} strokeWidth={1.8} />
           </button>
         ))}
       </span>

@@ -149,7 +149,7 @@ async function main() {
   const lastTile = document.querySelector<HTMLElement>('.library-image-rail [aria-current="true"]')!.getBoundingClientRect();
   const railBox = railScroll.getBoundingClientRect();
   assert(lastTile.top >= railBox.top - 1 && lastTile.bottom <= railBox.bottom + 1, 'Navigation did not reveal the active carousel image');
-  setFilter({ ...NO_FILTER, minRating: 5 }); await pause();
+  setFilter({ ...NO_FILTER, rating: 5 }); await pause();
   assert(!document.querySelector('.cull-image-window img'), 'No-match filter displayed a hidden photo');
   assert(!document.querySelector('.cull-footer .mark-controls'), 'Hidden photo could still be marked');
   button('Clear filters').click();

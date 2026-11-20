@@ -10,6 +10,7 @@ import { Images } from './Images';
 import { useApp, type Photo } from '../library/store';
 import { NO_FILTER } from '../library/filter';
 import { useWorkspace } from './workspace';
+import { usePrefs } from './prefs';
 import { defaultRecipe } from '../film/recipe';
 let host: HTMLDivElement, root: Root;
 beforeEach(() => {
@@ -51,4 +52,18 @@ it.each([1, 2, 3] as const)('mounts only nearby frames and reveals distant navig
   await act(async () => { scroll.scrollTop = 0; scroll.dispatchEvent(new Event('scroll')); });
   expect(host.querySelector('[data-index="0"]')).not.toBeNull();
   expect(useApp.getState().active).toBe(1199);
+});
+
+it('shows the star comparison in collapsed filters, including unrated', async () => {
+  const wasOpen = usePrefs.getState().filtersOpen;
+  try {
+    usePrefs.setState({ filtersOpen: false });
+    useApp.setState({ filter: { ...NO_FILTER, rating: 3, ratingComparison: '<=' } });
+    await act(async () => root.render(createElement(Images)));
+    expect(host.querySelector('.filter-chip')?.textContent).toBe('≤ 3★');
+    await act(async () => useApp.setState({ filter: { ...NO_FILTER, rating: 0, ratingComparison: '=' } }));
+    expect(host.querySelector('.filter-chip')?.textContent).toBe('= 0★');
+  } finally {
+    await act(async () => usePrefs.setState({ filtersOpen: wasOpen }));
+  }
 });

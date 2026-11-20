@@ -86,7 +86,7 @@ it('registers empty subfolders through sync without opening the importer or addi
 it('shows missing subfolder entries with all ordinary filters cleared', async () => {
   disk = ['a.jpg', 'sub/b.jpg'];
   await openFolder('/photos'); importFolderPhotos({ mode: 'sync' });
-  useApp.setState({ filter: { ...NO_FILTER, minRating: 5 }, selectedOnly: true });
+  useApp.setState({ filter: { ...NO_FILTER, rating: 5 }, selectedOnly: true });
   showMissingPhotos('/photos', ['/photos/sub/b.jpg']);
   expect(shown().map(i => useApp.getState().photos[i].name)).toEqual(['sub/b.jpg']);
   expect(useApp.getState().selectedOnly).toBe(false);

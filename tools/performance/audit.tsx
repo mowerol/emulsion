@@ -70,11 +70,11 @@ async function library() {
       selection.push(performance.now() - t);
       await frame();
     }
-    const t = performance.now(); flushSync(() => setFilter({ minRating: 5 }));
+    const t = performance.now(); flushSync(() => setFilter({ rating: 5 }));
     const filterCommitMs = performance.now() - t;
     results[count] = { mountCommitMs, nodes, cells, selectionCommitMs: stats(selection), filterCommitMs, filteredCells: host.querySelectorAll('.cell').length };
     flushSync(() => root.unmount()); host.remove();
-    setFilter({ minRating: 0 }); await pause();
+    setFilter({ rating: 0 }); await pause();
   }
   const host = document.createElement('div'); document.body.append(host);
   const root = createRoot(host); const t = performance.now(); flushSync(() => root.render(<Filmstrip />));

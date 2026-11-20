@@ -121,7 +121,7 @@ try {
   click('New collection'); await pause(); click('New collection from selection'); await pause(); input('Collection name', 'Selected picks'); await pause(); click('Create collection'); await pause();
   assert(document.querySelector('.source-title h1')?.textContent === 'Selected picks' && cells().length === 1, 'Collection-from-selection failed');
   await openFolder('/Photos/2026/October'); await pause();
-  setFilter({ minRating: 5 }); await pause();
+  setFilter({ rating: 5 }); await pause();
   assert(cells().length === 0 && document.querySelector('.library-empty h2')?.textContent === 'No photos match these filters', 'Filter miss is not a real empty state');
   click('Clear filters'); await pause(); assert(cells().length === 6, 'Clear filters failed');
   click('Fold JPEGs'); await pause(); assert(cells().length === 7, 'Unfolding failed');

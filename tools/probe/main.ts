@@ -1,3 +1,4 @@
+import { NO_FILTER } from '../../src/library/filter';
 import { resample } from '../../src/engine/resample';
 import { planRemovals, removeContext, removeSetup, removalIdentity } from '../../src/engine/removequeue';
 // SPDX-License-Identifier: GPL-3.0-or-later
@@ -2230,7 +2231,7 @@ try {
     const stripHost = document.createElement('div');
     stripHost.style.cssText = 'position:fixed;top:660px;left:0;width:900px;z-index:100';
     document.body.append(stripHost);
-    useApp.setState({ photos: [...useApp.getState().photos, ...stripPhotos], filter: { edit: 'all', minRating: new URLSearchParams(location.search).has('library') ? 0 : 2, flags: [], labels: [] }, active: 2 });
+    useApp.setState({ photos: [...useApp.getState().photos, ...stripPhotos], filter: { ...NO_FILTER, rating: new URLSearchParams(location.search).has('library') ? 0 : 2 }, active: 2 });
     createRoot(stripHost).render(createElement(Filmstrip));
     // The Library grid, with a folded RAW+JPEG pair, when asked (?library).
     if (new URLSearchParams(location.search).has('library')) {
@@ -2249,7 +2250,7 @@ try {
         rating: i % 6, label: ([null, 'red', null, 'blue', 'green', 'yellow'] as const)[i % 6], flag: i % 4 === 1 ? 'pick' as const : i % 4 === 3 ? 'reject' as const : null,
       }));
       useApp.setState({ photos: many, folder: { root: '/probe/Portugal', name: 'Portugal', unreadable: 0 }, view: 'develop', active: 1, selected: new Set([many[1].path]),
-        filter: { edit: 'edited', minRating: 0, flags: new URLSearchParams(location.search).has('flags') ? ['pick', 'none'] : [], labels: [] } });
+        filter: { ...NO_FILTER, edit: 'edited', flags: new URLSearchParams(location.search).has('flags') ? ['pick', 'none'] : [], labels: [] } });
       const params = new URLSearchParams(location.search);
       setWorkspace({ layout: 'workflow', imageColumns: 2, group: (params.get('tab') as 'develop' | null) ?? 'develop' });
       // &theme=dark for the dark interface; &folded to fold the Images filters (chips show instead).

@@ -350,7 +350,11 @@ body:has(.library-fullscreen) { min-width: 0; }
 .filter-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 12px; }
 .filter-bar .seg button { padding: 2px 10px; font-size: 12px; }
 .filter-bar .mark-btn { font-size: 14px; }
-.filter-stars, .filter-labels { display: flex; align-items: center; }
+.filter-stars, .filter-flags, .filter-labels { display:flex; align-items:center; }
+.filter-stars { height:28px; padding:2px 0; }
+.filter-bar .filter-stars .mark-btn, .filter-bar .filter-flags .mark-btn { display:inline-flex; align-items:center; justify-content:center; width:17px; height:22px; padding:0; }
+.filter-stars svg, .filter-flags svg { display:block; flex-shrink:0; }
+.filter-stars .filter-rating-comparison { width:20px; height:22px; margin-right:2px; padding:0; background:transparent; color:var(--text); border:0; border-radius:3px; font:inherit; font-size:14px; line-height:22px; text-align:center; text-align-last:center; transform:translateY(-1px); cursor:pointer; }
 .filter-count { color: var(--muted); font-variant-numeric: tabular-nums; }
 .filter-keyword { max-width: 160px; min-width: 0; background: var(--raise); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; font: inherit; font-size: 12px; }
 .images-filters .filter-keyword { grid-column: 1 / -1; max-width: none; }
@@ -818,13 +822,23 @@ input.range:disabled { opacity: 0.35; cursor: default; }
 .images-count { flex:1 0 auto; color:var(--faint); font-size:12px; font-variant-numeric:tabular-nums; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .images-head .filter-clear { font-size:12px; font-weight:600; color:var(--accent); }
 .images-head .image-view-options { position:static; }
-.images-filters { flex-shrink:0; padding:2px 10px 10px; border-bottom:1px solid var(--line); }
-.images-filters .filter-bar { display:grid; grid-template-columns:auto auto 1fr; align-items:center; gap:10px 0; }
+.images-filters { flex-shrink:0; padding:2px 10px 10px; border-bottom:1px solid var(--line); container-type:inline-size; }
+.images-filters .filter-bar { display:grid; grid-template-columns:repeat(3,max-content); justify-content:space-between; align-items:center; gap:10px 4px; }
 .images-filters .filter-bar > .seg { grid-column:1 / -1; border:0; background:var(--raise); padding:2px; gap:2px; }
 .images-filters .filter-bar > .seg button { border:0; border-radius:4px; padding:4px 4px; font-size:12px; }
-.images-filters .filter-stars { padding-right:8px; margin-right:6px; border-right:1px solid var(--line); }
+.images-filters .filter-stars { justify-self:start; }
 .images-filters .filter-labels { justify-self:end; }
-.images-filters .mark-btn { padding:2px 2px; }.images-filters .mark-btn.swatch-btn { padding:3px; }
+.images-filters .mark-btn { padding:1px; }
+.images-filters .mark-btn.swatch-btn { display:inline-flex; align-items:center; justify-content:center; width:15px; height:20px; padding:0; }
+@container (max-width:230px) {
+  .images-filters .filter-bar { column-gap:3px; }
+  .images-filters .filter-stars .filter-rating-comparison { width:18px; margin-right:1px; font-size:12px; }
+  .images-filters .filter-stars .mark-btn { width:14px; }
+  .images-filters .filter-flags .mark-btn { width:15px; }
+  .images-filters .filter-stars svg, .images-filters .filter-flags svg { width:13px; height:13px; }
+  .images-filters .mark-btn.swatch-btn { width:11px; }
+  .images-filters .mark-btn.swatch-btn span { width:9px; height:9px; }
+}
 .images-grid { overflow-y:auto; flex:1; min-height:0; gap:8px; padding:10px 10px 12px; }
 .images-list, .images-row { display:grid; gap:inherit; }
 /* Equal rows keep the windowed list stable as photos with marks enter the view. */
@@ -1769,7 +1783,7 @@ select:not([multiple]):disabled { opacity: 0.4; cursor: default; }
 .library-bar .filter-bar { flex-wrap: nowrap; flex-shrink: 0; gap: 10px; }
 .library-bar .filter-bar .seg { background: var(--ctl); border: 0; border-radius: 7px; padding: 3px; gap: 0; }
 .library-bar .seg button { padding: 3px 10px; border: 0; border-radius: 5px; font-weight: 500; }
-.library-bar .filter-stars { gap: 1px; }
+.library-bar .filter-stars { height:calc(1.45em + 10px); gap:0; }
 .library-bar .mark-btn { display: inline-flex; align-items: center; justify-content: center; color: var(--dim); padding: 3px; border: 0; background: none; }
 .library-bar .mark-btn.star.on { color: var(--text); }
 .library-bar .filter-flags { display: inline-flex; gap: 1px; }
