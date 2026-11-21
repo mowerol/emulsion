@@ -199,7 +199,7 @@ function useDesktop() {
   useEffect(() => {
     if (!isTauri()) return;
     onSaveError((m) => showToast(`Could not save edits. ${m}`));
-    scheduleAutomaticCheck();
+    const stopUpdates = scheduleAutomaticCheck();
     // Photos or folders dropped on the Dock icon queue in Rust; this event says the queue has some.
     const opened = () => takeOpenPaths().then(paths => { if (paths.length) void openPaths(paths); }).catch(() => {});
     const openedListener = listen('open-paths', opened);
@@ -238,6 +238,7 @@ function useDesktop() {
       listen('quit-requested', () => void requestQuit()),
     ];
     return () => {
+      stopUpdates();
       unlisten.forEach((p) => p.then((fn) => fn()).catch(() => {}));
     };
   }, []);

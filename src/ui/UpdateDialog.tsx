@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// The update sheet: Emulsion › Check for Updates…, and the automatic check when it finds a version.
+// Automatic checks show a quiet notice; the person opens the update sheet when ready.
 // Offers Install and Relaunch, Remind Me Later and Skip This Version (the usual macOS updater
 // choices), shows download progress, then saves and relaunches into the new version.
 import { useLayoutEffect, useRef } from 'react';
-import { closeUpdate, installUpdate, skipVersion, useUpdate, type UpdateState } from '../library/updates';
+import { X } from 'lucide-react';
+import { closeUpdate, installUpdate, openUpdate, skipVersion, useUpdate, type UpdateState } from '../library/updates';
 import { sizeLabel } from '../library/catalogbackup';
 import { saveAndRelaunch } from './CatalogBackupDialog';
 
-function Sheet({ s }: { s: Exclude<UpdateState, { step: 'idle' }> }) {
+function Sheet({ s }: { s: Exclude<UpdateState, { step: 'idle' | 'notice' }> }) {
   const ref = useRef<HTMLDialogElement>(null);
   const primary = useRef<HTMLButtonElement>(null);
   useLayoutEffect(() => {
@@ -72,5 +73,14 @@ function Sheet({ s }: { s: Exclude<UpdateState, { step: 'idle' }> }) {
 export function UpdateDialog() {
   const s = useUpdate();
   if (s.step === 'idle') return null;
+  if (s.step === 'notice') return <aside className="update-notice" aria-label="Update available" onKeyDown={e => {
+    e.stopPropagation();
+    if (e.key === 'Escape') { e.preventDefault(); closeUpdate(); }
+  }}>
+    <p role="status">Emulsion {s.version} is available</p>
+    <button type="button" className="icon-btn update-notice-close" aria-label="Dismiss update notification" onClick={closeUpdate}><X size={16} aria-hidden="true" /></button>
+    <p className="update-notice-detail">Update when you’re ready. Your edits are saved before relaunching.</p>
+    <button type="button" className="btn" onClick={openUpdate}>View Update</button>
+  </aside>;
   return <Sheet s={s} />;
 }
