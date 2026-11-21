@@ -36,10 +36,9 @@ export function TopBar() {
   const selected = fresh.filter(p => importer.picked.has(p.path) || !!p.pair && importer.picked.has(p.pair));
   useEffect(() => {
     if (!root || importing || s.source?.type !== 'folder') return;
-    const scan = () => { void checkFolderDisk(root, recursive);
-      // Keep imported-folder dots current after returning from another app.
-      if (document.hasFocus()) for (const path of Object.keys(useCatalog.getState().folders)) { if (path !== root) void checkFolderDisk(path); }
-    };
+    // Returning to Emulsion refreshes the active source, not every catalog folder: an unrelated
+    // folder may need a macOS permission prompt or wake a cloud provider/removable drive.
+    const scan = () => { void checkFolderDisk(root, recursive); };
     scan(); window.addEventListener('focus', scan);
     return () => window.removeEventListener('focus', scan);
   }, [root, importing, recursive, s.source?.type]);

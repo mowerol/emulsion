@@ -4,9 +4,9 @@ import { createPortal } from 'react-dom';
 import { open } from '@tauri-apps/plugin-dialog';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
 import { ChevronDown, ChevronRight, Ellipsis, Folder, HardDrive, Plus, Square } from 'lucide-react';
-import { browseDirectory, computerFolders, isTauri, type Directory } from '../backend/api';
+import { browseDirectory, computerFolders, type Directory } from '../backend/api';
 import { cacheFolder, catalogPhotos, useCatalog } from '../library/catalog';
-import { checkFolderDisk, diskChanges, useDisks } from '../library/disks';
+import { diskChanges, useDisks } from '../library/disks';
 import { compareFolders, folderImport, folderTreeState, saveFolderImport, saveFolderTree } from '../library/folders';
 import { folderName, parentFolder, withinFolder } from '../library/membership';
 import { resetImporter, useImporter, useImportPhotos } from '../library/importer';
@@ -19,7 +19,7 @@ import { rowWindow, useViewport } from './virtual';
 
 export function requestFolderSync(root: string) { window.dispatchEvent(new CustomEvent('emulsion:sync-folder', { detail: root })); }
 
-interface TreeFolder extends Directory { children: TreeFolder[]; registered: boolean; count: number }
+interface TreeFolder extends Directory { children: TreeFolder[]; count: number }
 function importedTree(folders: Record<string, Photo[]>, folded: boolean): TreeFolder[] {
   const all = catalogPhotos({ ...useCatalog.getState(), folders });
   const shown = folded ? foldPairs(all).shown : all;
@@ -27,7 +27,7 @@ function importedTree(folders: Record<string, Photo[]>, folded: boolean): TreeFo
   const nodes = new Map<string, TreeFolder>();
   const ensure = (path: string): TreeFolder => {
     let node = nodes.get(path);
-    if (!node) { node = { path, name: folderName(path), registered: registered.has(path), children: [], count: 0 }; nodes.set(path, node); }
+    if (!node) { node = { path, name: folderName(path), children: [], count: 0 }; nodes.set(path, node); }
     return node;
   };
   for (const path of registered) {
@@ -73,7 +73,6 @@ function LibraryFolderNode({ directory, expanded, expand, depth = 0, onMenu }: {
     const [path, recursive] = key.split('\0');
     return withinFolder(directory.path, path) && diskChanges(path, value.listing, recursive === 'true').added.length > 0;
   });
-  useEffect(() => { if (directory.registered && isTauri()) void checkFolderDisk(directory.path); }, [directory.path, directory.registered]);
   useEffect(() => { if (source?.type === 'folder' && withinFolder(directory.path, source.id)) expand(directory.path, true); }, [source?.id, source?.type, directory.path, expand]);
   return <li>
     <div className={`directory-row${selected ? ' active' : ''}`} style={{ paddingLeft: 8 + depth * 14 }} onContextMenu={e => onMenu(e, directory)}>
@@ -129,6 +128,13 @@ export function FolderDirectory({ children }: { children?: ReactNode } = {}) {
   </aside>;
 }
 
+async function chooseImportSource(defaultPath?: string) {
+  try {
+    const path = await open({ directory: true, multiple: false, title: 'Choose import source', defaultPath });
+    if (typeof path === 'string') await startImport(path);
+  } catch { showToast('Could not open the folder picker. Try again.'); }
+}
+
 function DiskFolderNode({ directory, expanded, expand, depth = 0, drive = false }: {
   directory: Directory; expanded: Set<string>; expand: (path: string, value: boolean) => void; depth?: number; drive?: boolean;
 }) {
@@ -140,8 +146,8 @@ function DiskFolderNode({ directory, expanded, expand, depth = 0, drive = false 
   useCatalog(s => s.folders);
   const disk = folders[`${directory.path}\0false`];
   const count = disk?.listing ? diskChanges(directory.path, disk.listing, false).added.length : undefined;
-  useEffect(() => { if (root && withinFolder(directory.path, root)) expand(directory.path, true); }, [root, directory.path, expand]);
-  useEffect(() => { if (isTauri()) void checkFolderDisk(directory.path); }, [directory.path]);
+  // A displayed row is not consent to read its contents. Only an explicit expansion browses it;
+  // selecting a folder imports it. In particular, never auto-expand the chosen folder's ancestors.
   useEffect(() => {
     if (!open) return;
     let cancelled = false;
@@ -154,7 +160,7 @@ function DiskFolderNode({ directory, expanded, expand, depth = 0, drive = false 
       <button type="button" className="directory-expand" aria-label={`${open ? 'Collapse' : 'Expand'} ${directory.name}`} aria-expanded={open} onClick={() => expand(directory.path, !open)}>{open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}</button>
       <button type="button" className="directory-name" title={directory.path} aria-current={root === directory.path ? 'location' : undefined} onClick={() => void startImport(directory.path)}>{drive ? <HardDrive size={15} /> : <Folder size={15} />}<span>{directory.name}</span>{count !== undefined && <span className="source-count">{count.toLocaleString()}</span>}</button>
     </div>
-    {open && <ul>{error ? <li className="directory-message">Folder unavailable. Check the drive.</li> : children === null ? <li className="directory-message">Reading…</li> : [...children].sort(compareFolders).map(child => <DiskFolderNode key={child.path} directory={child} expanded={expanded} expand={expand} depth={depth + 1} />)}</ul>}
+    {open && <ul>{error ? <li className="directory-message directory-access-error"><span role="status">Could not read this folder. Check the drive or choose the folder to allow access.</span><button type="button" className="import-select" onClick={() => void chooseImportSource(directory.path)}>Choose folder…</button></li> : children === null ? <li className="directory-message">Reading…</li> : [...children].sort(compareFolders).map(child => <DiskFolderNode key={child.path} directory={child} expanded={expanded} expand={expand} depth={depth + 1} />)}</ul>}
   </li>;
 }
 export function DiskDirectory() {
@@ -168,12 +174,13 @@ export function DiskDirectory() {
   const root = useApp(s => s.folder?.root);
   const load = () => { setError(false); computerFolders().then(setRoots).catch(() => setError(true)); };
   useEffect(load, []);
-  const outside = root && !roots.some(r => r.path === root || withinFolder(r.path, root));
+  // Show the chosen folder directly, without reading Home/Computer or any sibling folders.
+  const chosen = root && !roots.some(r => r.path === root);
   return <aside className="folder-directory disk-directory" aria-label="On disk">
     <div className="disk-directory-heading"><h2>On disk</h2><span>New</span></div>
     {error && <p className="directory-message">Could not read drives. <button type="button" className="import-select" onClick={load}>Try again</button></p>}
-    <ul className="directory-tree">{roots.map(directory => <DiskFolderNode key={directory.path} directory={directory} expanded={expanded} expand={expand} drive />)}{outside && <DiskFolderNode directory={{ path: root, name: folderName(root) }} expanded={expanded} expand={expand} />}</ul>
-    <button type="button" className="source-footer" onClick={() => void open({ directory: true, multiple: false, title: 'Choose import source' }).then(path => { if (typeof path === 'string') void startImport(path); })}>Choose folder…</button>
+    <ul className="directory-tree">{roots.map(directory => <DiskFolderNode key={directory.path} directory={directory} expanded={expanded} expand={expand} drive />)}{chosen && <DiskFolderNode directory={{ path: root, name: folderName(root) }} expanded={expanded} expand={expand} />}</ul>
+    <button type="button" className="source-footer" onClick={() => void chooseImportSource()}>Choose folder…</button>
   </aside>;
 }
 

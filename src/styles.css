@@ -192,6 +192,8 @@ body:has(.library-fullscreen) { min-width: 0; }
 .directory-row.active svg { color: var(--accent); }
 .directory-name span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .directory-message { color: var(--faint); font-size: 11px; padding: 6px 16px 6px 30px; }
+.directory-access-error { color: var(--text3); font-size: 12px; }
+.directory-access-error .import-select { display: block; color: var(--text2); text-decoration: underline; text-underline-offset: 2px; }
 .directory-footer { color: var(--faint); font-size: 11px; padding: 24px 16px 12px; margin-top: auto; }
 .folder-heading { display: flex; justify-content: space-between; align-items: center; gap: 24px; padding: 16px 24px; border-bottom: 1px solid var(--line); }
 .folder-heading h1 { font-size: 24px; margin: 4px 0; font-weight: 650; }
