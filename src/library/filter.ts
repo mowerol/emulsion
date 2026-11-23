@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Which photos the Library grid and the filmstrip show, as pure functions. The
 // criteria combine: edited or not, a star comparison, any of the chosen flags
-// (picked, unflagged, rejected; Lightroom's three flag toggles), and any of the
-// chosen colour tags.
+// (picked, unflagged, rejected; Lightroom's three flag toggles), any of the
+// chosen colour tags, a keyword and a camera.
 
 import type { Recipe } from '../film/recipe';
 import { LABELS, type Flag, type Label } from './marks';
 import { hasKeywordPath, tidyPath, type PhotoMeta } from './meta';
+import { camera, photoCamera } from './cameras';
 
 /** A flag state to show: picked, rejected, or `none` for unflagged. */
 export type FlagFilter = Flag | 'none';
@@ -56,13 +57,15 @@ export interface Filter {
   labels: Label[];
   /** Show photos with this keyword or one under it (a path); empty shows any. */
   keyword: string;
+  /** Show photos taken with this camera (its name, `library/cameras.ts`); empty shows any. */
+  camera: string;
 }
 
-export const NO_FILTER: Filter = { edit: 'all', rating: 0, ratingComparison: '>=', flags: [], labels: [], keyword: '' };
+export const NO_FILTER: Filter = { edit: 'all', rating: 0, ratingComparison: '>=', flags: [], labels: [], keyword: '', camera: '' };
 
-type Filterable = { recipe: Recipe | null; rating: number; label: Label | null; flag: Flag | null; meta?: PhotoMeta };
+type Filterable = { recipe: Recipe | null; rating: number; label: Label | null; flag: Flag | null; meta?: PhotoMeta } & Parameters<typeof photoCamera>[0];
 
-export const isFiltering = (f: Filter) => f.edit !== 'all' || (f.rating > 0 || f.ratingComparison !== '>=') || f.flags.length > 0 || f.labels.length > 0 || !!f.keyword;
+export const isFiltering = (f: Filter) => f.edit !== 'all' || (f.rating > 0 || f.ratingComparison !== '>=') || f.flags.length > 0 || f.labels.length > 0 || !!f.keyword || !!f.camera;
 
 export function passes(p: Filterable, f: Filter): boolean {
   if (f.edit !== 'all' && (f.edit === 'edited') !== !!p.recipe) return false;
@@ -70,6 +73,7 @@ export function passes(p: Filterable, f: Filter): boolean {
   if (f.flags.length && !f.flags.includes(p.flag ?? 'none')) return false;
   if (f.labels.length && !(p.label && f.labels.includes(p.label))) return false;
   if (f.keyword && !hasKeywordPath(p.meta, f.keyword)) return false;
+  if (f.camera && photoCamera(p)?.key !== camera(f.camera).key) return false;
   return true;
 }
 
@@ -116,5 +120,6 @@ export function normalizeFilter(v: unknown): Filter {
   const flags = Array.isArray(o.flags) ? FLAG_FILTERS.filter((x) => (o.flags as unknown[]).includes(x.value)).map((x) => x.value)
     : (o as { heart?: unknown }).heart === true ? ['pick' as const] : [];
   const keyword = typeof o.keyword === 'string' ? tidyPath(o.keyword) : '';
-  return { edit, rating, ratingComparison, flags, labels, keyword };
+  const cameraName = typeof o.camera === 'string' ? o.camera.trim() : '';
+  return { edit, rating, ratingComparison, flags, labels, keyword, camera: cameraName ? camera(cameraName).name : '' };
 }

@@ -18,12 +18,14 @@ export interface InterfacePreferences {
   histogramSmall: boolean;
   /** The Images pane's filters shown. */
   filtersOpen: boolean;
+  /** The Library's metadata filters row (camera, keyword) shown under its bar. */
+  libraryMetadataOpen: boolean;
   /** The guide shown in the crop frame while it is handled. */
   cropOverlay: CropOverlayId;
   /** A star, tag or flag moves on to the next photo (Lightroom's Auto Advance); Shift with the key always does. */
   autoAdvance: boolean;
 }
-export const INTERFACE_DEFAULTS: InterfacePreferences = { theme: 'mid', libraryExif: true, histogramSmall: false, filtersOpen: true, cropOverlay: 'thirds', autoAdvance: false };
+export const INTERFACE_DEFAULTS: InterfacePreferences = { theme: 'mid', libraryExif: true, histogramSmall: false, filtersOpen: true, libraryMetadataOpen: false, cropOverlay: 'thirds', autoAdvance: false };
 
 export function normalizePrefs(input: unknown): InterfacePreferences {
   const p = input && typeof input === 'object' ? (input as Partial<InterfacePreferences>) : {};
@@ -32,6 +34,7 @@ export function normalizePrefs(input: unknown): InterfacePreferences {
     libraryExif: p.libraryExif !== false,
     histogramSmall: p.histogramSmall === true,
     filtersOpen: p.filtersOpen !== false,
+    libraryMetadataOpen: p.libraryMetadataOpen === true,
     cropOverlay: CROP_OVERLAYS.some(o => o.id === p.cropOverlay) ? p.cropOverlay! : 'thirds',
     autoAdvance: p.autoAdvance === true,
   };

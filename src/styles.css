@@ -1753,7 +1753,7 @@ select:not([multiple]):disabled { opacity: 0.4; cursor: default; }
 .topbar-space { flex: 1; }
 .top-actions .import-button { display: inline-flex; align-items: center; gap: 6px; background: transparent; }
 .library-with-directory { display: flex; min-height: 0; overflow: hidden; }
-.library-content { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--canvas); }
+.library-content { flex: 1; min-width: 0; min-height: 0; display: flex; flex-direction: column; background: var(--canvas); container: library / inline-size; }
 .library-with-directory .folder-directory { flex: 0 0 250px; width: 250px; min-height: 0; padding: 6px 0 12px; overflow: auto; display: block; }
 .library-section { padding: 0 0 8px; border-bottom: 1px solid var(--line); }
 .library-section:last-child { border-bottom: 0; }
@@ -1794,7 +1794,7 @@ select:not([multiple]):disabled { opacity: 0.4; cursor: default; }
 .library-with-directory .directory-section-label { padding: 3px 8px 7px 26px; text-transform: none; font-size: 11px; letter-spacing: 0; font-weight: 400; }
 .library-content .library-bar { flex: 0 0 40px; height: 40px; min-width: 0; padding: 0 20px; gap: 10px; justify-content: initial; background: var(--panel); overflow-x: auto; overflow-y: hidden; white-space: nowrap; scrollbar-width: thin; }
 .library-bar .filter-bar { flex-wrap: nowrap; flex-shrink: 0; gap: 10px; }
-.library-bar .filter-bar .seg { background: var(--ctl); border: 0; border-radius: 7px; padding: 3px; gap: 0; }
+.library-bar .seg { background: var(--ctl); border: 0; border-radius: 7px; padding: 3px; gap: 0; }
 .library-bar .seg button { padding: 3px 10px; border: 0; border-radius: 5px; font-weight: 500; }
 .library-bar .filter-stars { height:calc(1.45em + 10px); gap:0; }
 .library-bar .mark-btn { display: inline-flex; align-items: center; justify-content: center; color: var(--dim); padding: 3px; border: 0; background: none; }
@@ -2209,7 +2209,6 @@ button.keyword-name:hover { color: var(--text); }
 .library-bar .size-control input, .import-toolbar .size-control input { width: 80px; accent-color: var(--accent); }
 .library-bar .seg { padding: 2px; }
 .library-views button { min-height: 24px; }
-.library-bar .filter-bar .seg { padding: 2px; }
 .library-bar .seg button { padding: 3px 8px; }
 .library-bar .mark-btn { padding: 1px; }
 .library-toggle { padding: 5px 8px; }
@@ -2287,3 +2286,50 @@ body:has(.topbar-library) { min-width: 960px; }
 .storage-notice > .btn { flex-shrink: 0; }
 
 .startup-progress { margin: 0; padding: 32px; color: var(--muted); font-size: 14px; }
+
+/* The Library's metadata filters: a toggle in its bar docks this row under it, as crop's options
+   row docks under the Develop toolbar. Each field is a picker; a set one gains a clear button. */
+.metadata-toggle-count { display: inline-grid; place-items: center; min-width: 16px; height: 16px; margin-left: 1px; padding: 0 4px; border-radius: 8px; background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1; }
+.library-content .metadata-bar { flex: 0 0 40px; min-height: 40px; flex-wrap: nowrap; gap: 8px; padding: 0 20px; border-top: 0; border-bottom: 1px solid var(--line); background: var(--panel); overflow: visible; }
+.metadata-field { position: relative; display: flex; align-items: center; flex: 0 1 auto; min-width: 0; }
+.metadata-picker { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 340px; height: 28px; padding: 0 8px 0 10px; border: 0; border-radius: 6px; background: var(--ctl); color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
+.metadata-picker:hover, .metadata-picker[aria-expanded=true] { background: var(--hover); }
+.metadata-picker-field { flex: none; color: var(--muted); }
+.metadata-picker-value { min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--text2); }
+.metadata-picker svg { flex: none; color: var(--muted); }
+.metadata-field.set .metadata-picker { border-radius: 6px 0 0 6px; background: var(--sel); }
+.metadata-field.set .metadata-picker-value { color: var(--text); font-weight: 600; }
+.metadata-clear { display: grid; place-items: center; flex: none; width: 24px; height: 28px; margin-left: 1px; padding: 0; border: 0; border-radius: 0 6px 6px 0; background: var(--sel); color: var(--muted); cursor: pointer; }
+.metadata-clear:hover { background: var(--hover); color: var(--text); }
+.metadata-menu { top: calc(100% + 6px); left: 0; right: auto; min-width: 220px; max-width: 360px; max-height: min(60vh, 440px); overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin; scrollbar-color: var(--line) transparent; }
+.metadata-menu button { flex: none; }
+.metadata-option { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.metadata-trail { display: inline-flex; align-items: center; gap: 8px; flex: none; }
+.metadata-count { color: var(--muted); font-size: 11px; font-variant-numeric: tabular-nums; }
+.metadata-check { visibility: hidden; }
+.metadata-menu [aria-checked=true] .metadata-check { visibility: visible; }
+.metadata-menu button:focus-visible { outline: 0; background: var(--hover); color: var(--text); }
+.metadata-empty { margin: 0; padding: 6px 10px 8px; color: var(--muted); font-size: 12px; white-space: normal; }
+/* The Library bar keeps to one line: short of room, its toggles keep their icons and drop their words. */
+@container library (max-width: 1180px) {
+  .library-bar .library-toggle-label { display: none; }
+  .library-bar .library-toggle { padding: 5px 7px; }
+}
+/* At the narrowest the thumbnail size moves into the view settings menu, which shows it only then. */
+.library-setting-size { display: none !important; }
+.library-setting-size input { flex: 1; min-width: 0; margin: 0; accent-color: var(--accent); }
+@container library (max-width: 900px) {
+  .library-content .library-bar { gap: 6px; padding: 0 12px; }
+  .library-bar .filter-bar { gap: 6px; }
+  .library-bar .seg button { padding: 3px 6px; }
+  .library-bar .size-control { display: none; }
+  .library-setting-size { display: flex !important; }
+}
+/* A set camera or keyword outside the Library: a chip that clears it. */
+.filter-metadata-chips { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
+.images-filters .filter-metadata-chips { grid-column: 1 / -1; }
+.metadata-chip { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; min-width: 0; height: 22px; padding: 0 2px 0 8px; border-radius: 11px; background: var(--sel); color: var(--text); font-size: 11px; }
+.metadata-chip > svg { flex: none; color: var(--muted); }
+.metadata-chip > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.metadata-chip button { display: grid; place-items: center; flex: none; width: 18px; height: 18px; padding: 0; border: 0; border-radius: 9px; background: none; color: var(--muted); cursor: pointer; }
+.metadata-chip button:hover { background: var(--hover); color: var(--text); }

@@ -19,7 +19,8 @@ export function LibrarySection({ id, label, actions, children }: { id: string; l
   </section>;
 }
 
-export function LibraryMenu({ label, icon, children }: { label: string; icon: ReactNode; children: ReactNode }) {
+/** A button's dropdown. Choosing an item closes it, unless it holds settings (`stay`), such as checkboxes. */
+export function LibraryMenu({ label, icon, children, stay = false }: { label: string; icon: ReactNode; children: ReactNode; stay?: boolean }) {
   const [open, setOpen] = useState(false);
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
@@ -35,6 +36,6 @@ export function LibraryMenu({ label, icon, children }: { label: string; icon: Re
   }, [open]);
   return <div className="library-menu" ref={root} onBlur={e => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOpen(false); }}>
     <button ref={trigger} type="button" className="library-icon-button" aria-label={label} title={label} aria-expanded={open} onClick={() => setOpen(!open)}>{icon}</button>
-    {open && <div className="library-menu-items" role="group" aria-label={label} onClick={() => setOpen(false)}>{children}</div>}
+    {open && <div className="library-menu-items" role="group" aria-label={label} onClick={stay ? undefined : () => setOpen(false)}>{children}</div>}
   </div>;
 }

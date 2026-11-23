@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { memo, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent } from 'react';
-import { Layers, ListFilter, Pencil, Settings2, Square, Star } from 'lucide-react';
+import { ListFilter, Pencil, Settings2, Square, Star } from 'lucide-react';
 import { usePhotoContextMenu, type PhotoContextHandler } from './PhotoMenu';
 import { photoId, photoName } from '../library/copies';
 import { setActive, setFilter, setFoldJpegs, setSelectedOnly, setLibraryView, setView, sourceIndices, useApp, useShown, type Photo } from '../library/store';
@@ -9,6 +9,7 @@ import { LABEL } from '../library/marks';
 import { DiskDirectory, FolderImportView } from './Folders';
 import { chooseFolder } from './TopBar';
 import { FilterBar } from './FilterBar';
+import { MetadataBar, MetadataToggle } from './MetadataFilters';
 import { FlagIcon, MarkControls, Thumb, useVisible } from './common';
 import { LibraryLoupe } from './LibraryLoupe';
 import { LibraryImageRail } from './LibraryImageRail';
@@ -126,13 +127,15 @@ export function Library() {
             <button type="button" aria-pressed={!loupe} onClick={() => setLibraryView('grid')} title="Grid (G)">Grid</button>
             <button type="button" aria-pressed={loupe} disabled={!shown.length} onClick={() => setLibraryView('loupe')} title="Loupe (E)">Loupe</button>
           </div>
-          <FilterBar showCount={false} />
+          <FilterBar showCount={false} metadata={false}><MetadataToggle /></FilterBar>
           <span className="library-toolbar-space" />
-          <button type="button" className="library-toggle" aria-pressed={s.foldJpegs} onClick={() => setFoldJpegs(!s.foldJpegs)} title="Show RAW+JPEG pairs as one frame"><Layers size={13} />Fold JPEGs</button>
-          <button type="button" className="library-toggle" aria-pressed={s.selectedOnly} onClick={() => setSelectedOnly(!s.selectedOnly)} title="Show selected photos only"><ListFilter size={13} />Selected only</button>
+          <button type="button" className="library-toggle" aria-pressed={s.selectedOnly} onClick={() => setSelectedOnly(!s.selectedOnly)} title="Show selected photos only" aria-label="Selected only"><ListFilter size={13} aria-hidden="true" /><span className="library-toggle-label">Selected only</span></button>
           {!loupe && <label className="size-control" title="Thumbnail size"><Square size={12} /><input aria-label="Thumbnail size" className="range" type="range" min={140} max={320} step={10} value={size} onChange={e => setSize(Number(e.target.value))} /><Square size={16} /></label>}
-          <LibraryMenu label="Library view settings" icon={<Settings2 size={14} />}><label className="library-setting"><input type="checkbox" checked={showExif} onChange={e => setPrefs({ libraryExif: e.target.checked })} />Show capture settings</label></LibraryMenu>
+          <LibraryMenu label="Library view settings" icon={<Settings2 size={14} />} stay><label className="library-setting"><input type="checkbox" checked={showExif} onChange={e => setPrefs({ libraryExif: e.target.checked })} />Show capture settings</label>
+            <label className="library-setting library-setting-size">Size<input aria-label="Thumbnail size" className="range" type="range" min={140} max={320} step={10} value={size} onChange={e => setSize(Number(e.target.value))} /></label>
+            <label className="library-setting" title={s.pairCount ? 'Show RAW+JPEG pairs as one frame' : 'No RAW+JPEG pairs here'}><input type="checkbox" checked={s.foldJpegs} disabled={!s.pairCount} onChange={e => setFoldJpegs(e.target.checked)} />Fold JPEGs into RAWs</label></LibraryMenu>
         </div>
+        <MetadataBar />
         {s.missingPaths && <div className="library-missing-notice" role="status">Showing missing photos <button type="button" className="import-select" onClick={clear}>Show all photos</button></div>}
         <div className="library-grid-scroll" ref={scrollRef} hidden={loupe}>
           {shown.length ? <div className="grid" ref={gridRef} role="listbox" aria-label="Photos" aria-multiselectable

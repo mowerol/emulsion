@@ -2236,10 +2236,27 @@ try {
     // The Library grid, with a folded RAW+JPEG pair, when asked (?library).
     if (new URLSearchParams(location.search).has('library')) {
       useApp.setState({ pairCount: 1, foldJpegs: true });
+      // Cameras named the EXIF and LibRaw ways, and keywords, for the metadata row: &metadata opens
+      // it, &camera=<name> sets the camera filter, &menu=<n> opens the nth picker's menu.
+      const q = new URLSearchParams(location.search);
+      const cams = ['FUJIFILM X-T30 II', 'Fujifilm X-T30 II', 'OM Digital Solutions OM-3', 'Panasonic DMC-LX3', 'RICOH IMAGING COMPANY, LTD. RICOH GR IIIx', 'SONY ZV-1', 'Fujifilm X-T30 II'];
+      const words = [['Places|UK|Kent'], ['Places|Portugal|Lisbon'], ['Street'], [], ['Places|UK|Kent', 'Family'], ['Street'], ['Family']];
+      useApp.setState(s => ({ photos: s.photos.map((p, i) => ({ ...p, capture: { camera: cams[i % cams.length], date: null }, meta: { ...NO_META, keywords: words[i % words.length] } })),
+        filter: { ...s.filter, camera: q.get('camera') ?? '' } }));
+      setPrefs({ libraryMetadataOpen: q.has('metadata'), theme: q.get('theme') === 'dark' ? 'dark' : q.get('theme') === 'light' ? 'light' : 'mid' });
+      if (q.has('menu')) setTimeout(() => (document.querySelectorAll<HTMLElement>('.metadata-picker')[Number(q.get('menu'))])?.click(), 1200);
       const libHost = document.createElement('div');
       libHost.style.cssText = 'position:fixed;inset:0;z-index:300;display:flex;background:#1c1b19';
       document.body.append(libHost);
       createRoot(libHost).render(createElement(Library));
+      // &solo hides the probe's other mounts for a clean screenshot.
+      // &measure writes the Library bar's children widths into the result, to find what overflows.
+      if (q.has('measure')) setTimeout(() => {
+        const bar = document.querySelector<HTMLElement>('.library-bar');
+        const pre = document.getElementById('result') ?? document.body.appendChild(Object.assign(document.createElement('pre'), { id: 'result' }));
+        if (bar) pre.textContent = JSON.stringify({ client: bar.clientWidth, scroll: bar.scrollWidth, parts: [...bar.querySelectorAll<HTMLElement>(':scope > *, .filter-bar > *')].map(e => [e.className || e.tagName, Math.round(e.getBoundingClientRect().width)]) });
+      }, 1500);
+      if (q.has('solo')) for (const el of [...document.body.children]) if (el !== libHost && el instanceof HTMLElement) el.style.visibility = 'hidden';
     }
     // The whole Workflow workspace, filtered, for a screenshot (?workflow).
     if (new URLSearchParams(location.search).has('workflow')) {
@@ -2248,9 +2265,11 @@ try {
         path: `/probe/w${i}.ORF`, rel: `PA0502${i}.ORF`, name: `PA0502${String(i).padStart(2, '0')}.ORF`, size: 1, modified: 0,
         recipe: looks[i % 9] ? defaultRecipe(looks[i % 9]!) : null, seed: i, white: null, raw: true, pair: i % 3 ? null : `/probe/w${i}.JPG`,
         rating: i % 6, label: ([null, 'red', null, 'blue', 'green', 'yellow'] as const)[i % 6], flag: i % 4 === 1 ? 'pick' as const : i % 4 === 3 ? 'reject' as const : null,
+        // Two cameras, each named the EXIF way and the LibRaw way, so the camera filter lists two.
+        capture: { camera: ['OM Digital Solutions OM-3', 'Olympus OM-3', 'FUJIFILM X-T30 II', 'Fujifilm X-T30 II'][i % 4], date: null },
       }));
       useApp.setState({ photos: many, folder: { root: '/probe/Portugal', name: 'Portugal', unreadable: 0 }, view: 'develop', active: 1, selected: new Set([many[1].path]),
-        filter: { ...NO_FILTER, edit: 'edited', flags: new URLSearchParams(location.search).has('flags') ? ['pick', 'none'] : [], labels: [] } });
+        filter: { ...NO_FILTER, edit: 'edited', flags: new URLSearchParams(location.search).has('flags') ? ['pick', 'none'] : [], labels: [], camera: new URLSearchParams(location.search).has('camera') ? 'OM System OM-3' : '' } });
       const params = new URLSearchParams(location.search);
       setWorkspace({ layout: 'workflow', imageColumns: 2, group: (params.get('tab') as 'develop' | null) ?? 'develop' });
       // &theme=dark for the dark interface; &folded to fold the Images filters (chips show instead).

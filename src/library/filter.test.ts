@@ -91,7 +91,7 @@ describe('library filter', () => {
 
   it('reads a saved filter, dropping anything unexpected', () => {
     expect(normalizeFilter({ edit: 'edited', minRating: 9, flags: ['reject', 'none', 'maybe'], labels: ['blue', 'orange'] })).toEqual({
-      edit: 'edited', rating: 5, ratingComparison: '>=', flags: ['none', 'reject'], labels: ['blue'], keyword: '',
+      edit: 'edited', rating: 5, ratingComparison: '>=', flags: ['none', 'reject'], labels: ['blue'], keyword: '', camera: '',
     });
     // Saved before flags replaced hearts.
     expect(normalizeFilter({ heart: true })).toEqual({ ...NO_FILTER, flags: ['pick'] });
@@ -110,5 +110,20 @@ describe('keyword filter', () => {
     expect([passes(kent, { ...f, keyword: 'UK' }), passes(uk, { ...f, keyword: 'UK' })]).toEqual([false, true]);
     expect(isFiltering(f)).toBe(true);
     expect(normalizeFilter({ keyword: ' Places | UK ' }).keyword).toBe('Places|UK');
+  });
+});
+
+describe('camera filter', () => {
+  it('shows photos from the chosen camera, however their files name it', () => {
+    const base = { recipe: null, rating: 0, label: null, flag: null };
+    const jpeg = { ...base, capture: { camera: 'FUJIFILM X-T30 II' } };
+    const raf = { ...base, capture: { camera: 'Fujifilm X-T30 II' } };
+    const sony = { ...base, capture: { camera: 'SONY ZV-1' } };
+    const unread = { ...base };
+    const f = { ...NO_FILTER, camera: 'Fujifilm X-T30 II' };
+    expect([jpeg, raf, sony, unread].map(p => passes(p, f))).toEqual([true, true, false, false]);
+    expect(isFiltering(f)).toBe(true);
+    expect(normalizeFilter({ camera: ' FUJIFILM X-T30 II ' }).camera).toBe('Fujifilm X-T30 II');
+    expect(normalizeFilter({ camera: 3 }).camera).toBe('');
   });
 });

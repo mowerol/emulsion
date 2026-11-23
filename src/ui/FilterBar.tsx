@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { memo } from 'react';
+import { memo, type ReactNode } from 'react';
 import { setFilter, sourcePhotos, useApp, type Photo } from '../library/store';
 import { overPhotos } from '../library/photolist';
 import { EDIT_FILTERS, FLAG_FILTERS, NO_FILTER, isFiltering, matchCount, passes, RATING_COMPARISONS, type RatingComparison, type Filter } from '../library/filter';
@@ -7,8 +7,7 @@ import { LABELS } from '../library/marks';
 import { Star } from 'lucide-react';
 import { useSourceDefinitions } from '../library/catalog';
 import { FlagIcon, Segmented } from './common';
-import { keywordPaths } from '../library/keywords';
-import { keywordName } from '../library/meta';
+import { MetadataChips } from './MetadataFilters';
 
 // How many photos match, counted again only when the filter or a photo's answer to it changes.
 let counted: { filter: Filter; count: (photos: Photo[]) => number } | null = null;
@@ -18,17 +17,17 @@ function countMatching(photos: Photo[], filter: Filter) {
 }
 
 /** What the Library grid and the filmstrip show: edited or not, a star comparison, flags (any of picked,
- *  unflagged, rejected, as Lightroom's three flag toggles), colour tags.
- *  Without `summary` the match count and Clear are left to the caller (the Images pane puts them in its heading). */
-export const FilterBar = memo(function FilterBar({ summary = true, showCount = true }: { summary?: boolean; showCount?: boolean }) {
+ *  unflagged, rejected, as Lightroom's three flag toggles), colour tags, a keyword and a camera.
+ *  Without `summary` the match count and Clear are left to the caller (the Images pane puts them in its heading).
+ *  A keyword or camera filter shows as a chip that clears it; they are chosen in the Library's metadata row
+ *  (`MetadataFilters.tsx`), which takes their place there (`metadata` false). */
+export const FilterBar = memo(function FilterBar({ summary = true, showCount = true, metadata = true, children }: { summary?: boolean; showCount?: boolean; metadata?: boolean; children?: ReactNode }) {
   const filter = useApp((s) => s.filter);
   useSourceDefinitions();
   // Counts, not the photo list, so an edit that leaves them as they were doesn't re-render the bar.
   const scopedCount = useApp(s => sourcePhotos(s).length);
   const matching = useApp(s => countMatching(sourcePhotos(s), s.filter));
   const on = isFiltering(filter);
-  // The same array while no photo's keywords change, so a slider drag doesn't re-render the bar.
-  const keywords = useApp(s => keywordPaths(sourcePhotos(s)));
 
   return (
     <div className="filter-bar" role="group" aria-label="Filter photos">
@@ -89,12 +88,8 @@ export const FilterBar = memo(function FilterBar({ summary = true, showCount = t
           );
         })}
       </span>
-      {(keywords.length > 0 || filter.keyword) && <select className="filter-keyword" aria-label="Keyword" value={filter.keyword}
-        title="Show photos with a keyword (or one inside it)" onChange={(e) => setFilter({ keyword: e.target.value })}>
-        <option value="">Any keyword</option>
-        {filter.keyword && !keywords.some((k) => k.toLowerCase() === filter.keyword.toLowerCase()) && <option value={filter.keyword}>{keywordName(filter.keyword)}</option>}
-        {keywords.map((k) => <option key={k} value={k}>{'\u2003'.repeat(k.split('|').length - 1) + keywordName(k)}</option>)}
-      </select>}
+      {metadata && <MetadataChips />}
+      {children}
       {summary && on && (
         <>
           {showCount && <span className="filter-count" aria-live="polite">
