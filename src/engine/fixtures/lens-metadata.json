@@ -194,5 +194,18 @@
     "lens": "",
     "orientation": 1,
     "unsupported": null
+  },
+  {
+    "camera": "Panasonic DMC-LX3",
+    "correction": {
+      "a": 0.12359619140625,
+      "b": 0.02056884765625,
+      "c": -0.02374267578125,
+      "kind": "panasonic",
+      "scale": 1.0
+    },
+    "lens": "",
+    "orientation": 1,
+    "unsupported": null
   }
 ]

@@ -2,6 +2,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Port of lens.cc _init_coeffs_md_v2, _interpolate_linear_spline and _process_md
 // at darktable 20891f6c. Centered radial profiles, MAXKNOTS=16; bilinear resampling.
+// Panasonic RW2 distortion: _init_coeffs_md_v2's CORRECTION_TYPE_PANASONIC branch at darktable
+// 47c22370 (after 20891f6c), Rigo's polynomial inverted with upstream's two fixed-point steps.
 // Agreed extension (2026-11-20): Sony vignette tables use their own sample count
 // and the same upstream knot/formula convention, for mixed-count ZV-1 profiles.
 import { columnMajor, invert3, mulVec } from './color';
@@ -11,6 +13,7 @@ export type EmbeddedCorrection =
   | { kind: 'fuji'; knots: number[]; distortion: number[]; red: number[]; blue: number[]; vignette: number[]; crop: number }
   | { kind: 'sony'; distortion: number[]; red: number[]; blue: number[]; vignette: number[] }
   | { kind: 'olympus'; distortion: number[] | null; ca: number[] | null }
+  | { kind: 'panasonic'; a: number; b: number; c: number; scale: number }
   | { kind: 'dng'; warp: number[][] | null; vignette: number[] | null };
 export interface LensMetadata { cameraToWorking?: Mat3 | null; orientation?: number; camera: string; lens: string; correction: EmbeddedCorrection | null; unsupported: string | null }
 export interface LensAdjust { enabled: boolean; distortion: boolean; ca: boolean; vignette: boolean; distortionAmount: number; redAmount: number; blueAmount: number; vignetteAmount: number }
@@ -24,6 +27,7 @@ export function normalizeLens(input: unknown): LensAdjust | null {
 }
 export function lensSupport(c: EmbeddedCorrection) {
   if (c.kind === 'olympus') return { distortion: !!c.distortion?.slice(0,3).some(v=>v!==0), ca: !!c.ca?.some(v=>v!==0), vignette: false };
+  if (c.kind === 'panasonic') return { distortion: c.a !== 0 || c.b !== 0 || c.c !== 0, ca: false, vignette: false };
   if (c.kind === 'dng') return { distortion: !!c.warp, ca: false, vignette: !!c.vignette };
   return { distortion: true, ca: true, vignette: true };
 }
@@ -71,6 +75,14 @@ export function lensSpline(c: EmbeddedCorrection, width: number, height: number,
       const d=dist?1+p.distortionAmount*(rs*(1+rs2*(k2+rs2*(k4+rs2*k6)))-1):1;
       f=[d,d,d];
       if(ca && c.ca && r>0) {const [a,b,c4,d0,e,f4]=c.ca, rd=d*r, rd2=rd*rd;f[0]+=p.redAmount*rd*(a+rd2*(b+rd2*c4))/r;f[2]+=p.blueAmount*rd*(d0+rd2*(e+rd2*f4))/r;}
+    } else if(c.kind==='panasonic') {
+      // Ru = Rd + scale*(a*Rd^3 + b*Rd^5 + c*Rd^7); the knot is Ru, the factor Rd/Ru.
+      if(dist) {
+        let rd=r;
+        for(let k=0;k<2;k++){const rd2=rd*rd,rd4=rd2*rd2,rd6=rd4*rd2,f=1+c.scale*(c.a*rd2+c.b*rd4+c.c*rd6);rd=f>1e-6?r/f:r;}
+        const d=1+p.distortionAmount*((r>0?rd/r:1)-1);
+        f=[d,d,d];
+      }
     } else if(c.kind==='dng') {
       const poly=(a:number[])=>a[0]+r2*(a[1]+r2*(a[2]+r2*a[3]));
       // darktable's DNG warp combines geometry and per-plane colour alignment and

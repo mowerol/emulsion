@@ -2,7 +2,10 @@
 // Copyright (C) 2011-2023 darktable developers (DNG opcodes).
 // SPDX-License-Identifier: GPL-3.0-or-later
 //! Bounded TIFF/maker-note readers for darktable's embedded lens metadata v2.
-//! Source: darktable common/exif.cc and common/dng_opcode.c at 20891f6c.
+//! Source: darktable common/exif.cc and common/dng_opcode.c at 20891f6c; Panasonic RW2
+//! distortion (DistortionInfo, 0x0119) from common/exif.cc at 47c22370 ("Add Panasonic RW2
+//! embedded lens distortion correction"), which postdates 20891f6c. Its `Exif.Image.0xf119`
+//! fallback is darktable's own TIFF/DNG export round trip and is not read here.
 //! Agreed extension (2026-11-20): Sony vignette tables retain their own active count,
 //! independent of geometry/CA, to support the ZV-1's 11/16-point layout.
 use serde::Serialize;
@@ -34,6 +37,13 @@ pub enum Correction {
     Olympus {
         distortion: Option<Vec<f64>>,
         ca: Option<Vec<f64>>,
+    },
+    /// Ru = Rd + scale * (a*Rd^3 + b*Rd^5 + c*Rd^7), radii normalised to the half diagonal.
+    Panasonic {
+        a: f64,
+        b: f64,
+        c: f64,
+        scale: f64,
     },
     Dng {
         warp: Option<Vec<Vec<f64>>>,
@@ -71,6 +81,8 @@ struct Tiff<'a> {
     data: &'a Data,
     base: u64,
     le: bool,
+    /// A Panasonic RW2/RWL (TIFF signature 0x55), whose IFD0 tag numbers are Panasonic's own.
+    panasonic: bool,
 }
 #[derive(Clone)]
 struct Tag {
@@ -104,11 +116,13 @@ impl<'a> Tiff<'a> {
             b"MM" => false,
             _ => return None,
         };
-        let t = Self { data, base, le };
-        // Standard TIFF plus Olympus ORF's TIFF signatures.
-        if ![42, 0x4f52, 0x5352].contains(&t.u16(&h[2..4])) {
+        let mut t = Self { data, base, le, panasonic: false };
+        // Standard TIFF, Olympus ORF's and Panasonic RW2's TIFF signatures.
+        let signature = t.u16(&h[2..4]);
+        if ![42, 0x4f52, 0x5352, 0x55].contains(&signature) {
             return None;
         }
+        t.panasonic = signature == 0x55;
         Some((t, t.u32(&h[4..8])))
     }
     fn tags(&self, offset: u32) -> Option<(Vec<Tag>, u32)> {
@@ -159,6 +173,7 @@ impl<'a> Tiff<'a> {
                     | 0x0203
                     | 0x1003
                     | 0x1401
+                    | 0x0119
             ) {
                 continue;
             }
@@ -328,6 +343,26 @@ fn olympus(t: &Tiff, tags: &[Tag]) -> Option<Correction> {
         return None;
     }
     Some(Correction::Olympus { distortion, ca })
+}
+/// Panasonic's DistortionInfo: 16 signed little-endian 16-bit words (darktable exif.cc). Only
+/// in an RW2's own directories, since 0x0119 is MaxSampleValue in other TIFFs.
+fn panasonic(t: &Tiff, tags: &[Tag]) -> Option<Correction> {
+    if !t.panasonic {
+        return None;
+    }
+    let tag = tags.iter().find(|tag| tag.id == 0x0119 && tag.value.len() == 32)?;
+    let v: Vec<i16> = tag.value.chunks_exact(2).map(|b| i16::from_le_bytes([b[0], b[1]])).collect();
+    // Low nibble of word 7: 1 when the camera corrects distortion.
+    if v[7] & 0x0f != 1 {
+        return None;
+    }
+    let word = |i: usize| v[i] as f32 / 32768.0;
+    Some(Correction::Panasonic {
+        scale: (1.0 / (1.0 + word(5))) as f64,
+        a: word(8) as f64,
+        b: word(4) as f64,
+        c: word(11) as f64,
+    })
 }
 fn dng(bytes: &[u8]) -> Result<Option<Correction>, String> {
     fn long(b: &[u8], i: usize) -> Option<u32> {
@@ -515,6 +550,7 @@ fn walk(data: &Data) -> Option<(Vec<(Tiff<'_>, Vec<Tag>)>, Vec<u64>)> {
                             data,
                             base: tag.offset,
                             le: true,
+                            panasonic: false,
                         },
                         start,
                     ));
@@ -527,6 +563,7 @@ fn walk(data: &Data) -> Option<(Vec<(Tiff<'_>, Vec<Tag>)>, Vec<u64>)> {
                             data,
                             base: tag.offset,
                             le: true,
+                            panasonic: false,
                         },
                         u32::from_le_bytes(h[8..12].try_into().ok()?),
                     ));
@@ -573,7 +610,8 @@ fn lens_metadata(all: &[(Tiff<'_>, Vec<Tag>)]) -> Option<LensMetadata> {
         correction = correction
             .or_else(|| fuji(t, tags, crop))
             .or_else(|| sony(t, tags))
-            .or_else(|| olympus(t, tags));
+            .or_else(|| olympus(t, tags))
+            .or_else(|| panasonic(t, tags));
     }
     if unsupported.is_some() {
         correction = None;
@@ -849,6 +887,28 @@ mod tests {
                 ..
             })
         ));
+    }
+    #[test]
+    fn panasonic_distortion_info_only_from_rw2_and_when_switched_on() {
+        // The DistortionInfo of a Lumix DMC-LX3 RW2 (P1080505.RW2).
+        let words: [i16; 16] = [-9038, 29297, 353, 0, 674, 0, 241, 1, 4050, 190, 257, -778, 2280, 690, -26662, -27265];
+        let blob = |words: &[i16; 16]| words.iter().flat_map(|w| w.to_le_bytes()).collect::<Vec<u8>>();
+        let rw2 = |words: &[i16; 16]| {
+            let mut bytes = tiff(vec![(0x0119, 7, 32, blob(words))]);
+            bytes[2..4].copy_from_slice(&0x55u16.to_le_bytes());
+            bytes
+        };
+        match read_bytes(&rw2(&words)).unwrap().correction {
+            Some(Correction::Panasonic { a, b, c, scale }) => {
+                assert_eq!((a, b, c, scale), (4050.0 / 32768.0, 674.0 / 32768.0, -778.0 / 32768.0, 1.0));
+            }
+            other => panic!("{other:?}"),
+        }
+        let mut off = words;
+        off[7] = 0x10;
+        assert!(read_bytes(&rw2(&off)).unwrap().correction.is_none());
+        // Tag 0x0119 is MaxSampleValue in an ordinary TIFF.
+        assert!(read_bytes(&tiff(vec![(0x0119, 7, 32, blob(&words))])).unwrap().correction.is_none());
     }
     #[test]
     fn cyclic_and_truncated_directories_do_not_loop_or_panic() {
