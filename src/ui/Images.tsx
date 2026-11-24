@@ -12,7 +12,7 @@ import { useWorkspace } from './workspace';
 import { ChevronDown, Pencil } from 'lucide-react';
 import { setPrefs, usePrefs } from './prefs';
 import { LABEL } from '../library/marks';
-import { keywordName } from '../library/meta';
+import { metadataChipTexts } from './MetadataFilters';
 import { EDIT_FILTERS, FLAG_FILTERS, RATING_COMPARISONS, type Filter } from '../library/filter';
 import { rowWindow, scrollNearest, useViewport } from './virtual';
 
@@ -23,8 +23,7 @@ function FilterChips({ filter }: { filter: Filter }) {
     (filter.rating > 0 || filter.ratingComparison !== '>=') && `${RATING_COMPARISONS.find(c => c.value === filter.ratingComparison)!.symbol} ${filter.rating}★`,
     ...filter.flags.map(f => FLAG_FILTERS.find(x => x.value === f)!.label),
     ...filter.labels.map(l => `● ${LABEL[l].name}`),
-    filter.keyword && keywordName(filter.keyword),
-    filter.camera,
+    ...metadataChipTexts(filter),
   ].filter(Boolean) as string[];
   if (!chips.length) return null;
   return <div className="filter-chips" aria-label="Active filters">{chips.map(c => <span key={c} className="filter-chip">{c}</span>)}</div>;

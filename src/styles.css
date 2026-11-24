@@ -2290,7 +2290,7 @@ body:has(.topbar-library) { min-width: 960px; }
 /* The Library's metadata filters: a toggle in its bar docks this row under it, as crop's options
    row docks under the Develop toolbar. Each field is a picker; a set one gains a clear button. */
 .metadata-toggle-count { display: inline-grid; place-items: center; min-width: 16px; height: 16px; margin-left: 1px; padding: 0 4px; border-radius: 8px; background: var(--accent); color: var(--accent-ink); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; line-height: 1; }
-.library-content .metadata-bar { flex: 0 0 40px; min-height: 40px; flex-wrap: nowrap; gap: 8px; padding: 0 20px; border-top: 0; border-bottom: 1px solid var(--line); background: var(--panel); overflow: visible; }
+.library-content .metadata-bar { flex: none; min-height: 40px; flex-wrap: wrap; gap: 6px 8px; padding: 6px 20px; border-top: 0; border-bottom: 1px solid var(--line); background: var(--panel); overflow: visible; }
 .metadata-field { position: relative; display: flex; align-items: center; flex: 0 1 auto; min-width: 0; }
 .metadata-picker { display: flex; align-items: center; gap: 8px; min-width: 0; max-width: 340px; height: 28px; padding: 0 8px 0 10px; border: 0; border-radius: 6px; background: var(--ctl); color: var(--muted); font: inherit; font-size: 12px; cursor: pointer; }
 .metadata-picker:hover, .metadata-picker[aria-expanded=true] { background: var(--hover); }
@@ -2309,6 +2309,15 @@ body:has(.topbar-library) { min-width: 960px; }
 .metadata-check { visibility: hidden; }
 .metadata-menu [aria-checked=true] .metadata-check { visibility: visible; }
 .metadata-menu button:focus-visible { outline: 0; background: var(--hover); color: var(--text); }
+/* The ISO menu's comparison, above its values. */
+.metadata-menu-header { padding: 2px 2px 4px; }
+.metadata-comparison { display: grid; grid-auto-columns: minmax(0, 1fr); grid-auto-flow: column; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.metadata-menu .metadata-comparison button { justify-content: center; gap: 0; padding: 4px 6px; border-left: 1px solid var(--line); border-radius: 0; color: var(--muted); font-weight: 600; }
+.metadata-menu .metadata-comparison button:first-child { border-left: 0; }
+.metadata-menu .metadata-comparison button[aria-pressed=true] { background: var(--sel); color: var(--text); }
+/* A group's name in a menu (a camera above its lenses), after a little space. */
+.metadata-heading { flex: none; padding: 10px 10px 3px; color: var(--muted); font-size: 11px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.menu-sep + .metadata-heading { padding-top: 4px; }
 .metadata-empty { margin: 0; padding: 6px 10px 8px; color: var(--muted); font-size: 12px; white-space: normal; }
 /* The Library bar keeps to one line: short of room, its toggles keep their icons and drop their words. */
 @container library (max-width: 1180px) {
@@ -2325,7 +2334,7 @@ body:has(.topbar-library) { min-width: 960px; }
   .library-bar .size-control { display: none; }
   .library-setting-size { display: flex !important; }
 }
-/* A set camera or keyword outside the Library: a chip that clears it. */
+/* A set metadata filter outside the Library: a chip that clears it. */
 .filter-metadata-chips { display: flex; flex-wrap: wrap; gap: 4px; min-width: 0; }
 .images-filters .filter-metadata-chips { grid-column: 1 / -1; }
 .metadata-chip { display: inline-flex; align-items: center; gap: 5px; max-width: 100%; min-width: 0; height: 22px; padding: 0 2px 0 8px; border-radius: 11px; background: var(--sel); color: var(--text); font-size: 11px; }

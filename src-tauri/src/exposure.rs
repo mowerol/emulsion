@@ -4,7 +4,7 @@ use exif::{Exif, In, Reader, Tag, Value};
 use serde::Serialize;
 use std::{fs::File, io::BufReader, path::Path};
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Exposure {
     pub iso: Option<f64>,
@@ -54,7 +54,7 @@ pub fn read(path: &Path) -> Option<Exposure> {
 }
 
 /// Library metadata is independent of pixel decoding and camera rendering profiles.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogMetadata {
     pub camera_frame: Option<crate::raf::CameraFrame>,
@@ -63,6 +63,13 @@ pub struct CatalogMetadata {
     pub date: Option<String>,
     /// A Fujifilm RAW's film simulation (`lens::fuji_simulation`), for opening it with the matching look.
     pub simulation: Option<&'static str>,
+    /// ISO, shutter, aperture and focal lengths, for the Library's filters.
+    #[serde(flatten)]
+    pub exposure: Exposure,
+    /// The lens as the file names it (EXIF LensModel; LibRaw's lens name for a RAW).
+    pub lens: Option<String>,
+    /// The camera has a built-in lens (known for RAWs only, from LibRaw's mount).
+    pub fixed_lens: bool,
 }
 
 fn text(exif: &Exif, tag: Tag) -> Option<String> {
@@ -90,16 +97,24 @@ fn catalog_settings(exif: &Exif) -> CatalogMetadata {
             if !(1..=12).contains(&month) || !(1..=31).contains(&day) { return None; }
             Some(value[..10].replace(':', "-"))
         });
-    CatalogMetadata { camera_frame: None, camera: (!camera.is_empty()).then_some(camera), date, simulation: None }
+    let lens = text(exif, Tag::LensModel);
+    CatalogMetadata { camera: (!camera.is_empty()).then_some(camera), date, exposure: settings(exif), lens, ..Default::default() }
 }
 
 pub fn catalog(path: &Path) -> CatalogMetadata {
     let mut result = File::open(path).ok()
         .and_then(|file| Reader::new().read_from_container(&mut BufReader::new(file)).ok())
         .map(|exif| catalog_settings(&exif))
-        .unwrap_or(CatalogMetadata { camera_frame: None, camera: None, date: None, simulation: None });
+        .unwrap_or_default();
     if crate::library::classify(path) == crate::library::Kind::Raw {
-        if result.camera.is_none() { result.camera = crate::raw::catalog_camera(path); }
+        // LibRaw reads every RAW's settings, as `read` does for Develop; EXIF only fills its gaps.
+        if let Some(info) = crate::raw::catalog_info(path) {
+            if result.camera.is_none() { result.camera = info.camera; }
+            if result.date.is_none() { result.date = info.date; }
+            result.exposure = info.exposure;
+            if info.lens.is_some() { result.lens = info.lens; }
+            result.fixed_lens = info.fixed_lens;
+        }
         result.simulation = crate::lens::fuji_simulation(path);
     }
     result.camera_frame = crate::raf::metadata(path);
@@ -208,5 +223,31 @@ mod tests {
         let file = tempfile::NamedTempFile::new().unwrap();
         assert_eq!(catalog(file.path()).date, None);
         assert_eq!(catalog(file.path()).camera, None);
+    }
+
+    #[test]
+    fn indexes_lens_and_capture_settings() {
+        let lens = b"XF23mmF2 R WR\0";
+        let mut bytes = tiff(&[(0x8827, 3, 800u16.to_le_bytes().to_vec()), (0xa434, 2, lens.to_vec()), (0x920a, 5, rational(23, 1))]);
+        // The second tag's count: ASCII counts bytes.
+        bytes[44..48].copy_from_slice(&(lens.len() as u32).to_le_bytes());
+        let metadata = catalog_settings(&Reader::new().read_raw(bytes).unwrap());
+        assert_eq!(metadata.lens.as_deref(), Some("XF23mmF2 R WR"));
+        assert_eq!(metadata.exposure.iso, Some(800.0));
+        assert_eq!(metadata.exposure.focal_length, Some(23.0));
+        assert!(!metadata.fixed_lens);
+        let json = serde_json::to_value(&metadata).unwrap();
+        assert_eq!(json["iso"], 800.0);
+        assert_eq!(json["focalLength"], 23.0);
+        assert_eq!(json["fixedLens"], false);
+    }
+
+    /// Prints what the Library indexes of real files: `EMULSION_CATALOG_SAMPLES=a.raf:b.jpg cargo test real_catalog -- --ignored --nocapture`.
+    #[test]
+    #[ignore]
+    fn real_catalog_metadata() {
+        for path in std::env::var("EMULSION_CATALOG_SAMPLES").expect("sample paths").split(':') {
+            println!("{path}: {}", serde_json::to_string(&catalog(Path::new(path))).unwrap());
+        }
     }
 }

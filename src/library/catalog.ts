@@ -8,6 +8,7 @@ import { normalizeRecipe } from '../film/recipe';
 import { normalizeMarks, type Label } from './marks';
 import type { FlagFilter } from './filter';
 import { hasKeyword, normalizeMeta } from './meta';
+import { learnFixedLenses, photoFocal, photoIso, photoLens } from './capture';
 import { getSetting, setSetting } from './appsettings';
 import { CatalogDiff, catalogWrites, storedCatalog, usesDatabase, writeCatalogChange } from './catalogdb';
 
@@ -25,8 +26,10 @@ export type SmartRule =
   | { field: 'edited'; value: boolean }
   | { field: 'flag'; value: FlagFilter }
   | { field: 'label'; value: Label }
-  | { field: 'camera' | 'look' | 'folder' | 'keyword'; value: string }
-  | { field: 'date'; value: string; before: boolean };
+  | { field: 'camera' | 'lens' | 'look' | 'folder' | 'keyword'; value: string }
+  | { field: 'date'; value: string; before: boolean }
+  /** ISO, or focal length in mm: at least `value`, or at most it. */
+  | { field: 'iso' | 'focal'; value: number; atMost: boolean };
 export type Collection = { id: string; name: string; createdAt: number } & (
   { type: 'manual'; photoIds: string[] } | { type: 'smart'; rules: SmartRule[] }
 );
@@ -238,6 +241,11 @@ export function matchesRules(photo: Photo, rules: SmartRule[]): boolean {
       case 'label': return photo.label === rule.value;
       case 'keyword': return hasKeyword(photo.meta, rule.value);
       case 'camera': return (photo.capture?.camera ?? `${photo.camera?.make ?? ''} ${photo.camera?.model ?? ''}`).toLowerCase().includes(rule.value.toLowerCase());
+      case 'lens': return !!photoLens(photo)?.toLowerCase().includes(rule.value.trim().toLowerCase());
+      case 'iso': case 'focal': {
+        const n = rule.field === 'iso' ? photoIso(photo) : photoFocal(photo);
+        return n !== null && (rule.atMost ? n <= rule.value : n >= rule.value);
+      }
       case 'look': {
         const r = photo.recipe;
         const name = r?.lookEnabled ? r.lookSnapshot?.name ?? lookName(r.pack, r.stock) : 'Neutral';
@@ -255,7 +263,11 @@ export function sourceMatcher(source: SourceSelection | null, catalog = useCatal
   if (!source || source.type === 'folder') return () => true;
   const item = source.type === 'import' ? catalog.imports.find(i => i.id === source.id) : catalog.collections.find(c => c.id === source.id);
   if (!item) return () => false;
-  if ('rules' in item) return photo => matchesRules(photo, item.rules);
+  if ('rules' in item) {
+    // A fixed-lens camera's JPEGs take its lens from its RAWs.
+    if (item.rules.some(r => r.field === 'lens')) learnFixedLenses(catalogPhotos());
+    return photo => matchesRules(photo, item.rules);
+  }
   const ids = new Set(item.photoIds);
   return photo => ids.has(photoId(photo)) || !!photo.pair && ids.has(photo.pair);
 }

@@ -24,12 +24,13 @@ import { cleanCopyName, expandCopies, photoId, savedFrames } from './copies';
 import { applyMark, describeMark, hasMark, normalizeMarks, sameMarks, type Flag, type Label, type MarkKey, type Marks } from './marks';
 import { History, MERGE_MS, describe, type Change, type Step } from './history';
 import * as trace from '../dev/trace';
+import { reportError } from '../backend/trail';
 import { addToCollection, cacheEdits, cacheFolder, catalogPhotos, queueEdits, recordImport, sourceMatcher, sourceMatches, targetCollection, useCatalog, useSourceDefinitions, viewImport, type SourceSelection } from './catalog';
 
 export interface Photo {
-  /** Read from the file in the background. `simulation` (a Fujifilm RAW's film simulation) is absent
-   * when the file was read before it existed, so such RAWs are read again once. */
-  capture?: { camera: string | null; date: string | null; simulation?: string | null };
+  /** Read from the file in the background (`library/capture.ts`). Fields added later are absent
+   * on photos read before they existed, which are read again once (`captureUnread`). */
+  capture?: import('./capture').Capture;
   camera?: import('../film/profiles').CameraMetadata | null;
   lens?: import('../engine/lenscorrection').LensMetadata | null;
   /** Identity of an additional edit; absent on the original frame. */
@@ -324,18 +325,19 @@ function withCachedMetadata(photo: Photo, cached?: Photo): Photo {
 
 type CaptureRead = Map<string, { identity: Photo; capture: NonNullable<Photo['capture']>; cameraFrame: CameraFrame | null }>;
 
-/** Whether a photo's capture metadata still has to be read: never read, a RAW read before the
- * film simulation was (catalogs from before 2026-11-14 have no `simulation`), or a RAF whose
- * camera framing (as-shot aspect, digital tele-converter crop) hasn't been read. */
-export const captureUnread = (p: Photo) => !p.capture || p.raw && p.capture.simulation === undefined
+/** Whether a photo's capture metadata still has to be read: never read, read before the lens and
+ * capture settings were (catalogs from before 2026-11-23 have no `lens`; a RAW from before
+ * 2026-11-14 has no `simulation` either), or a RAF whose camera framing (as-shot aspect, digital
+ * tele-converter crop) hasn't been read. */
+export const captureUnread = (p: Photo) => !p.capture || p.capture.lens === undefined || p.raw && p.capture.simulation === undefined
   || p.raw && /\.raf$/i.test(p.path) && p.cameraFrame === undefined;
 
-/** Read the capture metadata of `photos` (camera, date, Fujifilm film simulation). */
+/** Read the capture metadata of `photos` (camera, date, lens and settings, Fujifilm film simulation). */
 async function readCaptures(photos: Photo[], into: CaptureRead = new Map()) {
   const values = await catalogMetadata(photos.map(p => p.path));
   photos.forEach((p, n) => {
     const { cameraFrame, ...capture } = values[n] ?? { camera: null, date: null };
-    into.set(p.path, { identity: p, capture: { simulation: null, ...capture }, cameraFrame: cameraFrame ?? null });
+    into.set(p.path, { identity: p, capture: { simulation: null, lens: null, ...capture }, cameraFrame: cameraFrame ?? null });
   });
   return into;
 }
@@ -352,17 +354,22 @@ function applyCaptures(found: CaptureRead) {
 }
 
 /** Index metadata in bounded batches so camera/date smart collections cover offscreen frames too.
- * The first batch is applied at once, the rest every FLUSH_EVERY photos. */
+ * The shown source's photos are read first, so its filters fill in before the rest of the catalog
+ * (a new field means reading every photo again: 88,000 on Oli's catalog). The first batch is
+ * applied at once, then the source's last, and the rest every FLUSH_EVERY photos. */
 async function loadCatalogMetadata(photos: Photo[]) {
   if (!isTauri()) return;
-  const pending = [...new Map(photos.filter(captureUnread).map(p => [p.path, p])).values()];
+  const shown = new Set(sourcePhotos().map(p => p.path));
+  const unread = [...new Map(photos.filter(captureUnread).map(p => [p.path, p])).values()];
   let updates: CaptureRead = new Map();
   const flush = () => { const found = updates; updates = new Map(); applyCaptures(found); };
-  for (let i = 0; i < pending.length; i += 32) {
-    try { await readCaptures(pending.slice(i, i + 32), updates); } catch { break; }
-    if (i === 0 || updates.size >= FLUSH_EVERY) flush();
+  for (const pending of [unread.filter(p => shown.has(p.path)), unread.filter(p => !shown.has(p.path))]) {
+    for (let i = 0; i < pending.length; i += 32) {
+      try { await readCaptures(pending.slice(i, i + 32), updates); } catch (err) { reportError('Reading capture metadata', err, null, 'warn'); return flush(); }
+      if (i === 0 || updates.size >= FLUSH_EVERY) flush();
+    }
+    flush();
   }
-  flush();
 }
 
 const capturesReading = new Map<string, Promise<void>>();

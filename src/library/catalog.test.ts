@@ -137,6 +137,16 @@ it('evaluates edited, flag, label, camera, look, capture date, and folder rules 
   }
 });
 
+it('evaluates lens, ISO and focal length rules', () => {
+  const p: Photo = { path: '/a.jpg', rel: 'a.jpg', name: 'a.jpg', size: 1, modified: 0, recipe: null, seed: 0, white: null, raw: false, pair: null, rating: 0, flag: null, label: null,
+    capture: { camera: 'FUJIFILM X-T30 II', date: null, lens: 'XF27mmF2.8 R WR', iso: 3200, focalLength: 27.2 } };
+  expect(matchesRules(p, [{ field: 'lens', value: 'xf27' }, { field: 'iso', value: 3200, atMost: false }, { field: 'focal', value: 27, atMost: true }])).toBe(true);
+  expect(matchesRules(p, [{ field: 'iso', value: 1600, atMost: true }])).toBe(false);
+  expect(matchesRules(p, [{ field: 'focal', value: 35, atMost: false }])).toBe(false);
+  // Not read yet: no ISO to compare.
+  expect(matchesRules({ ...p, capture: undefined }, [{ field: 'iso', value: 100, atMost: false }])).toBe(false);
+});
+
 it('matches each flag state, and reads a Favourite rule from before flags as Picked', () => {
   const p: Photo = { path: '/a.jpg', rel: 'a.jpg', name: 'a.jpg', size: 1, modified: 0, recipe: null, seed: 0, white: null, raw: false, pair: null, rating: 0, flag: null, label: null };
   expect(matchesRules(p, [{ field: 'flag', value: 'none' }])).toBe(true);

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // One name per camera for the filter bar, whichever way its files name it. A photo's camera is
 // its EXIF Make and Model joined (src-tauri/src/exposure.rs), or LibRaw's when the EXIF can't be
-// read (most RAWs, src-tauri/src/raw.rs `catalog_camera`). They differ for one camera: a JPEG says
+// read (most RAWs, src-tauri/src/raw.rs `catalog_info`). They differ for one camera: a JPEG says
 // `FUJIFILM X-T30 II`, `OM Digital Solutions OM-3`, `NIKON CORPORATION NIKON Z 6`; LibRaw says
 // `Fujifilm X-T30 II`, `Olympus OM-3` (it names OM System's cameras Olympus), `Nikon Z 6`, with the
 // brand taken out of the model. So a camera is known by its model with the make (and the brand

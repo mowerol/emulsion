@@ -7,6 +7,7 @@
 #include <cstring>
 #include <new>
 
+#include <ctime>
 #include "libraw/libraw.h"
 
 extern "C" {
@@ -40,6 +41,12 @@ struct EmuRawInfo {
   int wbct_count;
   // Fuji maker-note tags 0x1402 (mode), 0x1403 (manual %) and 0x140b (auto %).
   int fuji_dr[3];
+  // The lens as the file names it (EXIF LensModel, else the maker notes), for the Library.
+  char lens[128];
+  // Nonzero when the camera has a built-in lens (LibRaw's mount is FixedLens).
+  int fixed_lens;
+  // Local capture date as YYYY-MM-DD, empty when the file has none (LibRaw's EXIF timestamp).
+  char date[11];
 };
 
 struct EmuRawThumb {
@@ -187,6 +194,14 @@ static void fill_colour_info(LibRaw *raw, EmuRawInfo *info) {
   info->aperture = raw->imgdata.other.aperture;
   info->focal_length = raw->imgdata.other.focal_len;
   info->focal_length35 = raw->imgdata.lens.FocalLengthIn35mmFormat;
+  const libraw_lensinfo_t &lens = raw->imgdata.lens;
+  copy_str(info->lens, lens.Lens[0] ? lens.Lens : lens.makernotes.Lens, sizeof info->lens);
+  info->fixed_lens = lens.makernotes.CameraMount == LIBRAW_MOUNT_FixedLens || lens.makernotes.LensMount == LIBRAW_MOUNT_FixedLens;
+  // LibRaw makes its timestamp from the EXIF local time with mktime, so localtime gives that day back.
+  info->date[0] = '\0';
+  time_t when = raw->imgdata.other.timestamp;
+  struct tm taken;
+  if (when > 0 && localtime_r(&when, &taken)) strftime(info->date, sizeof info->date, "%Y-%m-%d", &taken);
 }
 
 // Make the calling thread an OpenMP root that stays registered. libomp tears down its

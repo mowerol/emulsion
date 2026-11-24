@@ -35,11 +35,14 @@ struct EmuRawInfo {
     wbct: [[f32; 4]; 64],
     wbct_count: c_int,
     fuji_dr: [c_int; 3],
+    lens: [c_char; 128],
+    fixed_lens: c_int,
+    date: [c_char; 11],
 }
 
 impl EmuRawInfo {
     fn empty() -> Self {
-        EmuRawInfo { width: 0, height: 0, cam_xyz: [[0.0; 3]; 3], cam_mul: [0.0; 3], full_width: 0, full_height: 0, make: [0; 64], model: [0; 64], iso: 0.0, shutter: 0.0, aperture: 0.0, focal_length: 0.0, focal_length35: 0.0, dng: 0, left_margin: 0, top_margin: 0, flip: 0, wb_daylight: [0.0; 3], wbct: [[0.0; 4]; 64], wbct_count: 0, fuji_dr: [-1; 3] }
+        EmuRawInfo { width: 0, height: 0, cam_xyz: [[0.0; 3]; 3], cam_mul: [0.0; 3], full_width: 0, full_height: 0, make: [0; 64], model: [0; 64], iso: 0.0, shutter: 0.0, aperture: 0.0, focal_length: 0.0, focal_length35: 0.0, dng: 0, left_margin: 0, top_margin: 0, flip: 0, wb_daylight: [0.0; 3], wbct: [[0.0; 4]; 64], wbct_count: 0, fuji_dr: [-1; 3], lens: [0; 128], fixed_lens: 0, date: [0; 11] }
     }
 }
 
@@ -263,27 +266,35 @@ fn c_path(path: &Path) -> Result<CString, String> {
 
 /// Capture settings without unpacking or decoding the sensor data.
 pub fn exposure(path: &Path) -> Option<crate::exposure::Exposure> {
-    let path = c_path(path).ok()?;
-    let mut info = EmuRawInfo::empty();
-    let mut err = [0 as c_char; 256];
-    openmp_root();
-    let rc = unsafe { emu_raw_info(path.as_ptr(), &mut info, err.as_mut_ptr(), err.len()) };
-    if rc != 0 { return None; }
-    let mut result = crate::exposure::Exposure::new(info.iso as f64, info.shutter as f64, info.aperture as f64, info.focal_length as f64);
-    result.focal_length35 = (info.focal_length35.is_finite() && info.focal_length35 > 0.0).then_some(info.focal_length35 as f64);
-    Some(result)
+    catalog_info(path).map(|info| info.exposure)
 }
 
-/// Read the catalog camera name for RAW containers without readable EXIF (e.g. CR3).
-pub fn catalog_camera(path: &Path) -> Option<String> {
+/// What the Library indexes of a RAW, from one LibRaw open without unpacking the sensor data.
+pub struct CatalogInfo {
+    pub camera: Option<String>,
+    pub exposure: crate::exposure::Exposure,
+    pub lens: Option<String>,
+    pub fixed_lens: bool,
+    /// Local capture date, YYYY-MM-DD.
+    pub date: Option<String>,
+}
+
+pub fn catalog_info(path: &Path) -> Option<CatalogInfo> {
     let path = c_path(path).ok()?;
     let mut info = EmuRawInfo::empty();
     let mut err = [0 as c_char; 256];
     openmp_root();
     let rc = unsafe { emu_raw_info(path.as_ptr(), &mut info, err.as_mut_ptr(), err.len()) };
     if rc != 0 { return None; }
-    let name = format!("{} {}", error_text(&info.make), error_text(&info.model)).trim().to_owned();
-    (!name.is_empty()).then_some(name)
+    // LibRaw keeps these as f32: f/5.6 widened to f64 is 5.599999904632568, so take the f32's
+    // shortest decimal instead.
+    let wide = |v: f32| v.to_string().parse::<f64>().unwrap_or(0.0);
+    let mut exposure = crate::exposure::Exposure::new(wide(info.iso), wide(info.shutter), wide(info.aperture), wide(info.focal_length));
+    exposure.focal_length35 = (info.focal_length35.is_finite() && info.focal_length35 > 0.0).then_some(wide(info.focal_length35));
+    let date = error_text(&info.date);
+    let camera = format!("{} {}", error_text(&info.make), error_text(&info.model)).trim().to_owned();
+    let lens = error_text(&info.lens).trim().to_owned();
+    Some(CatalogInfo { camera: (!camera.is_empty()).then_some(camera), exposure, lens: (!lens.is_empty()).then_some(lens), fixed_lens: info.fixed_lens != 0, date: (date.len() == 10).then_some(date) })
 }
 
 /// darktable's noise profile for the file's camera and ISO, read without decoding.

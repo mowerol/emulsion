@@ -2241,8 +2241,13 @@ try {
       const q = new URLSearchParams(location.search);
       const cams = ['FUJIFILM X-T30 II', 'Fujifilm X-T30 II', 'OM Digital Solutions OM-3', 'Panasonic DMC-LX3', 'RICOH IMAGING COMPANY, LTD. RICOH GR IIIx', 'SONY ZV-1', 'Fujifilm X-T30 II'];
       const words = [['Places|UK|Kent'], ['Places|Portugal|Lisbon'], ['Street'], [], ['Places|UK|Kent', 'Family'], ['Street'], ['Family']];
-      useApp.setState(s => ({ photos: s.photos.map((p, i) => ({ ...p, capture: { camera: cams[i % cams.length], date: null }, meta: { ...NO_META, keywords: words[i % words.length] } })),
-        filter: { ...s.filter, camera: q.get('camera') ?? '' } }));
+      // Lenses, focal lengths and ISOs too (&lens=, &iso= set those filters).
+      const lenses = ['XF27mmF2.8 R WR', 'XF27mmF2.8 R WR', 'OM 17mm F1.8 II', null, null, null, 'SIGMA 18-50mm F2.8 DC DN | Contemporary 021'];
+      const focals = [27, 27, 17, 5.1, 26, 25.7, 18], isos = [640, 3200, 200, 80, 3200, 2000, 800];
+      useApp.setState(s => ({ photos: s.photos.map((p, i) => ({ ...p, raw: i % 7 === 6 || p.raw, path: i % 7 === 6 ? p.path.replace(/\.jpg$/, '.RAF') : p.path,
+        capture: { camera: cams[i % cams.length], date: null, lens: lenses[i % 7], focalLength: focals[i % 7], focalLength35: [41, 41, 34, 24, 40, 70, 27][i % 7], iso: isos[i % 7],
+          fixedLens: i % 7 >= 3 && i % 7 <= 5 }, meta: { ...NO_META, keywords: words[i % words.length] } })),
+        filter: { ...s.filter, camera: q.get('camera') ?? '', lens: q.get('lens') ?? '', iso: Number(q.get('iso')) || 0 } }));
       setPrefs({ libraryMetadataOpen: q.has('metadata'), theme: q.get('theme') === 'dark' ? 'dark' : q.get('theme') === 'light' ? 'light' : 'mid' });
       if (q.has('menu')) setTimeout(() => (document.querySelectorAll<HTMLElement>('.metadata-picker')[Number(q.get('menu'))])?.click(), 1200);
       const libHost = document.createElement('div');

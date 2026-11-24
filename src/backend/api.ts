@@ -63,8 +63,11 @@ export interface Exposure {
 }
 export const photoExposure = (path: string) => invoke<Exposure | null>('photo_exposure', { path });
 /** `simulation`: a Fujifilm RAW's film simulation (lens.rs `fuji_simulation`), null otherwise. */
-export interface CatalogMetadata { cameraFrame?: CameraFrame | null; camera: string | null; date: string | null; simulation?: string | null }
-/** Camera and capture date, without decoding image pixels. */
+export interface CatalogMetadata extends Partial<Exposure> {
+  cameraFrame?: CameraFrame | null; camera: string | null; date: string | null; simulation?: string | null;
+  lens?: string | null; fixedLens?: boolean;
+}
+/** Camera, capture date, lens and capture settings, without decoding image pixels. */
 export const catalogMetadata = (paths: string[]) => invoke<(CatalogMetadata | null)[]>('catalog_metadata', { paths });
 
 export async function thumbnail(path: string, maxEdge = 512): Promise<Blob> {

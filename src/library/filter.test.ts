@@ -91,7 +91,7 @@ describe('library filter', () => {
 
   it('reads a saved filter, dropping anything unexpected', () => {
     expect(normalizeFilter({ edit: 'edited', minRating: 9, flags: ['reject', 'none', 'maybe'], labels: ['blue', 'orange'] })).toEqual({
-      edit: 'edited', rating: 5, ratingComparison: '>=', flags: ['none', 'reject'], labels: ['blue'], keyword: '', camera: '',
+      ...NO_FILTER, edit: 'edited', rating: 5, ratingComparison: '>=', flags: ['none', 'reject'], labels: ['blue'],
     });
     // Saved before flags replaced hearts.
     expect(normalizeFilter({ heart: true })).toEqual({ ...NO_FILTER, flags: ['pick'] });
@@ -125,5 +125,40 @@ describe('camera filter', () => {
     expect(isFiltering(f)).toBe(true);
     expect(normalizeFilter({ camera: ' FUJIFILM X-T30 II ' }).camera).toBe('Fujifilm X-T30 II');
     expect(normalizeFilter({ camera: 3 }).camera).toBe('');
+  });
+});
+
+describe('capture filters', () => {
+  const base = { recipe: null, rating: 0, label: null, flag: null };
+  const shot = (path: string, capture: object, raw = /\.(raf|orf|dng)$/i.test(path)) => ({ ...base, path, raw, capture: { camera: 'Fujifilm X-T30 II', date: null, ...capture } });
+  const a = shot('/a.RAF', { lens: 'XF27mmF2.8 R WR', focalLength: 27, iso: 640 });
+  const b = shot('/b.JPG', { lens: 'XF27mmF2.8  R WR ', focalLength: 27, iso: 3200 });
+  const c = shot('/c.RAF', { lens: 'SIGMA 18-50mm F2.8 DC DN | Contemporary 021', focalLength: 18.4, iso: 160 });
+  const unread = { ...base, path: '/d.jpg', raw: false };
+  const all = [a, b, c, unread];
+  const shown = (over: Partial<Filter>) => all.flatMap((p, i) => passes(p, f(over)) ? [i] : []);
+
+  it('filters by lens, however its name is spaced or cased', () => {
+    expect(shown({ lens: 'xf27mmf2.8 r wr' })).toEqual([0, 1]);
+  });
+  it('filters by one focal length or a band of them', () => {
+    expect(shown({ focal: '27' })).toEqual([0, 1]);
+    expect(shown({ focal: '16-24' })).toEqual([2]);
+    expect(shown({ focal: '200-' })).toEqual([]);
+  });
+  it('compares ISO', () => {
+    expect(shown({ iso: 640, isoComparison: '>=' })).toEqual([0, 1]);
+    expect(shown({ iso: 640, isoComparison: '<=' })).toEqual([0, 2]);
+    expect(shown({ iso: 640, isoComparison: '=' })).toEqual([0]);
+  });
+  it('filters by file type', () => {
+    expect(shown({ fileType: 'RAW' })).toEqual([0, 2]);
+    expect(shown({ fileType: 'JPEG' })).toEqual([1, 3]);
+  });
+  it('counts each set field as one metadata filter, and reads them back', () => {
+    const set = f({ lens: 'X', focal: '27', iso: 800, isoComparison: '<=', fileType: 'RAW' });
+    expect(isFiltering(set)).toBe(true);
+    expect(normalizeFilter(JSON.parse(JSON.stringify(set)))).toEqual(set);
+    expect(normalizeFilter({ iso: -3, isoComparison: '!=', focal: 'wide', lens: 4 })).toEqual(NO_FILTER);
   });
 });
