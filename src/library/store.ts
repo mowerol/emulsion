@@ -325,19 +325,25 @@ function withCachedMetadata(photo: Photo, cached?: Photo): Photo {
 
 type CaptureRead = Map<string, { identity: Photo; capture: NonNullable<Photo['capture']>; cameraFrame: CameraFrame | null }>;
 
+/** The version of what reading a capture finds: 2 added other cameras' black and white and sepia
+ * picture modes to `simulation` (2026-11-23). */
+const CAPTURE_READ = 2;
+
 /** Whether a photo's capture metadata still has to be read: never read, read before the lens and
  * capture settings were (catalogs from before 2026-11-23 have no `lens`; a RAW from before
- * 2026-11-14 has no `simulation` either), or a RAF whose camera framing (as-shot aspect, digital
- * tele-converter crop) hasn't been read. */
+ * 2026-11-14 has no `simulation` either), a RAW without a look read before other cameras' picture
+ * modes were (CAPTURE_READ), or a RAF whose camera framing (as-shot aspect, digital tele-converter
+ * crop) hasn't been read. */
 export const captureUnread = (p: Photo) => !p.capture || p.capture.lens === undefined || p.raw && p.capture.simulation === undefined
+  || p.raw && !p.capture.simulation && (p.capture.read ?? 1) < CAPTURE_READ
   || p.raw && /\.raf$/i.test(p.path) && p.cameraFrame === undefined;
 
-/** Read the capture metadata of `photos` (camera, date, lens and settings, Fujifilm film simulation). */
+/** Read the capture metadata of `photos` (camera, date, lens and settings, the look it was shot with). */
 async function readCaptures(photos: Photo[], into: CaptureRead = new Map()) {
   const values = await catalogMetadata(photos.map(p => p.path));
   photos.forEach((p, n) => {
     const { cameraFrame, ...capture } = values[n] ?? { camera: null, date: null };
-    into.set(p.path, { identity: p, capture: { simulation: null, lens: null, ...capture }, cameraFrame: cameraFrame ?? null });
+    into.set(p.path, { identity: p, capture: { simulation: null, lens: null, ...capture, read: CAPTURE_READ }, cameraFrame: cameraFrame ?? null });
   });
   return into;
 }

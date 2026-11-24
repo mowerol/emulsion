@@ -12,8 +12,11 @@ export interface Capture {
   camera: string | null;
   /** Local capture date, YYYY-MM-DD. */
   date: string | null;
-  /** A Fujifilm RAW's film simulation, as `lens::fuji_simulation` names it. */
+  /** The look a RAW was shot with: a Fujifilm film simulation (`lens::fuji_simulation`), or another
+   * camera's black and white or sepia picture mode (`picture_mode.rs`: bw, bw-dynamic, sepia). */
   simulation?: string | null;
+  /** The version of the reading (store.ts CAPTURE_READ), absent before version 2. */
+  read?: number;
   iso?: number | null;
   /** Exposure time in seconds. */
   shutter?: number | null;

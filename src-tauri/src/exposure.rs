@@ -61,7 +61,9 @@ pub struct CatalogMetadata {
     pub camera: Option<String>,
     /// Local capture date, YYYY-MM-DD; no timezone is invented for EXIF timestamps.
     pub date: Option<String>,
-    /// A Fujifilm RAW's film simulation (`lens::fuji_simulation`), for opening it with the matching look.
+    /// The look a RAW was shot with, for opening it with the matching one: a Fujifilm film
+    /// simulation (`lens::fuji_simulation`), or another camera's black and white or sepia
+    /// picture mode (`picture_mode::read`: "bw", "bw-dynamic", "sepia").
     pub simulation: Option<&'static str>,
     /// ISO, shutter, aperture and focal lengths, for the Library's filters.
     #[serde(flatten)]
@@ -115,7 +117,8 @@ pub fn catalog(path: &Path) -> CatalogMetadata {
             if info.lens.is_some() { result.lens = info.lens; }
             result.fixed_lens = info.fixed_lens;
         }
-        result.simulation = crate::lens::fuji_simulation(path);
+        result.simulation = crate::lens::fuji_simulation(path)
+            .or_else(|| crate::picture_mode::read(path).map(|mode| mode.name()));
     }
     result.camera_frame = crate::raf::metadata(path);
     result

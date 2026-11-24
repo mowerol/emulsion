@@ -62,7 +62,9 @@ export interface Exposure {
   focalLength35?: number | null;
 }
 export const photoExposure = (path: string) => invoke<Exposure | null>('photo_exposure', { path });
-/** `simulation`: a Fujifilm RAW's film simulation (lens.rs `fuji_simulation`), null otherwise. */
+/** `simulation`: the look a RAW was shot with: a Fujifilm film simulation (lens.rs `fuji_simulation`),
+ * or another camera's black and white or sepia picture mode (picture_mode.rs: `bw`, `bw-dynamic`,
+ * `sepia`); null otherwise. */
 export interface CatalogMetadata extends Partial<Exposure> {
   cameraFrame?: CameraFrame | null; camera: string | null; date: string | null; simulation?: string | null;
   lens?: string | null; fixedLens?: boolean;

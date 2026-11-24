@@ -32,6 +32,7 @@ mod rawspeed_cameras;
 mod presets;
 mod quit;
 mod perspective;
+mod picture_mode;
 mod segment;
 mod sky;
 mod sky_commands;

@@ -32,6 +32,17 @@ metadata description, with no upstream code copied and no upstream source commit
 Emulsion retains its existing DR100 baseline gain rather than adding the full
 RawExposureBias, which also contains Fuji's base exposure offset.
 
+## Camera picture modes and film simulations, from ExifTool's tag tables
+
+The maker-note tags and values that tell which look a RAW was shot with come from Phil Harvey's
+[ExifTool tag name documentation](https://exiftool.org/TagNames/) (retrieved 2026-11-23): FujiFilm
+FilmMode and Saturation (`src-tauri/src/lens.rs`, `fuji_simulation`); Panasonic FilmMode,
+PhotoStyle, ColorEffect and ShootingMode; Olympus CameraSettings PictureMode, PictureModeTone,
+MonochromeColor, ArtFilter and ArtFilterEffect; Sony CreativeStyle, ColorMode and PictureEffect;
+Pentax ImageTone; Nikon PictureControlData; Canon ProcessingInfo PictureStyle, PictureStyleUserDef and
+CameraSettings PhotoEffect (`src-tauri/src/picture_mode.rs`). These are facts about the file formats,
+read by Emulsion's own code; no ExifTool code is copied, so there is no upstream commit.
+
 ## Code ported from other projects
 
 Every port is listed here with its source, upstream licence, the upstream commit it came from, and what changed. See [docs/PORTING.md](docs/PORTING.md) for the format.
