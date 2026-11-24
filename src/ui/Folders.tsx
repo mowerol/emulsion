@@ -12,6 +12,7 @@ import { folderName, parentFolder, withinFolder } from '../library/membership';
 import { resetImporter, useImporter, useImportPhotos } from '../library/importer';
 import { foldPairs } from '../library/pairs';
 import { chooseImport, openFolder, setIncludeSubfolders, showToast, startImport, useApp, type Photo } from '../library/store';
+import { requestRemoveLocation } from './RemovePhotosDialog';
 import { Thumb, useVisible } from './common';
 import { ExposureInfo } from './ExposureInfo';
 import { LibraryMenu, LibrarySection } from './LibrarySection';
@@ -124,6 +125,8 @@ export function FolderDirectory({ children }: { children?: ReactNode } = {}) {
       <button type="button" role="menuitem" className="menu-item" onClick={() => requestFolderSync(menu.folder.path)}>Sync…</button>
       <button type="button" role="menuitem" className="menu-item" onClick={() => void startImport(menu.folder.path)}>Import…</button>
       <button type="button" role="menuitem" className="menu-item" onClick={() => void revealItemInDir(menu.folder.path).catch(() => showToast('Could not show the folder'))}>Show in Finder</button>
+      <div role="separator" className="menu-separator" />
+      <button type="button" role="menuitem" className="menu-item" onClick={() => requestRemoveLocation({ type: 'folder', id: menu.folder.path })}>Remove from Library…</button>
     </div>, document.body)}
   </aside>;
 }

@@ -97,6 +97,23 @@ export function saveFolderImport(root: string, value: FolderImport) {
   } catch { /* The current session still remembers the choice. */ }
 }
 
+/** Forget a folder's import choice, as when the folder is removed from the library. */
+export function forgetFolderImport(root: string) {
+  const db = database();
+  if (db) {
+    if (!(root in db)) return;
+    delete db[root];
+    void writeFolderImport(root, null);
+    return;
+  }
+  delete memory[root];
+  try {
+    const saved = JSON.parse(localStorage.getItem(KEY) || '{}');
+    delete saved[root];
+    localStorage.setItem(KEY, JSON.stringify(saved));
+  } catch { /* The current session has forgotten it. */ }
+}
+
 export function importedPaths(paths: string[], choice: FolderImport | null): Set<string> {
   if (!choice) return new Set();
   if (choice.mode === 'sync') return new Set(paths);

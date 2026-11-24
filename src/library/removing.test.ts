@@ -1,14 +1,15 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-// Remove from Library and Delete from Disk (store.ts `removeFromLibrary`, `deleteFromDisk`).
+// Remove from Library and Delete from Disk (store.ts `removeFromLibrary`, `deleteFromDisk`), and
+// removing a whole import or folder (`removeLocation`).
 import { beforeEach, expect, it, vi } from 'vitest';
 vi.mock('../backend/api', () => ({
   scanFolder: vi.fn(), whitePoints: vi.fn(async () => []), writeSidecar: vi.fn(async () => {}), thumbnail: vi.fn(), isTauri: () => false,
   trashPhotos: vi.fn(),
 }));
 import { scanFolder, trashPhotos, type ScanResult } from '../backend/api';
-import { useCatalog } from './catalog';
-import { closeFolder, createVirtualCopies, deleteFromDisk, importFolderPhotos, openFolder, removalTargets, removeFromLibrary, setActive, setFoldJpegs, useApp } from './store';
-import { folderImport } from './folders';
+import { cacheFolder, useCatalog } from './catalog';
+import { closeFolder, createVirtualCopies, deleteCollection, deleteFromDisk, importFolderPhotos, locationRemoval, openFolder, removalTargets, removeFromLibrary, removeLocation, selectSource, setActive, setFoldJpegs, shownSource, useApp } from './store';
+import { folderImport, importedRoots, saveFolderImport } from './folders';
 import { NO_FILTER } from './filter';
 import { photoId } from './copies';
 
@@ -85,4 +86,65 @@ it('moves photos to the Trash, and keeps in the library any that could not be mo
   expect(names()).toEqual(['a.jpg', 'c.jpg']);
   expect(useApp.getState().candidates.map(p => p.name)).toEqual(['a.jpg', 'c.jpg']);
   expect(useApp.getState().toast?.message).toMatch(/Could not move c\.jpg to the Trash\. Locked/);
+});
+
+const imports = () => useCatalog.getState().imports;
+
+it('an import emptied by removing its photos leaves the list, and closes if shown', async () => {
+  await selectSource({ type: 'import', id: imports()[0].id });
+  useApp.setState({ selected: new Set(useApp.getState().photos.map(photoId)) });
+  removeFromLibrary();
+  expect(imports()).toEqual([]);
+  expect(shownSource()).toBeNull();
+});
+
+it('removes an import: its photos leave the library, other imports keep theirs, and the files stay', async () => {
+  disk = ['a.jpg', 'b.jpg', 'c.jpg', 'd.jpg'];
+  await openFolder('/photos');
+  importFolderPhotos({ mode: 'selected', paths: disk.map(n => `/photos/${n}`) });
+  const [later, first] = imports();
+  expect(later.photoIds).toEqual(['/photos/d.jpg']);
+  expect(locationRemoval({ type: 'import', id: first.id })).toMatchObject({ name: first.name, frames: 3 });
+  removeLocation({ type: 'import', id: first.id });
+  expect(imports().map(i => i.id)).toEqual([later.id]);
+  expect(names()).toEqual(['d.jpg']);
+  expect(folderImport('/photos')).toMatchObject({ paths: ['/photos/d.jpg'] });
+  expect(trashPhotos).not.toHaveBeenCalled();
+  expect(useApp.getState().candidates.map(p => p.name)).toContain('a.jpg');
+});
+
+it('removes a folder with its subfolders, their import choices and imports, and closes it if shown', async () => {
+  await openFolder('/other');
+  importFolderPhotos({ mode: 'selected', paths: disk.map(n => `/other/${n}`) });
+  cacheFolder('/photos/sub', [{ ...useApp.getState().photos[0], path: '/photos/sub/s.jpg', name: 's.jpg' }]);
+  saveFolderImport('/photos/sub', { mode: 'selected', paths: ['/photos/sub/s.jpg'] });
+  await openFolder('/photos');
+  expect(locationRemoval({ type: 'folder', id: '/photos/' })).toMatchObject({ name: 'photos', frames: 4 });
+  removeLocation({ type: 'folder', id: '/photos/' });
+  expect(shownSource()).toBeNull();
+  expect(Object.keys(useCatalog.getState().folders)).toEqual(['/other']);
+  expect(importedRoots()).toEqual(['/other']);
+  expect(folderImport('/photos')).toBeNull();
+  expect(imports().map(i => i.destinationPath)).toEqual(['/other']);
+});
+
+it('removing a subfolder leaves its parent folder and the shown photos outside it', async () => {
+  cacheFolder('/photos/sub', [{ ...useApp.getState().photos[0], path: '/photos/sub/s.jpg', name: 's.jpg' }]);
+  saveFolderImport('/photos/sub', { mode: 'selected', paths: ['/photos/sub/s.jpg'] });
+  removeLocation({ type: 'folder', id: '/photos/sub' });
+  expect(shownSource()).toMatchObject({ type: 'folder', id: '/photos' });
+  expect(names()).toEqual(['a.jpg', 'b.jpg', 'c.jpg']);
+  expect(Object.keys(useCatalog.getState().folders)).toEqual(['/photos']);
+  expect(folderImport('/photos/sub')).toBeNull();
+});
+
+it('deletes a collection, its target and its view, and keeps its photos in the library', async () => {
+  useCatalog.setState({ collections: [{ id: 'k', name: 'Keep', createdAt: 0, type: 'manual' as const, photoIds: ['/photos/a.jpg'] }], targetCollectionId: 'k' });
+  await selectSource({ type: 'collection', id: 'k' });
+  expect(shownSource()).toMatchObject({ type: 'collection', id: 'k' });
+  deleteCollection('k');
+  expect(useCatalog.getState()).toMatchObject({ collections: [], targetCollectionId: null });
+  expect(shownSource()).toBeNull();
+  expect(useCatalog.getState().folders['/photos'].map(p => p.name)).toEqual(['a.jpg', 'b.jpg', 'c.jpg']);
+  expect(imports()).toHaveLength(1);
 });

@@ -11,7 +11,7 @@ import type { Xy } from '../engine/whitebalance';
 import { catalogMetadata, embeddedMetadata, isTauri, metadataFromFiles, scanFolder, trashPhotos, whitePoints, type EmbeddedMetadata, type Entry, type ScanProgress, type Saved } from '../backend/api';
 import { isEmptyMeta, normalizeMeta, sameMeta, type PhotoMeta } from './meta';
 import { autoPreset, fillPreset } from './metapresets';
-import { folderImport, importedPaths, importedRoots, rememberFolder, saveFolderImport, type FolderImport } from './folders';
+import { folderImport, forgetFolderImport, importedPaths, importedRoots, rememberFolder, saveFolderImport, type FolderImport } from './folders';
 import { libraryEntries, membership as folderMembership, parentFolder, withinFolder } from './membership';
 import { defaultRecipe, uneditedRecipe, normalizeRecipe, type Recipe } from '../film/recipe';
 import { applyCopiedSettings, DEFAULT_COPY_GROUPS, normalizeCopyGroups, type CopiedSettings, type CopyGroup } from '../film/copysettings';
@@ -1240,7 +1240,8 @@ export function removalTargets(s: State = get()): { sources: string[]; frames: n
 /**
  * Take source files out of the library: folder memberships, the catalog's folders, import
  * sessions and manual collections, and the photos shown. Sidecars and files are left alone.
- * The photo after the active one becomes active, as in Lightroom.
+ * The photo after the active one becomes active, as in Lightroom. An import left with no photos
+ * goes from the list too (one that was shown closes).
  */
 function forgetSources(removed: Set<string>, gone = false) {
   for (const importedRoot of importedRoots()) {
@@ -1248,7 +1249,10 @@ function forgetSources(removed: Set<string>, gone = false) {
     if (choice?.mode === 'selected') saveFolderImport(importedRoot, { ...choice, paths: choice.paths.filter(path => !removed.has(path)) });
   }
   useCatalog.setState(c => ({ folders: Object.fromEntries(Object.entries(c.folders).map(([path, entries]) => [path, entries.filter(p => !removed.has(p.path))])),
-    imports: c.imports.map(i => ({ ...i, photoIds: i.photoIds.filter(id => !removed.has(id.split('\0')[0])) })),
+    imports: c.imports.flatMap(i => {
+      const photoIds = i.photoIds.filter(id => !removed.has(id.split('\0')[0]));
+      return photoIds.length || !i.photoIds.length ? [{ ...i, photoIds }] : [];
+    }),
     collections: c.collections.map(c => c.type === 'manual' ? { ...c, photoIds: c.photoIds.filter(id => !removed.has(id.split('\0')[0])) } : c) }));
   const s = get();
   const kept = (p: Photo) => !removed.has(p.path);
@@ -1266,9 +1270,65 @@ function forgetSources(removed: Set<string>, gone = false) {
     importChoice: s.folder ? folderMembership(s.folder.root) : s.importChoice,
     pairCount: findPairs(photos.concat(s.hidden.filter(kept)).filter(p => !p.copyId)).size,
     view: photos.length ? s.view : 'library' });
+  const source = shownSource();
+  if (source?.type === 'import' && !useCatalog.getState().imports.some(i => i.id === source.id)) closeFolder();
 }
 
 const photoCount = (n: number) => `${n.toLocaleString()} ${n === 1 ? 'photo' : 'photos'}`;
+
+/** A whole import or folder (with its subfolders) as the sidebar lists it, to remove from the library. */
+export type LibraryLocation = { type: 'import' | 'folder'; id: string };
+
+/** What removing `location` takes out: its name, every source file it holds, and the frames as the grid counts them. */
+export function locationRemoval(location: LibraryLocation, s: State = get()): { name: string; sources: string[]; frames: number } {
+  const all = catalogPhotos();
+  let name: string, sources: string[];
+  if (location.type === 'import') {
+    const session = useCatalog.getState().imports.find(i => i.id === location.id);
+    name = session?.name ?? 'Import';
+    sources = [...new Set(session?.photoIds.map(id => id.split('\0')[0]) ?? [])];
+  } else {
+    const root = trimRoot(location.id), inside = insideFolder(root);
+    name = root.split(/[\\/]/).filter(Boolean).pop() || root;
+    const chosen = importedRoots().filter(inside).flatMap(r => { const c = folderImport(r); return c?.mode === 'selected' ? c.paths : []; });
+    sources = [...new Set([...all.map(p => p.path), ...chosen].filter(inside))];
+  }
+  const wanted = new Set(sources);
+  const originals = all.filter(p => !p.copyId && wanted.has(p.path));
+  return { name, sources, frames: (s.foldJpegs ? foldPairs(originals).shown : originals).length };
+}
+const insideFolder = (root: string) => (path: string) => trimRoot(path) === root || withinFolder(root, path);
+
+/**
+ * Remove a whole import or folder from the library: its photos as Remove from Library takes them
+ * (the catalog keeps their edits), then the import from the list, or the folder, its subfolders and
+ * their import choices from the Folders tree. Shown, it closes first.
+ */
+export function removeLocation(location: LibraryLocation) {
+  if (get().lookEdit) return showToast('Finish editing the look first');
+  const { name, sources } = locationRemoval(location);
+  const inside = location.type === 'folder' ? insideFolder(trimRoot(location.id)) : null;
+  const shown = shownSource();
+  if (shown?.type === location.type && (inside ? inside(shown.id) : shown.id === location.id)) closeFolder();
+  else finishCrop(true);
+  if (sources.length) forgetSources(new Set(sources));
+  if (inside) {
+    importedRoots().filter(inside).forEach(forgetFolderImport);
+    useCatalog.setState(c => ({ folders: Object.fromEntries(Object.entries(c.folders).filter(([root]) => !inside(root))) }));
+  } else useCatalog.setState(c => ({ imports: c.imports.filter(i => i.id !== location.id) }));
+  showToast(`Removed ${name} from the library.${sources.length ? ' Import it again to bring its photos back with their edits.' : ''}`);
+}
+
+/** Delete a collection. Its photos stay in the library and their folders; shown, it closes. */
+export function deleteCollection(id: string) {
+  if (get().lookEdit) return showToast('Finish editing the look first');
+  const collection = useCatalog.getState().collections.find(c => c.id === id);
+  if (!collection) return;
+  const shown = shownSource();
+  if (shown?.type === 'collection' && shown.id === id) closeFolder();
+  useCatalog.setState(c => ({ collections: c.collections.filter(c => c.id !== id), targetCollectionId: c.targetCollectionId === id ? null : c.targetCollectionId }));
+  showToast(`Deleted ${collection.name}. Its photos stay in the library.`);
+}
 
 /** Remove from Library: saved catalog edits remain, so importing these sources again brings their edits back. */
 export function removeFromLibrary(plan = removalTargets()) {
@@ -1277,7 +1337,7 @@ export function removeFromLibrary(plan = removalTargets()) {
   if (plan.copies.length) removeVirtualCopies(plan.copies);
   if (!plan.sources.length) return;
   forgetSources(new Set(plan.sources));
-  showToast(`Removed ${photoCount(plan.frames)} from the library. Their edits stay beside the files.`);
+  showToast(`Removed ${photoCount(plan.frames)} from the library. Import ${plan.frames === 1 ? 'it' : 'them'} again to bring back ${plan.frames === 1 ? 'its' : 'their'} edits.`);
 }
 
 /** Delete from Disk: move the files and their sidecars to the Trash (src-tauri/src/trash.rs), then out of the library. */

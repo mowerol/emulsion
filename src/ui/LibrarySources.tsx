@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Download, Ellipsis, Filter, GalleryVerticalEnd, Plus, Target } from 'lucide-react';
-import { addToCollection, catalogPhotos, importTime, localDay, matchesRules, saveCollection, setTargetCollection, sourceCount, targetCollection, useCatalog, type Collection, type SmartRule } from '../library/catalog';
+import { addToCollection, catalogPhotos, importTime, type ImportSession, localDay, matchesRules, saveCollection, setTargetCollection, sourceCount, targetCollection, useCatalog, type Collection, type SmartRule } from '../library/catalog';
 import { startImport, openFolder, selectSource, showToast, shownSource, sourcePhotos, useApp } from '../library/store';
 import { photoId } from '../library/copies';
 import { LABELS } from '../library/marks';
 import { FLAG_FILTERS } from '../library/filter';
 import { FolderDirectory } from './Folders';
+import { requestRemoveLocation } from './RemovePhotosDialog';
 import { foldPairs } from '../library/pairs';
 import { LibraryMenu, LibrarySection } from './LibrarySection';
 import { revealItemInDir } from '@tauri-apps/plugin-opener';
@@ -21,8 +22,9 @@ function toggleTargetCollection(collection: Collection) {
   showToast(clear ? 'Target collection cleared' : `${collection.name} is the target collection · B to add photos`);
 }
 
-function CollectionContextMenu({ x, y, collection, target, onClose }: {
-  x: number; y: number; collection: Collection; target: boolean; onClose: (restoreFocus?: boolean) => void;
+/** A source row's right-click menu, placed inside the window. */
+export function SourceContextMenu({ x, y, label, onClose, children }: {
+  x: number; y: number; label: string; onClose: (restoreFocus?: boolean) => void; children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
@@ -47,17 +49,61 @@ function CollectionContextMenu({ x, y, collection, target, onClose }: {
       window.removeEventListener('blur', close);
     };
   }, [onClose]);
-  return createPortal(<div ref={ref} className="menu" role="menu" aria-label={`${collection.name} collection actions`}
+  return createPortal(<div ref={ref} className="menu" role="menu" aria-label={label}
     style={{ left: x, top: y }} onContextMenu={e => { e.preventDefault(); e.stopPropagation(); }}
     onKeyDown={e => {
       e.stopPropagation();
       if (e.key === 'Escape' || e.key === 'Tab') { e.preventDefault(); onClose(true); }
-    }}>
-    <button type="button" role="menuitemcheckbox" aria-checked={target} className="menu-item" onClick={() => {
+    }}>{children}</div>, document.body);
+}
+
+function CollectionContextMenu({ x, y, collection, target, onClose }: {
+  x: number; y: number; collection: Collection; target: boolean; onClose: (restoreFocus?: boolean) => void;
+}) {
+  return <SourceContextMenu x={x} y={y} label={`${collection.name} collection actions`} onClose={onClose}>
+    {collection.type === 'manual' && <><button type="button" role="menuitemcheckbox" aria-checked={target} className="menu-item" onClick={() => {
       toggleTargetCollection(collection);
       onClose(true);
     }}><span className="menu-check" aria-hidden="true">{target ? '✓' : ''}</span>{target ? 'Clear target collection' : 'Set as target collection'}</button>
-  </div>, document.body);
+    <div role="separator" className="menu-separator" /></>}
+    <button type="button" role="menuitem" className="menu-item" onClick={() => { onClose(); requestRemoveLocation({ type: 'collection', id: collection.id }); }}>Delete Collection…</button>
+  </SourceContextMenu>;
+}
+
+/** Right-click on an import (sidebar or All imports): show its folder, or remove it from the library. */
+function useImportMenu(session: ImportSession) {
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+  const row = useRef<HTMLElement | null>(null);
+  const close = useCallback((restoreFocus = false) => { setMenu(null); if (restoreFocus) row.current?.focus(); }, []);
+  const onContextMenu = (e: ReactMouseEvent<HTMLElement>) => {
+    e.preventDefault();
+    e.stopPropagation();
+    row.current = e.currentTarget;
+    const r = e.currentTarget.getBoundingClientRect();
+    setMenu({ x: e.clientX || r.left + 20, y: e.clientY || r.top + 20 });
+  };
+  const element = menu && <SourceContextMenu x={menu.x} y={menu.y} label={`${session.name} import actions`} onClose={close}>
+    <button type="button" role="menuitem" className="menu-item" onClick={() => { close(); void revealItemInDir(session.destinationPath).catch(() => showToast('Could not show the folder')); }}>Show in Finder</button>
+    <div role="separator" className="menu-separator" />
+    <button type="button" role="menuitem" className="menu-item" onClick={() => { close(); requestRemoveLocation({ type: 'import', id: session.id }); }}>Remove from Library…</button>
+  </SourceContextMenu>;
+  return { onContextMenu, menu: element };
+}
+
+function ImportRow({ session, active }: { session: ImportSession; active: boolean }) {
+  const { onContextMenu, menu } = useImportMenu(session);
+  return <><button type="button" className={`source-row${active ? ' active' : ''}`} title={`${session.name} · ${importTime(session.importedAt)}`}
+    aria-current={active ? 'location' : undefined} onClick={() => void selectSource({ type: 'import', id: session.id })} onContextMenu={onContextMenu}>
+    <span className="source-chevron-slot" /><Download size={15} /><span className="source-name">{session.name}</span>
+    {!session.viewed && <span className="source-new" aria-label="Not yet viewed" />}<span className="source-count">{session.photoIds.length.toLocaleString()}</span>
+  </button>{menu}</>;
+}
+
+function ImportHistoryRow({ session, onClose }: { session: ImportSession; onClose: () => void }) {
+  const { onContextMenu, menu } = useImportMenu(session);
+  return <><button type="button" onClick={() => { onClose(); void selectSource({ type: 'import', id: session.id }); }} onContextMenu={onContextMenu}>
+    <Download size={16} /><span><strong>{session.name}{!session.viewed && <span className="source-new" />}</strong><small>{importTime(session.importedAt)} · {session.destinationPath}</small></span><span className="source-count">{session.photoIds.length}</span>
+  </button>{menu}</>;
 }
 
 function CollectionRow({ collection, count, over }: { collection: Collection; count: number; over: boolean }) {
@@ -72,7 +118,6 @@ function CollectionRow({ collection, count, over }: { collection: Collection; co
     onContextMenu={e => {
       e.preventDefault();
       e.stopPropagation();
-      if (!manual) return;
       const r = e.currentTarget.getBoundingClientRect();
       setMenu({ x: e.clientX || r.left + 20, y: e.clientY || r.top + 20 });
     }}
@@ -82,7 +127,7 @@ function CollectionRow({ collection, count, over }: { collection: Collection; co
     {manual && target && <Target size={13} aria-label="Target collection" className="source-target"><title>Target collection · B to add photos</title></Target>}
     <span className="source-count">{count.toLocaleString()}</span>
   </button>
-    {manual && menu && <CollectionContextMenu {...menu} collection={collection} target={target} onClose={closeMenu} />}
+    {menu && <CollectionContextMenu {...menu} collection={collection} target={target} onClose={closeMenu} />}
   </>;
 }
 
@@ -99,14 +144,7 @@ export function LibrarySidebar({ onOpen, dragTarget }: { onOpen: OpenDialog; dra
   }, [catalog, cached, fold]);
   return <FolderDirectory>
     <LibrarySection id="imports" label="Recent imports">
-      {catalog.imports.slice(0, 4).map(session => {
-        const active = source?.type === 'import' && source.id === session.id;
-        return <button type="button" key={session.id} className={`source-row${active ? ' active' : ''}`} title={`${session.name} · ${importTime(session.importedAt)}`}
-          aria-current={active ? 'location' : undefined} onClick={() => void selectSource({ type: 'import', id: session.id })}>
-          <span className="source-chevron-slot" /><Download size={15} /><span className="source-name">{session.name}</span>
-          {!session.viewed && <span className="source-new" aria-label="Not yet viewed" />}<span className="source-count">{session.photoIds.length.toLocaleString()}</span>
-        </button>;
-      })}
+      {catalog.imports.slice(0, 4).map(session => <ImportRow key={session.id} session={session} active={source?.type === 'import' && source.id === session.id} />)}
       {!catalog.imports.length && <p className="source-section-empty">Your imports will appear here.</p>}
       <button type="button" className="source-footer" onClick={() => onOpen({ kind: 'history' })}>All imports…</button>
     </LibrarySection>
@@ -153,14 +191,17 @@ export function SourceHeader({ onOpen }: { onOpen?: OpenDialog }) {
       {session ? <>
         <button type="button" onClick={() => void openFolder(session.destinationPath)}>Show in folder</button>
         <button type="button" onClick={() => onOpen({ kind: 'add', ids: s.selected.size ? [...s.selected] : sourcePhotos(s).map(photoId) })}>Add to collection…</button>
+        <button type="button" onClick={() => requestRemoveLocation({ type: 'import', id: session.id })}>Remove from Library…</button>
       </> : collection ? <>
         {collection.type === 'smart' ? <button type="button" onClick={() => onOpen({ kind: 'smart', collection })}>Edit rules…</button> : <>
           <button type="button" onClick={() => toggleTargetCollection(collection)}>{targetCollection(catalog)?.id === collection.id ? 'Clear target collection' : 'Set as target collection'}</button>
           <button type="button" disabled={!s.selected.size && !s.collectionAddIds.length} onClick={() => { addToCollection(collection.id, s.collectionAddIds.length ? s.collectionAddIds : [...s.selected]); useApp.setState({ collectionAddIds: [] }); showToast(`Selected photos added to ${collection.name}`); }}>Add selected</button>
           <button type="button" onClick={() => onOpen({ kind: 'rename', collection })}>Rename…</button>
         </>}
+        <button type="button" onClick={() => requestRemoveLocation({ type: 'collection', id: collection.id })}>Delete Collection…</button>
       </> : <button type="button" disabled={!root || s.loading} onClick={() => void startImport(root)}>Manage import…</button>}
       {root && <button type="button" onClick={() => void revealItemInDir(root).catch(() => showToast('Could not show the folder'))}>Show in Finder</button>}
+      {source?.type === 'folder' && root && s.importChoice && <button type="button" disabled={s.loading} onClick={() => requestRemoveLocation({ type: 'folder', id: root })}>Remove from Library…</button>}
       <button type="button" onClick={() => onOpen({ kind: 'history' })}>Recent imports…</button>
       <button type="button" onClick={() => onOpen({ kind: 'collections' })}>Collections…</button>
     </LibraryMenu>}
@@ -245,9 +286,7 @@ export function LibrarySourceDialog({ dialog, onClose, onOpen }: { dialog: Libra
         <footer><button type="button" className="btn" onClick={onClose}>Cancel</button><button type="submit" className="btn primary" disabled={!name.trim()}>{dialog.collection ? 'Save' : 'Create collection'}</button></footer>
       </form> : <>
         <div className="source-dialog-list">
-          {dialog.kind === 'history' ? catalog.imports.map(session => <button type="button" key={session.id} onClick={() => { onClose(); void selectSource({ type: 'import', id: session.id }); }}>
-            <Download size={16} /><span><strong>{session.name}{!session.viewed && <span className="source-new" />}</strong><small>{importTime(session.importedAt)} · {session.destinationPath}</small></span><span className="source-count">{session.photoIds.length}</span>
-          </button>) : catalog.collections.filter(c => dialog.kind !== 'add' || c.type === 'manual').map(c => <button type="button" key={c.id} onClick={() => {
+          {dialog.kind === 'history' ? catalog.imports.map(session => <ImportHistoryRow key={session.id} session={session} onClose={onClose} />) : catalog.collections.filter(c => dialog.kind !== 'add' || c.type === 'manual').map(c => <button type="button" key={c.id} onClick={() => {
             if (dialog.kind === 'add') { addToCollection(c.id, dialog.ids ?? []); showToast(`Added photos to ${c.name}`); onClose(); }
             else { onClose(); void selectSource({ type: 'collection', id: c.id }); }
           }}>{c.type === 'manual' ? <GalleryVerticalEnd size={16} /> : <Filter size={16} />}<span>{c.name}</span><span className="source-count">{sourceCount({ type: 'collection', id: c.id })}</span></button>)}
