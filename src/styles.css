@@ -1426,6 +1426,25 @@ body { font-variant-numeric: tabular-nums; min-width: 1200px; }
 .images-chevron { width: 14px; transform: none; transition: transform .12s; color: var(--muted); }
 .images-title[aria-expanded=false] .images-chevron { transform: rotate(-90deg); }
 .images-count { color: var(--muted); }
+.images-head .images-count { flex: 1 1 auto; min-width: 0; }
+.images-head .filter-clear { flex-shrink: 0; }
+.images-search { flex-shrink: 0; }
+.images-search-toggle { width: 26px; height: 28px; }
+.images-search-toggle[aria-pressed=true] { background: var(--sel); color: var(--text); }
+.images-search-field { position: absolute; z-index: 25; top: calc(100% - 1px); left: 6px; right: 6px; display: flex; align-items: center; gap: 6px; margin: 0; padding: 6px 8px; border: 1px solid var(--border); border-radius: 5px; background: var(--pop); box-shadow: var(--shadow); color: var(--muted); }
+.images-search-field > svg { flex-shrink: 0; }
+.images-search-field input { flex: 1; min-width: 0; width: 0; height: 28px; padding: 0; border: 0; border-radius: 0; outline: none; background: transparent; color: var(--text); font: inherit; font-size: 12px; }
+.images-search-field input, .images-search-field input:focus-visible { -webkit-appearance: none; appearance: none; outline: none; box-shadow: none; }
+.images-search-field input::placeholder { color: var(--muted); opacity: 1; }
+.images-search-field:focus-within { border-color: var(--text3); }
+.images-search-field input::-webkit-search-cancel-button { -webkit-appearance: none; }
+.images-search-clear { width: 22px; height: 26px; flex-shrink: 0; }
+.images-empty { line-height: 1.5; }
+.library-bar .images-search-toggle { width: 28px; height: 24px; background: var(--ctl); color: var(--muted); }
+.library-bar .images-search-toggle:hover { background: var(--hover); }
+.library-bar .images-search-toggle[aria-pressed=true] { background: var(--sel); color: var(--text); }
+.library-search .images-search-field { z-index: 60; }
+.images-pane:has(.images-search-toggle[aria-expanded=true]) .images-empty { padding-top: 40px; }
 .filter-clear { color: var(--accent); }
 .images-filters { padding: 0 10px 12px; }
 .images-filters .filter-bar > .seg { background: var(--ctl); }

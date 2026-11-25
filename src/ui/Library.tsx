@@ -3,13 +3,14 @@ import { memo, useEffect, useLayoutEffect, useRef, useState, type MouseEvent, ty
 import { ListFilter, Pencil, Settings2, Square, Star } from 'lucide-react';
 import { usePhotoContextMenu, type PhotoContextHandler } from './PhotoMenu';
 import { photoId, photoName } from '../library/copies';
-import { setActive, setFilter, setFoldJpegs, setSelectedOnly, setLibraryView, setView, sourceIndices, useApp, useShown, type Photo } from '../library/store';
+import { setActive, setFilter, setFoldJpegs, setImageSearch, setSelectedOnly, setLibraryView, setView, sourceIndices, useApp, useShown, type Photo } from '../library/store';
 import { NO_FILTER, isFiltering } from '../library/filter';
 import { LABEL } from '../library/marks';
 import { DiskDirectory, FolderImportView } from './Folders';
 import { chooseFolder } from './TopBar';
 import { FilterBar } from './FilterBar';
 import { MetadataBar, MetadataToggle } from './MetadataFilters';
+import { ImageSearch } from './ImageSearch';
 import { FlagIcon, MarkControls, Thumb, useVisible } from './common';
 import { LibraryLoupe } from './LibraryLoupe';
 import { LibraryImageRail } from './LibraryImageRail';
@@ -77,8 +78,8 @@ export function Library() {
   const active = shown.includes(s.active) ? s.photos[s.active] : null;
   const gridRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const filtering = isFiltering(s.filter) || s.selectedOnly || !!s.missingPaths;
-  const clear = () => { setFilter(NO_FILTER); setSelectedOnly(false); useApp.setState({ missingPaths: null }); };
+  const filtering = isFiltering(s.filter) || s.selectedOnly || !!s.missingPaths || !!s.imageSearch.trim();
+  const clear = () => { setImageSearch(''); setFilter(NO_FILTER); setSelectedOnly(false); useApp.setState({ missingPaths: null }); };
   useEffect(() => { try { localStorage.setItem(SIZE_KEY, String(size)); } catch { /* session only */ } }, [size]);
   // Only the rows near the view are mounted: 10,000 photos otherwise make ~140,000 elements.
   const vp = useViewport(scrollRef, 'y', [s.choosingImport, !!shown.length, loupe]);
@@ -129,6 +130,7 @@ export function Library() {
           </div>
           <FilterBar showCount={false} metadata={false}><MetadataToggle /></FilterBar>
           <span className="library-toolbar-space" />
+          <ImageSearch floating className="library-search" />
           <button type="button" className="library-toggle" aria-pressed={s.selectedOnly} onClick={() => setSelectedOnly(!s.selectedOnly)} title="Show selected photos only" aria-label="Selected only"><ListFilter size={13} aria-hidden="true" /><span className="library-toggle-label">Selected only</span></button>
           {!loupe && <label className="size-control" title="Thumbnail size"><Square size={12} /><input aria-label="Thumbnail size" className="range" type="range" min={140} max={320} step={10} value={size} onChange={e => setSize(Number(e.target.value))} /><Square size={16} /></label>}
           <LibraryMenu label="Library view settings" icon={<Settings2 size={14} />} stay><label className="library-setting"><input type="checkbox" checked={showExif} onChange={e => setPrefs({ libraryExif: e.target.checked })} />Show capture settings</label>
@@ -142,7 +144,7 @@ export function Library() {
             style={{ ['--cell' as string]: `${size}px`, paddingTop: GRID_PAD + win.start * layout.pitch, paddingBottom: GRID_PAD + Math.max(0, rows - win.end) * layout.pitch }}>
             {visible.map((i, k) => <Cell position={win.start * layout.cols + k + 1} total={shown.length} startDrag={drag.start} contextMenu={context.open} key={photoId(s.photos[i])} photo={s.photos[i]} index={i} number={frameNumbers.get(i)!} active={i === s.active} selected={s.selected.has(photoId(s.photos[i]))} showExif={showExif} />)}
           </div> : <div className="library-empty">
-            <h2>{s.loading ? 'Reading photos…' : filtering ? 'No photos match these filters' : s.source?.type === 'collection' ? 'This collection is empty' : s.source?.type === 'import' ? 'No photos from this import are available' : s.folder ? 'No imported photos in this folder' : 'Your library starts here'}</h2>
+            <h2>{s.loading ? 'Reading photos…' : filtering ? (isFiltering(s.filter) || s.selectedOnly || s.missingPaths ? 'No photos match these filters' : 'No filenames match this search') : s.source?.type === 'collection' ? 'This collection is empty' : s.source?.type === 'import' ? 'No photos from this import are available' : s.folder ? 'No imported photos in this folder' : 'Your library starts here'}</h2>
             {filtering ? <button type="button" className="btn" onClick={clear}>Clear filters</button>
               : !s.loading && !s.source && !s.folder ? <>
                 {/* The first screen a new tester sees: the toolbar has no Import button, so offer it here. */}
