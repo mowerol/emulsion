@@ -27,6 +27,7 @@ import { geometryFramePoint, geometryMatrix, type Perspective } from '../../src/
 import { invert3 } from '../../src/engine/color';
 import type { Vec3 } from '../../src/film/stocks';
 import { blackToeLift, toneForward, toneProfileRgb } from '../../src/engine/tone';
+import { blacksPrint } from '../../src/engine/blacks';
 import { adaptiveBlackLift } from '../../src/engine/adaptivetone';
 import { histogram } from '../../src/engine/histogram';
 import { drawHistogram } from '../../src/ui/Histogram';
@@ -410,11 +411,19 @@ function probeTone(eng: Engine) {
     ref: (c: Vec3) => toneProfileRgb(c, whites, blacks, toneCharacter),
   }]));
   for (const blacks of [25, 50, 100, 200]) cases[`adaptiveToe${blacks}`] = {
-    uniforms: developUniforms({ ...defaultRecipe(), blacks }, stageCtx),
+    uniforms: developUniforms({ ...defaultRecipe(), toneVersions: { ...defaultRecipe().toneVersions, blacks: 2 }, blacks }, stageCtx),
     ref: (c: Vec3) => toneProfileRgb(c, 0, 0).map(v => blackToeLift(v, adaptiveBlackLift(blacks))) as Vec3,
   };
+  // Blacks processing 3: RawTherapee's Exposure Black on the print (blacks.ts).
+  for (const blacks of [-100, -50, -10, 10, 100, 200]) cases[`rtBlacks${blacks}`] = {
+    uniforms: developUniforms({ ...defaultRecipe(), blacks }, stageCtx),
+    ref: (c: Vec3) => blacksPrint(toneProfileRgb(c, 0, 0), blacks),
+  };
   // Very large scene values too: the curve's film term overflows floats there (darktable's NaN check).
-  const tone = probeStage(eng, ['stages/tone.glsl'], 'stageToneProfile(c)', [...COLOURS, [1e6, 1e15, 1e30], [3e38, 1e20, 50]], cases);
+  // Deep shadows for Blacks: a grey ramp over −13…+1 EV around middle grey, and dark colours.
+  const dark: Vec3[] = [...Array.from({ length: 29 }, (_, i) => { const v = 0.18 * 2 ** (-13 + i / 2); return [v, v, v] as Vec3; }),
+    [0.004, 0.0015, 0.001], [0.001, 0.006, 0.002], [0.0008, 0.001, 0.009], [0.03, 0.012, 0.006], [0.01, 0.02, 0.05]];
+  const tone = probeStage(eng, ['stages/tone.glsl'], 'stageToneProfile(c)', [...COLOURS, ...dark, [1e6, 1e15, 1e30], [3e38, 1e20, 50]], cases);
   // The input stage's inverse followed by the original's neutral curve must give back the display value.
   const display: Vec3[] = Array.from({ length: 16 }, (_, i) => [i / 15, Math.min(1, (i * 0.37) % 1), 0.002 + (i / 15) * 0.9] as Vec3);
   const roundTrip = probeStage(eng, ['stages/tone.glsl'], 'stageToneNeutral(vec3(toneInverse(c.r), toneInverse(c.g), toneInverse(c.b)))', display, {

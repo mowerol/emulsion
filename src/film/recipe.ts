@@ -18,7 +18,7 @@ import { normalizeRetouch, normalizeRetouchScales, type RetouchScales, type Reto
 import { ISO_MAX, ISO_MIN } from '../engine/grain';
 import { MAX_SHADOWS_LIFT } from '../engine/colorbalance';
 import { BLACK_LIFT_MAX } from '../engine/tone';
-import { ADAPTIVE_TONE, TONE_KEYS, copyToneVersions, normalizeToneVersions, type ToneVersions } from '../engine/adaptivetone';
+import { CURRENT_TONE, TONE_KEYS, copyToneVersions, normalizeToneVersions, type ToneVersions } from '../engine/adaptivetone';
 import { DEFAULT_PACK, PACK, isPackId, resolveUserLook, simulationLook, withLook, type PackId } from './looks';
 
 export const RECIPE_VERSION = 1;
@@ -229,7 +229,7 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
   const s = STOCK[stock];
   return {
     v: RECIPE_VERSION,
-    toneVersions: { ...ADAPTIVE_TONE },
+    toneVersions: { ...CURRENT_TONE },
     noiseReduction: null,
     profiledDenoise: 'auto',
     lookEnabled: stock !== 'neutral',
@@ -414,8 +414,9 @@ export const recipeKey = (r: Recipe | null) => (r ? JSON.stringify(r) : 'origina
 /** Keep an active legacy effect until it is cleared, or its new size control is used. */
 export function withSlider(recipe: Recipe, key: SliderKey, value: number): Recipe {
   const out = { ...recipe, [key]: value };
-  // Existing active edits keep their processing. Clearing a control makes its next use adaptive.
-  if (TONE_KEYS.some(k => k === key) && (recipe[key] === 0 || value === 0)) out.toneVersions = { ...recipe.toneVersions, [key]: 2 };
+  // Existing active edits keep their processing. Clearing a control makes its next use current.
+  const tone = TONE_KEYS.find(k => k === key);
+  if (tone && (recipe[tone] === 0 || value === 0)) out.toneVersions = { ...recipe.toneVersions, [tone]: CURRENT_TONE[tone] };
   if (key === 'halationSize' || key === 'halation' && (recipe.halation === 0 || value === 0)) out.halationVersion = 3;
   if (key === 'glowSize' || key === 'glow' && (recipe.glow === 0 || value === 0)) out.glowVersion = 2;
   return out;

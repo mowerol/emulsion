@@ -12,7 +12,7 @@ it('copies HDR processing only for the selected control, including legacy contro
   const target = { ...defaultRecipe(), shadows: 180, highlights: -10 };
   const copied = applyCopiedSettings({ recipe: legacy, groups: ['Highlights'] }, target);
   expect(copied.highlights).toBe(-70);
-  expect(copied.toneVersions).toEqual({ shadows: 2, blacks: 2, whites: 2 });
+  expect(copied.toneVersions).toEqual({ shadows: 2, blacks: 3, whites: 2 });
   const adaptive = applyCopiedSettings({ recipe: target, groups: ['Shadows'] }, legacy);
   expect(adaptive.toneVersions).toEqual({ shadows: 2 });
   expect(adaptive.highlights).toBe(-70);

@@ -216,6 +216,13 @@ Template:
 - Ported to: `src/engine/lut3d.ts` (readers and reference) and `src/engine/shaders/stages/lut.glsl`
 - Changes: translated from C to TypeScript and GLSL. The .cube, .3dl and Hald CLUT readers and tetrahedral interpolation only (no trilinear or pyramid, no compressed .gmz). Every LUT is applied to the sRGB display image of the original (the scene through Emulsion's neutral curve) instead of in a chosen colour space within the scene-referred pipe; Hald images are read through the browser, so at 8 bits
 
+### Blacks (Exposure Black and Shadow compression), from RawTherapee
+- Upstream: https://github.com/RawTherapee/RawTherapee, `rtengine/curves.h` (basel, baseu, cupper, clower, clower2, simplebasecurve), `rtengine/curves.cc` (CurveFactory::complexCurve's shadow curve) and `rtengine/improcfun.cc` (shadowToneCurve), commit 3458b9a1813f26b99c8dcf22aad7cc24deffdbae
+- Licence: GPL-3.0-or-later
+- Copyright: Copyright (c) 2004-2010 Gabor Horvath <hgabor@rawtherapee.com>
+- Ported to: `src/engine/blacks.ts` (reference) and `src/engine/shaders/stages/blacks.glsl`
+- Changes: translated from C++ to TypeScript and GLSL. The curve is evaluated per pixel rather than from a 65536-entry table, with the same clamps. Shadow compression is fixed at upstream's default 50. Runs on Emulsion's linear print (white at 1) after the neutral sigmoid, rather than before RawTherapee's own tone curve. The Blacks slider maps to Black / 65535 as 0.122·(|amount|/100)^2.5 below zero and −0.103·amount/100 above
+
 ### Sharpening (unsharp mask), from RawTherapee
 - Upstream: https://github.com/Beep6581/RawTherapee, `rtengine/ipsharpen.cc` (ImProcFunctions::sharpening), `rtengine/params/threshold.h` (Threshold::multiply), `rtengine/gauss.cc` (gaussianBlur's small-sigma rules) and `rtengine/rt_algo.cc` (buildBlendMask), commit b2ee504c47e5e6d5e054395aa12bf1fe43bd1c3c
 - Licence: GPL-3.0-or-later

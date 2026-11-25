@@ -36,6 +36,7 @@ import { clarityParams } from './locallaplacian';
 import type { LoadedLut } from './lutstore';
 import { VIGNETTE_FEATHER, vignetteStrength } from './vignette';
 import { adaptiveToneTransform, adaptiveBlackLift, legacyShadowValue, DEFAULT_TONE_ANALYSIS, type ToneControls } from './adaptivetone';
+import { BLACKS_SR, blackParam } from './blacks';
 
 export type UniformValue = number | number[];
 export type Uniforms = Record<string, UniformValue>;
@@ -136,6 +137,7 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uToneWhite: 1,
     uBlackToe: [0, 1],
     uBlackToeCurve: NEUTRAL_CURVE,
+    uBlacks: [0, BLACKS_SR],
     // The engine sets the crop's own (Engine.render); without one the whole source is the crop.
     uVigScale: 1,
     uVigInner: (1 - VIGNETTE_FEATHER / 100) / Math.SQRT2,
@@ -177,7 +179,8 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
   const toneOn = tone.shadows !== 0 || tone.highlights !== 0 || tone.whites !== 0 || tone.blacks < 0;
   const transform = adaptiveToneTransform(DEFAULT_TONE_ANALYSIS, tone);
   const legacyWhites = recipe.toneVersions?.whites === 2 ? 0 : recipe.whites;
-  const legacyBlacks = recipe.toneVersions?.blacks === 2 ? 0 : recipe.blacks;
+  // Blacks: missing = legacy (exposure black level / sigmoid target), 2 = adaptive, 3 = RawTherapee on the print.
+  const legacyBlacks = recipe.toneVersions?.blacks === 2 || recipe.toneVersions?.blacks === 3 ? 0 : recipe.blacks;
   const toeLift = recipe.toneVersions?.blacks === 2 ? adaptiveBlackLift(recipe.blacks) : 0;
   const printBlacks = Math.max(legacyBlacks, 0);
 
@@ -220,6 +223,7 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uSigMag: whiteTargetFor(legacyWhites) / 100,
     uBlackToe: toeLift > 0 ? [BLACK_TOE_END, BLACK_TOE_SCALE] : [0, 1],
     uBlackToeCurve: toeLift > 0 ? packCurve(blackToeCurve(toeLift)) : NEUTRAL_CURVE,
+    uBlacks: [recipe.toneVersions?.blacks === 3 ? blackParam(recipe.blacks) : 0, BLACKS_SR],
     uWbMat: wbMat,
     uVigScale: Math.pow(2, -vignetteStrength(recipe.vignette)),
     uVigInner: (1 - VIGNETTE_FEATHER / 100) / Math.SQRT2,

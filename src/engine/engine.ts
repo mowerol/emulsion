@@ -236,7 +236,7 @@ const TEXTURE_STAGE = uniformsOf('stages/texture.glsl').concat('uTextureMix');
 const BEFORE_TEXTURE_LOG = ['stages/input.glsl', 'stages/dehaze.glsl'].flatMap(uniformsOf).concat('uSharp', 'uStore', 'uDehazeKey');
 const TEXTURE_INPUT = TEXTURE_STAGE.filter(k => k !== 'uTextureMix');
 const COLOR_STAGE = uniformsOf('stages/colorequal.glsl');
-const BEFORE_CLARITY = ['stages/colorbalance.glsl', 'stages/lens.glsl', 'stages/tone.glsl', 'stages/lut.glsl'].flatMap(uniformsOf).concat('uHalCol', 'uLutId', ...OPTICS_STAGE);
+const BEFORE_CLARITY = ['stages/colorbalance.glsl', 'stages/lens.glsl', 'stages/tone.glsl', 'stages/blacks.glsl', 'stages/lut.glsl'].flatMap(uniformsOf).concat('uHalCol', 'uLutId', ...OPTICS_STAGE);
 // uClarityScale only rescales a finished map, so it is never part of one's key.
 const CLARITY_STAGE = uniformsOf('stages/clarity.glsl').filter((n) => n !== 'uClarityScale').concat('uLl');
 const pick = (u: Uniforms, names: string[]) => JSON.stringify(names.map((n) => u[n] ?? null));

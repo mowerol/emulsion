@@ -6,6 +6,7 @@ import { normalizeSettings, recipeFromSettings, settingsFromRecipe } from '../..
 import { adaptiveToneTransform, adaptiveToneGain, adaptiveBlackLift, adaptiveBlackBrightness, adaptiveWhiteValue, type ToneAnalysis } from '../../src/engine/adaptivetone';
 import { EXPOSURE_BOOST, eigf } from '../../src/engine/toneequalizer';
 import { blackToeLift, toneForward, toneProfileRgb, SIGMOID_GREY } from '../../src/engine/tone';
+import { blacksPrint } from '../../src/engine/blacks';
 import { DEFAULT_FUJI_SIM, fujiLookSettings, fujiSimulations, withFujiLook, fujiOf } from '../../src/film/fujilooks';
 import { FUJI_NEUTRAL } from '../../src/film/fujirecipe';
 import { recipeLookFile } from '../../src/film/looks';
@@ -33,7 +34,8 @@ async function main() {
     sources.push(result);
     return result;
   };
-  const base = { ...defaultRecipe('neutral'), captureSharpening: 0, sharpen: 0 };
+  // Blacks processing 2 (adaptive) is what this check covers; processing 3 is checked below.
+  const base = { ...defaultRecipe('neutral'), captureSharpening: 0, sharpen: 0, toneVersions: { ...defaultRecipe('neutral').toneVersions, blacks: 2 as const } };
   const a = source(), large = source(4);
   const read = (s: Source, r: Recipe, w = W, h = H) => engine.readPixels(s, r, w, h, 7);
   const same = (a: ArrayLike<number>, b: ArrayLike<number>, tolerance = 0) => Array.from(a).every((v, i) => Math.abs(v - b[i]) <= tolerance);
@@ -70,6 +72,17 @@ async function main() {
       const scene = adaptiveBlackBrightness(brightness * adaptiveToneGain(guide, transform.curve), transform.black) / (Math.sqrt(3) * EXPOSURE_BOOST);
       const expected = Math.min(255, Math.round(adaptiveWhiteValue(toneForward(scene), transform.white) * 255));
       assert(Math.abs(sample(edited, band) - expected) <= 2, `GPU/reference mismatch in band ${band}: ${sample(edited, band)} vs ${expected}`);
+    }
+    // Blacks processing 3: RawTherapee's Exposure Black on the finished print, after positive Whites.
+    for (const blacks of [-100, -50, 50, 200]) for (const whites of [0, 50]) {
+      const rt = { ...base, toneVersions: { ...base.toneVersions, blacks: 3 as const }, whites, blacks };
+      const rtTransform = adaptiveToneTransform(measured, { shadows: 0, highlights: 0, whites, blacks: 0 });
+      const pixels = read(a, rt);
+      for (let band = 0; band < 16; band++) {
+        const v = adaptiveWhiteValue(toneForward(2 ** (-10 + band * 0.8)), rtTransform.white);
+        const expected = Math.min(255, Math.round(blacksPrint([v, v, v], blacks)[0] * 255));
+        assert(Math.abs(sample(pixels, band) - expected) <= 2, `RawTherapee Blacks ${blacks}, Whites ${whites}: GPU/reference mismatch in band ${band}: ${sample(pixels, band)} vs ${expected}`);
+      }
     }
     for (const blacks of [-100, -50, 50, 100, 200]) for (const whites of [0, 50]) {
       const blackControls = { shadows: 0, highlights: 0, whites, blacks };

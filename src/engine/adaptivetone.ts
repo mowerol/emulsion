@@ -10,9 +10,13 @@ import { EXPOSURE_BOOST } from './toneequalizer';
 export const TONE_KEYS = ['shadows', 'highlights', 'blacks', 'whites'] as const;
 export type ToneKey = typeof TONE_KEYS[number];
 export type ToneControls = Record<ToneKey, number>;
-/** Missing = original units; Shadows 1 = normalized legacy extended lift; 2 = adaptive. */
-export type ToneVersions = Partial<Record<ToneKey, 1 | 2>>;
-export const ADAPTIVE_TONE: ToneVersions = { shadows: 2, highlights: 2, blacks: 2, whites: 2 };
+/**
+ * Missing = original units; Shadows 1 = normalized legacy extended lift; 2 = adaptive;
+ * Blacks 3 = RawTherapee's Exposure Black on the print (blacks.ts).
+ */
+export type ToneVersions = Partial<Record<ToneKey, 1 | 2 | 3>>;
+/** The processing new recipes and newly used controls get. */
+export const CURRENT_TONE = { shadows: 2, highlights: 2, blacks: 3, whites: 2 } as const satisfies ToneVersions;
 export const TONE_CURVE_SIZE = 128;
 export const TONE_EV_MIN = -16;
 export const TONE_EV_MAX = 8;
@@ -26,7 +30,7 @@ const smooth = (lo: number, hi: number, x: number) => {
 export function normalizeToneVersions(input: unknown): ToneVersions | undefined {
   if (!input || typeof input !== 'object') return undefined;
   const source = input as Record<string, unknown>;
-  const entries = TONE_KEYS.filter(k => source[k] === 2 || k === 'shadows' && source[k] === 1).map(k => [k, source[k]]);
+  const entries = TONE_KEYS.filter(k => source[k] === 2 || k === 'shadows' && source[k] === 1 || k === 'blacks' && source[k] === 3).map(k => [k, source[k]]);
   return entries.length ? Object.fromEntries(entries) : undefined;
 }
 

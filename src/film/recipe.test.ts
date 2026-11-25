@@ -14,6 +14,19 @@ it('preserves saved HDR processing and adopts adaptive processing only when an o
   expect(normalizeRecipe(JSON.parse(JSON.stringify(saved)))).toEqual(saved);
 });
 
+it('keeps a saved adaptive Blacks edit and moves Blacks to RawTherapee processing once cleared', () => {
+  expect(defaultRecipe().toneVersions?.blacks).toBe(3);
+  const adaptive = normalizeRecipe({ blacks: -40, toneVersions: { blacks: 2, shadows: 2 } })!;
+  expect(adaptive.toneVersions).toEqual({ blacks: 2, shadows: 2 });
+  expect(withSlider(adaptive, 'blacks', -60).toneVersions?.blacks).toBe(2);
+  const cleared = withSlider(adaptive, 'blacks', 0);
+  expect(cleared.toneVersions?.blacks).toBe(3);
+  expect(withSlider(cleared, 'blacks', -60).toneVersions?.blacks).toBe(3);
+  expect(normalizeRecipe(JSON.parse(JSON.stringify({ ...cleared, blacks: -60 })))!.toneVersions?.blacks).toBe(3);
+  // Processing 3 belongs to Blacks only.
+  expect(normalizeRecipe({ shadows: 20, toneVersions: { shadows: 3 } })!.toneVersions).toBeUndefined();
+});
+
 it('lets Blacks travel to +200 and preserves that value across save and reopen', () => {
   const def = SLIDERS.find(d => d.key === 'blacks')!;
   expect([def.min, def.max]).toEqual([-100, 200]);
