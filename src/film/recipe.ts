@@ -181,7 +181,7 @@ export const SLIDERS: SliderDef[] = [
   { key: 'highlights', label: 'Highlights', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned, hint: 'Recover or brighten lighter regions using ranges adapted to the photo, while retaining local detail.' },
   { key: 'shadows', label: 'Shadows', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned, hint: 'Lift or deepen darker regions using ranges adapted to the photo, with up to 3.5 stops of lift through the shadow range.' },
   { key: 'whites', label: 'Whites', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned, hint: 'Set the bright endpoint. Positive values bring more bright tones to white; negative values soften the brightest tones.' },
-  { key: 'blacks', label: 'Blacks', group: 'adjust', min: -100, max: BLACK_LIFT_MAX, step: 1, format: formatSigned, hint: 'Set the dark endpoint. Negative values deepen and clip the darkest tones; positive values open near-black detail while keeping true black anchored.' },
+  { key: 'blacks', label: 'Blacks', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned, hint: 'Set the dark endpoint. Negative values deepen and clip the darkest tones; positive values open near-black detail while keeping true black anchored.' },
   { key: 'vibrance', label: 'Vibrance', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'saturation', label: 'Saturation', group: 'adjust', min: -100, max: 100, step: 1, format: formatSigned },
   { key: 'texture', label: 'Texture', group: 'detail', min: -100, max: 100, step: 1, format: formatSigned },
@@ -389,6 +389,10 @@ export function normalizeRecipe(input: unknown): Recipe | null {
   for (const def of SLIDERS) {
     const v = read(def.key);
     if (typeof v === 'number' && Number.isFinite(v)) out[def.key] = clamp(v, def.min, def.max);
+  }
+  // Blacks went to +200 before processing 3. Those edits keep their value, and so their rendering.
+  if (out.toneVersions?.blacks !== 3 && typeof o.blacks === 'number' && Number.isFinite(o.blacks) && o.blacks > 100) {
+    out.blacks = clamp(o.blacks, 0, BLACK_LIFT_MAX);
   }
   // Preserve edits saved with the former extended positive range without exposing +400 in UI.
   if (out.toneVersions?.shadows !== 2 && out.toneVersions?.shadows !== 1 && typeof o.shadows === 'number' && Number.isFinite(o.shadows) && o.shadows > 100) {

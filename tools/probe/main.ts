@@ -415,7 +415,7 @@ function probeTone(eng: Engine) {
     ref: (c: Vec3) => toneProfileRgb(c, 0, 0).map(v => blackToeLift(v, adaptiveBlackLift(blacks))) as Vec3,
   };
   // Blacks processing 3: RawTherapee's Exposure Black on the print (blacks.ts).
-  for (const blacks of [-100, -50, -10, 10, 100, 200]) cases[`rtBlacks${blacks}`] = {
+  for (const blacks of [-100, -50, -10, 10, 50, 100]) cases[`rtBlacks${blacks}`] = {
     uniforms: developUniforms({ ...defaultRecipe(), blacks }, stageCtx),
     ref: (c: Vec3) => blacksPrint(toneProfileRgb(c, 0, 0), blacks),
   };

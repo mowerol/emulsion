@@ -27,20 +27,19 @@ describe('RawTherapee Exposure Black', () => {
     expect(blackParam(-100)).toBeCloseTo(0.122, 12);
     expect(blackParam(-50)).toBeCloseTo(0.122 * 0.5 ** 2.5, 12);
     expect(blackParam(100)).toBeCloseTo(-0.103, 12);
-    expect(blackParam(200)).toBeCloseTo(-0.206, 12);
     // RawTherapee's slider spans Black −16384…32768, i.e. −0.25…0.5.
-    for (let a = -100; a <= 200; a++) expect(blackParam(a)).toBeGreaterThanOrEqual(-0.25);
+    for (let a = -100; a <= 100; a++) expect(blackParam(a)).toBeGreaterThanOrEqual(-0.25);
   });
 
   it('leaves white, and everything at 0, unchanged', () => {
-    for (const a of [-100, -30, 40, 200]) expect(blacksGain(1, blackParam(a))).toBe(1);
+    for (const a of [-100, -30, 40, 100]) expect(blacksGain(1, blackParam(a))).toBe(1);
     for (const v of [0, 0.01, 0.3, 0.9, 1, 1.4]) expect(grey(v, 0)).toBe(v);
     // Values above white (positive Whites) keep their gain of 1.
     expect(blacksPrint([1.2, 1.2, 1.2], -100)).toEqual([1.2, 1.2, 1.2]);
   });
 
   it('is monotone, keeps zero at zero when opening, and clips at the toe when deepening', () => {
-    for (const a of [-100, -50, -10, 10, 100, 200]) {
+    for (const a of [-100, -50, -10, 10, 50, 100]) {
       let last = -1;
       for (let i = 0; i <= 2048; i++) {
         const y = grey(i / 2048, a);

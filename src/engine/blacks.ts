@@ -68,11 +68,11 @@ export const BLACKS_SR = 0.015 * 50;
 /** RawTherapee Black / 65535 at −100; deepening grows with |amount|^BLACKS_DEEPEN_POWER. */
 export const BLACKS_DEEPEN = 0.122;
 export const BLACKS_DEEPEN_POWER = 2.5;
-/** −Black / 65535 per +100 (the slider's +200 reaches 0.206, inside upstream's 0.25). */
+/** −Black / 65535 per +100 (the slider's end), inside upstream's 0.25. */
 export const BLACKS_OPEN = 0.103;
 
 /**
- * Slider (−100…+200) to RawTherapee's Black / 65535. Ours: least-squares fit of the print to a
+ * Slider (−100…+100) to RawTherapee's Black / 65535. Ours: least-squares fit of the print to a
  * measured neutral ramp at −100, −50, +50 and +100 (RMS 1.2, 0.5, 0.2, 0.6 of 100 encoded).
  */
 export function blackParam(amount: number): number {

@@ -74,7 +74,7 @@ async function main() {
       assert(Math.abs(sample(edited, band) - expected) <= 2, `GPU/reference mismatch in band ${band}: ${sample(edited, band)} vs ${expected}`);
     }
     // Blacks processing 3: RawTherapee's Exposure Black on the finished print, after positive Whites.
-    for (const blacks of [-100, -50, 50, 200]) for (const whites of [0, 50]) {
+    for (const blacks of [-100, -50, 50, 100]) for (const whites of [0, 50]) {
       const rt = { ...base, toneVersions: { ...base.toneVersions, blacks: 3 as const }, whites, blacks };
       const rtTransform = adaptiveToneTransform(measured, { shadows: 0, highlights: 0, whites, blacks: 0 });
       const pixels = read(a, rt);

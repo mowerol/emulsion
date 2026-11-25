@@ -27,12 +27,18 @@ it('keeps a saved adaptive Blacks edit and moves Blacks to RawTherapee processin
   expect(normalizeRecipe({ shadows: 20, toneVersions: { shadows: 3 } })!.toneVersions).toBeUndefined();
 });
 
-it('lets Blacks travel to +200 and preserves that value across save and reopen', () => {
+it('gives Blacks a −100…+100 slider and keeps older edits saved up to +200', () => {
   const def = SLIDERS.find(d => d.key === 'blacks')!;
-  expect([def.min, def.max]).toEqual([-100, 200]);
-  const recipe = withSlider(defaultRecipe(), 'blacks', 200);
+  expect([def.min, def.max]).toEqual([-100, 100]);
+  const recipe = withSlider(defaultRecipe(), 'blacks', 100);
   expect(normalizeRecipe(JSON.parse(JSON.stringify(recipe)))).toEqual(recipe);
-  expect(normalizeRecipe({ ...recipe, blacks: 999 })!.blacks).toBe(200);
+  expect(normalizeRecipe({ ...recipe, blacks: 150 })!.blacks).toBe(100);
+  // Adaptive (2) and legacy Blacks went to +200 in 0.3.3 and 0.3.4: they render as saved.
+  const adaptive = normalizeRecipe({ blacks: 150, toneVersions: { blacks: 2 } })!;
+  expect(adaptive.blacks).toBe(150);
+  expect(normalizeRecipe(JSON.parse(JSON.stringify(adaptive)))).toEqual(adaptive);
+  expect(normalizeRecipe({ blacks: 150 })!.blacks).toBe(150);
+  expect(normalizeRecipe({ blacks: 999, toneVersions: { blacks: 2 } })!.blacks).toBe(200);
 });
 
 it('keeps extended legacy shadow rendering while presenting a -100 to +100 slider', () => {
