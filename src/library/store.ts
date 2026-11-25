@@ -145,6 +145,8 @@ export interface State {
   developSize: { path: string; W: number; H: number; frame?: Rect | null } | null;
   /** Which photos the Library grid and the filmstrip show. */
   filter: Filter;
+  /** Filename query narrowing the Library grid, filmstrip and Images pane alike. Session only. */
+  imageSearch: string;
   /** The workspace colour behind the photo in Develop. */
   stageColor: StageColorId;
   /** Develop shows Sharpening's contrast mask (while ⌥ is held on the Masking slider). */
@@ -273,6 +275,7 @@ export const useApp = create<State>(() => ({
   lookEdit: null,
   developSize: null,
   filter: savedFilter(),
+  imageSearch: '',
   stageColor: savedStageColor(),
   sharpenMask: false,
   foldJpegs: savedFoldJpegs(),
@@ -959,27 +962,37 @@ export function setActive(index: number, mode: 'single' | 'toggle' | 'range' | '
  * the same objects, and through an edit that leaves the edited photos shown or hidden as they were
  * (changedPlaces). Callers must not change the array returned.
  */
-let shownList: { photos: Photo[]; filter: Filter; active: number; selectedOnly: boolean; selected: Set<string>; missingPaths: State['missingPaths']; scope: number[]; list: number[] } | null = null;
+let shownList: { photos: Photo[]; filter: Filter; search: string; active: number; selectedOnly: boolean; selected: Set<string>; missingPaths: State['missingPaths']; scope: number[]; list: number[] } | null = null;
 export const shown = (s: State = get()) => {
   const membership = sourceMembership(s);
   const scope = membership.indices;
+  const search = searchQuery(s.imageSearch);
+  const matchesName = (p: Photo) => !search || p.name.toLowerCase().includes(search);
   // The active photo is kept whatever the filter says, so it only matters while one is on.
   const active = !isFiltering(s.filter) || (s.photos[s.active] && photoId(s.photos[s.active]) === s.filterExcludedActive) ? -1 : s.active;
-  const kept = (p: Photo, i: number) => (passes(p, s.filter) || i === active) && (!s.selectedOnly || s.selected.has(photoId(p))) && (!s.missingPaths || s.missingPaths.has(p.path));
+  const kept = (p: Photo, i: number) => matchesName(p) && (passes(p, s.filter) || i === active) && (!s.selectedOnly || s.selected.has(photoId(p))) && (!s.missingPaths || s.missingPaths.has(p.path));
   const c = shownList;
-  if (c && c.filter === s.filter && c.active === active && c.selectedOnly === s.selectedOnly && c.selected === s.selected && c.missingPaths === s.missingPaths && c.scope === scope) {
+  if (c && c.filter === s.filter && c.search === search && c.active === active && c.selectedOnly === s.selectedOnly && c.selected === s.selected && c.missingPaths === s.missingPaths && c.scope === scope) {
     if (c.photos === s.photos) return c.list;
     const changed = changedPlaces(c.photos, s.photos);
     if (changed && changed.every(i => kept(s.photos[i], i) === kept(c.photos[i], i))) { c.photos = s.photos; return c.list; }
   }
   const inScope = membership.all ? null : new Set(scope);
-  let list = shownIndices(s.photos, s.filter, active).filter(i => (!inScope || inScope.has(i)) && (!s.selectedOnly || s.selected.has(photoId(s.photos[i]))) && (!s.missingPaths || s.missingPaths.has(s.photos[i].path)));
+  let list = shownIndices(s.photos, s.filter, active).filter(i => matchesName(s.photos[i]) && (!inScope || inScope.has(i)) && (!s.selectedOnly || s.selected.has(photoId(s.photos[i]))) && (!s.missingPaths || s.missingPaths.has(s.photos[i].path)));
   // The same photos as before (a click changes the selection, not what is shown): the same array,
   // so useShown's readers are not drawn again.
   if (c && c.list.length === list.length && c.list.every((v, i) => v === list[i])) list = c.list;
-  shownList = { photos: s.photos, filter: s.filter, active, selectedOnly: s.selectedOnly, selected: s.selected, missingPaths: s.missingPaths, scope, list };
+  shownList = { photos: s.photos, filter: s.filter, search, active, selectedOnly: s.selectedOnly, selected: s.selected, missingPaths: s.missingPaths, scope, list };
   return list;
 };
+
+/** A filename query as it is matched: trimmed, any case. */
+const searchQuery = (query: string) => query.trim().toLowerCase();
+
+/** Narrow the shown photos by filename, without switching the photo being edited as each letter is typed. */
+export function setImageSearch(query: string) {
+  set({ imageSearch: query });
+}
 
 /** Move through the shown photos; a grid row down is `delta` = columns. */
 export function step(delta: number) {
@@ -1002,10 +1015,12 @@ export function stepToEnd(end: 'first' | 'last') {
 export function setFilter(change: Partial<Filter>) {
   const filter = { ...get().filter, ...change };
   set({ filter, filterExcludedActive: null });
-  const { photos, active } = get();
+  const { photos, active, imageSearch } = get();
+  const search = searchQuery(imageSearch);
+  const matches = (p: Photo) => passes(p, filter) && (!search || p.name.toLowerCase().includes(search));
   const current = photos[active];
-  if (!current || !passes(current, filter)) {
-    const first = sourceIndices().find(i => passes(photos[i], filter));
+  if (!current || !matches(current)) {
+    const first = sourceIndices().find(i => matches(photos[i]));
     if (first !== undefined) setActive(first);
     else set({ filterExcludedActive: current ? photoId(current) : null });
   }

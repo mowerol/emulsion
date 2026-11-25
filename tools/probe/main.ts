@@ -2250,6 +2250,8 @@ try {
         filter: { ...s.filter, camera: q.get('camera') ?? '', lens: q.get('lens') ?? '', iso: Number(q.get('iso')) || 0 } }));
       setPrefs({ libraryMetadataOpen: q.has('metadata'), theme: q.get('theme') === 'dark' ? 'dark' : q.get('theme') === 'light' ? 'light' : 'mid' });
       if (q.has('menu')) setTimeout(() => (document.querySelectorAll<HTMLElement>('.metadata-picker')[Number(q.get('menu'))])?.click(), 1200);
+      // ?search=<text>: open the Library bar's filename search with that query.
+      if (q.has('search')) { useApp.setState({ imageSearch: q.get('search') ?? '' }); setTimeout(() => document.querySelector<HTMLElement>('.library-bar .images-search-toggle')?.click(), 1200); }
       const libHost = document.createElement('div');
       libHost.style.cssText = 'position:fixed;inset:0;z-index:300;display:flex;background:#1c1b19';
       document.body.append(libHost);

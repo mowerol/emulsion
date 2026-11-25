@@ -9,7 +9,7 @@ vi.mock('./LibrarySources', () => ({ LibrarySidebar: () => null, LibrarySourceDi
 vi.mock('./ExposureInfo', () => ({ ExposureInfo: () => null }));
 vi.mock('./common', async original => ({ ...await original<typeof import('./common')>(), Thumb: () => null }));
 import { Library } from './Library';
-import { useApp, type Photo } from '../library/store';
+import { shown, useApp, type Photo } from '../library/store';
 import { NO_FILTER } from '../library/filter';
 
 let host: HTMLDivElement, root: Root, style: HTMLStyleElement;
@@ -29,7 +29,7 @@ beforeEach(() => {
   const photos: Photo[] = Array.from({ length: 1526 }, (_, i) => ({ path: `/photos/${i}.orf`, rel: `${i}.orf`, name: `${i}.orf`,
     size: 1, modified: 1, recipe: null, seed: 1, white: null, rating: 0, label: null, flag: null, raw: true, pair: null }));
   useApp.setState({ photos, hidden: [], candidates: [], active: -1, anchor: -1, source: null, opening: null,
-    choosingImport: false, libraryView: 'grid', filter: NO_FILTER, selectedOnly: false, missingPaths: null,
+    choosingImport: false, libraryView: 'grid', view: 'library', filter: NO_FILTER, imageSearch: '', selectedOnly: false, missingPaths: null,
     selected: new Set(), loading: false, lookEdit: null });
   host = document.createElement('div'); document.body.append(host); root = createRoot(host);
   style = document.createElement('style');
@@ -71,4 +71,32 @@ it('remeasures after resizing the viewport or remounting the grid', async () => 
   const reopened = host.querySelector<HTMLElement>('.library-grid-scroll')!;
   await act(async () => { reopened.scrollTop = 10000; reopened.dispatchEvent(new Event('scroll')); });
   expect(host.querySelector('.cell')?.getAttribute('data-index')).toBe('84');
+});
+
+it('searches filenames from the Library bar and clears the search with the filters', async () => {
+  await act(async () => root.render(createElement(Library)));
+  const button = host.querySelector<HTMLButtonElement>('.library-bar button[aria-label="Search filenames"]')!;
+  expect(button).not.toBeNull();
+  await act(async () => button.click());
+  const input = host.querySelector<HTMLInputElement>('input[aria-label="Filename"]')!;
+  expect(document.activeElement).toBe(input);
+  // The field hangs below the bar, which clips what overflows it, so it is placed outside its flow.
+  expect(input.form!.style.position).toBe('fixed');
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, '1525.ORF');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  expect(shown()).toEqual([1525]);
+  expect(useApp.getState().active).toBe(-1);
+  expect(host.querySelector('.library-bottom-bar')?.textContent).toContain('1 of 1,526');
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')!.set!.call(input, 'nothing-matches');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await act(async () => document.body.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })));
+  expect(button.getAttribute('aria-pressed')).toBe('true');
+  const clear = [...host.querySelectorAll<HTMLButtonElement>('.library-empty button')].find(b => b.textContent === 'Clear filters')!;
+  await act(async () => clear.click());
+  expect(useApp.getState().imageSearch).toBe('');
+  expect(shown()).toHaveLength(1526);
 });

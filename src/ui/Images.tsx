@@ -2,7 +2,8 @@
 import { usePhotoContextMenu, type PhotoContextHandler } from './PhotoMenu';
 import { photoId, photoName } from '../library/copies';
 import { memo, useLayoutEffect, useRef, useState } from 'react';
-import { setActive, setFilter, sourcePhotos, useApp, useShown, type Photo } from '../library/store';
+import { setActive, setFilter, setImageSearch, sourcePhotos, useApp, useShown, type Photo } from '../library/store';
+import { ImageSearch } from './ImageSearch';
 import { NO_FILTER, isFiltering } from '../library/filter';
 import { FilterBar } from './FilterBar';
 import { ImageViewOptions } from './ImageViewOptions';
@@ -45,6 +46,7 @@ export const ImageFrame = memo(function ImageFrame({ photo, index, active, selec
 export function Images() {
   const context = usePhotoContextMenu();
   const photos = useApp(s => s.photos), active = useApp(s => s.active), selected = useApp(s => s.selected), filter = useApp(s => s.filter);
+  const search = useApp(s => s.imageSearch);
   const columns = useWorkspace(s => s.imageColumns);
   const shown = useShown();
   const sourceCount = sourcePhotos(useApp.getState()).length;
@@ -57,6 +59,7 @@ export function Images() {
   const rows = Math.ceil(shown.length / columns);
   const win = rowWindow(rows, layout.pitch, Math.max(0, viewport.pos - layout.pad), viewport.size || 800, viewport.size || 800);
   const hasRows = win.end > win.start;
+  useLayoutEffect(() => { if (ref.current) ref.current.scrollTop = 0; }, [search]);
   // Observe the current first row across recipe edits. Re-reading layout on every edit
   // flushes WebKit's pending style work in the middle of a slider's React commit.
   useLayoutEffect(() => {
@@ -83,7 +86,7 @@ export function Images() {
   }, [active, shown, columns, layout, viewport.size]);
   const filtersOpen = usePrefs(p => p.filtersOpen);
   const setFiltersOpen = (filtersOpen: boolean) => setPrefs({ filtersOpen });
-  const filtering = isFiltering(filter);
+  const filtering = isFiltering(filter) || !!search.trim();
   return <aside className="images-pane" aria-label="Images">
     <header className="images-head">
       <button type="button" className="images-title" aria-expanded={filtersOpen} aria-controls="images-filters" onClick={() => setFiltersOpen(!filtersOpen)}
@@ -91,7 +94,8 @@ export function Images() {
         <ChevronDown className="images-chevron" size={14} strokeWidth={2} aria-hidden="true" /><strong>Images</strong>
       </button>
       <span className="images-count" aria-live="polite" title={`${shown.length} shown of ${sourceCount}`}>{filtering ? <>{shown.length}<span className="images-count-total"> of {sourceCount}</span></> : sourceCount}</span>
-      {filtering && <button type="button" className="filter-clear" onClick={() => setFilter(NO_FILTER)}>Clear</button>}
+      {isFiltering(filter) && <button type="button" className="filter-clear" onClick={() => { setImageSearch(''); setFilter(NO_FILTER); }}>Clear</button>}
+      <ImageSearch />
       <ImageViewOptions />
     </header>
     {filtersOpen ? <div id="images-filters" className="images-filters"><FilterBar summary={false} /></div> : <FilterChips filter={filter} />}
@@ -104,7 +108,7 @@ export function Images() {
           </div>;
         })}
       </div>
-      {!shown.length && <p className="hint">No photos match.</p>}
+      {!shown.length && <p className="hint images-empty">{search.trim() ? 'No filenames match. Try a different name or clear the search.' : 'No photos match.'}</p>}
     </div>
     <footer>{shown.length} shown · {selected.size} selected</footer>
     {context.menu}
