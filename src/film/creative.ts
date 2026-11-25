@@ -44,6 +44,13 @@ export interface ProfileSettings {
   scanner?: ScannerId;
   /** HSL: a colour equalizer instance before the photo's own (absent when every value is 0). */
   color?: ColorAdjust;
+  /**
+   * A black and white look's grey mixer: darktable color calibration's grey weights (its own units,
+   * on D50 XYZ, normalised to sum 1), after the colour equalizer (engine/greymix.ts). Absent: none.
+   */
+  grey?: [number, number, number];
+  /** How much of the grey mix applies, 0 to 1 (absent: 1): a look detached at part Amount keeps its part here. */
+  greyAmount?: number;
 }
 
 /** The recipe fields a profile takes over when it is saved from a photo. */
@@ -133,6 +140,8 @@ export function scaledSettings(s: ProfileSettings, amount: number): ProfileSetti
     ...(s.adaptiveShadows ? { adaptiveShadows: s.adaptiveShadows * Math.max(0, Math.min(1, amount)) } : {}),
     ...(s.scanner ? { scanner: s.scanner } : {}),
     ...(scaledColor(s.color, amount) ? { color: scaledColor(s.color, amount)! } : {}),
+    // The grey mix blends by Amount (darktable's opacity), so a part Amount is kept as its own strength.
+    ...(s.grey && amount > 0 ? { grey: s.grey, greyAmount: Math.min(1, (s.greyAmount ?? 1) * amount) } : {}),
   };
 }
 
@@ -208,7 +217,11 @@ export function normalizeSettings(input: unknown): ProfileSettings | null {
     colorBalance = Object.keys(merged).length ? merged : null;
   }
   const color = normalizeColor(o.color);
-  return { colorBalance, curve: normalizeCurve(o.curve), lut: normalizeLut(o.lut ?? (o.look && { kind: 'pack', ...(o.look as object) })), ...(finite(o.adaptiveShadows) && o.adaptiveShadows !== 0 ? { adaptiveShadows: Math.min(100, Math.max(-100, o.adaptiveShadows as number)) } : {}), ...(isScannerId(o.scanner) ? { scanner: o.scanner } : {}), ...(color ? { color } : {}) };
+  // The grey mixer's weights, within darktable's −2 to 2; all 0 (darktable: no grey) is none.
+  const grey = Array.isArray(o.grey) && o.grey.length === 3 && o.grey.every(finite) && o.grey.some((v) => v !== 0)
+    ? o.grey.map((v: number) => Math.min(Math.max(v, -2), 2)) as [number, number, number] : null;
+  const greyAmount = grey && finite(o.greyAmount) && (o.greyAmount as number) < 1 ? { greyAmount: Math.max(0, o.greyAmount as number) } : {};
+  return { colorBalance, curve: normalizeCurve(o.curve), lut: normalizeLut(o.lut ?? (o.look && { kind: 'pack', ...(o.look as object) })), ...(finite(o.adaptiveShadows) && o.adaptiveShadows !== 0 ? { adaptiveShadows: Math.min(100, Math.max(-100, o.adaptiveShadows as number)) } : {}), ...(isScannerId(o.scanner) ? { scanner: o.scanner } : {}), ...(color ? { color } : {}), ...(grey ? { grey, ...greyAmount } : {}) };
 }
 
 /** A look's LUT read from a file. Looks saved first wrote a system look as `look: { pack, stock, amount }`. */

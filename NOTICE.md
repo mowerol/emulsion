@@ -61,6 +61,13 @@ Every port is listed here with its source, upstream licence, the upstream commit
 - Ported to: `src/engine/colorbalance.ts` (reference and gamut table) and `src/engine/shaders/stages/colorbalance.glsl`
 - Changes: translated from C to TypeScript and GLSL. The whole module with the darktable UCS saturation formula, run as two instances: the photo's own (its contrast, vibrance, saturation and shadows sliders and its Colour Grading controls) and a saved creative profile's hidden settings, just before it. The working space is D65 Rec.2020, so darktable's D50 adaptation drops out. Contrast pivots on Emulsion's middle grey. Negative output is clipped, and FLT_MIN guards are 1e-30 so they cannot overflow on a GPU
 
+### Grey mixer (color calibration's grey tab), from darktable
+- Upstream: https://github.com/darktable-org/darktable, `src/iop/channelmixerrgb.c` and `src/common/colorspaces_inline_conversions.h`, commit 20891f6c6fa7be995e5bf9dff9d1ee5062051773 (release 5.6.2)
+- Licence: GPL-3.0-or-later
+- Copyright: Copyright (C) 2010-2026 darktable developers
+- Ported to: `src/engine/greymix.ts` (reference) and `src/engine/shaders/stages/greymix.glsl`
+- Changes: translated from C to TypeScript and GLSL. Only the path darktable's monochrome presets take: XYZ adaptation at the pipeline's illuminant, the R/G/B mix at identity, gamut compression 0, negative clipping on and normalised grey weights; the colourfulness and brightness tabs (identity at 0) are left out. Emulsion's working Rec.2020 is D65, so the pixel goes to XYZ through the D50-adapted Rec.2020 matrix (RawTherapee's iccmatrices.h, below), which is darktable's pipeline RGB to XYZ. Used for black and white looks, after the colour equalizer rather than before it as in darktable's default module order (agreed deviation), and blended by the look's Amount
+
 <!--
 Template:
 
@@ -110,7 +117,7 @@ Template:
 - Upstream: https://github.com/RawTherapee/RawTherapee, `rtengine/iccmatrices.h`, commit b2ee504c47e5e6d5e054395aa12bf1fe43bd1c3c
 - Licence: GPL-3.0-or-later
 - Copyright: Copyright (c) 2004-2010 Gabor Horvath <hgabor@rawtherapee.com>
-- Ported to: `src/engine/retouch.ts`
+- Ported to: `src/engine/retouch.ts`; the Rec.2020 to XYZ one also in `src/engine/greymix.ts` and `src/engine/shaders/stages/greymix.glsl`
 - Changes: the two constant matrices only. They came in with the RawTherapee DCP port, which was removed on 2026-11-10 to follow darktable (camera matrices only, no DCP).
 
 ### Denoise (profiled) and its noise profiles, from darktable
