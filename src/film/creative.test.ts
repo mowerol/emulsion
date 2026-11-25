@@ -164,4 +164,26 @@ describe('creative profiles', () => {
     registerCustomLook('hsl-probe', 'HSL', settings);
     expect(lutBase('custom', id)).toBeNull();
   });
+
+  it('carries a black and white look\'s grey mixer: uniforms by Amount, kept when detached and when read back', () => {
+    const grey: [number, number, number] = [1.666, -0.326, -0.34];
+    const settings = { colorBalance: { saturation_global: -1 }, curve: null, lut: null, grey };
+    const r = { ...defaultRecipe(), lookEnabled: true, lookAmount: 100, lookSnapshot: { id: 'bw', name: 'BW', revision: 1, kind: 'look' as const, settings } };
+    const full = developUniforms(r, ctx);
+    expect(full.uGreyAmount).toBe(1);
+    expect((full.uGreyMix as number[]).reduce((a, b) => a + b, 0)).toBeCloseTo(1, 12);
+    expect(developUniforms({ ...r, lookAmount: 40 }, ctx).uGreyAmount).toBeCloseTo(0.4, 12);
+    expect(developUniforms(defaultRecipe(), ctx).uGreyAmount).toBe(0);
+    // Detached at part Amount, the grey mix keeps that strength and renders the same.
+    const half = scaledSettings(settings, 0.5);
+    expect(half.grey).toEqual(grey);
+    expect(half.greyAmount).toBe(0.5);
+    expect(developUniforms({ ...r, lookSnapshot: { ...r.lookSnapshot, settings: half } }, ctx).uGreyAmount).toBe(0.5);
+    expect(scaledSettings(settings, 0).grey).toBeUndefined();
+    // Saved and read back: weights kept (clamped to darktable's range), all-zero weights dropped.
+    expect(normalizeSettings(JSON.parse(JSON.stringify(half)))).toMatchObject({ grey, greyAmount: 0.5 });
+    expect(normalizeSettings({ ...settings, grey: [3, -0.5, -0.5] })!.grey).toEqual([2, -0.5, -0.5]);
+    expect(normalizeSettings({ ...settings, grey: [0, 0, 0] })!.grey).toBeUndefined();
+    expect(normalizeSettings(settings)!.greyAmount).toBeUndefined();
+  });
 });

@@ -290,7 +290,7 @@ export function lookSettings(pack: PackId, stock: StockId): ProfileSettings | nu
 /** Only the raw LUT ingredient is selectable in the Look editor. */
 export function lutBase(pack: PackId, stock: StockId) {
   const settings = lookSettings(pack, stock);
-  return settings && !settings.adaptiveShadows && !settings.colorBalance && !settings.curve && !settings.color && (!settings.scanner || settings.scanner === 'straight') ? settings.lut : null;
+  return settings && !settings.adaptiveShadows && !settings.grey && !settings.colorBalance && !settings.curve && !settings.color && (!settings.scanner || settings.scanner === 'straight') ? settings.lut : null;
 }
 
 /** The Emulsion x Fuji look for each Fujifilm film simulation, by the names `lens::fuji_simulation`

@@ -25,6 +25,7 @@ import {
 } from './colorbalance';
 import { isIdentity } from '../film/curve';
 import { lookColorFor, scaledColorBalance } from '../film/creative';
+import { greyApplies, greyWeights } from './greymix';
 import { profileSettingsFor } from '../film/looks';
 import { D65_XY, clampWhiteBalance, temperatureTint, whiteBalanceMatrix, whiteXy, type Xy } from './whitebalance';
 import { packRanges, packShapes } from './masks';
@@ -187,6 +188,9 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uCbP: cbUniform(cbCommit({ ...sliderParams(cb), ...recipe.grading })),
     uCbL: profileCb ? cbUniform(cbCommit(profileCb)) : CB_NONE,
     uCbLOn: profileCb ? 1 : 0,
+    // A black and white look's grey mixer, blended by the look's Amount (engine/greymix.ts).
+    uGreyMix: greyWeights(greyApplies(profile?.grey) ? profile.grey : [0, 1, 0]),
+    uGreyAmount: greyApplies(profile?.grey) ? (profile.greyAmount ?? 1) * recipe.lookAmount / 100 : 0,
     ...maskUniforms(recipe.masks, recipe, ctx),
     uCompare: 0,
     uExposure: recipe.exposure,

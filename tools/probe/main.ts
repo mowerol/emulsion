@@ -18,6 +18,7 @@ import { updateGrade } from '../../src/film/grading';
 import { defaultRecipe as recipeDefaults, type Recipe } from '../../src/film/recipe';
 import { assemble } from '../../src/engine/glsl';
 import { SHADERS, SHADER_FILES } from '../../src/engine/shaders';
+import { greyMix, greyWeights } from '../../src/engine/greymix';
 import { cbCommit, cbUniform, colorBalanceParams, colorBalance, colorBalanceRgb, sliderParams, CB_DEFAULTS, type CbParams, type ColorBalance } from '../../src/engine/colorbalance';
 import { FULL, bounds, framePixels, setAngle, setAspect, sourcePoint, flip, turn, type Crop } from '../../src/film/crop';
 import { CropOverlay } from '../../src/ui/CropOverlay';
@@ -917,11 +918,28 @@ g.fillStyle = '#ffffff'; g.beginPath(); g.arc(600, 400, 30, 0, Math.PI * 2); g.f
 g.fillStyle = 'rgb(128,128,128)'; g.fillRect(100, 100, 100, 100);
 
 const view = document.createElement('canvas');
+/** The grey mixer (darktable color calibration's grey tab) alone against engine/greymix.ts. */
+function probeGreyMix(eng: Engine) {
+  const greys: Record<string, Vec3> = { acros100: [0.333, 0.313, 0.353], red: [1.732, -0.449, -0.283], luminance: [0, 1, 0], fp4: [0.24149085, 0.22149272, 0.53701643] };
+  const inputs: Vec3[] = [...COLOURS, [-0.1, 0.2, 0.3], [4, 0.001, 0.0005], [0.05, 0.3, 0.35]];
+  const cases: Record<string, { uniforms: Record<string, unknown>; ref: (c: Vec3) => Vec3 }> = {};
+  for (const [name, g] of Object.entries(greys)) for (const amount of [1, 0.4]) {
+    const w = greyWeights(g);
+    cases[`${name}@${amount}`] = { uniforms: { uGreyMix: w, uGreyAmount: amount }, ref: (c) => greyMix(c, w, amount) };
+  }
+  cases.off = { uniforms: { uGreyMix: greyWeights([0, 1, 0]), uGreyAmount: 0 }, ref: (c) => c };
+  return probeStage(eng, ['stages/greymix.glsl'], 'stageGreyMix(c)', inputs, cases);
+}
+
 view.width = W; view.height = H;
 document.body.append(view);
 const out: Record<string, unknown> = {};
 try {
-  if (new URLSearchParams(location.search).has('tone')) {
+  if (new URLSearchParams(location.search).has('greymix')) {
+    const eng = new Engine(view);
+    out.greyMix = probeGreyMix(eng);
+    out.glError = eng.gpu.gl.getError();
+  } else if (new URLSearchParams(location.search).has('tone')) {
     const eng = new Engine(view);
     Object.assign(out, probeTone(eng));
     out.glError = eng.gpu.gl.getError();

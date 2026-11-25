@@ -404,7 +404,7 @@ export function normalizeRecipe(input: unknown): Recipe | null {
   const snap = o.lookSnapshot as Recipe['lookSnapshot'];
   if (snap && typeof snap.id === 'string' && typeof snap.name === 'string' && Number.isSafeInteger(snap.revision)) {
     const settings = normalizeSettings(snap.settings);
-    if (settings) out.lookSnapshot = { id: snap.id, name: snap.name, revision: snap.revision, kind: snap.kind === 'lut' || snap.kind === 'look' ? snap.kind : settings.adaptiveShadows || settings.colorBalance || settings.curve || settings.color || settings.scanner && settings.scanner !== 'straight' ? 'look' : 'lut', settings };
+    if (settings) out.lookSnapshot = { id: snap.id, name: snap.name, revision: snap.revision, kind: snap.kind === 'lut' || snap.kind === 'look' ? snap.kind : settings.adaptiveShadows || settings.grey || settings.colorBalance || settings.curve || settings.color || settings.scanner && settings.scanner !== 'straight' ? 'look' : 'lut', settings };
   }
   return captureLook(out);
 }

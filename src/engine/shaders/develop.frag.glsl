@@ -17,6 +17,7 @@ uniform sampler2D uSrc;
 #include "stages/colorbalance.glsl"
 #include "stages/masks.glsl"
 #include "stages/colorequal.glsl"
+#include "stages/greymix.glsl"
 #include "stages/lens.glsl"
 #include "stages/output.glsl"
 #include "stages/lut.glsl"
@@ -165,6 +166,8 @@ void main() {
     return;
   }
   x = stageColorEqual(x, ruv);
+  // A black and white look's grey mixer, after the colour equalizer (see engine/greymix.ts).
+  x = stageGreyMix(x);
   x = stageProfileColorBalance(x);
   x = stageColorBalance(x);
   x = stageMaskColorBalance(x);
