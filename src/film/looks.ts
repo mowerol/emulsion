@@ -10,7 +10,7 @@ import catalogue from './lut-catalogue.json';
 import { LOCAL_LOOKS } from './local-looks';
 import emulsionLooks from './emulsion-looks.json';
 
-export type PackId = 'custom' | 'files' | 'emulsion-looks' | 'emulsion-luts' | 't3mujinpack' | 'gmic-film' | 'fuji-test' | 'fuji-xtrans-iii' | 'spektrafilm';
+export type PackId = 'custom' | 'files' | 'emulsion-looks' | 'emulsion-luts' | 't3mujinpack' | 'gmic-film' | 'fuji-test' | 'fuji-xtrans-iii' | 'spektrafilm' | 'film';
 
 /** A stock's LUT in a pack: a file under public/looks/<pack>/, one per push step if it has them. */
 export interface PackLook {
@@ -54,6 +54,35 @@ const T3M: Partial<Record<StockId, string>> = {
   trix400: 'Black and White - Kodak Tri-X 400',
   hp5: 'Black and White - Ilford HP5 Plus 400',
 };
+
+/** Spectral Film: every film in darktable's spektrafilm data pack 0.3.3, rendered from scene light
+ * (engine/film.ts), baked by tools/spektrabake into public/looks/film/. Grouped by kind; negatives
+ * print on their own paper, slides are scanned directly. Portra 800's measured pushes are their own films. */
+const SPECTRAL_FILM: [StockId, string, string, string?][] = [
+  ['portra160', 'kodak_portra_160', 'Colour negative'],
+  ['portra400', 'kodak_portra_400', 'Colour negative'],
+  ['portra800', 'kodak_portra_800', 'Colour negative'],
+  // Kodak's measured pushed development, as darktable lists them.
+  ['portra800push1', 'kodak_portra_800_push1', 'Colour negative'],
+  ['portra800push2', 'kodak_portra_800_push2', 'Colour negative'],
+  ['gold200', 'kodak_gold_200', 'Colour negative'],
+  ['ultramax400', 'kodak_ultramax_400', 'Colour negative'],
+  ['ektar100', 'kodak_ektar_100', 'Colour negative'],
+  ['c200', 'fujifilm_c200', 'Colour negative'],
+  ['superia400', 'fujifilm_xtra_400', 'Colour negative', 'Superia X-TRA 400'],
+  ['pro400h', 'fujifilm_pro_400h', 'Colour negative'],
+  ['vision50d', 'kodak_vision3_50d', 'Cinema negative'],
+  ['vision200t', 'kodak_vision3_200t', 'Cinema negative'],
+  ['vision250d', 'kodak_vision3_250d', 'Cinema negative'],
+  ['vision500t', 'kodak_vision3_500t', 'Cinema negative'],
+  ['verita200d', 'kodak_verita_200d', 'Cinema negative'],
+  ['ektachrome100', 'kodak_ektachrome_100', 'Slide'],
+  ['kodachrome64', 'kodak_kodachrome_64', 'Slide'],
+  ['provia100f', 'fujifilm_provia_100f', 'Slide'],
+  ['velvia100', 'fujifilm_velvia_100', 'Slide'],
+  ['doublex', 'kodak_doublex', 'Black and white'],
+  ['trix7266', 'kodak_trix', 'Black and white'],
+];
 
 const bundledLooks = (pack: PackId): LookPack['looks'] => Object.fromEntries(
   [...catalogue, ...LOCAL_LOOKS].filter(s => s.pack === pack).map(s => [s.id, { file: s.file, category: s.category, name: s.name, kind: 'look' as const }]),
@@ -114,6 +143,14 @@ export const PACKS: LookPack[] = [
     looks: Object.fromEntries(Object.entries(T3M).map(([s, name]) => [s, { file: `t3mujinpack - ${name}.png`, kind: 'look' as const }])),
   },
   {
+    // The licence asks that "spektrafilm" not be used as a brand; a factual credit is welcome.
+    id: 'film', name: 'Spectral Film',
+    hint: 'Films and their prints simulated from the manufacturers’ data, developed from the photo’s light. Uses spektrafilm by Andrea Volpato, through darktable.',
+    looks: Object.fromEntries(SPECTRAL_FILM.map(([stock, file, category, name]) => [stock, {
+      file: `${file}.film`, kind: 'look' as const, category, ...(name ? { name } : {}),
+    }])),
+  },
+  {
     id: 'gmic-film', name: 'Pat David', hint: 'Pat David’s film emulations, distributed as Cube LUTs by G’MIC and YahiaAngelo.',
     looks: bundledLooks('gmic-film'),
   },
@@ -163,6 +200,17 @@ export function stockForPack(pack: PackId, current: StockId): StockId {
 /** A recipe's optional creative layer; the base camera profile remains independent. */
 export const recipeLookFile = (recipe: import('./recipe').Recipe | null): string | null =>
   recipe?.lookEnabled ? (recipe.lookSnapshot ? snapshotLutFile(recipe) : lookFile(recipe.pack, recipe.stock, recipe.push)) : null;
+
+/** The film whose couplers and scatter Film edges and Film softness use under a look that is not a film stock. */
+export const FILM_REFERENCE = 'film/kodak_portra_400.film';
+/** Whether Film edges or Film softness is on under a look that is not a film stock (it needs FILM_REFERENCE). */
+export function filmReferenceNeeded(recipe: import('./recipe').Recipe | null): boolean {
+  if (!recipe || !((recipe.filmEdges ?? 0) > 0 || (recipe.filmSoftness ?? 0) > 0)) return false;
+  return !recipeLookFile(recipe)?.endsWith('.film');
+}
+/** Every bundled file a recipe's render needs: its look's LUT, and the reference film when Film edges or softness needs it. */
+export const recipeAssetFiles = (recipe: import('./recipe').Recipe | null): string[] =>
+  [recipeLookFile(recipe), filmReferenceNeeded(recipe) ? FILM_REFERENCE : null].filter((f): f is string => !!f);
 
 function snapshotLutFile(r: Recipe): string | null {
   const lut = r.lookSnapshot?.settings.lut;
@@ -287,8 +335,9 @@ export function lookSettings(pack: PackId, stock: StockId): ProfileSettings | nu
     : { kind: 'pack', pack, stock, amount: 1 } };
 }
 
-/** Only the raw LUT ingredient is selectable in the Look editor. */
+/** Only the raw LUT ingredient is selectable in the Look editor. A Spectral Film film is not a LUT. */
 export function lutBase(pack: PackId, stock: StockId) {
+  if (pack === 'film') return null;
   const settings = lookSettings(pack, stock);
   return settings && !settings.adaptiveShadows && !settings.grey && !settings.colorBalance && !settings.curve && !settings.color && (!settings.scanner || settings.scanner === 'straight') ? settings.lut : null;
 }
@@ -319,7 +368,8 @@ export function withLook(recipe: Recipe, pack: PackId, stock: StockId): Recipe {
   const settings = lookSettings(pack, stock);
   if (!settings) return recipe;
   // A Fuji recipe also sets the photo's Grain, Clarity and Sharpness sliders (film/fujirecipe.ts `fujiSliders`).
-  const sliders = settings.lut?.kind === 'fuji' ? fujiSliders(settings.lut.recipe) : {};
+  // A film stock develops with its couplers' spread and its scatter, as darktable's spektrafilm does by default.
+  const sliders = settings.lut?.kind === 'fuji' ? fujiSliders(settings.lut.recipe) : pack === 'film' ? { filmEdges: 100, filmSoftness: 100 } : {};
   return { ...recipe, ...sliders, pack, stock, lookEnabled: true, lookAmount: 100, scannerFromLook: true,
     lookSnapshot: { id: stock, name: lookName(pack, stock), kind: 'look', revision: PACK[pack].looks[stock]?.revision ?? 1, settings: structuredClone(settings) } };
 }

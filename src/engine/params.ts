@@ -35,6 +35,7 @@ import { effectiveIso, zoomForIso } from './grain';
 import { EXPOSURE_BOOST, FEATHERING, SMOOTHING, bandFactors, bandGains } from './toneequalizer';
 import { clarityParams } from './locallaplacian';
 import type { LoadedLut } from './lutstore';
+import { filmUniforms } from './film';
 import { VIGNETTE_FEATHER, vignetteStrength } from './vignette';
 import { adaptiveToneTransform, adaptiveBlackLift, legacyShadowValue, DEFAULT_TONE_ANALYSIS, type ToneControls } from './adaptivetone';
 import { BLACKS_SR, blackParam } from './blacks';
@@ -131,6 +132,7 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uLutTex: LUT_UNIT,
     uLutOn: 0,
     uLutColor: 0,
+    uFilmOn: 0,
     uToneOn: 0,
     uTeqLegacy: 0,
     uToneControls: [0, 0, 0, 0],
@@ -251,7 +253,8 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uScShadow: sc.shadowTint,
     uScHigh: sc.highlightTint,
     // A custom look's LUT at its share within the look, times the look's Amount.
-    ...(lut ? {
+    // A film stock renders the print itself, from the look's texture unit (stages/film.glsl).
+    ...(lut?.film ? filmUniforms(lut.film, recipe.lookAmount / 100) : lut ? {
       uLutOn: 1, uLutId: lut.id, uLutAmount: (recipe.lookAmount / 100) * (profile?.lut?.amount ?? 1),
       // A custom look blends its LUT as it was saved; a LUT chosen directly, as the photo says.
       uLutColor: (profile ? profile.lut?.blend === 'color' : recipe.lookBlend === 'color') ? 1 : 0,

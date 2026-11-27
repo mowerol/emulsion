@@ -22,6 +22,7 @@ export const COPY_GROUPS = {
   'Scanner finish': ['scanner', 'scannerFromLook'],
   Halation: ['halation', 'halationSize', 'halationVersion'],
   Glow: ['glow', 'glowSize', 'glowVersion'],
+  'Film edges and softness': ['filmEdges', 'filmSoftness'],
   Vignette: ['vignette'],
   Grain: ['push', 'grainType', 'grain', 'grainIso', 'grainMidtones', 'grainSoftness'],
   Texture: ['texture'],
@@ -44,7 +45,7 @@ export const DEFAULT_COPY_GROUPS = ALL_COPY_GROUPS.filter(g => !OPT_IN.includes(
 
 export const COPY_SECTIONS = [
   { title: 'Develop', groups: ['Look', 'White balance', 'Exposure', 'Contrast', 'Tone character', 'Highlights', 'Shadows', 'Whites', 'Blacks', 'Tone curve'] },
-  { title: 'Colour and finish', groups: ['Vibrance', 'Saturation', 'Colour mixer', 'Colour Grading', 'Scanner finish', 'Halation', 'Glow', 'Vignette', 'Grain'] },
+  { title: 'Colour and finish', groups: ['Vibrance', 'Saturation', 'Colour mixer', 'Colour Grading', 'Scanner finish', 'Halation', 'Glow', 'Film edges and softness', 'Vignette', 'Grain'] },
   { title: 'Detail and optics', groups: ['Texture', 'Clarity', 'Dehaze', 'Capture sharpening', 'Sharpening', 'Noise reduction', 'Lens corrections'] },
   { title: 'Geometry and local edits', groups: ['Crop', 'Transform', 'Masks', 'Heal and Remove'] },
 ] as const satisfies readonly { title: string; groups: readonly CopyGroup[] }[];

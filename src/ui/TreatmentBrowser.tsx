@@ -14,8 +14,9 @@ export type LutCollection = PackId | 'favourites';
 export interface LutEntry { key: string; pack: PackId; id: StockId; name: string; maker: string }
 const NONE = 'none';
 
-/** The packs a look's base LUT can come from, in chip order (Imported is added after Favourites). */
-export const lutPacks = () => PACKS.filter(p => !p.hidden && !p.user);
+/** The packs a look's base LUT can come from, in chip order (Imported is added after Favourites).
+ * Spectral Film isn't one: its films render the print from the light, not a LUT on it (lutBase). */
+export const lutPacks = () => PACKS.filter(p => !p.hidden && !p.user && p.id !== 'film');
 
 function entriesOf(pack: PackId): LutEntry[] {
   return stocksForPack(pack).filter(s => !!lutBase(pack, s.id) && !PACK[pack].looks[s.id]?.photoMatch).map(s => ({

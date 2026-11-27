@@ -46,6 +46,9 @@ import usm from './shaders/usm.frag.glsl?raw';
 import colorequal from './shaders/stages/colorequal.glsl?raw';
 import greymix from './shaders/stages/greymix.glsl?raw';
 import lut from './shaders/stages/lut.glsl?raw';
+import film from './shaders/stages/film.glsl?raw';
+import filmcore from './shaders/stages/filmcore.glsl?raw';
+import filmdev from './shaders/filmdev.frag.glsl?raw';
 import ce from './shaders/ce.frag.glsl?raw';
 import maskrefine from './shaders/maskrefine.frag.glsl?raw';
 import eq from './shaders/eq.frag.glsl?raw';
@@ -83,12 +86,15 @@ export const SHADER_FILES: Record<string, string> = {
   'stages/colorequal.glsl': colorequal,
   'stages/greymix.glsl': greymix,
   'stages/lut.glsl': lut,
+  'stages/film.glsl': film,
+  'stages/filmcore.glsl': filmcore,
 };
 
 export const SHADERS = {
   vertex: quadVert,
   lenscorrect: assemble(lenscorrect, SHADER_FILES),
   develop: assemble(develop, SHADER_FILES),
+  filmdev: assemble(filmdev, SHADER_FILES),
   dehaze: assemble(dehazePass, SHADER_FILES),
   dehazeGf: assemble(dehazeGf, SHADER_FILES),
   maskFold: assemble(maskFold, SHADER_FILES),
