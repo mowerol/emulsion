@@ -8,7 +8,7 @@ import { newCircleSpot } from '../film/retouch';
 const engine = vi.hoisted(() => ({
   passes: 0, finished: 0, cancelled: 0, idle: true, passMs: 0,
   capturePasses: 0, captureFinished: 0, captureCancelled: 0, captureStarted: 0, captureReady: false,
-  render: vi.fn(), uploaded: [] as { data: Uint16Array; denoised?: Uint16Array }[],
+  render: vi.fn(), uploaded: [] as { data: Uint16Array; denoised?: Uint16Array }[], bakeOwed: false,
 }));
 vi.mock('./engine', () => ({
   Engine: class {
@@ -18,6 +18,7 @@ vi.mock('./engine', () => ({
     sourceFromHalf(img: { data: Uint16Array; denoised?: Uint16Array }) { engine.uploaded.push(img); return { w: 4000, h: 3000, fullW: 4000, fullH: 3000, mode: 2, white: null }; }
     idle() { return engine.idle; }
     waiting() { return false; }
+    filmBakeOwed() { return engine.bakeOwed; }
     render = engine.render;
     validateCaptureCache() {}
     clearCaptureCache() { engine.captureReady = false; }
@@ -84,7 +85,7 @@ beforeEach(() => {
   vi.stubGlobal('MessageChannel', TestChannel);
   vi.stubGlobal('OffscreenCanvas', class { constructor(public width: number, public height: number) {} });
   tasks = [];
-  Object.assign(engine, { passes: 0, finished: 0, cancelled: 0, idle: true, passMs: 0 });
+  Object.assign(engine, { passes: 0, finished: 0, cancelled: 0, idle: true, passMs: 0, bakeOwed: false });
   Object.assign(engine, { capturePasses: 0, captureFinished: 0, captureCancelled: 0, captureStarted: 0, captureReady: false });
   engine.render.mockReset(); engine.uploaded = [];
   posted = [];
@@ -339,6 +340,24 @@ describe('exact detail preparation', () => {
     expect(engine.passes).toBe(1);
     expect(engine.cancelled).toBe(1);
     expect(engine.render).not.toHaveBeenCalled();
+  });
+});
+
+describe('Film grain bake', () => {
+  it('prepares a frame that needs a new film bake in steps, with its status, rather than in one render', () => {
+    engine.bakeOwed = true;
+    loop.handle({ type: 'state', state: { ...state, full: false } });
+    vi.advanceTimersByTime(16); drain();
+    expect(engine.finished).toBe(1);
+    expect(posted.some((m) => m.type === 'sharpening' && m.pending)).toBe(true);
+    expect(engine.render).toHaveBeenCalled();
+  });
+
+  it('renders straight away when the film is baked', () => {
+    loop.handle({ type: 'state', state: { ...state, full: false } });
+    vi.advanceTimersByTime(16); drain();
+    expect(engine.passes).toBe(0);
+    expect(engine.render).toHaveBeenCalledOnce();
   });
 });
 

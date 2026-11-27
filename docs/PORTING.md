@@ -53,6 +53,7 @@ Paths are as of darktable 5.x; check the current tree before porting.
 | Tone | darktable `src/iop/sigmoid.c` | **Ported** (per-channel with hue preservation). Still to bring over: primaries inset and rotation, the RGB ratio mode |
 | Highlights and shadows | darktable `src/iop/toneequal.c` | **Ported** (EIGF, euclidean norm, one iteration). Still to bring over: more filter iterations, quantization, the other brightness estimators |
 | Grain | darktable `src/iop/grain.c` | **Ported** (lightness channel, its paper response and zoomed-out filtering) |
+| Film grain | Newson et al., IPOL 2017 (`Film_grain_rendering_IPOL`) | **Ported** (Grain type Film: the Boolean model on display luma, its film baked and its filter evaluated on a grid) |
 | Colour balance | darktable `src/iop/colorbalancergb.c` | **Ported** (contrast, vibrance, saturation). Still to bring over: the shadows, midtones and highlights wheels, brilliance and chroma |
 | Input (film scans) | darktable `src/iop/negadoctor.c` | Invert real colour negative scans |
 | Input (RAW) | LibRaw | Decoding, including Fuji X-Trans and OM System files |

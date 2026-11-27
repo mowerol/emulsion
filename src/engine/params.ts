@@ -104,10 +104,11 @@ export const colorBalanceUniforms = () =>
     uLlWhite: mulVec(REC2020_TO_XYZ, [1, 1, 1]),
   });
 
-/** darktable's grain for a recipe: [strength 0-1, noise zoom, paper delta, per-photo offset]. */
+/** darktable's grain (Classic) for a recipe: [strength 0-1, noise zoom, paper delta, per-photo offset]. */
 export function grainUniform(recipe: Recipe, seed: number): number[] {
   const d = 2 * Math.exp((recipe.grainMidtones / 100) * Math.log(0.0001));
-  return [recipe.grain / 100, zoomForIso(effectiveIso(recipe.grainIso, recipe.push)), d, seed];
+  // Film grain is its own passes after the develop pass (filmgraingpu.ts).
+  return [recipe.grainType === 'film' ? 0 : recipe.grain / 100, zoomForIso(effectiveIso(recipe.grainIso, recipe.push)), d, seed];
 }
 
 /** What the develop shader needs, shared with the extraction pass. */

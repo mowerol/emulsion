@@ -62,8 +62,10 @@ function setUniform(gl: WebGL2RenderingContext, type: number, loc: WebGLUniformL
     case gl.BOOL:
     case gl.SAMPLER_2D:
     case gl.SAMPLER_2D_ARRAY:
-    case gl.SAMPLER_3D: gl.uniform1i(loc, arr[0]); break;
+    case gl.SAMPLER_3D:
+    case gl.UNSIGNED_INT_SAMPLER_2D: gl.uniform1i(loc, arr[0]); break;
     case gl.INT_VEC2: gl.uniform2iv(loc, arr); break;
+    case gl.UNSIGNED_INT: gl.uniform1ui(loc, arr[0]); break;
     default: throw new GpuError(`Unsupported uniform type ${type}`);
   }
 }
@@ -175,7 +177,7 @@ export class Gpu {
    * A render target; `precise` asks for 32-bit floats (only with `float32`), and
    * `single` for one channel (red), for large working images read with texelFetch.
    */
-  /** `single`: one channel (true) or two ('rg'), for float targets. */
+  /** `single`: one channel (true) or two ('rg'), for float targets; one 8-bit channel (true) otherwise. */
   target(w: number, h: number, hdr: boolean, precise = false, single: boolean | 'rg' = false): Target {
     const i = this.spares.findIndex((s) => s.key === spareKey(w, h, hdr, precise, single));
     if (i >= 0) return this.spares.splice(i, 1)[0].t;
@@ -239,6 +241,7 @@ export class Gpu {
     else if (hdr && single) gl.texImage2D(gl.TEXTURE_2D, 0, precise ? gl.R32F : gl.R16F, w, h, 0, gl.RED, precise ? gl.FLOAT : gl.HALF_FLOAT, null);
     else if (hdr && precise) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, w, h, 0, gl.RGBA, gl.FLOAT, null);
     else if (hdr) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA16F, w, h, 0, gl.RGBA, gl.HALF_FLOAT, null);
+    else if (single) gl.texImage2D(gl.TEXTURE_2D, 0, gl.R8, w, h, 0, gl.RED, gl.UNSIGNED_BYTE, null);
     else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     this.params(false);
     const fbo = gl.createFramebuffer()!;
@@ -251,7 +254,7 @@ export class Gpu {
       gl.deleteTexture(tex);
       gl.deleteFramebuffer(fbo);
       const error = gl.getError();
-      const format = hdr ? `${single === 'rg' ? 'RG' : single ? 'R' : 'RGBA'}${precise ? '32' : '16'}F` : 'RGBA8';
+      const format = hdr ? `${single === 'rg' ? 'RG' : single ? 'R' : 'RGBA'}${precise ? '32' : '16'}F` : single ? 'R8' : 'RGBA8';
       throw new GpuError(`Could not create a ${w}x${h} render target (${format}; framebuffer 0x${status.toString(16)}; GL 0x${error.toString(16)})`);
     }
     return { tex, fbo, w, h, hdr };

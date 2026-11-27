@@ -12,7 +12,7 @@ export const PRESET_GROUPS = {
   'Colour Grading': ['grading'],
   Detail: ['noiseReduction', 'profiledDenoise', 'texture', 'clarity', 'dehaze', 'dehazeDistance', 'captureSharpening', 'sharpen', 'sharpenRadius', 'sharpenMasking'],
   Effects: ['halation', 'halationSize', 'halationVersion', 'glow', 'glowSize', 'glowVersion', 'vignette'],
-  Grain: ['push', 'grain', 'grainIso', 'grainMidtones'],
+  Grain: ['push', 'grainType', 'grain', 'grainIso', 'grainMidtones', 'grainSoftness'],
   'Film options': ['scanner', 'scannerFromLook'],
 } as const satisfies Record<string, readonly (keyof Recipe)[]>;
 export type PresetGroup = keyof typeof PRESET_GROUPS;

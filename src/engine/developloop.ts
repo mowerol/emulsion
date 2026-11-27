@@ -553,7 +553,9 @@ export class DevelopLoop {
       try {
         const renderOpts = opts(moving, draft, live);
         const renderRecipe = captureDeferred ? resolutionRecipe : st.recipe;
-        const refining = settled || (!live && !moving && (st.full || this.releasePending || engine.inexact || preparation !== null));
+        // A new Film grain bake is prepared in steps too (Engine.filmBakeOwed), so the window stays
+        // responsive and shows its status while it bakes.
+        const refining = settled || (!live && !moving && (st.full || this.releasePending || engine.inexact || preparation !== null || (!st.compare && engine.filmBakeOwed(source, renderRecipe))));
         if (refining && !preparation) {
           preparation = engine.prepareFrame(source, renderRecipe, renderOpts);
           preparationStart = performance.now();
