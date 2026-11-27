@@ -34,8 +34,11 @@ import { Gpu, GpuError, Lru, type Program, type SpareSpec, type Target } from '.
 import { InputMode, LUT_UNIT, MASK_GLOW_UNIT, colorBalanceUniforms, developUniforms, llParams, needsPasses, type Uniforms } from './params';
 import { maskActive } from '../film/masks';
 import { textureData } from './lut3d';
+import { filmTextureData } from './film';
+import { FilmDevGpu } from './filmdevgpu';
+import { pixelUmFor } from './scatter';
 import { type LoadedLut, loadLut, lutFor, lutPending } from './lutstore';
-import { recipeLookFile } from '../film/looks';
+import { FILM_REFERENCE, filmReferenceNeeded, recipeLookFile } from '../film/looks';
 import { GLOW_SIGMA, HALATION_SIGMA, blurPlan, pyramidFor, type Pyramid } from './pyramid';
 import { MASK_SIGMA } from './toneequalizer';
 import { adaptiveToneTransform, type ToneAnalysis } from './adaptivetone';
@@ -373,6 +376,8 @@ class Lane {
   /** `approx`: made smaller during a drag; `live`: made while a pointer was held (capture sharpening waits). */
   profMade: { input: WebGLTexture; key: string; out: Target; approx?: boolean; live?: boolean } | null = null;
   lensMade: { input: WebGLTexture; key: string; out: Target } | null = null;
+  /** Film softness and Film edges on the light (filmDeveloped): made from `input` for `key`; `live` leaves out exposure and white balance. */
+  filmDevMade: { input: WebGLTexture; key: string; live: string; out: Target } | null = null;
   /** The retouched source: made from `input` at 1/k for `spots`; `src` is the source it stands for. */
   /** `list`: the spots it holds, in order, so a spot added after them runs on `out` alone. */
   retouchMade: { input: WebGLTexture; spots: string; list: RetouchSpot[]; removeKey: string; k: number; out: Target; src: Source } | null = null;
@@ -779,6 +784,8 @@ export class Engine {
       if (this.L.noiseMade?.input === src.tex) { this.gpu.free(this.L.noiseMade.out); this.L.noiseMade = null; }
       if (this.L.dh?.input === src.tex || this.L.dhLive?.input === src.tex || this.L.dhMasked.some((d) => d.input === src.tex)) this.freeDehaze();
       if (this.L.dhAmbient?.input === src.tex) this.L.dhAmbient = null;
+      const fd = this.L.filmDevMade;
+      if (fd && (fd.input === src.tex || fd.input === this.L.lensMade?.out.tex || fd.input === this.L.retouchMade?.out.tex)) { this.gpu.free(fd.out); this.L.filmDevMade = null; }
       if (this.L.lensMade?.input === src.tex) { this.gpu.free(this.L.lensMade.out); this.L.lensMade = null; }
       if (this.L.retouchMade?.input === src.tex) { this.gpu.free(this.L.retouchMade.out); this.L.retouchMade = null; }
     });
@@ -814,6 +821,7 @@ export class Engine {
     if (L.noiseMade) g.free(L.noiseMade.out);
     if (L.profMade) g.free(L.profMade.out);
     if (L.lensMade) g.free(L.lensMade.out);
+    if (L.filmDevMade) g.free(L.filmDevMade.out);
     if (L.retouchMade) g.free(L.retouchMade.out);
     if (L.csOut) g.free(L.csOut);
     this.freeEq();
@@ -834,7 +842,7 @@ export class Engine {
     L.stack.release();
     L.brushes.reset();
     L.objects.reset();
-    L.noiseMade = L.profMade = L.lensMade = L.retouchMade = L.eq = L.usm = L.ce = null;
+    L.noiseMade = L.profMade = L.lensMade = L.filmDevMade = L.retouchMade = L.eq = L.usm = L.ce = null;
     L.csOut = null;
     L.csMade = L.eqMade = L.eqPhoto = L.usmMade = L.ceMade = L.ceScene = L.ceLookMade = L.llMade = L.refineMade = null;
   }
@@ -1759,6 +1767,7 @@ export class Engine {
     }
     if (this.L.dh?.w === w && this.L.dh.h === h) this.freeDehaze();
     if (this.L.lensMade?.out.w === w && this.L.lensMade.out.h === h) { this.gpu.free(this.L.lensMade.out); this.L.lensMade = null; }
+    if (this.L.filmDevMade?.out.w === w && this.L.filmDevMade.out.h === h) { this.gpu.free(this.L.filmDevMade.out); this.L.filmDevMade = null; }
     if (this.L.retouchMade?.out.w === w && this.L.retouchMade.out.h === h) { this.gpu.free(this.L.retouchMade.out); this.L.retouchMade = null; }
     if (this.L.csOut && this.L.csOut.w === w && this.L.csOut.h === h) {
       this.gpu.free(this.L.csOut);
@@ -2603,19 +2612,71 @@ export class Engine {
 
   /** A look LUT as a 3D texture (Gpu.lutTexture makes it on the scratch unit), kept by id. */
   private lutTexture(lut: LoadedLut): WebGLTexture {
-    return this.lutTex.get(String(lut.id), () => this.gpu.lutTexture(textureData(lut), lut.level, lut.eightBit));
+    return this.lutTex.get(String(lut.id), () => {
+      if (!lut.film) return this.gpu.lutTexture(textureData(lut), lut.level, lut.eightBit);
+      const t = filmTextureData(lut.film);
+      return this.gpu.lutTexture(t.data, t.size, false, t.depth);
+    });
   }
 
   /** Keep the previous frame until the optional creative LUT is ready. */
   waiting(recipe: Recipe | null, compare = false): boolean {
     const file = compare ? null : recipeLookFile(recipe);
-    return !!file && lutPending(file);
+    const reference = !compare && filmReferenceNeeded(recipe);
+    return !!file && lutPending(file) || reference && lutPending(FILM_REFERENCE);
   }
 
   /** Wait for the optional creative LUT before export or thumbnails. */
   async prepare(recipe: Recipe | null) {
     const file = recipeLookFile(recipe);
     if (file) await loadLut(file);
+    if (filmReferenceNeeded(recipe)) await loadLut(FILM_REFERENCE);
+  }
+
+  private filmDevGpu: FilmDevGpu | null = null;
+
+  private dropFilmDev() {
+    if (this.L.filmDevMade) { this.gpu.free(this.L.filmDevMade.out); this.L.filmDevMade = null; }
+  }
+
+  /**
+   * Film softness and Film edges (engine/filmdevgpu.ts): darktable spektrafilm's scatter and the
+   * spatial part of its DIR couplers, on the photo's light after retouch, for a RAW. Kept until the
+   * input or the settings change; while Exposure or white balance is dragged, the result made
+   * before stands in (the coupler map follows the light's level) and the settle remakes it.
+   */
+  private filmDeveloped(src: Source, recipe: Recipe | null, live: boolean): Source {
+    if (!recipe || src.mode !== InputMode.SceneLinear || !this.gpu.hdr) return src;
+    const softness = (recipe.filmSoftness ?? 0) / 100, edges = (recipe.filmEdges ?? 0) / 100;
+    if (softness <= 0 && edges <= 0) { this.dropFilmDev(); return src; }
+    const look = lookLut(recipe);
+    const filmLut = look?.film ? look : lutFor(FILM_REFERENCE);
+    if (!filmLut?.film) return src;
+    const stock = !!look?.film;
+    const u = developUniforms(recipe, { width: 1, height: 1, seed: 0, inputMode: src.mode, store: 1, white: src.white, cameraToWorking: src.camera?.cameraToWorking ?? null, camera: src.camera, look });
+    const wb = u.uWbMat as number[], gain = 2 ** (u.uExposure as number);
+    const liveKey = JSON.stringify([softness, edges, filmLut.id, stock]);
+    const key = JSON.stringify([liveKey, edges > 0 ? [wb, gain] : null]);
+    const made = this.L.filmDevMade;
+    if (made?.input === src.tex && (made.key === key || live && made.live === liveKey)) {
+      if (made.key !== key) this.mapsHeld = true;
+      return { ...src, tex: made.out.tex };
+    }
+    const fd = this.filmDevGpu ??= new FilmDevGpu(this.gpu);
+    const out = made?.out.w === src.w && made.out.h === src.h ? made.out : this.gpu.target(src.w, src.h, true);
+    if (made && made.out !== out) this.gpu.free(made.out);
+    this.L.filmDevMade = null;
+    // Made before binding: creating a texture can disturb one (see Gpu.scratch).
+    const filmTex = this.lutTexture(filmLut);
+    fd.run(src.tex, src.w, src.h, { pixelUm: pixelUmFor(Math.max(...wholeSize(src))), softness, edges, film: { data: filmLut.film, tex: filmTex, stock }, wb, gain }, out);
+    fd.release();
+    this.gpu.scratch();
+    this.gpu.gl.bindTexture(this.gpu.gl.TEXTURE_2D, out.tex);
+    this.gpu.gl.generateMipmap(this.gpu.gl.TEXTURE_2D);
+    this.gpu.params(true);
+    this.L.filmDevMade = { input: src.tex, key, live: liveKey, out };
+    this.L.eqMade = null; this.L.eqPhoto = null; this.L.llMade = null; this.L.usmMade = null; this.L.ceMade = null; this.L.ceScene = null; this.L.ceLookMade = null;
+    return { ...src, tex: out.tex };
   }
 
   private blur(a: Target, b: Target, spread: number, iterations: number) {
@@ -2751,7 +2812,7 @@ export class Engine {
     this.gpu.params(true);
     this.L.lensMade = { input: src.tex, key, out };
     // The target's content changed; downstream maps must not reuse its old pixels.
-    this.L.eqMade = null; this.L.eqPhoto = null; this.L.llMade = null; this.L.usmMade = null; this.L.ceMade = null; this.L.ceScene = null; this.L.ceLookMade = null;
+    this.L.eqMade = null; this.L.eqPhoto = null; this.L.llMade = null; this.L.usmMade = null; this.L.ceMade = null; this.L.ceScene = null; this.L.ceLookMade = null; this.dropFilmDev();
     return { ...src, tex: out.tex };
   }
 
@@ -2889,7 +2950,7 @@ export class Engine {
     gl.generateMipmap(gl.TEXTURE_2D);
     g.params(true);
     this.L.retouchMade = { input: src.tex, spots, list, removeKey, k, out, src };
-    this.L.eqMade = null; this.L.eqPhoto = null; this.L.llMade = null; this.L.usmMade = null; this.L.ceMade = null; this.L.ceScene = null; this.L.ceLookMade = null;
+    this.L.eqMade = null; this.L.eqPhoto = null; this.L.llMade = null; this.L.usmMade = null; this.L.ceMade = null; this.L.ceScene = null; this.L.ceLookMade = null; this.dropFilmDev();
     return out;
   }
 
@@ -2921,7 +2982,7 @@ export class Engine {
     gl.generateMipmap(gl.TEXTURE_2D);
     g.params(true);
     this.L.retouchMade = { input: src.tex, spots, list: [], removeKey, k: Infinity, out, src };
-    this.L.eqMade = null; this.L.eqPhoto = null; this.L.llMade = null; this.L.usmMade = null; this.L.ceMade = null; this.L.ceScene = null; this.L.ceLookMade = null;
+    this.L.eqMade = null; this.L.eqPhoto = null; this.L.llMade = null; this.L.usmMade = null; this.L.ceMade = null; this.L.ceScene = null; this.L.ceLookMade = null; this.dropFilmDev();
     return this.L.retouchMade;
   }
 
@@ -3275,6 +3336,8 @@ export class Engine {
       const [sw, sh] = opts.shown ?? [opts.width, opts.height];
       const shown = Math.max(sw / view.w / frame.w, sh / view.h / frame.h) / Math.max(src.w, src.h);
       src = this.retouched(src, recipe, shown < 0.5 ? Math.min(8, Math.floor(1 / shown)) : 1);
+      // Film softness and Film edges act on the light that exposes the film, after retouch.
+      src = this.filmDeveloped(src, recipe, !!opts.live);
     }
     // Shown smaller than the source holds (Fit): shrink it to that size with darktable's Lanczos3
     // and develop that, instead of sampling the larger source through trilinear mipmaps, which
@@ -4285,3 +4348,4 @@ export function seedFor(path: string): number {
   }
   return ((h >>> 0) % 4000) / 100 + 0.5;
 }
+

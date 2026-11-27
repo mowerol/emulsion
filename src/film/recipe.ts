@@ -80,6 +80,10 @@ export interface Recipe {
   saturation: number;
   halation: number;
   glow: number;
+  /** Film edges: the spatial part of a film's DIR couplers, 0–100 (engine/filmdev.ts). */
+  filmEdges: number;
+  /** Film softness: light scattering in the film's layers, 0–100 (engine/scatter.ts). */
+  filmSoftness: number;
   halationSize: number;
   glowSize: number;
   /** Absent: original renderer; 2: still/strong; 3: still/weak anti-halation. */
@@ -210,6 +214,8 @@ export const SLIDERS: SliderDef[] = [
   { key: 'halationSize', label: 'Halation size', group: 'optics', min: 20, max: 400, step: 1, default: 100, format: v => `${v}%`, hint: 'How far the warm halo spreads around bright areas.' },
   { key: 'glow', label: 'Glow', group: 'optics', min: 0, max: 100, step: 1, hint: 'Diffuses light around bright areas and softens contrast.' },
   { key: 'glowSize', label: 'Glow size', group: 'optics', min: 20, max: 400, step: 1, default: 100, format: v => `${v}%`, hint: 'How far the diffused light spreads.' },
+  { key: 'filmEdges', label: 'Film edges', group: 'optics', min: 0, max: 100, step: 1, hint: 'Contrast film’s development adds at edges and fine texture (DIR couplers). Shows at 100%.' },
+  { key: 'filmSoftness', label: 'Film softness', group: 'optics', min: 0, max: 100, step: 1, hint: 'Light spreading in the film’s layers softens the finest detail, red the most. Shows at 100%.' },
   { key: 'vignette', label: 'Vignette', group: 'optics', min: 0, max: 100, step: 1 },
   { key: 'grain', label: 'Amount', group: 'grain', min: 0, max: 100, step: 1, stockKey: 'grain' },
   { key: 'grainIso', label: 'Speed', group: 'grain', min: ISO_MIN, max: ISO_MAX, step: 1, stockKey: 'grainIso', log: true, hint: 'The film’s speed (ISO): faster film has coarser grain.', format: (v) => `${Math.round(v)}` },
@@ -282,6 +288,8 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
     saturation: 0,
     halation: s.halation,
     glow: 0,
+    filmEdges: 0,
+    filmSoftness: 0,
     halationSize: 100,
     glowSize: 100,
     halationVersion: 3,

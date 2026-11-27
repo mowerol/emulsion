@@ -4,6 +4,7 @@
 import { useSyncExternalStore } from 'react';
 import { invoke } from '../backend/ipc';
 import { type Clut, parse3dl, parseCube, parseHald } from './lut3d';
+import { type FilmData, parseFilm } from './film';
 import { FUJI_LUT_PREFIX, USER_LOOKS_DIR, type FujiLutKey } from '../film/looks';
 import { FUJI_CONTROLS_DIR, FUJI_CONTROL_FILES, FUJI_SIM_CONTROL_FILES, bakeFujiLut, withSimControls, type FujiControls } from '../film/fujirecipe';
 
@@ -11,6 +12,8 @@ import { FUJI_CONTROLS_DIR, FUJI_CONTROL_FILES, FUJI_SIM_CONTROL_FILES, bakeFuji
 export interface LoadedLut extends Clut {
   id: number;
   eightBit: boolean;
+  /** A film stock (Film stage, engine/film.ts): it renders the print instead of a look on it. */
+  film?: FilmData;
 }
 
 /** Where the bundled packs live, relative to the page (public/looks in the repo). */
@@ -58,6 +61,10 @@ export async function readLut(name: string, data: Blob): Promise<LoadedLut> {
   const ext = name.toLowerCase().split('.').pop();
   if (ext === 'cube') return { ...parseCube(await data.text()), id: ++ids, eightBit: false };
   if (ext === '3dl') return { ...parse3dl(await data.text()), id: ++ids, eightBit: false };
+  if (ext === 'film') {
+    const film = parseFilm(await data.arrayBuffer());
+    return { level: film.meta.n, data: film.a, film, id: ++ids, eightBit: false };
+  }
   // The image's values as stored: no colour management, no premultiplication.
   const bmp = await createImageBitmap(data, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' });
   const c = new OffscreenCanvas(bmp.width, bmp.height);

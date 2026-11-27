@@ -10,7 +10,7 @@ import catalogue from './lut-catalogue.json';
 import { LOCAL_LOOKS } from './local-looks';
 import emulsionLooks from './emulsion-looks.json';
 
-export type PackId = 'custom' | 'files' | 'emulsion-looks' | 'emulsion-luts' | 't3mujinpack' | 'gmic-film' | 'fuji-test' | 'fuji-xtrans-iii' | 'spektrafilm';
+export type PackId = 'custom' | 'files' | 'emulsion-looks' | 'emulsion-luts' | 't3mujinpack' | 'gmic-film' | 'fuji-test' | 'fuji-xtrans-iii' | 'spektrafilm' | 'film';
 
 /** A stock's LUT in a pack: a file under public/looks/<pack>/, one per push step if it has them. */
 export interface PackLook {
@@ -53,6 +53,17 @@ const T3M: Partial<Record<StockId, string>> = {
   pro400h: 'Color Negative - Fuji Pro 400H',
   trix400: 'Black and White - Kodak Tri-X 400',
   hp5: 'Black and White - Ilford HP5 Plus 400',
+};
+
+/** Film stocks rendered from scene light by darktable's spektrafilm model (engine/film.ts),
+ * baked by tools/spektrabake into public/looks/film/. */
+const FILM: Partial<Record<StockId, string>> = {
+  gold200: 'kodak_gold_200',
+  portra400: 'kodak_portra_400',
+  portra160: 'kodak_portra_160',
+  ektar100: 'kodak_ektar_100',
+  pro400h: 'fujifilm_pro_400h',
+  superia400: 'fujifilm_xtra_400',
 };
 
 const bundledLooks = (pack: PackId): LookPack['looks'] => Object.fromEntries(
@@ -114,6 +125,12 @@ export const PACKS: LookPack[] = [
     looks: Object.fromEntries(Object.entries(T3M).map(([s, name]) => [s, { file: `t3mujinpack - ${name}.png`, kind: 'look' as const }])),
   },
   {
+    // Working name; the licence asks that "spektrafilm" not be used as a brand ("uses spektrafilm" is fine).
+    id: 'film', name: 'Film stocks',
+    hint: 'Film and its print, developed from the photo’s light by darktable’s film simulation (uses spektrafilm).',
+    looks: Object.fromEntries(Object.entries(FILM).map(([s, file]) => [s, { file: `${file}.film`, kind: 'look' as const }])),
+  },
+  {
     id: 'gmic-film', name: 'Pat David', hint: 'Pat David’s film emulations, distributed as Cube LUTs by G’MIC and YahiaAngelo.',
     looks: bundledLooks('gmic-film'),
   },
@@ -163,6 +180,17 @@ export function stockForPack(pack: PackId, current: StockId): StockId {
 /** A recipe's optional creative layer; the base camera profile remains independent. */
 export const recipeLookFile = (recipe: import('./recipe').Recipe | null): string | null =>
   recipe?.lookEnabled ? (recipe.lookSnapshot ? snapshotLutFile(recipe) : lookFile(recipe.pack, recipe.stock, recipe.push)) : null;
+
+/** The film whose couplers and scatter Film edges and Film softness use under a look that is not a film stock. */
+export const FILM_REFERENCE = 'film/kodak_portra_400.film';
+/** Whether Film edges or Film softness is on under a look that is not a film stock (it needs FILM_REFERENCE). */
+export function filmReferenceNeeded(recipe: import('./recipe').Recipe | null): boolean {
+  if (!recipe || !((recipe.filmEdges ?? 0) > 0 || (recipe.filmSoftness ?? 0) > 0)) return false;
+  return !recipeLookFile(recipe)?.endsWith('.film');
+}
+/** Every bundled file a recipe's render needs: its look's LUT, and the reference film when Film edges or softness needs it. */
+export const recipeAssetFiles = (recipe: import('./recipe').Recipe | null): string[] =>
+  [recipeLookFile(recipe), filmReferenceNeeded(recipe) ? FILM_REFERENCE : null].filter((f): f is string => !!f);
 
 function snapshotLutFile(r: Recipe): string | null {
   const lut = r.lookSnapshot?.settings.lut;
@@ -319,7 +347,8 @@ export function withLook(recipe: Recipe, pack: PackId, stock: StockId): Recipe {
   const settings = lookSettings(pack, stock);
   if (!settings) return recipe;
   // A Fuji recipe also sets the photo's Grain, Clarity and Sharpness sliders (film/fujirecipe.ts `fujiSliders`).
-  const sliders = settings.lut?.kind === 'fuji' ? fujiSliders(settings.lut.recipe) : {};
+  // A film stock develops with its couplers' spread and its scatter, as darktable's spektrafilm does by default.
+  const sliders = settings.lut?.kind === 'fuji' ? fujiSliders(settings.lut.recipe) : pack === 'film' ? { filmEdges: 100, filmSoftness: 100 } : {};
   return { ...recipe, ...sliders, pack, stock, lookEnabled: true, lookAmount: 100, scannerFromLook: true,
     lookSnapshot: { id: stock, name: lookName(pack, stock), kind: 'look', revision: PACK[pack].looks[stock]?.revision ?? 1, settings: structuredClone(settings) } };
 }

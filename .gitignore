@@ -47,3 +47,6 @@ tools/probe/dist
 
 # Look fitting tools: a private repo (mowerol/emulsion-lookfit) cloned here.
 tools/lookfit/
+
+# Film stage bake tool: pinned darktable sources, data pack, lattices and renders
+tools/spektrabake/.cache

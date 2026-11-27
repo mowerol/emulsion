@@ -21,6 +21,9 @@ uniform sampler2D uSrc;
 #include "stages/lens.glsl"
 #include "stages/output.glsl"
 #include "stages/lut.glsl"
+#define FILM_TEX uLutTex
+#include "stages/filmcore.glsl"
+#include "stages/film.glsl"
 #include "stages/grain.glsl"
 #include "stages/scanner.glsl"
 #include "stages/curve.glsl"
@@ -174,8 +177,9 @@ void main() {
   x = stageLens(x, uv);
   x = stageOptics(x, uv);
   x = stageClarityLog(x, ruv);
-  // The neutral curve renders the print, then the optional look applies to it.
-  vec3 e = stageToneProfile(x);
+  // The neutral curve renders the print, then the optional look applies to it; a film stock
+  // renders the print itself from scene light instead (stages/film.glsl).
+  vec3 e = uFilmOn > 0.5 ? stageFilmPrint(x) : stageToneProfile(x);
   if (uLutOn > 0.5) e = stageLookPrint(e);
   if (uTap > 0.5 && uTap < 1.5) {
     outColor = vec4(clarityLightness(e), 0.0, 0.0, 1.0);

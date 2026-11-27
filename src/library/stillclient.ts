@@ -3,7 +3,7 @@
 // tiles, perspective analysis and export (with its Remove crops). It runs in a
 // worker, started on first use, so none of its GPU work holds up the page.
 import { loadLut } from '../engine/lutstore';
-import { recipeLookFile } from '../film/looks';
+import { recipeAssetFiles } from '../film/looks';
 import { AssetSync } from '../engine/assetsync';
 import { StillRenderer, type FromStills, type RemoveInput, type ToStills } from '../engine/stills';
 import { engineMode } from '../ui/developclient';
@@ -143,8 +143,7 @@ export class StillClient {
 
   private async render(src: StillSource, recipe: Recipe | null, w: number, h: number, seed: number, removal: RemoveContext | null, jpeg?: number, bits?: 8 | 16) {
     // The look's LUT loads here (the worker's store only mirrors this one), then goes across.
-    const file = recipeLookFile(recipe);
-    if (file) await loadLut(file);
+    for (const file of recipeAssetFiles(recipe)) await loadLut(file);
     if (this.worker) {
       const assets = this.assets.take();
       if (assets) this.send({ type: 'assets', ...assets });
