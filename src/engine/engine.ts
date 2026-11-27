@@ -57,6 +57,8 @@ import { SHADERS, SHADER_FILES } from './shaders';
 import { warmRecipe, type WarmStage } from './warm';
 import { chooseRegionWithin, REGION_SHARE, regionReach, regionWorthIt, stageReach, visibleSource, type PixelRect, type StageReach } from './region';
 import { displayDensity, workingScale } from './viewscale';
+import { FILM_TILE, bakeParams, filmAmounts, filmGrainParams, filmKindOf, filmMargin } from './filmgrain';
+import { FilmGrainGpu, type FilmView } from './filmgraingpu';
 /** The whole source shrunk for Fit: its size, and darktable's one scale for the taps. */
 type Fit = { scale: number; w: number; h: number };
 
@@ -553,6 +555,19 @@ export class Engine {
   private outs: Lru<Target>;
   private store: number;
   private noiseP: Program;
+  /** Film grain (filmgrain.ts): its passes, the developed frames it reads (live and exact, so a
+   *  live frame drawn between an exact build's steps does not change what the build reads), its
+   *  change at every output pixel (two, so a build abandoned part way leaves the last one whole)
+   *  and what the last finished one was made from: `key` everything the frame depends on, `held`
+   *  what a live frame may still show it for (the same photo, view, size and grain). */
+  private filmGpu: FilmGrainGpu | null = null;
+  private filmShown: { live: Target | null; exact: Target | null; still: Target | null } = { live: null, exact: null, still: null };
+  private filmDeltas: Target[] = [];
+  /** The change for a render into a target (an export, a thumbnail): made each time, not kept. */
+  private filmStill: Target | null = null;
+  private filmMade: { key: string; held: string; out: Target } | null = null;
+  /** What the exact lane's developed frame (filmShown.exact) holds, so the settle's last render reuses it. */
+  private filmShownKey: string | null = null;
   private denoiser: ProfiledDenoiser | null = null;
   private lensP: Program;
   /** Each spot's last result, so moving one spot does not heal the others again. */
@@ -2962,6 +2977,24 @@ export class Engine {
     return { ...src, tex: this.retouchStore(src, key, spots, k, region, px, removeKey).tex };
   }
 
+  private freeFilm() {
+    const g = this.gpu;
+    for (const t of [this.filmShown.live, this.filmShown.exact, this.filmShown.still, this.filmStill, ...this.filmDeltas]) if (t) g.free(t);
+    this.filmShown = { live: null, exact: null, still: null };
+    this.filmShownKey = null;
+    this.filmDeltas = [];
+    this.filmStill = null;
+    this.filmMade = null;
+    this.filmGpu?.free();
+  }
+
+  /** A film grain target of this size and kind, made again only when that changes. */
+  private filmTarget(t: Target | null, w: number, h: number, hdr: boolean, precise = false, single: boolean | 'rg' = false): Target {
+    if (t && t.w === w && t.h === h && t.hdr === hdr) return t;
+    if (t) this.gpu.free(t);
+    return this.gpu.target(w, h, hdr, precise, single);
+  }
+
   /**
    * Develop `src` with `recipe` (null = original) into `target`, or onto the
    * canvas when `target` is 'screen'.
@@ -3827,7 +3860,44 @@ export class Engine {
       usm = out.tex;
     }
     if (opts.products) { if (usmOn) opts.products.usmMap = usm; return; }
-    if (opts.prepare === 'frame') return;
+    // Film grain (filmgrain.ts) renders the finished frame: the develop pass draws it with a margin
+    // around the output into a target, the grain's change is made from that (only by an exact
+    // render; a live one shows the last change made for this view, or none), and a last pass adds it.
+    const filmP = recipe && recipe.grainType === 'film' && !opts.compare && !opts.sharpenMask && g.hdr
+      ? filmGrainParams(recipe, src.fullW, src.fullH, opts.seed) : null;
+    if (opts.prepare === 'frame' && !filmP) return;
+    const film = filmP ? (() => {
+      const W = opts.width, H = opts.height;
+      // Output pixels per frame pixel, along the source's own width.
+      const scale = (turned ? fullH : fullW) / src.fullW;
+      const m = filmMargin(filmP, scale);
+      // The baked film (one per grain size), and this photo's place on it.
+      const tile = FILM_TILE, bake = bakeParams(filmP), filmKey = FilmGrainGpu.filmKey(bake, tile);
+      const screen = opts.target === 'screen';
+      const exact = !screen || (!opts.live && !opts.moving);
+      const hdr = opts.target !== 'screen' && opts.target.hdr;
+      const [sw, sh] = opts.shown ?? [W, H];
+      const held = `${src.fullW}x${src.fullH}|${opts.seed}|${sw}x${sh}|${JSON.stringify(view)}|${JSON.stringify(frame)}|${JSON.stringify(filmP)}`;
+      const key = `${held}|${W}x${H}|${textureId(src.tex)}|${JSON.stringify(src.roi ?? null)}|${this.L.stack.generation}|${JSON.stringify({ ...recipe, grain: 0 })}|${opts.clipping}|${opts.maskShow}|${opts.split}|${opts.dither}|${this.detailOrder ?? Engine.detailOrder}|${this.retouchOwed}|${this.profiledOwed}`;
+      // Amount only scales the change as it is added, so it is not part of the key: its drag is exact.
+      // A render into a target (an export, a thumbnail) makes its own change and leaves the
+      // screen's alone; the screen keeps its last one for the live frames and the next settle.
+      const lane = !screen ? 'still' : exact ? 'exact' : 'live';
+      // Made before any binding (see Gpu.scratch).
+      const before = this.filmShown[lane];
+      const shown = this.filmShown[lane] = this.filmTarget(before, W + 2 * m, H + 2 * m, hdr, hdr && g.float32);
+      // The settle's last render draws the frame its preparation just developed: keep it.
+      const developed = lane === 'exact' && shown === before && this.filmShownKey === key;
+      let into: Target | null = null;
+      if (!screen) into = this.filmStill = this.filmTarget(this.filmStill, W, H, true, false, 'rg');
+      else if (exact && this.filmMade?.key !== key) {
+        const i = this.filmDeltas.findIndex((t) => t !== this.filmMade?.out);
+        into = this.filmDeltas[i < 0 ? this.filmDeltas.length : i] = this.filmTarget(this.filmDeltas[i] ?? null, W, H, true, false, 'rg');
+      }
+      this.filmGpu ??= new FilmGrainGpu(g);
+      const fv: FilmView = { size: [W, H], view: [view.x, view.y, view.w, view.h], geo, full: [src.fullW, src.fullH], scale };
+      return { W, H, m, exact, held, key, shown, developed, into, fv, tile, bake, filmKey };
+    })() : null;
     // The frame itself is never clipped, whatever its size.
     g.clip = null;
     bindDevelop(clarity);
@@ -3852,9 +3922,41 @@ export class Engine {
       uUsmOn: usmOn ? 1 : 0, uUsmShowMask: usmOn && opts.sharpenMask ? 1 : 0,
       });
       g.bindArray(MASK_UNIT, maskTex);
-      if (opts.target === 'screen') this.toScreen(this.develop, opts.width, opts.height);
+      if (film) {
+        // The output's view grown by the margin; the split moves with it.
+        const { W, H, m } = film, split = (u.uSplit as number) < 0 ? -1 : ((u.uSplit as number) * W + m) / (W + 2 * m);
+        if (!film.developed) {
+          this.develop.set({ uView: [view.x - (m / W) * view.w, view.y - (m / H) * view.h, view.w * (W + 2 * m) / W, view.h * (H + 2 * m) / H], uSplit: split });
+          g.draw(this.develop, film.shown, W + 2 * m, H + 2 * m, false);
+          if (film.shown === this.filmShown.exact) this.filmShownKey = film.key;
+        }
+      } else if (opts.target === 'screen') this.toScreen(this.develop, opts.width, opts.height);
       else g.draw(this.develop, opts.target, opts.width, opts.height, false);
     } finally { if (displayColor) g.gl.bindSampler(0, null); }
+    if (!film) return;
+    let delta: Target | null = null;
+    if (film.into) {
+      yield* this.filmGpu!.bakeSteps(film.bake, film.tile, film.filmKey);
+      yield* this.filmGpu!.deltaSteps(film.shown, film.m, film.into, film.fv, filmP!, film.tile, filmKindOf(recipe!));
+    }
+    if (opts.target !== 'screen') delta = film.into;
+    else {
+      if (film.into) this.filmMade = { key: film.key, held: film.held, out: film.into };
+      if (this.filmMade && (this.filmMade.key === film.key || !film.exact && this.filmMade.held === film.held)) delta = this.filmMade.out;
+      // A live frame shows the change made before the drag, or none: the settle makes it exactly.
+      if (!film.exact && this.filmMade?.key !== film.key) this.mapsHeld = true;
+    }
+    if (opts.prepare === 'frame') return;
+    this.filmGpu!.compose(film.shown, film.m, delta, filmAmounts(recipe!), (u.uSplit as number) ?? -1, film.W, film.H);
+    if (opts.target === 'screen') this.toScreen(this.filmGpu!.composeP, film.W, film.H);
+    else {
+      g.draw(this.filmGpu!.composeP, opts.target, film.W, film.H, false);
+      // An export's targets are large: free them (a thumbnail's are kept for the next).
+      if (film.W * film.H > 4e6) {
+        for (const t of [this.filmShown.still, this.filmStill]) if (t) g.free(t);
+        this.filmShown.still = this.filmStill = null;
+      }
+    }
     }.bind(this);
     try { return yield* drawEffects(); } finally { this.L = previousLane; }
 
@@ -4097,6 +4199,7 @@ export class Engine {
   }
 
   dispose() {
+    this.freeFilm();
     this.clearCaptureCache();
     this.denoiser?.dispose();
     if (this.sharpSampler) this.gpu.gl.deleteSampler(this.sharpSampler);
@@ -4135,6 +4238,15 @@ export function lookLut(recipe: Recipe): LoadedLut | null {
 }
 
 /** FNV-1a of a key, as a number. */
+const textureIds = new WeakMap<WebGLTexture, number>();
+let nextTextureId = 1;
+/** A number for a texture object, for keys of what was made from it. */
+function textureId(t: WebGLTexture): number {
+  let id = textureIds.get(t);
+  if (id === undefined) textureIds.set(t, id = nextTextureId++);
+  return id;
+}
+
 function hashKey(key: string): number {
   let h = 2166136261;
   for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 16777619);

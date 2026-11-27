@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Catalogue adapters use the same parameter ranges and recipe writers as the standard panels.
-import { SLIDERS, COLOR_CHANNELS, defaultRecipe, resetSection, sliderDefault, tidyColor, withSlider, type Recipe, type SectionId } from '../film/recipe';
+import { SLIDERS, COLOR_CHANNELS, defaultRecipe, resetSection, sliderApplies, sliderDefault, tidyColor, withSlider, type Recipe, type SectionId } from '../film/recipe';
 import { effectiveWb, type CameraWhites } from '../film/fujilooks';
 import { gradeDefault, gradeRange, gradeSoftRange, gradeValue, updateGrade, type GradeKey } from '../film/grading';
 import { CB_DEFAULTS } from '../engine/colorbalance';
@@ -22,7 +22,7 @@ export interface WorkspaceSlider {
   setup?: 'stock' | 'ai-noise-tools';
 }
 export interface WorkspaceBlock { id: string; label: string; category: string; section?: SectionId; recipeFields?: (keyof Recipe)[]; fields: string[]; reset?: (r: Recipe) => Recipe }
-const labels: Record<string, string> = { lookAmount: 'Look amount', grain: 'Grain amount', grainIso: 'Grain size', grainMidtones: 'Grain mid-tones', sharpenRadius: 'Sharpening radius', sharpenMasking: 'Sharpening masking', captureSharpening: 'Capture sharpening', dehazeDistance: 'Dehaze distance' };
+const labels: Record<string, string> = { lookAmount: 'Look amount', grain: 'Grain amount', grainIso: 'Grain size', grainMidtones: 'Grain mid-tones', grainIrregularity: 'Grain irregularity', grainSoftness: 'Grain softness', sharpenRadius: 'Sharpening radius', sharpenMasking: 'Sharpening masking', captureSharpening: 'Capture sharpening', dehazeDistance: 'Dehaze distance' };
 const categories = { look: 'Look', adjust: 'Tone & colour', detail: 'Detail', optics: 'Finish', grain: 'Grain' };
 const signed = (v: number) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(Number(v.toFixed(2)))}`;
 const basic: WorkspaceSlider[] = SLIDERS.map(d => ({
@@ -31,6 +31,7 @@ const basic: WorkspaceSlider[] = SLIDERS.map(d => ({
   value: r => r[d.key], fallback: (r, c) => sliderDefault(d, r.stock, c.raw),
   set: (r, v) => withSlider(r, d.key, v), format: d.format ?? String,
   ...(d.key === 'lookAmount' ? { setup: 'stock' as const, unavailable: (r: Recipe) => !r.lookEnabled ? 'Choose a look to adjust its amount.' : undefined } : {}),
+  ...(d.grainType ? { unavailable: (r: Recipe) => sliderApplies(d, r) ? undefined : `Set Grain type to ${d.grainType === 'film' ? 'Film' : 'Classic'} to use it.` } : {}),
 }));
 const asShot = (c: ControlContext) => { const wb = temperatureTint(c.white ?? D65_XY); return { temperature: wb.temperature, tint: Math.round(wb.tint) }; };
 const wb: WorkspaceSlider[] = (['temperature', 'tint'] as const).map(key => ({
@@ -127,6 +128,8 @@ export const WORKSPACE_BLOCKS: WorkspaceBlock[] = [
   { id: 'transform', label: 'Transform', category: 'Tools', section: 'transform', recipeFields: ['transform'], fields: transform.map(d => d.id) },
   { id: 'masks', label: 'Masks', category: 'Tools', section: 'masks', recipeFields: ['masks'], fields: [] },
   { id: 'detail-order', label: 'Detail processing order', category: 'Tools', fields: [] },
+  { id: 'grain-type', label: 'Grain type', category: 'Tools', fields: [], recipeFields: ['grainType'], reset: r => ({ ...r, grainType: undefined }) },
+  { id: 'grain-stock', label: 'Film grain stock', category: 'Tools', fields: [], recipeFields: ['grainStock'], reset: r => ({ ...r, grainStock: undefined }) },
   { id: 'grain-speed', label: 'Film speed presets', category: 'Tools', fields: [] },
 ];
 export const WORKSPACE_CATALOG = [...WORKSPACE_SLIDERS, ...WORKSPACE_BLOCKS];

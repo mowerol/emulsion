@@ -17,9 +17,10 @@ import { CameraColourWarning } from './CameraProfile';
 import { TransformControls, transformSummary } from './TransformControls';
 import { LensControls } from './LensControls';
 import { ColourGradingControls } from './ColourGrading';
-import { BRIGHT_RANGE, COLOR_CHANNELS, DEFAULT_STOCK, HUE_DEGREES, SAT_RANGE, SLIDER, SLIDERS, defaultRecipe, uneditedRecipe, normalizeRecipe, tidyColor, type ColorAdjust, resetAdjustments, resetSection, sectionChanged, sliderDefault, withSettingsFrom, withSlider, type Recipe, type SectionId, type SliderDef } from '../film/recipe';
+import { BRIGHT_RANGE, COLOR_CHANNELS, DEFAULT_STOCK, HUE_DEGREES, SAT_RANGE, SLIDER, SLIDERS, defaultRecipe, grainTypeOf, sliderApplies, uneditedRecipe, normalizeRecipe, tidyColor, type ColorAdjust, resetAdjustments, resetSection, sectionChanged, sliderDefault, withSettingsFrom, withSlider, type Recipe, type SectionId, type SliderDef } from '../film/recipe';
 import type { ScannerId } from '../film/scanners';
 import { ScannerFinishControls } from './ScannerFinish';
+import { FILM_STOCKS } from '../engine/filmgrain';
 import { STOCK } from '../film/stocks';
 import {
   activePhoto, restoreRecoveredFamily, openCopySettings, editActive, editRecipes, pasteSettings, redo, showToast, targets, undo, useApp,
@@ -198,6 +199,50 @@ function ColorControls({ recipe, visibleControls }: { recipe: Recipe; visibleCon
         ? available.map((c) => <div className="color-all-group" key={c.key}><h3 className="color-all-title">{c.label}</h3>{sliders(c.key)}</div>)
         : sliders(selected)}
     </>
+  );
+}
+
+/** Grain type: Classic (darktable's grain) or Film (the Boolean film grain model). */
+function GrainType({ recipe }: { recipe: Recipe | null }) {
+  return (
+    <div className="grain-speed">
+      <label htmlFor="grain-type">Type</label>
+      <select
+        id="grain-type"
+        value={grainTypeOf(recipe)}
+        disabled={!recipe}
+        title="Classic: darktable's grain. Film: the photo rendered from film grains (Newson et al.), shown exactly a moment after a slider is released."
+        onChange={(e) => editActive((r) => ({ ...(r ?? defaultRecipe()), grainType: e.target.value === 'film' ? 'film' : undefined }), 'Grain type')}
+      >
+        <option value="classic">Classic</option>
+        <option value="film">Film</option>
+      </select>
+    </div>
+  );
+}
+
+/** Film grain's stock (engine/filmgrain.ts FILM_STOCKS): picking one sets Amount to 50 (the stock's
+ * own grain), Size to its speed and Irregularity to its grains' spread; its published granularity
+ * then sets how grainy it is. */
+function GrainStock({ recipe }: { recipe: Recipe | null }) {
+  const groups = [...new Set(FILM_STOCKS.map((f) => f.group))];
+  return (
+    <div className="grain-speed">
+      <label htmlFor="grain-stock">Film</label>
+      <select
+        id="grain-stock"
+        value={recipe?.grainStock ?? ''}
+        disabled={!recipe}
+        title="The film's grain, from its published granularity: its speed sets Size, its crystals Irregularity."
+        onChange={(e) => {
+          const stock = FILM_STOCKS.find((f) => f.id === e.target.value);
+          editActive((r) => ({ ...(r ?? defaultRecipe()), grainStock: stock?.id, ...(stock ? { grain: 50, grainIso: stock.iso, grainIrregularity: Math.round((stock.spread / 0.5) * 100) } : {}) }), 'Grain film stock');
+        }}
+      >
+        <option value="">Any film</option>
+        {groups.map((g) => <optgroup key={g} label={g}>{FILM_STOCKS.filter((f) => f.group === g).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}</optgroup>)}
+      </select>
+    </div>
   );
 }
 
@@ -488,6 +533,8 @@ export function Panel() {
     'wb-tools': <WhiteBalanceControls recipe={base} white={photo.white} autoWhite={photo.camera?.autoWhite} presetWhites={photo.camera?.presetWhites} toolsOnly />,
     'detail-order': <DetailOrderToggle />,
     'grain-speed': <GrainSpeed recipe={base} />,
+    'grain-type': <GrainType recipe={base} />,
+    'grain-stock': <GrainStock recipe={base} />,
     'ai-noise-tools': <NoiseReductionControls recipe={base} path={photo.path} raw={photo.raw} hideAmount />,
     'look-picker': <TreatmentControls key={photoId(photo)} photo={photo} hideAmount />,
     'lens-tools': photo.raw ? <LensControls recipe={base} metadata={photo.lens} toolsOnly /> : <p className="hint">Lens corrections are available for RAW photos.</p>,
@@ -516,7 +563,7 @@ export function Panel() {
       <DetailOrderToggle />
     </Section>,
     optics: <Section id="optics" title="Optics" onReset={resetFor(grouped ? 'refine-optics' : 'optics', 'Optics', 'optics')}>{rows(sliderGroup('optics'))}</Section>,
-    grain: <Section id="grain" title="Grain" onReset={resetFor('grain', 'Grain')}><GrainSpeed recipe={base} />{rows(sliderGroup('grain'))}</Section>,
+    grain: <Section id="grain" title="Grain" onReset={resetFor('grain', 'Grain')}><GrainType recipe={base} />{grainTypeOf(base) === 'film' && <GrainStock recipe={base} />}<GrainSpeed recipe={base} />{rows(sliderGroup('grain').filter(k => sliderApplies(SLIDER[k], base)))}</Section>,
     noise: !editing && <Section id="noise" title="Noise reduction" onReset={resetFor('noise', 'Noise reduction')}>
       <ProfiledDenoiseControls recipe={base} raw={photo.raw} camera={photo.camera} />
       <NoiseReductionControls recipe={base} path={photo.path} raw={photo.raw} />

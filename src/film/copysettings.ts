@@ -23,7 +23,7 @@ export const COPY_GROUPS = {
   Halation: ['halation', 'halationSize', 'halationVersion'],
   Glow: ['glow', 'glowSize', 'glowVersion'],
   Vignette: ['vignette'],
-  Grain: ['push', 'grain', 'grainIso', 'grainMidtones'],
+  Grain: ['push', 'grainType', 'grainStock', 'grain', 'grainIso', 'grainMidtones', 'grainIrregularity', 'grainSoftness'],
   Texture: ['texture'],
   Clarity: ['clarity'],
   Dehaze: ['dehaze', 'dehazeDistance'],

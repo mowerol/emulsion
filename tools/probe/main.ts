@@ -44,6 +44,9 @@ import { mulVec, srgbEotf, srgbOetf, SRGB_TO_REC2020, REC2020_TO_SRGB } from '..
 import { STOCK, type Stock } from '../../src/film/stocks';
 import { toneInverse } from '../../src/engine/tone';
 import { effectiveIso, grainL } from '../../src/engine/grain';
+import { FILM_TILE, bakeParams, coverageFor, exactShare, filmChange, filmMargin, filmPlan, filterEnergy, filterTaps, meanCoverage, renderFilmGrain, shownLuma, tileLevel, varianceShape, type FilmKind } from '../../src/engine/filmgrain';
+import type { BoolGrainParams } from '../../src/engine/boolgrain';
+import { FilmGrainGpu } from '../../src/engine/filmgraingpu';
 import { CURVE_RES, curveTable, type ToneCurve } from '../../src/film/curve';
 import '../../src/styles.css';
 import { Filmstrip } from '../../src/ui/Filmstrip';
@@ -931,11 +934,270 @@ function probeGreyMix(eng: Engine) {
   return probeStage(eng, ['stages/greymix.glsl'], 'stageGreyMix(c)', inputs, cases);
 }
 
+/**
+ * Film grain (?filmgrain): the GPU passes (filmgraingpu.ts) against renderFilmGrain over a
+ * synthetic shown image, then through the engine: the mean kept, grain made, a frame drawn in
+ * two halves the same as whole, and the time a 1500 × 1000 render takes.
+ */
+function probeFilmGrain(eng: Engine) {
+  const out: Record<string, unknown> = {};
+  const g = eng.gpu, gl = g.gl;
+  const fg = new FilmGrainGpu(g);
+  const W = 24, H = 16;
+  // Cases: grains a radius (in frame pixels) at a zoom: points (large grains), cells (fine grains)
+  // at three pyramid levels, zoomed out (1:1), a slide, irregular grains.
+  const cases: [string, number, number, number, FilmKind][] = [
+    ['points100', 0.2, 1, 0, 'negative'], ['points200', 0.12, 2, 0, 'negative'], ['cellsL3', 0.0577, 1, 0.4, 'negative'],
+    ['cellsL4', 0.035, 1, 0.2, 'slide'], ['fitL5', 0.0577, 0.25, 0.4, 'negative'], ['pointsIrregular', 0.25, 1, 0.5, 'negative'],
+  ];
+  for (const [name, radius, scale, spread, kind] of cases) {
+    const p: BoolGrainParams = { radius, sigmaR: radius * spread, sigmaFilter: 0.8, samples: 0, seed: 731 };
+    const plan = filmPlan(p, scale), m = filmMargin(p, scale);
+    // The output shows the middle of a frame 4 × the output, so no point reaches its edge.
+    const full = 4 * W / scale, fullH = 4 * H / scale;
+    const tile = FILM_TILE, bake = bakeParams(p);
+    const tb = performance.now();
+    for (const _ of fg.bakeSteps(bake, tile, FilmGrainGpu.filmKey(bake, tile))) { /* every band and level */ }
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    const bakeMs = performance.now() - tb;
+    const cache = new Map<number, number>();
+    const level = (i: number, j: number) => { const key = j * tile.side + i; let v = cache.get(key); if (v === undefined) cache.set(key, v = tileLevel(tile, bake, i, j)); return v; };
+    // The GPU's first pyramid level against exact counts, a few blocks and knots.
+    let pyrMax = 0;
+    if (plan.integrated) {
+      const fbo = gl.createFramebuffer()!, px = new Float32Array(4 * 4 * 4);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+      for (const j of [3, 16, 28]) {
+        gl.framebufferTextureLayer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, fg.pyramidLevel(3)!, 0, j);
+        gl.readPixels(40, 50, 4, 4, gl.RGBA, gl.FLOAT, px);
+        for (let y = 0; y < 4; y++) for (let x = 0; x < 4; x++) pyrMax = Math.max(pyrMax, Math.abs(px[(y * 4 + x) * 4] - exactShare(level, 3, 40 + x, 50 + y, j)));
+      }
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      gl.deleteFramebuffer(fbo);
+    }
+    const ew = W + 2 * m, eh = H + 2 * m;
+    const data = new Float32Array(ew * eh * 4), vals = new Float32Array(ew * eh);
+    for (let y = 0; y < eh; y++) for (let x = 0; x < ew; x++) {
+      const v = Math.min(0.9, Math.max(0.03, x / ew * 0.8 + 0.08 + 0.05 * Math.sin(y / 3)));
+      vals[y * ew + x] = v;
+      data.set([v, v, v, 1], (y * ew + x) * 4);
+    }
+    const shown = g.target(ew, eh, true, true), delta = g.target(W, H, true, false, 'rg');
+    g.scratch();
+    gl.bindTexture(gl.TEXTURE_2D, shown.tex);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, ew, eh, gl.RGBA, gl.FLOAT, data);
+    const id = [[1, 0, 0], [0, 1, 0], [0, 0, 1]];
+    const t0 = performance.now();
+    for (const _ of fg.deltaSteps(shown, m, delta, { size: [W, H], view: [0.375, 0.375, 0.25, 0.25], geo: id, full: [full, fullH], scale }, p, tile, kind)) { /* every tile */ }
+    const px = new Float32Array(W * H * 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, delta.fbo);
+    gl.readPixels(0, 0, W, H, gl.RGBA, gl.FLOAT, px);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    const ms = performance.now() - t0;
+    // The reference, in absolute output pixels: the output's (0, 0) is 3/8 into the frame.
+    const ox = 1.5 * W, oy = 1.5 * H;
+    const ref = renderFilmGrain({ data: vals, w: ew, h: eh, x0: ox - m, y0: oy - m }, ox, oy, W, H, scale, p, tile, kind, level);
+    // The softening and the grain against the reference's, in the shown value.
+    const mean = meanCoverage({ data: vals, w: ew, h: eh, x0: ox - m, y0: oy - m }, ox, oy, W, H, scale, p, kind);
+    let differ = 0, max = 0, rms = 0, nan = 0;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const v = vals[(y + m) * ew + x + m], i = (y * W + x) * 4;
+      if (!Number.isFinite(px[i]) || !Number.isFinite(px[i + 1])) { nan++; continue; }
+      const variance = varianceShape(mean[y * W + x], spread) * (radius * scale) ** 2 * filterEnergy(plan.k, filterTaps(plan.k, 0.8, scale));
+      const want = filmChange(ref[y * W + x], mean[y * W + x], v, kind, variance);
+      const d = Math.max(Math.abs(px[i] - want.soft), Math.abs(px[i + 1] - want.grain));
+      rms += want.grain * want.grain;
+      if (d > 2e-3) differ++;
+      max = Math.max(max, d);
+    }
+    out[name] = { plan: `${plan.integrated ? 'cells L' + plan.level : 'points'} k${plan.k}`, bakeMs: Math.round(bakeMs), pyrMax: +pyrMax.toFixed(4), differ, nan, of: W * H, maxDiff: +max.toFixed(4), grainRms: +(Math.sqrt(rms / (W * H)) * 255).toFixed(2), ms: Math.round(ms) };
+    g.free(shown); g.free(delta);
+  }
+  fg.free();
+  // Through the engine: a soft synthetic photo, Film grain at 50.
+  const sw = 1500, sh = 1000;
+  const c = document.createElement('canvas');
+  c.width = sw; c.height = sh;
+  const c2 = c.getContext('2d')!;
+  const grad = c2.createLinearGradient(0, 0, sw, 0);
+  grad.addColorStop(0, 'rgb(20,30,40)'); grad.addColorStop(0.5, 'rgb(130,120,110)'); grad.addColorStop(1, 'rgb(240,235,225)');
+  c2.fillStyle = grad; c2.fillRect(0, 0, sw, sh);
+  c2.fillStyle = 'rgb(60,90,140)'; c2.fillRect(300, 300, 400, 300);
+  const src = eng.sourceFromImage(c, sw, sh);
+  const base: Recipe = { ...defaultRecipe(), sharpen: 0, grain: 0 };
+  const film: Recipe = { ...base, grain: 100, grainIso: 400, grainType: 'film' };
+  const errAtStart = gl.getError();
+  const plain = eng.readPixels(src, base, sw, sh, 3).slice();
+  const t1 = performance.now();
+  const grained = eng.readPixels(src, film, sw, sh, 3).slice();
+  const msFull = performance.now() - t1;
+  const t2 = performance.now();
+  const again = eng.readPixels(src, film, sw, sh, 3).slice();
+  const msCached = performance.now() - t2;
+  let meanPlain = 0, meanGrain = 0, rms = 0, same = 0;
+  for (let i = 0; i < plain.length; i += 4) {
+    const a = shownLuma(plain[i], plain[i + 1], plain[i + 2]), b = shownLuma(grained[i], grained[i + 1], grained[i + 2]);
+    meanPlain += a; meanGrain += b; rms += (a - b) ** 2;
+    if (grained[i] === again[i] && grained[i + 1] === again[i + 1]) same++;
+  }
+  const n = plain.length / 4;
+  // Top and bottom halves drawn as views, without dither (it follows the target's pixels): the
+  // same pixels as the whole, the seam included (the margin's purpose).
+  const undithered = (h: number, view?: { x: number; y: number; w: number; h: number }, r = film) => {
+    const t = g.target(sw, h, false);
+    eng.render(src, r, { target: t, width: sw, height: h, seed: 3, view, dither: 0 });
+    const px = new Uint8Array(sw * h * 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, t.fbo);
+    gl.readPixels(0, 0, sw, h, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    g.free(t);
+    return px;
+  };
+  const whole = undithered(sh), top = undithered(sh / 2, { x: 0, y: 0, w: 1, h: 0.5 }), bottom = undithered(sh / 2, { x: 0, y: 0.5, w: 1, h: 0.5 });
+  let seamDiff = 0, seamMax = 0;
+  for (let i = 0; i < top.length; i++) {
+    for (const [half, off] of [[top, 0], [bottom, top.length]] as const) {
+      const d = Math.abs(half[i] - whole[off + i]);
+      if (d > 0) seamDiff++;
+      seamMax = Math.max(seamMax, d);
+    }
+  }
+  // The same without grain, for what drawing a view changes by itself.
+  const pw = undithered(sh, undefined, base), pt = undithered(sh / 2, { x: 0, y: 0, w: 1, h: 0.5 }, base), pb = undithered(sh / 2, { x: 0, y: 0.5, w: 1, h: 0.5 }, base);
+  let plainDiff = 0;
+  const rows: Record<number, number> = {};
+  for (let i = 0; i < pt.length; i++) {
+    if (pt[i] !== pw[i]) plainDiff++;
+    if (pb[i] !== pw[pt.length + i]) plainDiff++;
+    if (top[i] !== whole[i]) { const r = Math.floor(i / 4 / sw); rows[r] = (rows[r] ?? 0) + 1; }
+  }
+  const worstRows = Object.entries(rows).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  // On screen: an exact frame makes the change; a live frame (a drag) shows it held, quickly, and
+  // asks for the settle, which makes it again.
+  const one = new Uint8Array(4);
+  const errs: Record<string, number> = { errAtStart, beforeScreen: gl.getError() };
+  const scr = (r: Recipe, live: boolean) => {
+    const t = performance.now();
+    eng.render(src, r, { target: 'screen', width: sw, height: sh, seed: 3, live });
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, one);
+    return Math.round(performance.now() - t);
+  };
+  const brighter = { ...film, exposure: 0.3 };
+  errs.afterHalves = gl.getError();
+  const screen = { exactMs: scr(film, false), againMs: scr(film, false), liveMs: scr(brighter, true), inexactAfterLive: eng.inexact, settleMs: scr(brighter, false), inexactAfterSettle: eng.inexact };
+  errs.afterScreen = gl.getError();
+  // A 24 MP frame at Fit (a quarter) and at 100% (a quarter of it, 1:1): the time each takes.
+  const big = document.createElement('canvas');
+  big.width = 6000; big.height = 4000;
+  big.getContext('2d')!.drawImage(c, 0, 0, 6000, 4000);
+  const bigSrc = eng.sourceFromImage(big, 6000, 4000);
+  const timed = (view?: { x: number; y: number; w: number; h: number }) => {
+    eng.readPixels(bigSrc, base, sw, sh, 3, false, view);
+    const t = performance.now();
+    eng.readPixels(bigSrc, film, sw, sh, 3, false, view);
+    return Math.round(performance.now() - t);
+  };
+  const timings = { fit24mp: timed(), at100of24mp: timed({ x: 0.375, y: 0.375, w: 0.25, h: 0.25 }) };
+  errs.afterTimings = gl.getError();
+  // A settle as the app's loop runs it (developloop.ts): prepareFrame's steps, each waited for,
+  // then the last render; a Retina-sized Fit of the 24 MP frame, Film grain against none.
+  const settle = (r: Recipe, w: number, h: number, view?: { x: number; y: number; w: number; h: number }) => {
+    const o = { target: 'screen' as const, width: w, height: h, seed: 3, view };
+    eng.render(bigSrc, { ...r, exposure: 0.1 }, { ...o, live: true });
+    const t = performance.now();
+    let steps = 0;
+    errs[`live${w}`] = gl.getError();
+    for (const _ of eng.prepareFrame(bigSrc, r, o)) { steps++; gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, one); }
+    errs[`prep${steps}`] = gl.getError();
+    const prep = performance.now() - t;
+    const k1 = (eng as any).filmMade?.key as string | undefined;
+    const reused = (eng as any).filmShownKey === k1;
+    const tf = performance.now();
+    eng.render(bigSrc, r, o);
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, one);
+    const finalMs = Math.round(performance.now() - tf);
+    const k2 = (eng as any).filmMade?.key as string | undefined;
+    if (k1 && k2 && k1 !== k2) { const a = k1.split('|'), b = k2.split('|'); errs[`keyDiff${w}:${a.findIndex((x, i) => x !== b[i])}`] = 1; (window as any).__keys = [a.find((x, i) => x !== b[i]), b.find((x, i) => x !== a[i])]; }
+    gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, one);
+    return { steps, prepareMs: Math.round(prep), finalMs, reused, totalMs: Math.round(performance.now() - t) };
+  };
+  // Best of three, each a new edit (a slightly different exposure), so nothing is reused.
+  let edit = 0;
+  const best = (r: Recipe, view?: { x: number; y: number; w: number; h: number }): ReturnType<typeof settle> => {
+    const runs = [0, 1, 2].map(() => settle({ ...r, exposure: 0.01 * ++edit }, 2560, 1707, view));
+    return runs.reduce((a, b) => (b.totalMs < a.totalMs ? b : a));
+  };
+  const v100 = { x: 0.29, y: 0.29, w: 2560 / 6000, h: 1707 / 4000 };
+  const settles = { fitNone: best(base), fitFilm: best(film), at100None: best(base, v100), at100Film: best(film, v100) };
+  // Fit against 100% shrunk to Fit's size, over the same patch: the model says a zoomed-out view is
+  // the film seen smaller, so Fit's grain should be no stronger than the 100% view's, shrunk.
+  const fitVs100 = (() => {
+    const fw = 1500, fh = 1000, s = fw / 6000;
+    const fitG = eng.readPixels(bigSrc, film, fw, fh, 3).slice(), fitP = eng.readPixels(bigSrc, base, fw, fh, 3).slice();
+    // A 400 × 300 patch of the Fit view at (550, 350), and the same patch at 100%.
+    const px0 = 550, py0 = 350, pw = 400, ph = 300;
+    const view = { x: px0 / fw, y: py0 / fh, w: pw / fw, h: ph / fh };
+    const W1 = pw / s, H1 = ph / s;
+    const hiG = eng.readPixels(bigSrc, film, W1, H1, 3, false, view).slice(), hiP = eng.readPixels(bigSrc, base, W1, H1, 3, false, view).slice();
+    const lum = (a: Uint8Array, i: number) => shownLuma(a[i], a[i + 1], a[i + 2]);
+    let fitR = 0, downR = 0, hiR = 0;
+    for (let y = 0; y < ph; y++) for (let x = 0; x < pw; x++) {
+      const i = ((py0 + y) * fw + px0 + x) * 4;
+      fitR += (lum(fitG, i) - lum(fitP, i)) ** 2;
+      // The 100% view's box mean over the 4 × 4 pixels under this Fit pixel.
+      let d = 0;
+      for (let v = 0; v < 4; v++) for (let u = 0; u < 4; u++) { const j = ((y * 4 + v) * W1 + x * 4 + u) * 4; d += lum(hiG, j) - lum(hiP, j); }
+      downR += (d / 16) ** 2;
+    }
+    for (let i = 0; i < hiG.length; i += 4) hiR += (lum(hiG, i) - lum(hiP, i)) ** 2;
+    // The same shrink with the app's Fit resampler (darktable's Lanczos3), on the grain's change.
+    const diff = new Float32Array(W1 * H1 * 4);
+    for (let i = 0; i < hiG.length; i += 4) { const d = (lum(hiG, i) - lum(hiP, i)) / 255; diff[i] = diff[i + 1] = diff[i + 2] = d; diff[i + 3] = 1; }
+    const lz = resample(diff, W1, H1, 0.25);
+    let lzR = 0, lzN = 0;
+    for (let y = 4; y < lz.h - 4; y++) for (let x = 4; x < lz.w - 4; x++) { lzR += (lz.data[(y * lz.w + x) * 4] * 255) ** 2; lzN++; }
+    const n = pw * ph;
+    const mean = (a: Uint8Array) => { let t = 0; for (let i = 0; i < a.length; i += 4) t += lum(a, i); return +(t / (a.length / 4)).toFixed(1); };
+    const row = (a: Uint8Array, w: number, y: number) => Array.from({ length: 6 }, (_, q) => Math.round(lum(a, (y * w + Math.floor(q * w / 6)) * 4)));
+    return { fitRms: +Math.sqrt(fitR / n).toFixed(2), hundredShrunkRms: +Math.sqrt(downR / n).toFixed(2), hundredLanczosRms: +Math.sqrt(lzR / lzN).toFixed(2), hundredRms: +Math.sqrt(hiR / (W1 * H1)).toFixed(2),
+      means: { hiG: mean(hiG), hiP: mean(hiP), W1, H1 }, rowsHiG: row(hiG, W1, H1 / 2), rowsHiP: row(hiP, W1, H1 / 2), rowsFit: row(fitP, fw, py0 + ph / 2).slice(0, 6) };
+  })();
+  // The tone on flat greys: Film grain must not move it (Amount 50 the stock's grain, 100 twice).
+  const toneShift: Record<string, number> = {};
+  for (const grey of [64, 128, 192]) {
+    const flatC = document.createElement('canvas');
+    flatC.width = 6000; flatC.height = 4000;
+    const fx = flatC.getContext('2d')!;
+    fx.fillStyle = `rgb(${grey},${grey},${grey})`; fx.fillRect(0, 0, 6000, 4000);
+    const flatSrc = eng.sourceFromImage(flatC, 6000, 4000);
+    const meanL = (a: Uint8Array) => { let t = 0; for (let i = 0; i < a.length; i += 4) t += shownLuma(a[i], a[i + 1], a[i + 2]); return t / (a.length / 4); };
+    for (const [where, view] of [['fit', undefined], ['100', { x: 0.4, y: 0.4, w: 0.1, h: 0.1 }]] as const) {
+      const w = where === 'fit' ? 1500 : 600, h = where === 'fit' ? 1000 : 400;
+      const plain = meanL(eng.readPixels(flatSrc, base, w, h, 3, false, view));
+      for (const amount of [50, 100]) toneShift[`${grey}_${where}_a${amount}`] = +(meanL(eng.readPixels(flatSrc, { ...film, grain: amount }, w, h, 3, false, view)) - plain).toFixed(2);
+    }
+    eng.release(flatSrc);
+  }
+  const passCost: Record<string, number> = {};
+  for (const n of [0, 1, 2]) { FilmGrainGpu.passes = n; passCost[`upTo${n}`] = best(film).totalMs; }
+  FilmGrainGpu.passes = 2;
+  out.engine = {
+    meanPlain: +(meanPlain / n).toFixed(2), meanFilm: +(meanGrain / n).toFixed(2), grainRms: +Math.sqrt(rms / n).toFixed(2),
+    msFirst: Math.round(msFull), msAgain: Math.round(msCached), repeatable: same === n,
+    halves: { differ: seamDiff, max: seamMax, plainDiff, worstRows }, screen, timings, settles, passCost, fitVs100, toneShift, errs, keys: (window as any).__keys,
+  };
+  out.glError = gl.getError();
+  return out;
+}
+
 view.width = W; view.height = H;
 document.body.append(view);
 const out: Record<string, unknown> = {};
 try {
-  if (new URLSearchParams(location.search).has('greymix')) {
+  if (new URLSearchParams(location.search).has('filmgrain')) {
+    const eng = new Engine(view);
+    out.filmGrain = probeFilmGrain(eng);
+  } else if (new URLSearchParams(location.search).has('greymix')) {
     const eng = new Engine(view);
     out.greyMix = probeGreyMix(eng);
     out.glError = eng.gpu.gl.getError();
@@ -1080,6 +1342,35 @@ try {
     createRoot(host).render(createElement('div', { className: 'grouped-controls-body' },
       ...[[true, cam('darktable')], [true, cam('none')], [false, null], [true, null]].map(([raw, camera], i) => createElement('div', { key: i, className: 'control-section-slot' }, createElement(CameraColourWarning, { raw: raw as boolean, camera: camera as never }))),
       createElement('div', { className: 'control-section-slot' }, createElement(Section, { id: 'probe-wb', title: 'White Balance', defaultOpen: false, children: createElement('p', null, 'x') }))));
+  } else if (new URLSearchParams(location.search).has('grainpanel')) {
+    // ?grainpanel: the Grain section on a Film grain photo at Amount 100. Picks a stock and a film
+    // speed through the real menus and reports the photo's recipe after each.
+    setWorkspace({ group: 'refine' });
+    localStorage.setItem('emulsion.folded', JSON.stringify(['stock', 'development', 'scanner', 'crop', 'adjust', 'curve', 'color', 'grading', 'detail', 'optics', 'noise', 'lens']));
+    const recipe = { ...defaultRecipe('neutral', 'straight'), grainType: 'film' as const, grain: 100 };
+    useApp.setState({ photos: [{ path: '/probe/g.ORF', rel: 'g.ORF', name: 'Grain test', size: 1, modified: 0, recipe, seed: 1, white: null, rating: 0, label: null, flag: null, raw: true, pair: null }], active: 0, view: 'develop' } as never);
+    const host = document.createElement('div');
+    host.style.cssText = 'position:fixed;inset:0 auto 0 0;width:340px;display:grid;z-index:100';
+    document.body.append(host);
+    createRoot(host).render(createElement(Panel));
+    const grainOf = () => { const r = useApp.getState().photos[0].recipe!; return { grain: r.grain, iso: r.grainIso, irr: r.grainIrregularity, stock: r.grainStock, type: r.grainType }; };
+    const pick = (id: string, value: string) => {
+      const el = host.querySelector<HTMLSelectElement>(`#${id}`);
+      if (!el) return `no #${id}`;
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(el, value);
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      return 'ok';
+    };
+    const steps: unknown[] = [];
+    await new Promise((r) => setTimeout(r, 500));
+    steps.push({ start: grainOf(), stockMenu: !!host.querySelector('#grain-stock') });
+    steps.push({ stock: pick('grain-stock', 'portra400') });
+    await new Promise((r) => setTimeout(r, 100));
+    steps.push({ afterStock: grainOf() });
+    steps.push({ speed: pick('grain-iso', '800') });
+    await new Promise((r) => setTimeout(r, 100));
+    steps.push({ afterSpeed: grainOf() });
+    out.grainPanel = steps;
   } else if (new URLSearchParams(location.search).has('nrpanel')) {
     // The Detail section's noise rows, for a screenshot: an OM-3 RAW at ISO 4000, a JPEG below.
     const host = document.createElement('aside');
