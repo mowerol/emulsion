@@ -44,7 +44,7 @@ import { mulVec, srgbEotf, srgbOetf, SRGB_TO_REC2020, REC2020_TO_SRGB } from '..
 import { STOCK, type Stock } from '../../src/film/stocks';
 import { toneInverse } from '../../src/engine/tone';
 import { effectiveIso, grainL } from '../../src/engine/grain';
-import { FILM_TILE, bakeParams, coverageFor, exactShare, filmChange, filmMargin, filmPlan, filterEnergy, filterTaps, meanCoverage, renderFilmGrain, shownLuma, tileLevel, varianceShape, type FilmKind } from '../../src/engine/filmgrain';
+import { FILM_TILE, bakeParams, filmAmounts, filmGrainGain, filmGrainParams, filmViewEnergy, coverageFor, exactShare, filmChange, filmMargin, filmPlan, filterEnergy, filterTaps, meanCoverage, renderFilmGrain, shownLuma, tileLevel, varianceShape, type FilmKind } from '../../src/engine/filmgrain';
 import type { BoolGrainParams } from '../../src/engine/boolgrain';
 import { FilmGrainGpu } from '../../src/engine/filmgraingpu';
 import { CURVE_RES, curveTable, type ToneCurve } from '../../src/film/curve';
@@ -1088,6 +1088,23 @@ function probeFilmGrain(eng: Engine) {
   errs.afterHalves = gl.getError();
   const screen = { exactMs: scr(film, false), againMs: scr(film, false), liveMs: scr(brighter, true), inexactAfterLive: eng.inexact, settleMs: scr(brighter, false), inexactAfterSettle: eng.inexact };
   errs.afterScreen = gl.getError();
+  // Size and Softness on screen: Size scales the one film's grain (filmSizeGain); a Softness drag's
+  // live frame rescales the held grain (filmGrainGain), against an exact render at the new Softness.
+  const grainOnScreen = (r: Recipe) => {
+    eng.render(src, r, { target: 'screen', width: sw, height: sh, seed: 3 });
+    const px = new Uint8Array(sw * sh * 4);
+    gl.readPixels(0, 0, sw, sh, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    return px;
+  };
+  const rmsAgainst = (a: Uint8Array, b: Uint8Array) => { let e2 = 0; for (let i = 0; i < a.length; i += 4) e2 += (shownLuma(a[i], a[i + 1], a[i + 2]) - shownLuma(b[i], b[i + 1], b[i + 2])) ** 2; return Math.sqrt(e2 / (a.length / 4)); };
+  const plainPx = grainOnScreen(base);
+  const at400 = rmsAgainst(grainOnScreen({ ...film, grain: 50, grainIso: 400 }), plainPx);
+  const at1600 = rmsAgainst(grainOnScreen({ ...film, grain: 50, grainIso: 1600 }), plainPx);
+  const softP = (s: number) => filmGrainParams({ ...film, grainSoftness: s }, sw, sh, 3)!;
+  const soft15 = rmsAgainst(grainOnScreen({ ...film, grain: 50, grainSoftness: 15 }), plainPx);
+  const p575 = softP(5.75), p15 = softP(15);
+  const sizeAndSoftness = { size1600: +(at1600 / at400).toFixed(3), sizeGain: +(filmAmounts({ grain: 50, grainIso: 1600 }).grain).toFixed(3),
+    softness15: +(soft15 / at400).toFixed(3), softnessGain: +filmGrainGain({ radius: p575.radius, energy: filmViewEnergy(p575, 1) }, p15.radius, filmViewEnergy(p15, 1)).toFixed(3) };
   // A 24 MP frame at Fit (a quarter) and at 100% (a quarter of it, 1:1): the time each takes.
   const big = document.createElement('canvas');
   big.width = 6000; big.height = 4000;
@@ -1186,7 +1203,7 @@ function probeFilmGrain(eng: Engine) {
   out.engine = {
     meanPlain: +(meanPlain / n).toFixed(2), meanFilm: +(meanGrain / n).toFixed(2), grainRms: +Math.sqrt(rms / n).toFixed(2),
     msFirst: Math.round(msFull), msAgain: Math.round(msCached), repeatable: same === n,
-    halves: { differ: seamDiff, max: seamMax, plainDiff, worstRows }, screen, timings, settles, passCost, fitVs100, toneShift, errs, keys: (window as any).__keys,
+    halves: { differ: seamDiff, max: seamMax, plainDiff, worstRows }, screen, sizeAndSoftness, timings, settles, passCost, fitVs100, toneShift, errs, keys: (window as any).__keys,
   };
   out.glError = gl.getError();
   return out;
@@ -1355,23 +1372,11 @@ try {
     host.style.cssText = 'position:fixed;inset:0 auto 0 0;width:340px;display:grid;z-index:100';
     document.body.append(host);
     createRoot(host).render(createElement(Panel));
-    const grainOf = () => { const r = useApp.getState().photos[0].recipe!; return { grain: r.grain, iso: r.grainIso, irr: r.grainIrregularity, stock: r.grainStock, type: r.grainType }; };
-    const pick = (id: string, value: string) => {
-      const el = host.querySelector<HTMLSelectElement>(`#${id}`);
-      if (!el) return `no #${id}`;
-      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')!.set!.call(el, value);
-      el.dispatchEvent(new Event('change', { bubbles: true }));
-      return 'ok';
-    };
+    const grainOf = () => { const r = useApp.getState().photos[0].recipe!; return { grain: r.grain, iso: r.grainIso, softness: r.grainSoftness, type: r.grainType }; };
     const steps: unknown[] = [];
     await new Promise((r) => setTimeout(r, 500));
-    steps.push({ start: grainOf(), stockMenu: !!host.querySelector('#grain-stock') });
-    steps.push({ stock: pick('grain-stock', 'portra400') });
-    await new Promise((r) => setTimeout(r, 100));
-    steps.push({ afterStock: grainOf() });
-    steps.push({ speed: pick('grain-iso', '800') });
-    await new Promise((r) => setTimeout(r, 100));
-    steps.push({ afterSpeed: grainOf() });
+    // Film grain: no film menu, no Irregularity; the Film speed menu sets Size; a note says what Amount 50 is.
+    steps.push({ start: grainOf(), stockMenu: !!host.querySelector('#grain-stock'), irregularity: !!host.querySelector('#slider-grainIrregularity'), speedMenu: !!host.querySelector('#grain-iso'), note: host.querySelector('.grain-film-note')?.textContent, amountTitle: host.querySelector('label[for="slider-grain"]')?.getAttribute('title') });
     out.grainPanel = steps;
   } else if (new URLSearchParams(location.search).has('nrpanel')) {
     // The Detail section's noise rows, for a screenshot: an OM-3 RAW at ISO 4000, a JPEG below.

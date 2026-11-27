@@ -22,7 +22,7 @@ export interface WorkspaceSlider {
   setup?: 'stock' | 'ai-noise-tools';
 }
 export interface WorkspaceBlock { id: string; label: string; category: string; section?: SectionId; recipeFields?: (keyof Recipe)[]; fields: string[]; reset?: (r: Recipe) => Recipe }
-const labels: Record<string, string> = { lookAmount: 'Look amount', grain: 'Grain amount', grainIso: 'Grain size', grainMidtones: 'Grain mid-tones', grainIrregularity: 'Grain irregularity', grainSoftness: 'Grain softness', sharpenRadius: 'Sharpening radius', sharpenMasking: 'Sharpening masking', captureSharpening: 'Capture sharpening', dehazeDistance: 'Dehaze distance' };
+const labels: Record<string, string> = { lookAmount: 'Look amount', grain: 'Grain amount', grainIso: 'Grain size', grainMidtones: 'Grain mid-tones', grainSoftness: 'Grain softness', sharpenRadius: 'Sharpening radius', sharpenMasking: 'Sharpening masking', captureSharpening: 'Capture sharpening', dehazeDistance: 'Dehaze distance' };
 const categories = { look: 'Look', adjust: 'Tone & colour', detail: 'Detail', optics: 'Finish', grain: 'Grain' };
 const signed = (v: number) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(Number(v.toFixed(2)))}`;
 const basic: WorkspaceSlider[] = SLIDERS.map(d => ({
@@ -129,7 +129,6 @@ export const WORKSPACE_BLOCKS: WorkspaceBlock[] = [
   { id: 'masks', label: 'Masks', category: 'Tools', section: 'masks', recipeFields: ['masks'], fields: [] },
   { id: 'detail-order', label: 'Detail processing order', category: 'Tools', fields: [] },
   { id: 'grain-type', label: 'Grain type', category: 'Tools', fields: [], recipeFields: ['grainType'], reset: r => ({ ...r, grainType: undefined }) },
-  { id: 'grain-stock', label: 'Film grain stock', category: 'Tools', fields: [], recipeFields: ['grainStock'], reset: r => ({ ...r, grainStock: undefined }) },
   { id: 'grain-speed', label: 'Film speed presets', category: 'Tools', fields: [] },
 ];
 export const WORKSPACE_CATALOG = [...WORKSPACE_SLIDERS, ...WORKSPACE_BLOCKS];

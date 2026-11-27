@@ -14,7 +14,7 @@ export const WORKSPACE_GROUPS: WorkspaceGroupDefinition[] = [
   { id: 'grading', name: 'Colour wheels', icon: 'palette', controls: ['grading-wheel', ...WORKSPACE_SLIDERS.filter(d => d.category === 'Colour grading').map(d => d.id), 'shadows', 'saturation'] },
   { id: 'detail', name: 'Detail', icon: 'focus', controls: [...WORKSPACE_SLIDERS.filter(d => d.category === 'Detail').map(d => d.id), 'detail-order'] },
   { id: 'optics', name: 'Optics', icon: 'sparkles', controls: WORKSPACE_SLIDERS.filter(d => d.category === 'Finish').map(d => d.id) },
-  { id: 'grain', name: 'Grain', icon: 'film', controls: ['grain-type', 'grain-stock', 'grain-speed', ...WORKSPACE_SLIDERS.filter(d => d.category === 'Grain').map(d => d.id)] },
+  { id: 'grain', name: 'Grain', icon: 'film', controls: ['grain-type', 'grain-speed', ...WORKSPACE_SLIDERS.filter(d => d.category === 'Grain').map(d => d.id)] },
   { id: 'noise', name: 'Noise reduction', icon: 'waves', controls: WORKSPACE_SLIDERS.filter(d => d.category === 'Noise reduction').map(d => d.id) },
   { id: 'lens', name: 'Lens corrections', icon: 'aperture', controls: ['lens-tools', ...WORKSPACE_SLIDERS.filter(d => d.category === 'Lens corrections').map(d => d.id)] },
   { id: 'transform', name: 'Transform', icon: 'focus', controls: ['transform-tools', ...WORKSPACE_SLIDERS.filter(d => d.category === 'Transform').map(d => d.id)] },

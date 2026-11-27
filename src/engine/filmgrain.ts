@@ -30,9 +30,11 @@
 // - The image is the finished photo's display-encoded luma at the size it is shown, and the render
 //   replaces it, keeping the photo's colour (the reference renders grey images). Grains are placed
 //   in the uncropped frame's full-resolution pixels, so the film is the same at every zoom.
-// - The parameters come from film stocks' published granularity (FILM_STOCKS). The change is split
-//   into its softening and its grain, the grain less its expected print (so it never shifts the
-//   tone, as a printer's exposure correction); Amount 50 is the model, 100 twice its grain.
+// - The parameters come from film stocks' published granularity (FILM_STOCKS), through one typical
+//   film (TYPICAL_FILM) at a fixed spread of the radii (FILM_SPREAD; the paper's σr), not chosen
+//   per photo. The change is split into its softening and its grain, the grain less its expected
+//   print (so it never shifts the tone, as a printer's exposure correction); Amount 50 is the
+//   model, 100 twice its grain.
 // - As a lab scans it (agreed with Oli, 2026-11-26; docs/research/film-grain.md, "Measured against
 //   a lab scan"): the filter is a size on the film (Softness, in µm: a scanner's blur is fixed on
 //   the film, so grain per pixel is about the same in a 3,100 and a 6,800 px scan), not the
@@ -40,9 +42,14 @@
 //   µm, is 0.5 px of a 3,130 px lab scan, as crisp as one; and every stock's granularity is scaled
 //   by SCAN_GRANULARITY, so Amount 50 matches a lab scan of the film (fitted to 24 lab scans of
 //   Gold 200 and Portra 400 and 800, Oli's and Unsplash's), where the datasheets' diffuse
-//   granularity gave about a quarter of it. The filter is at least half a frame pixel
-//   (FILTER_MIN_PX), as a scan is at least as soft as its sampling. Zoomed in past 100% the
-//   filter stays in output pixels, as the reference's.
+//   granularity gave about a quarter of it; black and white by SCAN_GRANULARITY_BW, from Tri-X
+//   scans, as the datasheets make it about twice as grainy against colour as scans show. The
+//   filter is at least half a frame pixel (FILTER_MIN_PX), as a scan is at least as soft as its
+//   sampling. Zoomed in past 100% it is the full size's grain enlarged (the filter grows with the
+//   zoom; the reference's stays in output pixels), as the photo is.
+// - One film, typical film at its own speed, for every Size and push: they scale its grain
+//   (filmSizeGain), which with grains far smaller than the filter is what larger grains do
+//   (agreed with Oli, 2026-11-27), so they are exact live and never redraw the grains.
 // - The intensity is computed from the value directly (as boolgrain.ts), a cell holds at most 64
 //   grains (MAX_CELL_GRAINS; the reference's cap is 10000 × the intensity), and points outside the
 //   frame read its edge.
@@ -50,10 +57,10 @@
 //
 // Film grain (Grain type Film): the photo rebuilt from silver grains, discs whose centres are a
 // Poisson process with the intensity that makes them cover the share of the negative the photo
-// asks for, seen through a Gaussian filter, then printed. The stock sets how grainy the film is
-// (its granularity) and whether it is printed; Size (a film speed, pushed) scales the grain radius,
-// Irregularity the spread of the radii (keeping the stock's granularity), Softness the filter;
-// Amount 50 is the stock's grain as a lab scans it, 100 twice it. GPU twin: shaders/filmgrain-bake.frag.glsl (the film),
+// asks for, seen through a Gaussian filter, then printed. The film is typical film (TYPICAL_FILM,
+// set from the stocks' granularity as scanned); Size (a film speed, pushed) scales the grain
+// radius, Softness the filter; Amount 50 is typical film at that speed as a lab scans it, 100
+// twice it (agreed with Oli, 2026-11-26: no stock menu, as a stock only scales the grain). GPU twin: shaders/filmgrain-bake.frag.glsl (the film),
 // filmgrain-pyramid.frag.glsl (integrated), filmgrain.frag.glsl and filmgrain-cells.frag.glsl (the
 // grid), filmgrain-blur.frag.glsl (the filter, printed), driven by filmgraingpu.ts.
 
@@ -61,9 +68,6 @@ import { MAX_GREY, EPSILON_GREY, Prng, cellSeed, grainGeometry, type BoolGrainPa
 import { srgbEotf, srgbOetf } from './color';
 import { LANCZOS_WIDTH, lanczosTap } from './resample';
 
-/** Irregularity 100: the radius's deviation as a share of its mean (the log-normal's; the paper's
- * Figure 6 goes to a half). */
-export const IRREGULARITY_MAX = 0.5;
 /** Softness by default: the filter's deviation on the film, in µm. 5.75 µm is 0.5 px of a 3,130
  * px lab scan (a Frontier's), as crisp as its grain; about 1 px of a 26 MP frame (the reference's
  * is 0.8 output pixels at every size; see the header). */
@@ -77,10 +81,19 @@ export const FILTER_MIN_PX = 0.5;
  * Softness: fitted to Oli's Kodak Gold 200 lab scans (3,130 px, no sharpening added; midtone grain
  * at 100% 6.4 to 6.9 / 255 against 2.5 to 2.9 from the datasheet), and the median of 24 lab scans
  * of Gold 200, Portra 400 and Portra 800 from 3,000 to 6,800 px (2.43; docs/research/film-grain.md).
- * One factor for every stock: web samples (1,024 px) put colour negatives within their
- * datasheets' order, and black and white ones disagreed with each other.
+ * Colour negatives, cinema and slides take it: web samples (1,024 px) put colour negatives within
+ * their datasheets' order. Slides are not yet checked against scans.
  */
 export const SCAN_GRANULARITY = 2.44;
+/**
+ * Black and white's: Tri-X 400 lab scans (Unsplash, 35 mm, 3,000 px) hold about half the grain
+ * its datasheet times SCAN_GRANULARITY gives (12 against 24 / 255 in the midtones of the crispest
+ * scan; softer scans less), so about 1.8 × Gold 200's rather than the datasheets' 3.5 ×, as
+ * thedarkroom's samples also put it (1.5 ×). Agreed with Oli, 2026-11-26.
+ */
+export const SCAN_GRANULARITY_BW = 1.3;
+/** The scan factor for a stock (SCAN_GRANULARITY, or SCAN_GRANULARITY_BW for black and white). */
+export const scanGranularity = (stock: FilmStock) => (stock.group === 'Black and white' ? SCAN_GRANULARITY_BW : SCAN_GRANULARITY);
 /** The film width a frame's long edge stands for, in µm (35 mm). */
 export const FRAME_UM = 36000;
 
@@ -121,8 +134,20 @@ export const FILM_STOCKS: FilmStock[] = [
   { id: 'provia400f', name: 'Fujifilm Provia 400F', group: 'Slide', iso: 400, rms: 13, spread: 0.2, kind: 'slide' },
 ];
 export const FILM_STOCK: Record<string, FilmStock> = Object.fromEntries(FILM_STOCKS.map((f) => [f.id, f]));
-/** With no stock chosen: conventional black and white film's granularity (Tri-X 400's) at its speed. */
-export const GENERIC_STOCK: FilmStock = { id: '', name: 'Any film', group: 'Black and white', iso: 400, rms: 17, spread: 0.4, kind: 'negative' };
+/**
+ * The spread of the grains' radii (Irregularity 60): between modern colour and tabular film (0.2)
+ * and conventional crystals (0.4). Not a control: at a fixed granularity it is not visible (40
+ * against 80 differed by about 1% in grain and not in texture at 100% and 400%; research log), and
+ * one spread means one baked film for every photo.
+ */
+export const FILM_SPREAD = 0.3;
+/**
+ * The film Film grain renders (agreed with Oli, 2026-11-26): typical film, Kodak UltraMax 400's
+ * granularity as a lab scans it (12.7, consumer colour; T-Max 400 as scanned is 13), between pro
+ * colour (Portra 400, 9.8) and conventional black and white (Tri-X 400, 22.1). A stock only scales
+ * the grain, so Amount stands in for the choice (filmAmountFor).
+ */
+export const TYPICAL_FILM: FilmStock = { id: 'typical', name: 'Typical film', group: 'Colour negative', iso: 400, rms: 5.2, spread: FILM_SPREAD, kind: 'negative' };
 
 /**
  * The model's granularity per µm of mean radius (σD at density 1.0 through a 48 µm aperture), by
@@ -146,7 +171,7 @@ export const PUSH_FACTOR = 1.15;
 
 /**
  * The mean radius in µm on the negative: the radius whose discs give the stock's granularity at
- * the grains' spread (so Irregularity changes the grains, not how grainy the film is), scaled from
+ * the grains' spread (so the spread changes the grains, not how grainy the film is), scaled from
  * the stock's speed to Size's and by the push.
  */
 export function radiusUm(stock: FilmStock, iso: number, spread: number, push: number): number {
@@ -154,47 +179,59 @@ export function radiusUm(stock: FilmStock, iso: number, spread: number, push: nu
 }
 
 export interface FilmGrainSettings {
-  /** Amount, 0 to 100: how much of the model's render replaces the photo (100: all of it). */
+  /** Amount, 0 to 100: 50 is typical film's grain, 100 twice it (filmAmounts). */
   grain: number;
   /** Size, as a film speed, and the push. */
   grainIso: number;
   push: number;
-  grainIrregularity: number;
   /** Softness: the filter's deviation on the film, in µm. */
   grainSoftness: number;
-  /** The stock (FILM_STOCKS), or none. */
-  grainStock?: string;
+  /** Reshuffles: each draws the grains afresh, the same film (0 or absent: the photo's own draw). */
+  grainSeed?: number;
 }
-export const stockOf = (r: Pick<FilmGrainSettings, 'grainStock'>) => (r.grainStock && FILM_STOCK[r.grainStock]) || GENERIC_STOCK;
-export const filmKindOf = (r: Pick<FilmGrainSettings, 'grainStock'>): FilmKind => stockOf(r).kind;
+/** The Amount that gives a negative stock's own grain as a lab scans it, with Size at its speed:
+ * its scanned granularity against typical film's at that speed (Ektar 100 about 34, Portra 400 38,
+ * Gold 200 60, Tri-X 400 87). Not for slides, whose granularity is of the film viewed. */
+export const filmAmountFor = (stock: FilmStock) =>
+  (50 * stock.rms * scanGranularity(stock)) / (TYPICAL_FILM.rms * scanGranularity(TYPICAL_FILM) * (stock.iso / TYPICAL_FILM.iso) ** ISO_EXPONENT);
 
 /** The model's parameters for a frame of fullW × fullH pixels (its long edge a 35 mm frame's
  * width), or null when Amount is 0 (the Amount itself is not the model's: filmAmount). */
 export function filmGrainParams(r: FilmGrainSettings, fullW: number, fullH: number, seed: number): BoolGrainParams | null {
   if (!(r.grain > 0)) return null;
-  const spread = IRREGULARITY_MAX * Math.min(1, Math.max(0, r.grainIrregularity / 100));
-  const radius = radiusUm(stockOf(r), r.grainIso, spread, r.push) * SCAN_GRANULARITY / FRAME_UM * Math.max(fullW, fullH);
+  // One film for every Size and push: typical film at its own speed. Size and push scale its grain
+  // (filmSizeGain), which with grains far smaller than the filter is what a larger grain does.
+  const radius = radiusUm(TYPICAL_FILM, TYPICAL_FILM.iso, FILM_SPREAD, 0) * scanGranularity(TYPICAL_FILM) / FRAME_UM * Math.max(fullW, fullH);
   return {
     radius,
-    sigmaR: radius * spread,
+    sigmaR: radius * FILM_SPREAD,
     // Softness is on the film (µm), like the grains: the same share of the frame at every size,
     // down to half a pixel.
     sigmaFilter: Math.max(FILTER_MIN_PX, r.grainSoftness / FRAME_UM * Math.max(fullW, fullH)),
     samples: 0,
-    // Emulsion's seeds are 0.5 to 40.5 in hundredths (seedFor).
-    seed: Math.round(seed * 100) >>> 0,
+    // Emulsion's seeds are 0.5 to 40.5 in hundredths (seedFor); a reshuffle moves to another draw.
+    seed: (Math.round(seed * 100) + Math.max(0, Math.floor(r.grainSeed ?? 0)) * 104729) >>> 0,
   };
 }
 /**
- * Amount (agreed with Oli): 50 is the model, the stock's own grain; 100 doubles the grain. The
+ * Amount (agreed with Oli): 50 is the model, typical film's grain; 100 doubles the grain. The
  * model's change is split into its softening (the photo seen through the filter, filmChange) and
  * its grain (the render's departure from that): the softening fades in to Amount 50 and then
  * stays, the grain grows with Amount. Below 50 both fade, as a mix with the photo would.
  */
-export const filmAmounts = (r: Pick<FilmGrainSettings, 'grain'>) => {
+export const filmAmounts = (r: Pick<FilmGrainSettings, 'grain'> & Partial<Pick<FilmGrainSettings, 'grainIso' | 'push'>>) => {
   const a = Math.min(100, Math.max(0, r.grain)) / 50;
-  return { soft: Math.min(1, a), grain: a };
+  return { soft: Math.min(1, a), grain: a * filmSizeGain(r) };
 };
+/**
+ * Size and push as the grain's strength (agreed with Oli, 2026-11-27): the film's radius scales as
+ * speed^0.35 and 1.15 a pushed stop (radiusUm), and with grains far smaller than the filter (a
+ * twentieth of it at ISO 400, a tenth at 3200, on 26 MP) the render's grain grows in proportion to
+ * the radius while its texture stays the filter's, so the one film's grain is scaled instead of
+ * drawing another: Size and push are exact live, and never redraw the grains.
+ */
+export const filmSizeGain = (r: Partial<Pick<FilmGrainSettings, 'grainIso' | 'push'>>) =>
+  r.grainIso === undefined ? 1 : radiusUm(TYPICAL_FILM, r.grainIso, FILM_SPREAD, r.push ?? 0) / radiusUm(TYPICAL_FILM, TYPICAL_FILM.iso, FILM_SPREAD, 0);
 
 /**
  * Grid points per output pixel along each axis: spaced no wider than a grain (closer spacing
@@ -209,15 +246,17 @@ export function gridDensity(radiusOut: number, sigmaFilter: number): number {
 }
 
 /**
- * The view's filter along one axis, in output pixels. At 100% and closer it is the reference's
- * Gaussian of σ output pixels. Zoomed out it is the full size's (the Gaussian of σ frame pixels,
+ * The view's filter along one axis, in output pixels: the Gaussian of σ frame pixels, σ × scale
+ * output pixels, at 100% and closer (the full size's grain, enlarged). Zoomed out it is the full size's (the Gaussian of σ frame pixels,
  * σ × scale output pixels) followed by the shrink the app gives the photo at Fit, darktable's
  * Lanczos3 (resample.ts): a zoomed-out view or a smaller export shows the full-size grain shrunk,
  * where the reference renders each size afresh through σ output pixels, which showed about half
  * the grain (agreed with Oli, 2026-11-26; docs/research/film-grain-methods.md, (b) 2).
  */
 export function viewFilter(sigma: number, scale: number): { reach: number; at: (d: number) => number } {
-  if (scale >= 1) return { reach: 3 * sigma, at: (d) => Math.exp((-0.5 * d * d) / (sigma * sigma)) };
+  // Zoomed in, the full size's grain enlarged, as the photo is (agreed with Oli, 2026-11-27): the
+  // filter grows with the zoom, so the grains never come closer to its size than at 100%.
+  if (scale >= 1) { const s = sigma * scale; return { reach: 3 * s, at: (d) => Math.exp((-0.5 * d * d) / (s * s)) }; }
   const s = sigma * scale, W = LANCZOS_WIDTH;
   if (s < 0.05) return { reach: W, at: (d) => (Math.abs(d) < W ? lanczosTap(d) : 0) };
   // Lanczos3 convolved with the Gaussian, integrated numerically.
@@ -255,7 +294,7 @@ export const pyramidKnot = (j: number) => (1 - Math.cos((Math.PI * j) / (PYRAMID
 export interface FilmPlan { integrated: boolean; k: number; level: number }
 export function filmPlan(p: BoolGrainParams, scale: number, tile: FilmTile = FILM_TILE): FilmPlan {
   const radiusOut = p.radius * scale;
-  if (radiusOut >= INTEGRATE_BELOW) return { integrated: false, k: gridDensity(radiusOut, p.sigmaFilter), level: 0 };
+  if (radiusOut >= INTEGRATE_BELOW) return { integrated: false, k: gridDensity(radiusOut, p.sigmaFilter * Math.max(1, scale)), level: 0 };
   // A cell's side in texels.
   const cell = 1 / INTEGRATED_K / radiusOut / tile.texel;
   return { integrated: true, k: INTEGRATED_K, level: Math.min(PYRAMID_LAST, Math.max(PYRAMID_FIRST, Math.round(Math.log2(cell)))) };
@@ -409,6 +448,25 @@ export function varianceShape(c: number, spread: number): number {
   for (let i = 1; i < f.length; i++) if (spread <= f[i][0]) { k = f[i - 1][1] + ((spread - f[i - 1][0]) / (f[i][0] - f[i - 1][0])) * (f[i][1] - f[i - 1][1]); break; }
   return (1 - c) ** 2 * J * k;
 }
+/**
+ * The view's filter energy (filterEnergy) at this film's grid density, kept per filter and scale:
+ * with grains far smaller than the filter, the grain's RMS is the radius in output pixels times
+ * its root, so it rescales the grain shown while Size or Softness is dragged (filmGrainGain).
+ */
+const energies = new Map<string, number>();
+export function filmViewEnergy(p: BoolGrainParams, scale: number): number {
+  const k = filmPlan(p, scale).k, key = `${k}|${p.sigmaFilter}|${scale}`;
+  let e = energies.get(key);
+  if (e === undefined) {
+    if (energies.size > 64) energies.clear();
+    energies.set(key, e = filterEnergy(k, filterTaps(k, p.sigmaFilter, scale)));
+  }
+  return e;
+}
+/** The gain from a grain made at one radius and filter energy to another (the grain's RMS ratio). */
+export const filmGrainGain = (made: { radius: number; energy: number }, radius: number, energy: number) =>
+  made.radius > 0 && made.energy > 0 ? (radius / made.radius) * Math.sqrt(energy / made.energy) : 1;
+
 /** ∫K² of the view's filter over output pixels (2D, separable): (k Σ w²)² from its grid taps. */
 export const filterEnergy = (k: number, taps: { w: Float32Array }) => (k * taps.w.reduce((a, b) => a + b * b, 0)) ** 2;
 /** The print's expected value over the render's spread at the mean (three-point Gauss-Hermite). */
@@ -435,7 +493,7 @@ export function filmChange(filtered: number, mean: number, v: number, kind: Film
 /**
  * The baked film is made in units of the grain radius: the model is the same at every scale (a
  * film of radius r is the film of radius 1 shrunk by r), so one bake serves every Amount and every
- * photo, and only Irregularity (the radius's deviation relative to the radius) changes it. Its
+ * photo, and only the spread (the radius's deviation relative to the radius) changes it. Its
  * cells are a radius wide, where the reference's are 1 / ceil(1 / r) input pixels so each sits in
  * one input pixel; the baked film reads the shown value at each point instead, so the cells are
  * only how the grains are drawn: different grains, the same model.

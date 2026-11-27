@@ -57,7 +57,7 @@ import { SHADERS, SHADER_FILES } from './shaders';
 import { warmRecipe, type WarmStage } from './warm';
 import { chooseRegionWithin, REGION_SHARE, regionReach, regionWorthIt, stageReach, visibleSource, type PixelRect, type StageReach } from './region';
 import { displayDensity, workingScale } from './viewscale';
-import { FILM_TILE, bakeParams, filmAmounts, filmGrainParams, filmKindOf, filmMargin } from './filmgrain';
+import { FILM_TILE, TYPICAL_FILM, bakeParams, filmAmounts, filmGrainGain, filmGrainParams, filmMargin, filmViewEnergy } from './filmgrain';
 import { FilmGrainGpu, type FilmView } from './filmgraingpu';
 /** The whole source shrunk for Fit: its size, and darktable's one scale for the taps. */
 type Fit = { scale: number; w: number; h: number };
@@ -503,6 +503,16 @@ export class Engine {
   private mapsHeld = false;
   /** Whether the last screen render was live and narrowed a map, so an exact one is owed. */
   get inexact() { return this.regionLive || this.regionClarityScaled || this.regionFromPreview || this.mapsHeld || this.profiledOwed || this.retouchOwed; }
+  /**
+   * Whether rendering `recipe` would first bake Film grain's film (a new grain spread: one bake is
+   * kept, about a second or more). The develop loop then prepares the frame in steps (prepareFrame),
+   * keeping the last frame and its status up, rather than freezing in one render.
+   */
+  filmBakeOwed(src: Source, recipe: Recipe | null): boolean {
+    if (!recipe || recipe.grainType !== 'film' || !this.gpu.hdr) return false;
+    const p = filmGrainParams(recipe, src.fullW, src.fullH, 0);
+    return !!p && !this.filmGpu?.baked(FilmGrainGpu.filmKey(bakeParams(p), FILM_TILE));
+  }
   /** The last region admission decision, for the perf driver: why a zoomed view fell back to the whole photo. */
   regionStat: { admitted: boolean; reach: number; margin: number; visibleShare: number; share: number; kept: boolean; stages: Record<string, number> } | null = null;
   /** Which parts of `inexact` hold, for the perf driver's settle diagnosis. */
@@ -565,7 +575,9 @@ export class Engine {
   private filmDeltas: Target[] = [];
   /** The change for a render into a target (an export, a thumbnail): made each time, not kept. */
   private filmStill: Target | null = null;
-  private filmMade: { key: string; held: string; out: Target } | null = null;
+  /** The screen's last Film grain change: its key, what a live frame may show it for (`held`), and
+   * its grain's radius and filter energy, to rescale it while Size or Softness is dragged. */
+  private filmMade: { key: string; held: string; out: Target; radius: number; energy: number } | null = null;
   /** What the exact lane's developed frame (filmShown.exact) holds, so the settle's last render reuses it. */
   private filmShownKey: string | null = null;
   private denoiser: ProfiledDenoiser | null = null;
@@ -3877,9 +3889,12 @@ export class Engine {
       const exact = !screen || (!opts.live && !opts.moving);
       const hdr = opts.target !== 'screen' && opts.target.hdr;
       const [sw, sh] = opts.shown ?? [W, H];
-      const held = `${src.fullW}x${src.fullH}|${opts.seed}|${sw}x${sh}|${JSON.stringify(view)}|${JSON.stringify(frame)}|${JSON.stringify(filmP)}`;
-      const key = `${held}|${W}x${H}|${textureId(src.tex)}|${JSON.stringify(src.roi ?? null)}|${this.L.stack.generation}|${JSON.stringify({ ...recipe, grain: 0 })}|${opts.clipping}|${opts.maskShow}|${opts.split}|${opts.dither}|${this.detailOrder ?? Engine.detailOrder}|${this.retouchOwed}|${this.profiledOwed}`;
-      // Amount only scales the change as it is added, so it is not part of the key: its drag is exact.
+      // A live frame may show the last change for the same view and film: Size and Softness (the
+      // radius and the filter) only rescale it (filmGrainGain), so they are not part of `held`.
+      const held = `${src.fullW}x${src.fullH}|${opts.seed}|${sw}x${sh}|${JSON.stringify(view)}|${JSON.stringify(frame)}|${JSON.stringify({ ...filmP, radius: 0, sigmaR: 0, sigmaFilter: 0 })}`;
+      const key = `${held}|${W}x${H}|${textureId(src.tex)}|${JSON.stringify(src.roi ?? null)}|${this.L.stack.generation}|${JSON.stringify({ ...recipe, grain: 0, grainIso: 0, push: 0 })}|${opts.clipping}|${opts.maskShow}|${opts.split}|${opts.dither}|${this.detailOrder ?? Engine.detailOrder}|${this.retouchOwed}|${this.profiledOwed}`;
+      // Amount, Size and push only scale the change as it is added (filmAmounts), so they are not
+      // part of the key: their drags are exact.
       // A render into a target (an export, a thumbnail) makes its own change and leaves the
       // screen's alone; the screen keeps its last one for the live frames and the next settle.
       const lane = !screen ? 'still' : exact ? 'exact' : 'live';
@@ -3934,20 +3949,28 @@ export class Engine {
       else g.draw(this.develop, opts.target, opts.width, opts.height, false);
     } finally { if (displayColor) g.gl.bindSampler(0, null); }
     if (!film) return;
-    let delta: Target | null = null;
+    let delta: Target | null = null, gain = 1;
     if (film.into) {
       yield* this.filmGpu!.bakeSteps(film.bake, film.tile, film.filmKey);
-      yield* this.filmGpu!.deltaSteps(film.shown, film.m, film.into, film.fv, filmP!, film.tile, filmKindOf(recipe!));
+      yield* this.filmGpu!.deltaSteps(film.shown, film.m, film.into, film.fv, filmP!, film.tile, TYPICAL_FILM.kind);
     }
     if (opts.target !== 'screen') delta = film.into;
     else {
-      if (film.into) this.filmMade = { key: film.key, held: film.held, out: film.into };
-      if (this.filmMade && (this.filmMade.key === film.key || !film.exact && this.filmMade.held === film.held)) delta = this.filmMade.out;
+      const energy = filmViewEnergy(filmP!, film.fv.scale);
+      if (film.into) this.filmMade = { key: film.key, held: film.held, out: film.into, radius: filmP!.radius, energy };
+      if (this.filmMade && (this.filmMade.key === film.key || !film.exact && this.filmMade.held === film.held)) {
+        delta = this.filmMade.out;
+        // Dragging Size or Softness: the grain held, rescaled to the new radius and filter (grains far
+        // smaller than the filter: its texture is the filter's, its strength the radius times the
+        // filter's energy's root). The settle then makes it exactly, with a new draw of grains.
+        if (this.filmMade.key !== film.key) gain = filmGrainGain(this.filmMade, filmP!.radius, energy);
+      }
       // A live frame shows the change made before the drag, or none: the settle makes it exactly.
       if (!film.exact && this.filmMade?.key !== film.key) this.mapsHeld = true;
     }
     if (opts.prepare === 'frame') return;
-    this.filmGpu!.compose(film.shown, film.m, delta, filmAmounts(recipe!), (u.uSplit as number) ?? -1, film.W, film.H);
+    const amounts = filmAmounts(recipe!);
+    this.filmGpu!.compose(film.shown, film.m, delta, { ...amounts, grain: amounts.grain * gain }, (u.uSplit as number) ?? -1, film.W, film.H);
     if (opts.target === 'screen') this.toScreen(this.filmGpu!.composeP, film.W, film.H);
     else {
       g.draw(this.filmGpu!.composeP, opts.target, film.W, film.H, false);

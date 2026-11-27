@@ -12,15 +12,15 @@ import { flushSaves } from '../library/sidecars';
 
 import { type ReactNode, memo, useCallback, useEffect, useRef, useState } from 'react';
 import type { ToneCurve } from '../film/curve';
-import { Blend, ClipboardPaste, Copy, Ellipsis, Eraser, Redo2, RotateCcw, SlidersHorizontal, Sparkle, SquareDashedMousePointer, SwatchBook, Tags, Undo2, type LucideIcon } from 'lucide-react';
+import { Blend, ClipboardPaste, Copy, Ellipsis, Eraser, Redo2, RotateCcw, Shuffle, SlidersHorizontal, Sparkle, SquareDashedMousePointer, SwatchBook, Tags, Undo2, type LucideIcon } from 'lucide-react';
 import { CameraColourWarning } from './CameraProfile';
 import { TransformControls, transformSummary } from './TransformControls';
 import { LensControls } from './LensControls';
 import { ColourGradingControls } from './ColourGrading';
-import { BRIGHT_RANGE, COLOR_CHANNELS, DEFAULT_STOCK, HUE_DEGREES, SAT_RANGE, SLIDER, SLIDERS, defaultRecipe, grainTypeOf, sliderApplies, uneditedRecipe, normalizeRecipe, tidyColor, type ColorAdjust, resetAdjustments, resetSection, sectionChanged, sliderDefault, withSettingsFrom, withSlider, type Recipe, type SectionId, type SliderDef } from '../film/recipe';
+import { BRIGHT_RANGE, COLOR_CHANNELS, DEFAULT_STOCK, HUE_DEGREES, SAT_RANGE, SLIDER, SLIDERS, defaultRecipe, filmGrainReference, grainTypeOf, sliderApplies, uneditedRecipe, normalizeRecipe, tidyColor, type ColorAdjust, resetAdjustments, resetSection, sectionChanged, sliderDefault, withSettingsFrom, withSlider, type Recipe, type SectionId, type SliderDef } from '../film/recipe';
 import type { ScannerId } from '../film/scanners';
 import { ScannerFinishControls } from './ScannerFinish';
-import { FILM_STOCKS } from '../engine/filmgrain';
+import { FILM_STOCK, filmAmountFor } from '../engine/filmgrain';
 import { STOCK } from '../film/stocks';
 import {
   activePhoto, restoreRecoveredFamily, openCopySettings, editActive, editRecipes, pasteSettings, redo, showToast, targets, undo, useApp,
@@ -91,9 +91,13 @@ type SliderRowProps = { def: SliderDef; recipe: Recipe | null; raw?: boolean; on
 const SliderRow = memo(function SliderRow({ def, recipe, raw, onChange }: SliderRowProps) {
   const value = recipe ? recipe[def.key] : sliderDefault(def, DEFAULT_STOCK, raw);
   const fmt = def.format ?? String;
-  const fallback = sliderDefault(def, recipe?.stock ?? DEFAULT_STOCK, raw);
+  // Film grain's sliders refer to the chosen film (its own grain at Amount 50, its speed, its
+  // spread); the others to the Look's defaults.
+  const film = filmGrainReference(def.key, recipe);
+  const fallback = film ?? sliderDefault(def, recipe?.stock ?? DEFAULT_STOCK, raw);
   const changed = Math.abs(value - fallback) > 1e-9;
-  const tick = def.stockKey && recipe ? (def.log ? toLog(def, sliderDefault(def, recipe.stock)) / LOG_STEPS : (sliderDefault(def, recipe.stock) - def.min) / (def.max - def.min)) : null;
+  const marked = film ?? (def.stockKey && recipe ? sliderDefault(def, recipe.stock) : null);
+  const tick = marked !== null ? (def.log ? toLog(def, marked) / LOG_STEPS : (marked - def.min) / (def.max - def.min)) : null;
   const id = `slider-${def.key}`;
   const drag = useDragGrouping(`slider:${def.key}`);
   const reset = () => recipe && onChange(def.key, fallback, { key: `reset:${def.key}:${++typedCount}`, continuous: false });
@@ -102,7 +106,9 @@ const SliderRow = memo(function SliderRow({ def, recipe, raw, onChange }: Slider
   const mask = (on: boolean) => showsMask && useApp.setState({ sharpenMask: on });
   return (
     <div className={`slider${changed ? ' changed' : ''}`}>
-      <label htmlFor={id} onDoubleClick={reset} title={showsMask ? 'Hold ⌥ while dragging to see where sharpening reaches (white). Double-click to reset' : def.hint ? `${def.hint} Double-click to reset.` : `${def.label}. Double-click to reset`}>
+      <label htmlFor={id} onDoubleClick={reset} title={showsMask ? 'Hold ⌥ while dragging to see where sharpening reaches (white). Double-click to reset'
+        : film !== null && def.key === 'grain' ? FILM_AMOUNT_HINT
+        : def.hint ? `${def.hint} Double-click to reset.` : `${def.label}. Double-click to reset`}>
         {def.label}
       </label>
       <ValueInput id={id} value={value} label={def.label} display={fmt(value).replace(/ EV$/, '')} disabled={!recipe}
@@ -129,7 +135,8 @@ const SliderRow = memo(function SliderRow({ def, recipe, raw, onChange }: Slider
     </div>
   );
 }, (a: SliderRowProps, b: SliderRowProps) => a.def === b.def && a.onChange === b.onChange && !!a.recipe === !!b.recipe
-  && a.recipe?.[a.def.key] === b.recipe?.[b.def.key] && a.recipe?.stock === b.recipe?.stock);
+  && a.recipe?.[a.def.key] === b.recipe?.[b.def.key] && a.recipe?.stock === b.recipe?.stock
+  && a.recipe?.grainType === b.recipe?.grainType);
 
 /** The eight colours of darktable's color equalizer, with a swatch to recognise each. */
 const COLOR_NODES = [
@@ -221,30 +228,25 @@ function GrainType({ recipe }: { recipe: Recipe | null }) {
   );
 }
 
-/** Film grain's stock (engine/filmgrain.ts FILM_STOCKS): picking one sets Amount to 50 (the stock's
- * own grain), Size to its speed and Irregularity to its grains' spread; its published granularity
- * then sets how grainy it is. */
-function GrainStock({ recipe }: { recipe: Recipe | null }) {
-  const groups = [...new Set(FILM_STOCKS.map((f) => f.group))];
+/** Film grain renders typical film (engine/filmgrain.ts TYPICAL_FILM): what Amount 50 means, and a
+ * reshuffle that draws the grains afresh (the same film; its strength and texture don't change). */
+function GrainFilmNote({ recipe }: { recipe: Recipe | null }) {
   return (
-    <div className="grain-speed">
-      <label htmlFor="grain-stock">Film</label>
-      <select
-        id="grain-stock"
-        value={recipe?.grainStock ?? ''}
-        disabled={!recipe}
-        title="The film's grain, from its published granularity: its speed sets Size, its crystals Irregularity."
-        onChange={(e) => {
-          const stock = FILM_STOCKS.find((f) => f.id === e.target.value);
-          editActive((r) => ({ ...(r ?? defaultRecipe()), grainStock: stock?.id, ...(stock ? { grain: 50, grainIso: stock.iso, grainIrregularity: Math.round((stock.spread / 0.5) * 100) } : {}) }), 'Grain film stock');
-        }}
-      >
-        <option value="">Any film</option>
-        {groups.map((g) => <optgroup key={g} label={g}>{FILM_STOCKS.filter((f) => f.group === g).map((f) => <option key={f.id} value={f.id}>{f.name}</option>)}</optgroup>)}
-      </select>
+    <div className="grain-film-row">
+      <p className="hint grain-film-note">Amount 50 is typical film at this Size.</p>
+      <button type="button" className="icon-btn grain-reshuffle" disabled={!recipe} aria-label="Reshuffle the grain" data-tip="Reshuffle: a new draw of the same grain"
+        onClick={() => editActive((r) => ({ ...(r ?? defaultRecipe()), grainSeed: (r?.grainSeed ?? 0) + 1 }), 'Grain reshuffle')}>
+        <Shuffle size={14} aria-hidden="true" />
+      </button>
     </div>
   );
 }
+
+/** Amount's tooltip under Film grain: where familiar films sit, each at its own speed. */
+const FILM_AMOUNT_HINT = (() => {
+  const at = (id: string) => Math.round(filmAmountFor(FILM_STOCK[id]));
+  return `How grainy, against typical film at this Size as a lab scans it: 50 is typical, 100 twice that. At their own speeds, Portra 400 is about ${at('portra400')}, Gold 200 about ${at('gold200')} and Tri-X 400 about ${at('trix400')}. Double-click to reset.`;
+})();
 
 /** Film speed presets: picking one sets the grain Size and Roughness sliders. */
 function GrainSpeed({ recipe }: { recipe: Recipe | null }) {
@@ -534,7 +536,6 @@ export function Panel() {
     'detail-order': <DetailOrderToggle />,
     'grain-speed': <GrainSpeed recipe={base} />,
     'grain-type': <GrainType recipe={base} />,
-    'grain-stock': <GrainStock recipe={base} />,
     'ai-noise-tools': <NoiseReductionControls recipe={base} path={photo.path} raw={photo.raw} hideAmount />,
     'look-picker': <TreatmentControls key={photoId(photo)} photo={photo} hideAmount />,
     'lens-tools': photo.raw ? <LensControls recipe={base} metadata={photo.lens} toolsOnly /> : <p className="hint">Lens corrections are available for RAW photos.</p>,
@@ -563,7 +564,7 @@ export function Panel() {
       <DetailOrderToggle />
     </Section>,
     optics: <Section id="optics" title="Optics" onReset={resetFor(grouped ? 'refine-optics' : 'optics', 'Optics', 'optics')}>{rows(sliderGroup('optics'))}</Section>,
-    grain: <Section id="grain" title="Grain" onReset={resetFor('grain', 'Grain')}><GrainType recipe={base} />{grainTypeOf(base) === 'film' && <GrainStock recipe={base} />}<GrainSpeed recipe={base} />{rows(sliderGroup('grain').filter(k => sliderApplies(SLIDER[k], base)))}</Section>,
+    grain: <Section id="grain" title="Grain" onReset={resetFor('grain', 'Grain')}><GrainType recipe={base} /><GrainSpeed recipe={base} />{grainTypeOf(base) === 'film' && <GrainFilmNote recipe={base} />}{rows(sliderGroup('grain').filter(k => sliderApplies(SLIDER[k], base)))}</Section>,
     noise: !editing && <Section id="noise" title="Noise reduction" onReset={resetFor('noise', 'Noise reduction')}>
       <ProfiledDenoiseControls recipe={base} raw={photo.raw} camera={photo.camera} />
       <NoiseReductionControls recipe={base} path={photo.path} raw={photo.raw} />

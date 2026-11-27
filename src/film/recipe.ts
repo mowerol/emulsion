@@ -16,7 +16,7 @@ import { normalizeCrop, type Crop } from './crop';
 import { normalizeMasks, type Mask } from './masks';
 import { normalizeRetouch, normalizeRetouchScales, type RetouchScales, type RetouchSpot } from './retouch';
 import { ISO_MAX, ISO_MIN } from '../engine/grain';
-import { FILM_STOCK, SOFTNESS_DEFAULT } from '../engine/filmgrain';
+import { SOFTNESS_DEFAULT } from '../engine/filmgrain';
 import { MAX_SHADOWS_LIFT } from '../engine/colorbalance';
 import { BLACK_LIFT_MAX } from '../engine/tone';
 import { ADAPTIVE_TONE, TONE_KEYS, copyToneVersions, normalizeToneVersions, type ToneVersions } from '../engine/adaptivetone';
@@ -94,10 +94,8 @@ export interface Recipe {
   grainMidtones: number;
   /** Classic (absent): darktable's grain; 'film': the Boolean film grain model (engine/filmgrain.ts). */
   grainType?: 'film';
-  /** Film grain: the film stock its grain follows (engine/filmgrain.ts FILM_STOCKS), or none. */
-  grainStock?: string;
-  /** Film grain: the spread of the grain sizes, 0 (equal grains) to 100. */
-  grainIrregularity: number;
+  /** Film grain: how many times its grains have been reshuffled (engine/filmgrain.ts grainSeed). */
+  grainSeed?: number;
   /** Film grain: the deviation of the model's filter, in output pixels (its softness). */
   grainSoftness: number;
   /** Point curve on the final display image; null is a straight line. */
@@ -163,7 +161,7 @@ export function normalizeColor(input: unknown): ColorAdjust | null {
   return tidyColor({ hue: list(o.hue, -HUE_MAX, HUE_MAX), sat: list(o.sat, -100, 100), bright: list(o.bright, -100, 100) });
 }
 
-export type SliderKey = Exclude<keyof Recipe, 'grainType' | 'grainStock' | 'toneVersions' | 'halationVersion' | 'glowVersion' | 'noiseReduction' | 'profiledDenoise' | 'v' | 'lookEnabled' | 'stock' | 'pack' | 'lookBlend' | 'push' | 'scanner' | 'scannerFromLook' | 'curve' | 'wb' | 'crop' | 'color' | 'grading' | 'lens' | 'transform' | 'masks' | 'retouch' | 'retouchScales' | 'lookSnapshot'>;
+export type SliderKey = Exclude<keyof Recipe, 'grainType' | 'grainSeed' | 'toneVersions' | 'halationVersion' | 'glowVersion' | 'noiseReduction' | 'profiledDenoise' | 'v' | 'lookEnabled' | 'stock' | 'pack' | 'lookBlend' | 'push' | 'scanner' | 'scannerFromLook' | 'curve' | 'wb' | 'crop' | 'color' | 'grading' | 'lens' | 'transform' | 'masks' | 'retouch' | 'retouchScales' | 'lookSnapshot'>;
 
 export interface SliderDef {
   key: SliderKey;
@@ -216,8 +214,7 @@ export const SLIDERS: SliderDef[] = [
   { key: 'grain', label: 'Amount', group: 'grain', min: 0, max: 100, step: 1, stockKey: 'grain' },
   { key: 'grainIso', label: 'Size', group: 'grain', min: ISO_MIN, max: ISO_MAX, step: 1, stockKey: 'grainIso', log: true, hint: 'The grain size, as the ISO of the film.', format: (v) => `${Math.round(v)}` },
   { key: 'grainMidtones', label: 'Mid-tones', group: 'grain', grainType: 'classic', min: 0, max: 100, step: 1, default: 100, hint: 'How much the grain fades in shadows and highlights, as on a photographic print. At 0 it is even across every tone.', format: (v) => `${v}%` },
-  { key: 'grainIrregularity', label: 'Irregularity', group: 'grain', grainType: 'film', min: 0, max: 100, step: 1, default: 80, hint: 'How much the grains differ in size: 80 is conventional film (Tri-X, HP5), 40 tabular and modern colour film (T-Max, Delta, Portra). The film stays as grainy; its grains change.', format: (v) => `${v}%` },
-  { key: 'grainSoftness', label: 'Softness', group: 'grain', grainType: 'film', min: 3, max: 25, step: 0.25, default: SOFTNESS_DEFAULT, hint: 'How softly the grains are seen, and the photo with them, as a blur on the film. 5.75 µm is as crisp as a lab scan; softer is more like a print.', format: (v) => `${v.toFixed(1)} µm` },
+  { key: 'grainSoftness', label: 'Softness', group: 'grain', grainType: 'film', min: 3, max: 15, step: 0.25, default: SOFTNESS_DEFAULT, hint: 'How softly the grains are seen, and the photo with them, as a blur on the film. 5.75 µm is as crisp as a lab scan; softer is more like a print.', format: (v) => `${v.toFixed(1)} µm` },
 ];
 
 export const SLIDER: Record<SliderKey, SliderDef> = Object.fromEntries(SLIDERS.map((s) => [s.key, s])) as Record<SliderKey, SliderDef>;
@@ -234,6 +231,15 @@ export const PUSHES: { value: Push; label: string; hint: string; phrase: string 
 export function sliderDefault(def: SliderDef, stock: StockId, raw?: boolean): number {
   if (raw === false && def.key in KIND_DEFAULTS) return KIND_DEFAULTS[def.key as keyof typeof KIND_DEFAULTS];
   return def.stockKey ? STOCK[stock][def.stockKey] : (def.default ?? 0);
+}
+
+/**
+ * Film grain's own reference for a grain slider: Amount 50, typical film's grain at this Size
+ * (engine/filmgrain.ts TYPICAL_FILM), which Amount's tick, changed state and double-click reset
+ * follow. Null where the Look's default applies (Classic grain, and every other slider).
+ */
+export function filmGrainReference(key: SliderKey, r: Recipe | null): number | null {
+  return r && grainTypeOf(r) === 'film' && key === 'grain' ? 50 : null;
 }
 
 /** What an ordinary (non-RAW) photo starts with differently from a RAW. */
@@ -284,7 +290,6 @@ export function defaultRecipe(stock: StockId = DEFAULT_STOCK, scanner: ScannerId
     grain: s.grain,
     grainIso: s.grainIso,
     grainMidtones: 100,
-    grainIrregularity: 80,
     grainSoftness: SOFTNESS_DEFAULT,
     curve: null,
     wb: null,
@@ -354,7 +359,7 @@ const SECTION_FIELDS: Record<SectionId, (keyof Recipe)[]> = {
   detail: SLIDERS.filter((d) => d.group === 'detail').map((d) => d.key),
   noise: ['noiseReduction', 'profiledDenoise'],
   optics: ['halationVersion', 'glowVersion', ...SLIDERS.filter((d) => d.group === 'optics').map((d) => d.key)],
-  grain: ['grainType', 'grainStock', ...SLIDERS.filter((d) => d.group === 'grain').map((d) => d.key)],
+  grain: ['grainType', 'grainSeed', ...SLIDERS.filter((d) => d.group === 'grain').map((d) => d.key)],
 };
 
 /** The recipe with one section back to its defaults (stock defaults where the stock owns them). */
@@ -422,7 +427,7 @@ export function normalizeRecipe(input: unknown): Recipe | null {
   out.profiledDenoise = normalizeProfiledDenoise(o.profiledDenoise);
   if (typeof o.scannerFromLook === 'boolean') out.scannerFromLook = o.scannerFromLook;
   if (o.grainType === 'film') out.grainType = 'film';
-  if (typeof o.grainStock === 'string' && FILM_STOCK[o.grainStock]) out.grainStock = o.grainStock;
+  if (typeof o.grainSeed === 'number' && Number.isInteger(o.grainSeed) && o.grainSeed > 0) out.grainSeed = o.grainSeed;
   const snap = o.lookSnapshot as Recipe['lookSnapshot'];
   if (snap && typeof snap.id === 'string' && typeof snap.name === 'string' && Number.isSafeInteger(snap.revision)) {
     const settings = normalizeSettings(snap.settings);
