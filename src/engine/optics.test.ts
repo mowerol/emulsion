@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
-import { componentPlan, DIFFUSION_BANK, diffusionFraction, diffusionMix, HALATION_BANK, halationMix, halationStrength, maskedDiffusionMix } from './optics';
+import { componentPlan, DIFFUSION_BANK, DIFFUSION_BANKS, diffusionBank, diffusionFraction, GLOW_FILTERS, diffusionMix, HALATION_BANK, halationMix, halationStrength, maskedDiffusionMix } from './optics';
 import reference from './fixtures/optics.json';
 
 describe('Spektrafilm optics', () => {
@@ -18,6 +18,38 @@ describe('Spektrafilm optics', () => {
       actual.forEach((v, c) => expect(v).toBeCloseTo(m.output[c], 6));
     }
   });
+  it("matches every diffusion filter's plan from the pinned upstream C", () => {
+    expect(reference.diffusionFamilies.map(f => f.family.replace(/_/g, '-'))).toEqual([...GLOW_FILTERS]);
+    for (const family of reference.diffusionFamilies) {
+      const filter = GLOW_FILTERS[family.index];
+      for (const plan of family.plans) {
+        expect(diffusionFraction(plan.strength * 50, filter)).toBeCloseTo(plan.scatter, 7);
+        if (!plan.components.length) continue;
+        expect(DIFFUSION_BANKS[filter]).toHaveLength(plan.components.length);
+        plan.components.forEach((c, k) => {
+          expect(DIFFUSION_BANKS[filter][k].sigma).toBeCloseTo(c.sigmaUm, 4);
+          c.weight.forEach((v, channel) => expect(DIFFUSION_BANKS[filter][k].weight[channel]).toBeCloseTo(v, 7));
+        });
+      }
+    }
+  });
+
+  it('keeps Black Pro-Mist, the default, exactly as before', () => {
+    expect(diffusionBank()).toEqual(DIFFUSION_BANK);
+    expect(DIFFUSION_BANKS['black-pro-mist']).toEqual(DIFFUSION_BANK);
+    for (const amount of [0, 3, 6.25, 25, 50, 100]) expect(diffusionFraction(amount, 'black-pro-mist')).toBe(diffusionFraction(amount));
+  });
+
+  it('conserves light in every filter, and colours only the halo', () => {
+    for (const filter of GLOW_FILTERS) {
+      const bank = DIFFUSION_BANKS[filter];
+      for (let c = 0; c < 3; c++) expect(bank.reduce((s, k) => s + k.weight[c], 0)).toBeCloseTo(1, 6);
+      [...bank.slice(0, 2), ...bank.slice(5)].forEach(k => expect(new Set(k.weight).size).toBe(1));
+    }
+    expect(new Set(DIFFUSION_BANKS.glimmerglass[3].weight).size).toBe(1);
+    expect(DIFFUSION_BANKS.cinebloom[4].weight[0]).toBeGreaterThan(DIFFUSION_BANKS.cinebloom[4].weight[2]);
+  });
+
   it("blends a mask's Glow instance normally by the mask's value", () => {
     const rgb: [number, number, number] = [.18, .12, .06], blur: [number, number, number] = [.8, .6, .4];
     expect(maskedDiffusionMix(rgb, blur, 60, 1)).toEqual(diffusionMix(rgb, blur, 60));

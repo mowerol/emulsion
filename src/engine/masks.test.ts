@@ -224,6 +224,13 @@ describe('masked Glow instances', () => {
     const u = maskUniforms([a, b, c], defaultRecipe(), {});
     expect(u.uMaskGlow).toEqual([diffusionFraction(40), 0, 150, 0, 0, 0, 0, 0, diffusionFraction(100), 1, 100, 0]);
     expect(u.uMaskGlowCount).toBe(2);
+    // Masks use the photo's filter: its gain in the fraction, its index in the field's key.
+    const cine = maskUniforms([a, b, c], { ...defaultRecipe(), glowFilter: 'cinebloom' }, {});
+    expect(cine.uMaskGlow).toEqual([diffusionFraction(40, 'cinebloom'), 0, 150, 3, 0, 0, 0, 0, diffusionFraction(100, 'cinebloom'), 1, 100, 3]);
+    const photo = developUniforms({ ...defaultRecipe(), glow: 50, glowFilter: 'pro-mist' }, ctx);
+    expect(photo.uGlowFraction).toBe(diffusionFraction(50, 'pro-mist'));
+    expect(photo.uGlowFilter).toBe(2);
+    expect(developUniforms({ ...defaultRecipe(), glow: 50 }, ctx).uGlowFilter).toBe(0);
     // A mask's Glow alone turns the optics passes on; its size alone does not.
     expect(needsPasses(developUniforms({ ...defaultRecipe(), masks: [a] }, ctx)).highlights).toBe(true);
     expect(needsPasses(developUniforms({ ...defaultRecipe(), masks: [{ ...a, glow: 0, exposure: 1 }] }, ctx)).highlights).toBe(false);

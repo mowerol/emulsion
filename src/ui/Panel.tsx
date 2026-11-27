@@ -17,7 +17,7 @@ import { CameraColourWarning } from './CameraProfile';
 import { TransformControls, transformSummary } from './TransformControls';
 import { LensControls } from './LensControls';
 import { ColourGradingControls } from './ColourGrading';
-import { BRIGHT_RANGE, COLOR_CHANNELS, DEFAULT_STOCK, HUE_DEGREES, SAT_RANGE, SLIDER, SLIDERS, defaultRecipe, filmGrainReference, grainTypeOf, sliderApplies, uneditedRecipe, normalizeRecipe, tidyColor, type ColorAdjust, resetAdjustments, resetSection, sectionChanged, sliderDefault, withSettingsFrom, withSlider, type Recipe, type SectionId, type SliderDef } from '../film/recipe';
+import { BRIGHT_RANGE, COLOR_CHANNELS, DEFAULT_STOCK, HUE_DEGREES, SAT_RANGE, SLIDER, SLIDERS, defaultRecipe, filmGrainReference, glowFilterOf, grainTypeOf, withGlowFilter, sliderApplies, uneditedRecipe, normalizeRecipe, tidyColor, type ColorAdjust, resetAdjustments, resetSection, sectionChanged, sliderDefault, withSettingsFrom, withSlider, type Recipe, type SectionId, type SliderDef } from '../film/recipe';
 import type { ScannerId } from '../film/scanners';
 import { ScannerFinishControls } from './ScannerFinish';
 import { FILM_STOCK, filmAmountFor } from '../engine/filmgrain';
@@ -47,6 +47,7 @@ import { onCustomizeWorkspace } from './WorkspaceMenu';
 import { setControlWorkspaceTab, useControlLayout } from './controlworkspace';
 import { closeTemporaryMasks, useTemporaryMasks } from './maskworkspace';
 import { WorkspaceIconView } from './WorkspaceIcons';
+import { isGlowFilter, type GlowFilter } from '../engine/optics';
 
 /** A logarithmic slider (film speeds) runs over this many steps. */
 const LOG_STEPS = 1000;
@@ -223,6 +224,25 @@ function GrainType({ recipe }: { recipe: Recipe | null }) {
       >
         <option value="classic">Classic</option>
         <option value="film">Film</option>
+      </select>
+    </div>
+  );
+}
+
+/** Glow's diffusion filter: darktable's four, each its own size and strength for one Glow value. */
+const GLOW_FILTER_NAMES: Record<GlowFilter, string> = { 'black-pro-mist': 'Black Pro-Mist', 'pro-mist': 'Pro-Mist', glimmerglass: 'Glimmerglass', cinebloom: 'CineBloom' };
+function GlowFilterMenu({ recipe }: { recipe: Recipe | null }) {
+  return (
+    <div className="grain-speed">
+      <label htmlFor="glow-filter">Glow filter</label>
+      <select
+        id="glow-filter"
+        value={glowFilterOf(recipe)}
+        disabled={!recipe}
+        title={'Black Pro-Mist: soft halos with deep blacks. Pro-Mist: a wider, stronger, milky haze that lifts shadows. Glimmerglass: tight and neutral, takes the edge off highlights. CineBloom: big, warm glowing highlights.'}
+        onChange={(e) => editActive((r) => withGlowFilter(r ?? defaultRecipe(), isGlowFilter(e.target.value) ? e.target.value : 'black-pro-mist'), 'Glow filter')}
+      >
+        {(['black-pro-mist', 'pro-mist', 'glimmerglass', 'cinebloom'] as const).map(f => <option key={f} value={f}>{GLOW_FILTER_NAMES[f]}</option>)}
       </select>
     </div>
   );
@@ -536,6 +556,7 @@ export function Panel() {
     'detail-order': <DetailOrderToggle />,
     'grain-speed': <GrainSpeed recipe={base} />,
     'grain-type': <GrainType recipe={base} />,
+    'glow-filter': <GlowFilterMenu recipe={base} />,
     'ai-noise-tools': <NoiseReductionControls recipe={base} path={photo.path} raw={photo.raw} hideAmount />,
     'look-picker': <TreatmentControls key={photoId(photo)} photo={photo} hideAmount />,
     'lens-tools': photo.raw ? <LensControls recipe={base} metadata={photo.lens} toolsOnly /> : <p className="hint">Lens corrections are available for RAW photos.</p>,
@@ -563,7 +584,7 @@ export function Panel() {
       {rows(sliderGroup('detail'))}
       <DetailOrderToggle />
     </Section>,
-    optics: <Section id="optics" title="Optics" onReset={resetFor(grouped ? 'refine-optics' : 'optics', 'Optics', 'optics')}>{rows(sliderGroup('optics'))}</Section>,
+    optics: <Section id="optics" title="Optics" onReset={resetFor(grouped ? 'refine-optics' : 'optics', 'Optics', 'optics')}>{rows(sliderGroup('optics').filter(k => k === 'halation' || k === 'halationSize'))}<GlowFilterMenu recipe={base} />{rows(sliderGroup('optics').filter(k => k !== 'halation' && k !== 'halationSize'))}</Section>,
     grain: <Section id="grain" title="Grain" onReset={resetFor('grain', 'Grain')}><GrainType recipe={base} /><GrainSpeed recipe={base} />{grainTypeOf(base) === 'film' && <GrainFilmNote recipe={base} />}{rows(sliderGroup('grain').filter(k => sliderApplies(SLIDER[k], base)))}</Section>,
     noise: !editing && <Section id="noise" title="Noise reduction" onReset={resetFor('noise', 'Noise reduction')}>
       <ProfiledDenoiseControls recipe={base} raw={photo.raw} camera={photo.camera} />

@@ -6,7 +6,7 @@
 import { Engine, InputMode } from '../../src/engine/engine';
 import { defaultRecipe } from '../../src/film/recipe';
 import { OpticsGpu } from '../../src/engine/opticsgpu';
-import { DIFFUSION_BANK, diffusionFraction, diffusionMix, FRAME_UM, halationMix, maskedDiffusionMix } from '../../src/engine/optics';
+import { DIFFUSION_BANK, diffusionFraction, diffusionMix, FRAME_UM, GLOW_FILTERS, halationMix, maskedDiffusionMix } from '../../src/engine/optics';
 import { MASK_GLOW_UNIT } from '../../src/engine/params';
 import { newEllipse, newMask } from '../../src/film/masks';
 import reference from '../../src/engine/fixtures/optics.json';
@@ -105,10 +105,21 @@ void main(){outColor=texture(uTex,vUv);}`);
   assert(optics.builds.glow === before.glow && optics.builds.source === before.source, 'Halation size rebuilt Glow');
   optics.render(input.tex, 'changed', settings, extract);
   assert(optics.builds.source === before.source + 1 && optics.builds.glow === before.glow + 1, 'Upstream change kept stale optics');
+  // A filter change rebuilds the Glow field (and halation, which takes the glowed light) once;
+  // its Amount then only re-mixes. Every filter keeps a flat field.
+  for (const glowFilter of GLOW_FILTERS.slice(1)) {
+    const b = { ...optics.builds };
+    const fm = optics.render(input.tex, 'changed', { ...settings, glowFilter }, extract);
+    assert(optics.builds.glow === b.glow + 1 && optics.builds.halation === b.halation + 1 && optics.builds.source === b.source, `${glowFilter} did not rebuild Glow once`);
+    const px = sample(fm.glow!);
+    assert(Math.abs(px[0] - 2) < 1e-5 && Math.abs(px[1] - .18) < 1e-6 && Math.abs(px[2] - .02) < 1e-6, `${glowFilter} changed a flat field: ${px}`);
+    optics.render(input.tex, 'changed', { ...settings, glowFilter, glowAmount: 20 }, extract);
+    assert(optics.builds.glow === b.glow + 1, `${glowFilter}'s Amount rebuilt its field`);
+  }
   // The masks' Glow fields: flat fields kept, each layer cached by its own input chain.
   const slots: number[] = [];
   const extractMasked = (t: Target, slot: number) => { slots.push(slot); extract(t); };
-  const two = [{ slot: 0, fraction: .3, size: 100 }, { slot: 2, fraction: .5, size: 200 }];
+  const two = [{ slot: 0, fraction: .3, size: 100, filter: 'black-pro-mist' as const }, { slot: 2, fraction: .5, size: 200, filter: 'black-pro-mist' as const }];
   const fields = optics.renderMasked(input.tex, 'base', two, extractMasked)!;
   for (const layer of [0, 1]) {
     const fbo = gl.createFramebuffer()!; gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
@@ -128,6 +139,8 @@ void main(){outColor=texture(uTex,vUv);}`);
   assert(optics.builds.masked === m0 + 3, 'A Glow size change kept stale fields');
   optics.renderMasked(input.tex, 'upstream', [{ ...two[0], fraction: .6, size: 50 }, two[1]], extractMasked);
   assert(optics.builds.masked === m0 + 5, 'An upstream change kept stale masked fields');
+  optics.renderMasked(input.tex, 'upstream', [{ ...two[0], fraction: .6, size: 50, filter: 'cinebloom' }, { ...two[1], filter: 'cinebloom' }], extractMasked);
+  assert(optics.builds.masked === m0 + 7, 'A filter change kept stale masked fields');
   report.builds = { ...optics.builds };
   optics.dispose(); assert(!gl.isTexture(maps.halation!) && !gl.isTexture(maps.glow!) && !gl.isTexture(fields), 'Optics disposal leaked textures');
   g.free(input);
@@ -150,7 +163,9 @@ void main(){outColor=texture(uTex,vUv);}`);
     const size = 100 * FRAME_UM / (pixelUm * pw);
     const hal = p.command === 'halation';
     const amount = hal ? p.args[1] * 12.5 : p.args[1] * 50;
-    const m = o.render(t.tex, 'p', { halation: hal, glow: !hal, halationSize: size, glowSize: size, glowAmount: amount }, (d) => { g.bind(0, t.tex); copy.set({ uTex: 0 }); g.draw(copy, d, d.w, d.h); });
+    // Diffusion profiles name darktable's family index after the warmth (absent: Black Pro-Mist).
+    const filter = GLOW_FILTERS[hal ? 0 : p.args[4] ?? 0];
+    const m = o.render(t.tex, 'p', { halation: hal, glow: !hal, halationSize: size, glowSize: size, glowAmount: amount, glowFilter: filter }, (d) => { g.bind(0, t.tex); copy.set({ uTex: 0 }); g.draw(copy, d, d.w, d.h); });
     const fbo = gl.createFramebuffer()!; gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, (hal ? m.halation : m.glow)!, 0);
     const row = new Float32Array(pw * 4); gl.readPixels(0, ph >> 1, pw, 1, gl.RGBA, gl.FLOAT, row);
@@ -160,7 +175,7 @@ void main(){outColor=texture(uTex,vUv);}`);
     for (let x = 0; x < pw; x++) {
       const raw = [0, 1, 2].map(c => src[((ph >> 1) * pw + x) * 4 + c]) as Vec3;
       const blur = [0, 1, 2].map(c => row[x * 4 + c]) as Vec3;
-      const ours = hal ? halationMix(raw, blur, amount, 2) : diffusionMix(raw, blur, amount);
+      const ours = hal ? halationMix(raw, blur, amount, 2) : diffusionMix(raw, blur, amount, filter);
       for (let c = 0; c < 3; c++) {
         if (raw[c] !== 0) continue;
         const up = p.centerRow[x][c];
@@ -170,7 +185,7 @@ void main(){outColor=texture(uTex,vUv);}`);
     }
     const rel = err / peak;
     worst = Math.max(worst, rel);
-    pyramid[`${p.command} ${pw}x${ph} ${pixelUm}um ${p.pattern}`] = { haloMaxError: +rel.toFixed(4), haloEnergyRatio: +(oursE / theirsE).toFixed(4) };
+    pyramid[`${p.command}${hal ? '' : ` ${filter}`} ${pw}x${ph} ${pixelUm}um ${p.pattern}`] = { haloMaxError: +rel.toFixed(4), haloEnergyRatio: +(oursE / theirsE).toFixed(4) };
     o.dispose(); g.free(t);
   }
   report.pyramidVsUpstream = pyramid;
@@ -193,7 +208,16 @@ void main(){outColor=texture(uTex,vUv);}`);
       glowOnly: time(() => o.render(t.tex, `k${n++}`, { halation: false, glow: true, halationSize: 100, glowSize: 100, glowAmount: 50 }, fill)),
       cached: time(() => o.render(t.tex, 'same', { halation: true, glow: true, halationSize: 100, glowSize: 100, glowAmount: 50 }, fill)),
       // One mask's Glow field (its input pass is the engine's extract; here a copy).
-      maskGlow: time(() => o.renderMasked(t.tex, `k${n++}`, [{ slot: 0, fraction: .3, size: 100 }], fill)),
+      maskGlow: time(() => o.renderMasked(t.tex, `k${n++}`, [{ slot: 0, fraction: .3, size: 100, filter: 'black-pro-mist' }], fill)),
+      // Each filter's field alone: CineBloom's widest components land on coarse pyramid levels.
+      // Each filter's field alone, in turns so drift over the run falls on every filter alike.
+      // CineBloom's widest components land on coarse pyramid levels.
+      ...(() => {
+        const sums = Object.fromEntries(GLOW_FILTERS.map(f => [`glowOnly ${f}`, 0]));
+        for (let round = 0; round < 4; round++) for (const f of GLOW_FILTERS)
+          sums[`glowOnly ${f}`] += time(() => o.render(t.tex, `k${n++}`, { halation: false, glow: true, halationSize: 100, glowSize: 100, glowAmount: 50, glowFilter: f }, fill)) / 4;
+        return Object.fromEntries(Object.entries(sums).map(([k, v]) => [k, +v.toFixed(2)]));
+      })(),
     };
     o.dispose(); g.free(t);
   }

@@ -3,13 +3,13 @@
 // Approved deviations (Oli, 2026-11-10): working RGB and Gaussian pyramid, see optics.ts.
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { Gpu, type Target } from './gpu';
-import { componentPlan, DIFFUSION_BANK, diffusionFraction, FRAME_UM, HALATION_BANK, type OpticsComponent } from './optics';
+import { componentPlan, DIFFUSION_BANKS, diffusionFraction, FRAME_UM, HALATION_BANK, type GlowFilter, type OpticsComponent } from './optics';
 import shader from './shaders/opticsmap.frag.glsl?raw';
 import { SHADERS } from './shaders';
 import { MASK_GLOW_UNIT } from './params';
 
-/** A mask's Glow instance: its packed slot, its diffusion fraction and its Glow size. */
-export interface MaskedGlow { slot: number; fraction: number; size: number }
+/** A mask's Glow instance: its packed slot, its diffusion fraction, its Glow size and the photo's filter. */
+export interface MaskedGlow { slot: number; fraction: number; size: number; filter: GlowFilter }
 
 /** Bounded whole-photo maps, also used unchanged by regional renders. Amount is applied later. */
 export class OpticsGpu {
@@ -129,21 +129,21 @@ export class OpticsGpu {
     if (this.maskedTexture !== texture) { this.maskedKeys = []; this.maskedTexture = texture; }
     const g = this.gpu;
     instances.forEach((m, k) => {
-      const key = `${base}|${JSON.stringify(instances.slice(0, k))}|${m.slot}|${m.size}`;
+      const key = `${base}|${JSON.stringify(instances.slice(0, k))}|${m.slot}|${m.size}|${m.filter}`;
       if (this.maskedKeys[k] === key) return;
       // Invalidate first, and every later layer: each reads the ones before it.
       this.maskedKeys.length = k;
       const source = this.target('masked-source');
       extract(source, m.slot, masked.tex);
       g.bindArray(MASK_GLOW_UNIT, g.blackArray);
-      this.bank(source, DIFFUSION_BANK, m.size, 'masked-glow', masked.layers[k]);
+      this.bank(source, DIFFUSION_BANKS[m.filter], m.size, 'masked-glow', masked.layers[k]);
       this.maskedKeys[k] = key;
       this.builds.masked++;
     });
     return masked.tex;
   }
 
-  render(texture: WebGLTexture, key: string, settings: { halation: boolean; glow: boolean; halationSize: number; glowSize: number; glowAmount: number }, extract: (target: Target) => void) {
+  render(texture: WebGLTexture, key: string, settings: { halation: boolean; glow: boolean; halationSize: number; glowSize: number; glowAmount: number; glowFilter?: GlowFilter }, extract: (target: Target) => void) {
     if (!settings.halation && !settings.glow) return { halation: undefined, glow: undefined };
     const source = this.target('source');
     if (this.sourceMade?.texture !== texture || this.sourceMade.key !== key) {
@@ -153,18 +153,20 @@ export class OpticsGpu {
       this.sourceMade = { texture, key };
       this.builds.source++;
     }
+    const filter = settings.glowFilter ?? 'black-pro-mist';
     let glow: Target | undefined;
     if (settings.glow) {
-      const k = String(settings.glowSize);
+      // A filter change rebuilds the field once; Glow's amount only re-mixes it.
+      const k = `${settings.glowSize}|${filter}`;
       if (this.glowKey !== k) {
         this.glowKey = ''; this.halKey = '';
-        glow = this.bank(source, DIFFUSION_BANK, settings.glowSize, 'glow');
+        glow = this.bank(source, DIFFUSION_BANKS[filter], settings.glowSize, 'glow');
         this.glowKey = k; this.builds.glow++;
       } else glow = this.targets.get('glow-a'); // Nine components finish in a.
     }
     let halation: Target | undefined;
     if (settings.halation) {
-      const fraction = settings.glow ? diffusionFraction(settings.glowAmount) : 0;
+      const fraction = settings.glow ? diffusionFraction(settings.glowAmount, filter) : 0;
       const k = `${settings.halationSize}|${fraction}|${settings.glow ? this.glowKey : ''}`;
       if (this.halKey !== k) {
         this.halKey = '';

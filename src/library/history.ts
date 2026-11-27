@@ -129,6 +129,7 @@ const FIELD_LABELS: Partial<Record<keyof Recipe, string>> = {
   grainMidtones: 'Grain mid-tones',
   grainSoftness: 'Grain softness',
   grainType: 'Grain type',
+  glowFilter: 'Glow filter',
 };
 
 /** A short name for a change to one recipe, for the undo and redo buttons. */
