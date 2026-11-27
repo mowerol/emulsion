@@ -21,6 +21,7 @@ import viewsource from './shaders/viewsource.frag.glsl?raw';
 import retouchstand from './shaders/retouchstand.frag.glsl?raw';
 import resample from './shaders/resample.frag.glsl?raw';
 import toneequalizer from './shaders/stages/toneequalizer.glsl?raw';
+import blacks from './shaders/stages/blacks.glsl?raw';
 import toneeqmask from './shaders/toneeqmask.frag.glsl?raw';
 import toneanalysis from './shaders/toneanalysis.frag.glsl?raw';
 import sample from './shaders/sample.frag.glsl?raw';
@@ -65,6 +66,7 @@ export const SHADER_FILES: Record<string, string> = {
   'stages/colorbalance.glsl': colorbalance,
   'stages/masks.glsl': masks,
   'stages/toneequalizer.glsl': toneequalizer,
+  'stages/blacks.glsl': blacks,
   'stages/lens.glsl': lens,
   'stages/optics.glsl': optics,
   'stages/output.glsl': output,

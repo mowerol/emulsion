@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { defaultRecipe } from '../film/recipe';
 import { toneCurveFor, packCurve, sigmoidCurve, NEUTRAL } from './tone';
 import { InputMode, developUniforms, needsPasses } from './params';
+import { BLACKS_SR, blackParam } from './blacks';
 import { DEFAULT_FUJI_SIM, fujiLookSettings, withFujiLook } from '../film/fujilooks';
 import { FUJI_NEUTRAL } from '../film/fujirecipe';
 import type { Mat3 } from '../film/stocks';
@@ -26,9 +27,24 @@ describe('develop uniforms', () => {
     expect(mixed.uTeqLegacy).toBe(1);
     expect(mixed.uExpBlack).toBeCloseTo(0.0032, 8);
   });
-  it('opens adaptive near-blacks with anchored sigmoid contrast and retains legacy target lift', () => {
-    for (const blacks of [25, 50, 100]) {
+  it('runs RawTherapee Blacks on the print for new edits, and nothing else', () => {
+    for (const blacks of [-100, -40, 30, 200]) {
       const u = developUniforms({ ...defaultRecipe('neutral'), blacks }, ctx);
+      expect(u.uBlacks).toEqual([blackParam(blacks), BLACKS_SR]);
+      expect(u.uToneBlack).toBe(0);
+      expect(u.uToneOn).toBe(0);
+      expect(u.uExpBlack).toBe(0);
+      expect((u.uBlackToe as number[])[0]).toBe(0);
+      expect(u.uSigS).toEqual(packCurve(toneCurveFor(0, 0)));
+    }
+    expect((developUniforms(defaultRecipe('neutral'), ctx).uBlacks as number[])[0]).toBe(0);
+    // Earlier processing keeps its own path and leaves this stage off.
+    for (const toneVersions of [undefined, { blacks: 2 as const }]) expect((developUniforms({ ...defaultRecipe('neutral'), blacks: -50, toneVersions }, ctx).uBlacks as number[])[0]).toBe(0);
+  });
+  it('opens adaptive near-blacks with anchored sigmoid contrast and retains legacy target lift', () => {
+    const v2 = { ...defaultRecipe('neutral'), toneVersions: { ...defaultRecipe('neutral').toneVersions, blacks: 2 as const } };
+    for (const blacks of [25, 50, 100]) {
+      const u = developUniforms({ ...v2, blacks }, ctx);
       expect(u.uToneBlack).toBe(0);
       expect(u.uToneOn).toBe(0);
       expect(needsPasses(u).toneEqualizer).toBe(false);
@@ -39,9 +55,9 @@ describe('develop uniforms', () => {
       expect(legacy.uSigS).toEqual(packCurve(toneCurveFor(0, blacks)));
       expect((legacy.uBlackToe as number[])[0]).toBe(0);
     }
-    const extended = developUniforms({ ...defaultRecipe('neutral'), blacks: 200 }, ctx);
+    const extended = developUniforms({ ...v2, blacks: 200 }, ctx);
     expect(extended.uBlackToeCurve).toEqual(packCurve(sigmoidCurve({ ...NEUTRAL, contrast: NEUTRAL.contrast * 0.25 })));
-    const down = developUniforms({ ...defaultRecipe('neutral'), blacks: -100 }, ctx);
+    const down = developUniforms({ ...v2, blacks: -100 }, ctx);
     expect(down.uToneOn).toBe(1);
     expect(down.uToneBlack).toBeLessThan(0);
     expect(down.uExpBlack).toBe(0);

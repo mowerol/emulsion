@@ -7,6 +7,7 @@
 // the unchanged sigmoid and its neutral inverse instead of changing the upstream curve.
 // The positive slider reduces upstream contrast with display black fixed at zero, opening
 // near-black tones while retaining pure black rather than raising a grey floor.
+// Blacks processing 3 (current) is RawTherapee's Exposure Black on the finished print (blacks.glsl).
 // Deviation (same values): darktable's isnan check on the curve's result is replaced by holding
 // the film term below float overflow, the only way that NaN arises (see sigmoid below).
 // SPDX-License-Identifier: GPL-3.0-or-later
@@ -29,6 +30,8 @@ uniform vec4 uBlackToeCurve;
 
 float srgbEotf1(float v) { return v <= 0.04045 ? v / 12.92 : pow((v + 0.055) / 1.055, 2.4); }
 float srgbOetf1(float l) { l = max(l, 0.0); return l <= 0.0031308 ? l * 12.92 : 1.055 * pow(l, 1.0 / 2.4) - 0.055; }
+
+#include "stages/blacks.glsl"
 
 // darktable replaces a NaN result with the magnitude ("very large floats": film overflows, and
 // inf / inf is NaN). Here film is held below the overflow instead, which gives the same values:
@@ -75,5 +78,5 @@ vec3 stageToneProfile(vec3 x) {
     float pivot = srgbOetf1(sigmoid(0.18, uSigN, 1.0));
     e += max(e - pivot, vec3(0.0)) * (uToneWhite - 1.0);
   }
-  return e;
+  return stageBlacks(e);
 }
