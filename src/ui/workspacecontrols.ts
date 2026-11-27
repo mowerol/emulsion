@@ -128,6 +128,7 @@ export const WORKSPACE_BLOCKS: WorkspaceBlock[] = [
   { id: 'transform', label: 'Transform', category: 'Tools', section: 'transform', recipeFields: ['transform'], fields: transform.map(d => d.id) },
   { id: 'masks', label: 'Masks', category: 'Tools', section: 'masks', recipeFields: ['masks'], fields: [] },
   { id: 'detail-order', label: 'Detail processing order', category: 'Tools', fields: [] },
+  { id: 'glow-filter', label: 'Glow filter', category: 'Tools', fields: [], recipeFields: ['glowFilter'], reset: r => ({ ...r, glowFilter: undefined }) },
   { id: 'grain-type', label: 'Grain type', category: 'Tools', fields: [], recipeFields: ['grainType'], reset: r => ({ ...r, grainType: undefined }) },
   { id: 'grain-speed', label: 'Film speed presets', category: 'Tools', fields: [] },
 ];

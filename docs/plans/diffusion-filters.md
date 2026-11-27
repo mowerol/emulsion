@@ -50,3 +50,14 @@ None new: the same two approved for Glow on 10 November (working RGB instead of 
 ## Size
 
 Small: a table, a menu, a recipe field and a cache key. Roughly half a day including the checks against darktable's C.
+
+## Status (27 November 2026)
+
+Built on `feat/glow-filters`. Oli's answers: the menu is always shown (between Halation size and Glow), no extra warmth knob, no print diffusion.
+
+- `optics.ts`: `DIFFUSION_FAMILIES`, `diffusionBank(filter)`, `diffusionFraction(amount, filter)`; Black Pro-Mist's bank and curve are unchanged (tested equal).
+- `tools/optics-reference`: `plan` and `diffusion` take darktable's family index; the fixture gains `diffusionFamilies` and six profiles, appended, with every earlier value byte-identical.
+- Recipe `glowFilter` (absent: Black Pro-Mist), `withGlowFilter` (moves a legacy Glow onto the new renderer, as Glow size does), Optics reset, copy-settings Glow group, presets' Effects, history label, workspace control `glow-filter`.
+- GPU: the Glow field keys on size and filter; `uGlowFilter` keys the maps after it; masks carry the photo's filter in `uMaskGlow`'s fourth slot.
+- Checked: unit tests against the C for all four filters; `tools/browser-tests/optics.ts` passes (each filter's GPU pyramid within 0.9% of the halo's peak from the C; a filter change rebuilds Glow once, Amount only re-mixes; flat fields kept). Build cost per filter is the same: the harness drifts from ~1 ms to ~20–30 ms over a long run for every filter alike, Black Pro-Mist included, so its absolute numbers late in the run are not meaningful.
+- Not done: in-app timing of a Glow drag with CineBloom (`tools/perf/inapp.mjs`), a screenshot of the Optics section.

@@ -4,7 +4,7 @@
 import { STOCK, type Mat3 } from '../film/stocks';
 import { fujiShiftMatrix } from '../film/fujirecipe';
 import { effectiveWb, fujiWhiteBalanceMatrix, type CameraWhites } from '../film/fujilooks';
-import { diffusionFraction, halationStrength } from './optics';
+import { GLOW_FILTERS, diffusionFraction, halationStrength } from './optics';
 import { scannerFinish } from '../film/scannerfinish';
 import type { Recipe } from '../film/recipe';
 import { REC2020_TO_SRGB, SRGB_TO_REC2020, columnMajor, mulMat, mulVec } from './color';
@@ -239,7 +239,9 @@ export function developUniforms(recipe: Recipe | null, ctx: RenderContext): Unif
     uHalModel: recipe.halationVersion ?? 1,
     uGlowModel: recipe.glowVersion ?? 1,
     uHalStrength: halationStrength(recipe.halation, recipe.halationVersion),
-    uGlowFraction: diffusionFraction(recipe.glow),
+    uGlowFraction: diffusionFraction(recipe.glow, (recipe.glowFilter ?? 'black-pro-mist')),
+    // Not read by a shader: it keys the Glow field and the maps made after it.
+    uGlowFilter: GLOW_FILTERS.indexOf((recipe.glowFilter ?? 'black-pro-mist')),
     uHalSize: recipe.halationSize,
     uGlowSize: recipe.glowSize,
     uHalCol: s.halationColor,
@@ -285,6 +287,7 @@ export function maskUniforms(masks: Mask[], recipe: Recipe, ctx: Pick<RenderCont
   const teq: number[] = [];
   const local: number[] = [];
   const glow: number[] = [];
+  const filter = (recipe.glowFilter ?? 'black-pro-mist');
   let glowLayer = 0;
   // The tone equalizer's map atlas: tile 0 is the photo's instance, then one per masked instance.
   let teqTile = 0;
@@ -304,8 +307,8 @@ export function maskUniforms(masks: Mask[], recipe: Recipe, ctx: Pick<RenderCont
     const teqOn = m.highlights !== 0;
     teq.push(...(teqOn ? bandFactors(bandGains(m.highlights)) : [0, 0, 0, 0, 0, 0, 0, 0]));
     local.push(teqOn ? 1 : 0, teqOn ? ++teqTile : 0, 0, 0);
-    // [diffusion fraction, its field's layer, Glow size (the field's key), 0].
-    glow.push(...(m.glow > 0 ? [diffusionFraction(m.glow), glowLayer++, m.glowSize, 0] : [0, 0, 0, 0]));
+    // [diffusion fraction, its field's layer, Glow size and filter (the field's key)]: the photo's filter.
+    glow.push(...(m.glow > 0 ? [diffusionFraction(m.glow, filter), glowLayer++, m.glowSize, GLOW_FILTERS.indexOf(filter)] : [0, 0, 0, 0]));
     cb.push(...(cbOn ? cbUniform(cbCommit(sliderParams(colorBalanceParams(m.contrast, m.vibrance, m.saturation, legacyShadowValue(m.shadows, m.toneVersions))))) : CB_NONE));
   }
   return {

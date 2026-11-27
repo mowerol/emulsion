@@ -13,9 +13,9 @@ int main(int argc, char **argv)
   if(argc < 2) return 2;
   if(strcmp(argv[1], "plan") == 0)
   {
-    if(argc != 4) return 2;
+    if(argc != 4 && argc != 5) return 2;
     sf_diffusion_plan_t p;
-    sf_diffusion_build_plan(0, number(argv, 2), number(argv, 3), &p);
+    sf_diffusion_build_plan(argc == 5 ? atoi(argv[4]) : 0, number(argv, 2), number(argv, 3), &p);
     printf("{\"scatter\":%.9g,\"components\":[", p.p_s);
     for(int j = 0; j < p.n; j++)
       printf("%s{\"sigmaUm\":%.9g,\"weight\":[%.9g,%.9g,%.9g]}",
@@ -73,8 +73,8 @@ int main(int argc, char **argv)
   }
   else if(strcmp(argv[1], "diffusion") == 0)
   {
-    if(argc != 8) return 2;
-    sf_diffusion_filter(raw, w, h, 0, 0, strtod(argv[4], NULL), 0,
+    if(argc != 8 && argc != 9) return 2;
+    sf_diffusion_filter(raw, w, h, 0, 0, strtod(argv[4], NULL), argc == 9 ? atoi(argv[8]) : 0,
                        number(argv, 5), number(argv, 6), number(argv, 7));
   }
   else return 2;

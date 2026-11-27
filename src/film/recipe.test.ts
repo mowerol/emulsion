@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
 import { SLIDERS, defaultRecipe, normalizeRecipe, recipeKey, resetAdjustments, resetSection, sectionChanged, withSettingsFrom, withStock } from './recipe';
-import { withSlider } from './recipe';
+import { withGlowFilter, withSlider } from './recipe';
 
 it('preserves saved HDR processing and adopts adaptive processing only when an old control is clear', () => {
   const legacy = normalizeRecipe({ shadows: 70, highlights: -80, whites: 25, blacks: -10 })!;
@@ -172,6 +172,27 @@ describe('recipes', () => {
     expect(sectionChanged(a, 'adjust')).toBe(false);
     expect(sectionChanged(r, 'curve')).toBe(false);
     expect(sectionChanged(null, 'grain')).toBe(false);
+  });
+});
+
+describe('Glow filter', () => {
+  it('is Black Pro-Mist when absent, and keeps only darktable\'s other filters', () => {
+    expect(defaultRecipe().glowFilter).toBeUndefined();
+    expect(normalizeRecipe({ ...defaultRecipe(), glowFilter: 'cinebloom' })!.glowFilter).toBe('cinebloom');
+    for (const v of ['black-pro-mist', 'softfx', 3, null]) expect(normalizeRecipe({ ...defaultRecipe(), glowFilter: v })!.glowFilter).toBeUndefined();
+  });
+  it('moves a legacy Glow onto the new renderer, as its size does', () => {
+    const legacy = normalizeRecipe({ ...defaultRecipe(), glow: 40, glowVersion: undefined })!;
+    expect(legacy.glowVersion).toBeUndefined();
+    const picked = withGlowFilter(legacy, 'glimmerglass');
+    expect(picked).toMatchObject({ glowFilter: 'glimmerglass', glowVersion: 2, glow: 40 });
+    expect('glowFilter' in withGlowFilter(picked, 'black-pro-mist')).toBe(false);
+  });
+  it('resets with the Optics section', () => {
+    const r = withGlowFilter({ ...defaultRecipe(), glow: 30 }, 'pro-mist');
+    expect(sectionChanged(r, 'optics')).toBe(true);
+    expect(resetSection(r, 'optics').glowFilter).toBeUndefined();
+    expect(sectionChanged(withGlowFilter(defaultRecipe(), 'pro-mist'), 'optics')).toBe(true);
   });
 });
 

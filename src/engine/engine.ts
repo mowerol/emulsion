@@ -27,6 +27,7 @@ import { packShapes } from './masks';
 
 import type { Recipe } from '../film/recipe';
 import { OpticsGpu, opticsSize, type MaskedGlow } from './opticsgpu';
+import { GLOW_FILTERS } from './optics';
 import { lensCenter, lensColourUniforms, lensSpline, lensUniforms, type LensMetadata } from './lenscorrection';
 import { geometryMatrix, hasPerspective } from './perspective';
 import { FULL, resolveFrame, orientedSize, type Crop, type Orientation, type Rect } from '../film/crop';
@@ -232,7 +233,7 @@ const MASK_UNIFORMS = uniformsOf('stages/masks.glsl').filter((n) => n !== 'uMask
 // Haze removal's texture follows its instances (dehazeMap sets uDehazeKey), so that joins the keys.
 const BEFORE_MASKS = ['stages/input.glsl', 'stages/dehaze.glsl', 'stages/exposure.glsl'].flatMap(uniformsOf).concat('uSharp', 'uStore', 'uDehazeKey', ...MASK_UNIFORMS);
 const OPTICS_INPUT = ['stages/input.glsl', 'stages/dehaze.glsl', 'stages/exposure.glsl', 'stages/toneequalizer.glsl'].flatMap(uniformsOf).concat('uSharp', 'uStore', 'uDehazeKey', ...MASK_UNIFORMS);
-const PHOTO_OPTICS = ['uHalModel', 'uGlowModel', 'uHalStrength', 'uGlowFraction', 'uHalSize', 'uGlowSize', 'uHal', 'uGlow'];
+const PHOTO_OPTICS = ['uHalModel', 'uGlowModel', 'uHalStrength', 'uGlowFraction', 'uGlowFilter', 'uHalSize', 'uGlowSize', 'uHal', 'uGlow'];
 const OPTICS_STAGE = [...PHOTO_OPTICS, 'uMaskGlow'];
 const BEFORE_TEXTURE = [...OPTICS_INPUT, ...OPTICS_STAGE];
 const TEXTURE_STAGE = uniformsOf('stages/texture.glsl').concat('uTextureMix');
@@ -248,7 +249,7 @@ const pick = (u: Uniforms, names: string[]) => JSON.stringify(names.map((n) => u
 /** The masks' Glow instances, in slot order, from their uniforms (maskUniforms). */
 const maskGlowInstances = (u: Uniforms): MaskedGlow[] => {
   const g = (u.uMaskGlow as number[] | undefined) ?? [];
-  return Array.from({ length: g.length / 4 }, (_, slot) => ({ slot, fraction: g[slot * 4], size: g[slot * 4 + 2] })).filter((m) => m.fraction > 0);
+  return Array.from({ length: g.length / 4 }, (_, slot) => ({ slot, fraction: g[slot * 4], size: g[slot * 4 + 2], filter: GLOW_FILTERS[g[slot * 4 + 3]] ?? 'black-pro-mist' })).filter((m) => m.fraction > 0);
 };
 
 /**
@@ -3644,7 +3645,7 @@ export class Engine {
       const maps = optics.render(src.tex, key, {
         halation: (u.uHalModel as number) >= 2 && recipe.halation > 0,
         glow: u.uGlowModel === 2 && recipe.glow > 0,
-        halationSize: recipe.halationSize, glowSize: recipe.glowSize, glowAmount: recipe.glow,
+        halationSize: recipe.halationSize, glowSize: recipe.glowSize, glowAmount: recipe.glow, glowFilter: (recipe.glowFilter ?? 'black-pro-mist'),
       }, target => {
         g.bind(0, src.tex); g.bind(1, sharp); g.bind(4, teq); g.bind(DEHAZE_UNIT, dehaze);
         g.bindArray(MASK_UNIT, maskTex);

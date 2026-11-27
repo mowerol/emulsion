@@ -20,6 +20,8 @@ ROOT = Path(__file__).resolve().parents[2]
 COMMIT = "c96cf1d0de8fff468e9eddee28621e91f83bdf1a"
 PYTHON_COMMIT = "3bb2c2d2801ff68b92019cf1dbcbb133d60832bc"
 BUILD = ROOT / ".scratch" / "optics-reference"
+# darktable's SF_DIFF_FAMILIES order (dt_iop_spektrafilm_diffusion_family_t).
+FAMILIES = ("black_pro_mist", "glimmerglass", "pro_mist", "cinebloom")
 SOURCES = (
     "src/common/spektra_core.c",
     "src/common/spektra_core.h",
@@ -160,6 +162,11 @@ def generate(executable, preset, hashes, output):
                                   [pixel_um, 8, 1, *strength, sigma], pattern))
             profiles.append(image(executable, "diffusion", w, h,
                                   [pixel_um, .5, 1, 0], pattern))
+    # The other families' impulse and step, appended so earlier profile indices are unchanged.
+    for index in range(1, len(FAMILIES)):
+        for pattern in ["impulse", "step"]:
+            profiles.append(image(executable, "diffusion", 513, 257,
+                                  [20, .5, 1, 0, index], pattern))
     fixture = {
         "source": {"project": "darktable", "commit": COMMIT, "sha256": hashes},
         "halation": {
@@ -169,6 +176,14 @@ def generate(executable, preset, hashes, output):
             "bounceWeights": [1/1.75, .5/1.75, .25/1.75], "mixes": mixes,
         },
         "diffusion": {"family": "black_pro_mist", "plans": plans},
+        # Every family, in darktable's index order (SF_DIFF_FAMILIES), at the same strengths.
+        "diffusionFamilies": [
+            {"family": name, "index": index, "plans": [
+                {"strength": s, "warmth": 0, **run_json(executable, "plan", s, 0, index)}
+                for s in strengths
+            ]}
+            for index, name in enumerate(FAMILIES)
+        ],
         "profiles": profiles,
     }
     weak = preset[("still", "weak")]

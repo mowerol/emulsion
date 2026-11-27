@@ -18,6 +18,7 @@ import { normalizeRetouch, normalizeRetouchScales, type RetouchScales, type Reto
 import { ISO_MAX, ISO_MIN } from '../engine/grain';
 import { SOFTNESS_DEFAULT } from '../engine/filmgrain';
 import { MAX_SHADOWS_LIFT } from '../engine/colorbalance';
+import { isGlowFilter, type GlowFilter } from '../engine/optics';
 import { BLACK_LIFT_MAX } from '../engine/tone';
 import { CURRENT_TONE, TONE_KEYS, copyToneVersions, normalizeToneVersions, type ToneVersions } from '../engine/adaptivetone';
 import { DEFAULT_PACK, PACK, isPackId, resolveUserLook, simulationLook, withLook, type PackId } from './looks';
@@ -30,6 +31,8 @@ export type GrainType = 'classic' | 'film';
 /** Whether a slider applies to the recipe's grain type (the grain group's are per type). */
 export const sliderApplies = (d: { grainType?: GrainType }, r: Pick<Recipe, 'grainType'> | null | undefined) => !d.grainType || d.grainType === grainTypeOf(r);
 export const grainTypeOf = (r: Pick<Recipe, 'grainType'> | null | undefined): GrainType => (r?.grainType === 'film' ? 'film' : 'classic');
+/** The diffusion filter Glow uses: Black Pro-Mist when the recipe names none. */
+export const glowFilterOf = (r: Pick<Recipe, 'glowFilter'> | null | undefined): GlowFilter => r?.glowFilter ?? 'black-pro-mist';
 export type LookBlend = 'normal' | 'color';
 
 export interface Recipe {
@@ -90,6 +93,8 @@ export interface Recipe {
   halationVersion?: 2 | 3;
   /** Absent preserves an active effect saved with the original renderer. */
   glowVersion?: 2;
+  /** Glow's diffusion filter (darktable's families); absent is Black Pro-Mist, as before there was a choice. */
+  glowFilter?: Exclude<GlowFilter, 'black-pro-mist'>;
   vignette: number;
   grain: number;
   /** Grain size: darktable's coarseness, in its ISO units; the stock's film speed by default. */
@@ -165,7 +170,7 @@ export function normalizeColor(input: unknown): ColorAdjust | null {
   return tidyColor({ hue: list(o.hue, -HUE_MAX, HUE_MAX), sat: list(o.sat, -100, 100), bright: list(o.bright, -100, 100) });
 }
 
-export type SliderKey = Exclude<keyof Recipe, 'grainType' | 'grainSeed' | 'toneVersions' | 'halationVersion' | 'glowVersion' | 'noiseReduction' | 'profiledDenoise' | 'v' | 'lookEnabled' | 'stock' | 'pack' | 'lookBlend' | 'push' | 'scanner' | 'scannerFromLook' | 'curve' | 'wb' | 'crop' | 'color' | 'grading' | 'lens' | 'transform' | 'masks' | 'retouch' | 'retouchScales' | 'lookSnapshot'>;
+export type SliderKey = Exclude<keyof Recipe, 'grainType' | 'grainSeed' | 'toneVersions' | 'halationVersion' | 'glowVersion' | 'glowFilter' | 'noiseReduction' | 'profiledDenoise' | 'v' | 'lookEnabled' | 'stock' | 'pack' | 'lookBlend' | 'push' | 'scanner' | 'scannerFromLook' | 'curve' | 'wb' | 'crop' | 'color' | 'grading' | 'lens' | 'transform' | 'masks' | 'retouch' | 'retouchScales' | 'lookSnapshot'>;
 
 export interface SliderDef {
   key: SliderKey;
@@ -363,12 +368,12 @@ const SECTION_FIELDS: Record<SectionId, (keyof Recipe)[]> = {
   whitebalance: ['wb'],
   exposure: ['exposure', 'contrast', 'toneCharacter', 'saturation', 'vibrance'],
   hdr: ['highlights', 'shadows', 'whites', 'blacks'],
-  'refine-optics': ['halationVersion', 'glowVersion', ...SLIDERS.filter(d => d.group === 'optics').map(d => d.key)],
+  'refine-optics': ['halationVersion', 'glowVersion', 'glowFilter', ...SLIDERS.filter(d => d.group === 'optics').map(d => d.key)],
   'colour-basics': ['vibrance', 'saturation'],
   tone: SLIDERS.filter(d => d.group === 'adjust' && d.key !== 'vibrance' && d.key !== 'saturation').map(d => d.key),
   detail: SLIDERS.filter((d) => d.group === 'detail').map((d) => d.key),
   noise: ['noiseReduction', 'profiledDenoise'],
-  optics: ['halationVersion', 'glowVersion', ...SLIDERS.filter((d) => d.group === 'optics').map((d) => d.key)],
+  optics: ['halationVersion', 'glowVersion', 'glowFilter', ...SLIDERS.filter((d) => d.group === 'optics').map((d) => d.key)],
   grain: ['grainType', 'grainSeed', ...SLIDERS.filter((d) => d.group === 'grain').map((d) => d.key)],
 };
 
@@ -441,6 +446,7 @@ export function normalizeRecipe(input: unknown): Recipe | null {
   out.profiledDenoise = normalizeProfiledDenoise(o.profiledDenoise);
   if (typeof o.scannerFromLook === 'boolean') out.scannerFromLook = o.scannerFromLook;
   if (o.grainType === 'film') out.grainType = 'film';
+  if (isGlowFilter(o.glowFilter) && o.glowFilter !== 'black-pro-mist') out.glowFilter = o.glowFilter;
   if (typeof o.grainSeed === 'number' && Number.isInteger(o.grainSeed) && o.grainSeed > 0) out.grainSeed = o.grainSeed;
   const snap = o.lookSnapshot as Recipe['lookSnapshot'];
   if (snap && typeof snap.id === 'string' && typeof snap.name === 'string' && Number.isSafeInteger(snap.revision)) {
@@ -451,6 +457,14 @@ export function normalizeRecipe(input: unknown): Recipe | null {
 }
 
 export const recipeKey = (r: Recipe | null) => (r ? JSON.stringify(r) : 'original');
+
+/** Choose Glow's filter. Like Glow size, it moves an edit saved with the original renderer onto darktable's. */
+export function withGlowFilter(recipe: Recipe, filter: GlowFilter): Recipe {
+  const out: Recipe = { ...recipe, glowVersion: 2 };
+  if (filter === 'black-pro-mist') delete out.glowFilter;
+  else out.glowFilter = filter;
+  return out;
+}
 
 /** Keep an active legacy effect until it is cleared, or its new size control is used. */
 export function withSlider(recipe: Recipe, key: SliderKey, value: number): Recipe {

@@ -21,7 +21,7 @@ export const COPY_GROUPS = {
   'Colour Grading': ['grading'],
   'Scanner finish': ['scanner', 'scannerFromLook'],
   Halation: ['halation', 'halationSize', 'halationVersion'],
-  Glow: ['glow', 'glowSize', 'glowVersion'],
+  Glow: ['glow', 'glowSize', 'glowVersion', 'glowFilter'],
   'Film edges and softness': ['filmEdges', 'filmSoftness'],
   Vignette: ['vignette'],
   Grain: ['push', 'grainType', 'grain', 'grainIso', 'grainMidtones', 'grainSoftness'],
