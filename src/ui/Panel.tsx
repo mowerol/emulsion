@@ -233,7 +233,7 @@ function GrainType({ recipe }: { recipe: Recipe | null }) {
 function GrainFilmNote({ recipe }: { recipe: Recipe | null }) {
   return (
     <div className="grain-film-row">
-      <p className="hint grain-film-note">Amount 50 is typical film at this Size.</p>
+      <p className="hint grain-film-note">Amount 50 is typical film at this speed.</p>
       <button type="button" className="icon-btn grain-reshuffle" disabled={!recipe} aria-label="Reshuffle the grain" data-tip="Reshuffle: a new draw of the same grain"
         onClick={() => editActive((r) => ({ ...(r ?? defaultRecipe()), grainSeed: (r?.grainSeed ?? 0) + 1 }), 'Grain reshuffle')}>
         <Shuffle size={14} aria-hidden="true" />
@@ -245,7 +245,7 @@ function GrainFilmNote({ recipe }: { recipe: Recipe | null }) {
 /** Amount's tooltip under Film grain: where familiar films sit, each at its own speed. */
 const FILM_AMOUNT_HINT = (() => {
   const at = (id: string) => Math.round(filmAmountFor(FILM_STOCK[id]));
-  return `How grainy, against typical film at this Size as a lab scans it: 50 is typical, 100 twice that. At their own speeds, Portra 400 is about ${at('portra400')}, Gold 200 about ${at('gold200')} and Tri-X 400 about ${at('trix400')}. Double-click to reset.`;
+  return `How grainy, against typical film at this speed as a lab scans it: 50 is typical, 100 twice that. At their own speeds, Portra 400 is about ${at('portra400')}, Gold 200 about ${at('gold200')} and Tri-X 400 about ${at('trix400')}. Double-click to reset.`;
 })();
 
 /** Film speed presets: picking one sets the grain Size and Roughness sliders. */

@@ -212,7 +212,7 @@ export const SLIDERS: SliderDef[] = [
   { key: 'glowSize', label: 'Glow size', group: 'optics', min: 20, max: 400, step: 1, default: 100, format: v => `${v}%`, hint: 'How far the diffused light spreads.' },
   { key: 'vignette', label: 'Vignette', group: 'optics', min: 0, max: 100, step: 1 },
   { key: 'grain', label: 'Amount', group: 'grain', min: 0, max: 100, step: 1, stockKey: 'grain' },
-  { key: 'grainIso', label: 'Size', group: 'grain', min: ISO_MIN, max: ISO_MAX, step: 1, stockKey: 'grainIso', log: true, hint: 'The grain size, as the ISO of the film.', format: (v) => `${Math.round(v)}` },
+  { key: 'grainIso', label: 'Speed', group: 'grain', min: ISO_MIN, max: ISO_MAX, step: 1, stockKey: 'grainIso', log: true, hint: 'The film’s speed (ISO): faster film has coarser grain.', format: (v) => `${Math.round(v)}` },
   { key: 'grainMidtones', label: 'Mid-tones', group: 'grain', grainType: 'classic', min: 0, max: 100, step: 1, default: 100, hint: 'How much the grain fades in shadows and highlights, as on a photographic print. At 0 it is even across every tone.', format: (v) => `${v}%` },
   { key: 'grainSoftness', label: 'Softness', group: 'grain', grainType: 'film', min: 3, max: 15, step: 0.25, default: SOFTNESS_DEFAULT, hint: 'How softly the grains are seen, and the photo with them, as a blur on the film. 5.75 µm is as crisp as a lab scan; softer is more like a print.', format: (v) => `${v.toFixed(1)} µm` },
 ];
@@ -234,7 +234,7 @@ export function sliderDefault(def: SliderDef, stock: StockId, raw?: boolean): nu
 }
 
 /**
- * Film grain's own reference for a grain slider: Amount 50, typical film's grain at this Size
+ * Film grain's own reference for a grain slider: Amount 50, typical film's grain at this speed
  * (engine/filmgrain.ts TYPICAL_FILM), which Amount's tick, changed state and double-click reset
  * follow. Null where the Look's default applies (Classic grain, and every other slider).
  */

@@ -124,7 +124,7 @@ const FIELD_LABELS: Partial<Record<keyof Recipe, string>> = {
   sharpenRadius: 'Sharpening radius',
   sharpenMasking: 'Sharpening masking',
   grain: 'Grain amount',
-  grainIso: 'Grain size',
+  grainIso: 'Grain speed',
   grainSeed: 'Grain reshuffle',
   grainMidtones: 'Grain mid-tones',
   grainSoftness: 'Grain softness',

@@ -1373,6 +1373,14 @@ try {
     document.body.append(host);
     createRoot(host).render(createElement(Panel));
     const grainOf = () => { const r = useApp.getState().photos[0].recipe!; return { grain: r.grain, iso: r.grainIso, softness: r.grainSoftness, type: r.grainType }; };
+    // ?grainpanel&tip: show the reshuffle button's tooltip, as on hover, for a screenshot.
+    if (new URLSearchParams(location.search).has('tip')) {
+      const css = [...document.styleSheets].flatMap((sh) => { try { return [...sh.cssRules]; } catch { return []; } })
+        .filter((r) => r instanceof CSSStyleRule && r.selectorText.startsWith('[data-tip]:hover::after')).map((r) => (r as CSSStyleRule).style.cssText).join(';');
+      const style = document.createElement('style');
+      style.textContent = `.grain-reshuffle[data-tip]::after { ${css} } .grain-reshuffle[data-tip]::after { left: auto; right: 0; transform: none; }`;
+      document.head.append(style);
+    }
     const steps: unknown[] = [];
     await new Promise((r) => setTimeout(r, 500));
     // Film grain: no film menu, no Irregularity; the Film speed menu sets Size; a note says what Amount 50 is.

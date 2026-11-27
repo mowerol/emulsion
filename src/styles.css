@@ -1219,7 +1219,7 @@ body { font-variant-numeric: tabular-nums; min-width: 1200px; }
 .action-bar [data-tip]:hover::after, .action-bar [data-tip]:focus-visible::after,
 .photo-info-bar [data-tip]:hover::after { top: auto; bottom: calc(100% + 6px); }
 .action-bar > :first-child[data-tip]::after { left: 0; transform: none; }
-.section-reset[data-tip]::after, .tool-zoom > :last-child[data-tip]::after { left: auto; right: 0; transform: none; }
+.section-reset[data-tip]::after, .tool-zoom > :last-child[data-tip]::after, .grain-reshuffle[data-tip]::after { left: auto; right: 0; transform: none; }
 /* The stage tabs fill the panel edge to edge: the end ones keep their tips inside the window. */
 .control-stages > :first-child[data-tip]::after { left: 0; transform: none; }
 .control-stages > :last-child[data-tip]::after { left: auto; right: 0; transform: none; }
