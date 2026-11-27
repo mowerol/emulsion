@@ -33,6 +33,16 @@
 // - The parameters come from film stocks' published granularity (FILM_STOCKS). The change is split
 //   into its softening and its grain, the grain less its expected print (so it never shifts the
 //   tone, as a printer's exposure correction); Amount 50 is the model, 100 twice its grain.
+// - As a lab scans it (agreed with Oli, 2026-11-26; docs/research/film-grain.md, "Measured against
+//   a lab scan"): the filter is a size on the film (Softness, in µm: a scanner's blur is fixed on
+//   the film, so grain per pixel is about the same in a 3,100 and a 6,800 px scan), not the
+//   reference's 0.8 output pixels (its anti-aliasing choice, not a measurement); its default, 5.75
+//   µm, is 0.5 px of a 3,130 px lab scan, as crisp as one; and every stock's granularity is scaled
+//   by SCAN_GRANULARITY, so Amount 50 matches a lab scan of the film (fitted to 24 lab scans of
+//   Gold 200 and Portra 400 and 800, Oli's and Unsplash's), where the datasheets' diffuse
+//   granularity gave about a quarter of it. The filter is at least half a frame pixel
+//   (FILTER_MIN_PX), as a scan is at least as soft as its sampling. Zoomed in past 100% the
+//   filter stays in output pixels, as the reference's.
 // - The intensity is computed from the value directly (as boolgrain.ts), a cell holds at most 64
 //   grains (MAX_CELL_GRAINS; the reference's cap is 10000 × the intensity), and points outside the
 //   frame read its edge.
@@ -43,7 +53,7 @@
 // asks for, seen through a Gaussian filter, then printed. The stock sets how grainy the film is
 // (its granularity) and whether it is printed; Size (a film speed, pushed) scales the grain radius,
 // Irregularity the spread of the radii (keeping the stock's granularity), Softness the filter;
-// Amount 50 is the stock's grain, 100 twice it. GPU twin: shaders/filmgrain-bake.frag.glsl (the film),
+// Amount 50 is the stock's grain as a lab scans it, 100 twice it. GPU twin: shaders/filmgrain-bake.frag.glsl (the film),
 // filmgrain-pyramid.frag.glsl (integrated), filmgrain.frag.glsl and filmgrain-cells.frag.glsl (the
 // grid), filmgrain-blur.frag.glsl (the filter, printed), driven by filmgraingpu.ts.
 
@@ -54,8 +64,23 @@ import { LANCZOS_WIDTH, lanczosTap } from './resample';
 /** Irregularity 100: the radius's deviation as a share of its mean (the log-normal's; the paper's
  * Figure 6 goes to a half). */
 export const IRREGULARITY_MAX = 0.5;
-/** The filter's deviation at the reference's default, in output pixels. */
-export const SOFTNESS_DEFAULT = 0.8;
+/** Softness by default: the filter's deviation on the film, in µm. 5.75 µm is 0.5 px of a 3,130
+ * px lab scan (a Frontier's), as crisp as its grain; about 1 px of a 26 MP frame (the reference's
+ * is 0.8 output pixels at every size; see the header). */
+export const SOFTNESS_DEFAULT = 5.75;
+/** The filter's least deviation, in frame pixels: no scan is sharper than about half its pixel
+ * (its own sampling averages the grain), and the integrated cells, a quarter pixel apart, need it.
+ * Frames under about 3,100 px wide meet it at the default Softness. */
+export const FILTER_MIN_PX = 0.5;
+/**
+ * How much grainier a lab scan of a film is than its datasheet granularity says, at the default
+ * Softness: fitted to Oli's Kodak Gold 200 lab scans (3,130 px, no sharpening added; midtone grain
+ * at 100% 6.4 to 6.9 / 255 against 2.5 to 2.9 from the datasheet), and the median of 24 lab scans
+ * of Gold 200, Portra 400 and Portra 800 from 3,000 to 6,800 px (2.43; docs/research/film-grain.md).
+ * One factor for every stock: web samples (1,024 px) put colour negatives within their
+ * datasheets' order, and black and white ones disagreed with each other.
+ */
+export const SCAN_GRANULARITY = 2.44;
 /** The film width a frame's long edge stands for, in µm (35 mm). */
 export const FRAME_UM = 36000;
 
@@ -135,6 +160,7 @@ export interface FilmGrainSettings {
   grainIso: number;
   push: number;
   grainIrregularity: number;
+  /** Softness: the filter's deviation on the film, in µm. */
   grainSoftness: number;
   /** The stock (FILM_STOCKS), or none. */
   grainStock?: string;
@@ -147,11 +173,13 @@ export const filmKindOf = (r: Pick<FilmGrainSettings, 'grainStock'>): FilmKind =
 export function filmGrainParams(r: FilmGrainSettings, fullW: number, fullH: number, seed: number): BoolGrainParams | null {
   if (!(r.grain > 0)) return null;
   const spread = IRREGULARITY_MAX * Math.min(1, Math.max(0, r.grainIrregularity / 100));
-  const radius = radiusUm(stockOf(r), r.grainIso, spread, r.push) / FRAME_UM * Math.max(fullW, fullH);
+  const radius = radiusUm(stockOf(r), r.grainIso, spread, r.push) * SCAN_GRANULARITY / FRAME_UM * Math.max(fullW, fullH);
   return {
     radius,
     sigmaR: radius * spread,
-    sigmaFilter: r.grainSoftness,
+    // Softness is on the film (µm), like the grains: the same share of the frame at every size,
+    // down to half a pixel.
+    sigmaFilter: Math.max(FILTER_MIN_PX, r.grainSoftness / FRAME_UM * Math.max(fullW, fullH)),
     samples: 0,
     // Emulsion's seeds are 0.5 to 40.5 in hundredths (seedFor).
     seed: Math.round(seed * 100) >>> 0,

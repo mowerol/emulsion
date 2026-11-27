@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
 import { coveredAt, filterOffsets, grainGeometry, type BoolGrainParams } from './boolgrain';
-import { FILM_BLOCK, FILM_STOCK, exactShare, filmPlan, FILM_TILE, FRAME_UM, LEVELS, blockOffset, coverageFor, filmAmounts, filmChange, filmKindOf, filterEnergy, filterTaps, meanCoverage, pixelTaps, varianceShape, granularityPerUm, radiusUm, bakeParams, filmGrainParams, filmMargin, grainChange, grainThreshold, gridDensity, reaches, renderFilmGrain, shownFor, thresholdLevel, tileLevel, tileTexel, type FilmKind, type ShownImage } from './filmgrain';
+import { FILM_BLOCK, FILM_STOCK, SCAN_GRANULARITY, exactShare, filmPlan, FILM_TILE, FRAME_UM, LEVELS, blockOffset, coverageFor, filmAmounts, filmChange, filmKindOf, filterEnergy, filterTaps, meanCoverage, pixelTaps, varianceShape, granularityPerUm, radiusUm, bakeParams, filmGrainParams, filmMargin, grainChange, grainThreshold, gridDensity, reaches, renderFilmGrain, shownFor, thresholdLevel, tileLevel, tileTexel, type FilmKind, type ShownImage } from './filmgrain';
 import { srgbOetf } from './color';
 import { resample } from './resample';
 
@@ -26,12 +26,13 @@ const render = (img: ShownImage, x0: number, y0: number, w: number, h: number, s
 
 describe('Film grain (the Boolean model, baked, its filter on a grid)', () => {
   it('sets the radius from the stock’s granularity: Size, push and Irregularity scale it, Amount mixes', () => {
-    const base = { grain: 50, grainIso: 400, push: 0, grainIrregularity: 80, grainSoftness: 0.8, grainStock: 'trix400' };
+    const base = { grain: 50, grainIso: 400, push: 0, grainIrregularity: 80, grainSoftness: 5.75, grainStock: 'trix400' };
     expect(filmGrainParams({ ...base, grain: 0 }, 6240, 4160, 1)).toBeNull();
     // Tri-X 400: RMS 17 at spread 0.4 is 0.33 µm on the negative (the research's density-domain radius).
     const trix = filmGrainParams(base, 6240, 4160, 1)!;
     expect(radiusUm(FILM_STOCK.trix400, 400, 0.4, 0)).toBeCloseTo(0.333, 2);
-    expect(trix.radius).toBeCloseTo((0.017 / 0.0511) / FRAME_UM * 6240, 6);
+    // As a lab scans it: SCAN_GRANULARITY times the datasheet's.
+    expect(trix.radius).toBeCloseTo((0.017 / 0.0511) * SCAN_GRANULARITY / FRAME_UM * 6240, 6);
     expect(trix.sigmaR).toBeCloseTo(trix.radius * 0.4, 9);
     // Relative to the frame, and the same at either orientation.
     expect(filmGrainParams(base, 4160, 6240, 1)!.radius).toBeCloseTo(trix.radius, 9);
@@ -52,6 +53,11 @@ describe('Film grain (the Boolean model, baked, its filter on a grid)', () => {
     expect(filmKindOf({})).toBe('negative');
     expect(filmGrainParams({ ...base, grainStock: undefined }, 6240, 4160, 1)!.radius).toBeCloseTo(trix.radius, 9);
     expect(filmGrainParams({ ...base, grainSoftness: 1.2 }, 6240, 4160, 12.34)!.seed).toBe(1234);
+    // Softness is on the film: 5.75 µm is 0.5 px of a 3,130 px scan and twice that on a frame twice as wide.
+    expect(filmGrainParams(base, 3130, 2075, 1)!.sigmaFilter).toBeCloseTo(0.5, 2);
+    expect(filmGrainParams(base, 6260, 4150, 1)!.sigmaFilter).toBeCloseTo(1.0, 2);
+    // A small frame is no sharper than half its pixel.
+    expect(filmGrainParams(base, 1500, 1000, 1)!.sigmaFilter).toBe(0.5);
   });
 
   it('spaces the grid no wider than a grain, within its limits', () => {

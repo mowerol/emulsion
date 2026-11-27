@@ -54,12 +54,37 @@ The print curve bends, so the printed grain alone shifted the tone where the gra
 
 A bug worth knowing: a pass drew into a texture still bound to a sampler from the previous tile, which WebGL skips silently, so every tile after the first used stale values. Flat test images fitting in one tile hid it; a 1600 px view showed it.
 
+## Measured against a lab scan (Kodak Gold 200, 2026-11-26)
+
+Oli finds Amount too subtle next to his film photos. Ten frames of Gold 200, lab-scanned (probably a Frontier) at 3130 × 2075 and exported from Lightroom with no sharpening, noise reduction or grain. Method: display luma (Rec. 709 weights on the sRGB values) in 48 px tiles, minus a quadratic fit; tiles whose fit varies under 0.03 count as flat; the quietest quarter of each tone bin is taken as grain, not scene texture. The model's prediction comes from its own variance (varianceShape, a 0.8 px Gaussian, the print's slope) for Gold 200 at 3130 px.
+
+| Shown value | 0.05 | 0.15 | 0.25 | 0.45 | 0.55 | 0.65 | 0.75 | 0.85 | 0.95 |
+|---|---|---|---|---|---|---|---|---|---|
+| Scan at 100%, RMS /255 (p25 of flat tiles) | 1.57 | 3.27 | 5.40 | 6.40 | 6.89 | 6.55 | 4.33 | 3.22 | 0.59 |
+| Model, Amount 50 | 0.11 | 0.44 | 0.85 | 1.55 | 1.74 | 1.78 | 1.63 | 1.27 | 0.61 |
+| Model, Amount 100 | 0.21 | 0.88 | 1.69 | 3.10 | 3.48 | 3.55 | 3.27 | 2.55 | 1.23 |
+
+At a 1560 px Fit-like size (Lanczos), the scan's midtones measure 3.7-3.9.
+
+- **Strength:** about 4× Amount 50 (2× Amount 100) in the midtones, at 100% and at Fit alike.
+- **Tone:** the scan keeps much more shadow grain (7× at 0.15) than the paper curve leaves. A lab scan's inversion is not RA-4 paper's toe. Caveat: dark tiles may still hold texture (fur, foliage), and some frames had Shadows +31 in Lightroom.
+- **Texture:** the scan's grain power, normalised to 0.02-0.06 cycles/px, is 0.66 at 0.10, 0.57 at 0.21, 0.65 at 0.29 (a bump, like a scanner's unsharp mask), 0.41 at 0.40 and 0.23 at 0.48 cycles/px. The model's 0.8 px Gaussian gives about 0.80, 0.35, 0.12, 0.02 and 0.003. So lab grain is crisp down to the pixel, while ours is soft. The scan also rises below 0.04 cycles/px (mottle), but that may be scene residue.
+
+### More scans, and what was changed (same day)
+
+- **Web samples at 1,024 px** (thedarkroom.com film index, customer uploads; artbypino.com, one photographer's 35 mm galleries), midtone grain relative to Gold 200 from the same site. Colour negatives sit within about ±50% of their datasheets' order (thedarkroom: Ektar 0.63, Portra 160 0.66, Superia 400 0.75, Portra 400 1.13, 800T 1.15, UltraMax 1.18; artbypino: Portra 160 0.91, Portra 400 1.74, Portra 800 1.73), against the datasheets' 0.45, 0.63, 0.82, 0.82, 1.33, 1.06 and 1.12. Black and white contradicts itself: thedarkroom gives HP5 0.49 and T-Max 0.43 but Tri-X 1.54; artbypino gives HP5 2.1, FP4 3.2, T-Max 100 3.8 and T-Max 400 5.2. Scene texture, development and scanner noise reduction can't be separated at this size. lomography.com and filtergrade.com refuse automated fetches (403), and Unsplash's pages do too (401).
+- **Full-size Unsplash scans** (Oli downloaded them to ~/Downloads/film samples; EXIF stripped, all film by their grain at 100%; one 6 × 7 frame left out): 5 Gold 200 (four Noritsu-sized, 6,774 px), 5 Portra 400 and 5 Portra 800, 3,047 to 6,774 px. With Oli's ten frames, 24 scans. **Grain per pixel is about the same at 3,100 and 6,800 px** (Gold 200 at 6,774 px: 6.7 to 8.3 /255 in the midtones; Oli's at 3,130 px: 4.6 to 7.5), so a scanner's blur is fixed on the film, not in pixels. With the filter in pixels, the implied factor was 2.35 at ~3,100 px and 1.38 at 4,900 to 6,800 px; with it on the film, 2.35 and 2.65 (median 2.43, quartiles 1.78 to 2.64).
+- **Spectra.** Normalised to 0.02 to 0.06 cycles/px, Oli's scans hold 0.57 at 0.21, 0.65 at 0.29 and 0.41 at 0.40 cycles/px. Gaussian fits: 0.8 px log error 1.81, 0.5 px 0.45, 0.4 px 0.25. darktable spektrafilm's grain chain (0.89 px blur, density unsharp mask 0.7 px × 1.5, scanner unsharp mask 0.7 px × 0.7) gives 0.96. The bump at 0.29 cycles/px is near JPEG's 8 × 8 harmonic (0.25), so it may be compression rather than sharpening.
+- **Changed, agreed with Oli:** Softness is a size on the film, in µm (default 5.75 µm, 0.5 px of a 3,130 px scan, about 1 px of a 26 MP frame), floored at half a frame pixel (FILTER_MIN_PX). Every stock's granularity is scaled by SCAN_GRANULARITY = 2.44, the same factor for black and white and slides (Oli's choice). Probe: GPU against reference within 0.0046 in every case, including new 0.5 px cases; halves match the whole; flat greys move at most 0.26/255 at 100% and 1.5/255 at Fit. The probe's reference had hard-coded the 0.8 px filter in its variance term; it now uses the case's own. A first version kept Softness in pixels, which on a 1,500 px frame went to 0.24 px, below what the quarter-pixel cells resolve (the halves differed by 37/255); the floor fixed it.
+
 ## Open, for the next session
 
-- Calibrate the stocks against real scans (one Portra 400 and one Tri-X roll at a known scan size): film-grain-stocks.md rates the absolute level across families as low confidence; colour negatives come out 3-4× finer than Tri-X.
-- Sub-layers of different grain sizes and clumping (film-grain-methods.md recommendations 4 and 5), each a departure to agree with Oli first.
+- **Tone shape against scans:** the model's grain peaks lighter than the scan's (at 0.75: 6.4 against 4.3 /255 for Gold 200 at 100%; at 0.85: 5.0 against 3.2). The paper curve's middle (negative density 0.95) is an illustrative value; a measured paper (spektrafilm's data pack has them) would replace it. Shadow figures from scenes are unreliable (the flat-tile test lets texture through).
+- **Black and white:** the scan factor is the colour negatives'; Tri-X then comes out about 3.5× Gold 200 (the datasheets). Measure Oli's own B&W lab scans when he has some.
+- Zoomed in past 100% the filter stays in output pixels (the paper's), so 200% is crisper than 100% enlarged; on the film would be consistent.
+- Calibrate against real scans of other stocks (Portra 400 and Tri-X at a known scan size); sub-layers and clumping (film-grain-methods.md 4 and 5), each a departure to agree with Oli first.
 - Looks and presets that set grain (Fuji recipes' Grain Effect, saved presets' Grain group) overwrite Film grain's Amount; decide whether they should.
-- Time the real app (tools/perf/inapp.mjs) with Film grain on; the first open of a Film photo bakes the film (about a second).
+- Time the real app (tools/perf/inapp.mjs) with Film grain on.
 - The film is 35 mm by assumption (long edge = 36 mm); a format choice (645, 6×7) would scale it.
 
 ## GPU faults

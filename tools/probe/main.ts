@@ -946,12 +946,14 @@ function probeFilmGrain(eng: Engine) {
   const W = 24, H = 16;
   // Cases: grains a radius (in frame pixels) at a zoom: points (large grains), cells (fine grains)
   // at three pyramid levels, zoomed out (1:1), a slide, irregular grains.
-  const cases: [string, number, number, number, FilmKind][] = [
-    ['points100', 0.2, 1, 0, 'negative'], ['points200', 0.12, 2, 0, 'negative'], ['cellsL3', 0.0577, 1, 0.4, 'negative'],
-    ['cellsL4', 0.035, 1, 0.2, 'slide'], ['fitL5', 0.0577, 0.25, 0.4, 'negative'], ['pointsIrregular', 0.25, 1, 0.5, 'negative'],
+  // The last three at the 0.5 px default (a lab scan's crispness): scanned Gold 200 and Tri-X sizes.
+  const cases: [string, number, number, number, FilmKind, number][] = [
+    ['points100', 0.2, 1, 0, 'negative', 0.8], ['points200', 0.12, 2, 0, 'negative', 0.8], ['cellsL3', 0.0577, 1, 0.4, 'negative', 0.8],
+    ['cellsL4', 0.035, 1, 0.2, 'slide', 0.8], ['fitL5', 0.0577, 0.25, 0.4, 'negative', 0.8], ['pointsIrregular', 0.25, 1, 0.5, 'negative', 0.8],
+    ['scanCells', 0.025, 1, 0.2, 'negative', 0.5], ['scanPoints', 0.25, 1, 0.4, 'negative', 0.5], ['scanFit', 0.05, 0.5, 0.2, 'negative', 0.5],
   ];
-  for (const [name, radius, scale, spread, kind] of cases) {
-    const p: BoolGrainParams = { radius, sigmaR: radius * spread, sigmaFilter: 0.8, samples: 0, seed: 731 };
+  for (const [name, radius, scale, spread, kind, sigmaFilter] of cases) {
+    const p: BoolGrainParams = { radius, sigmaR: radius * spread, sigmaFilter, samples: 0, seed: 731 };
     const plan = filmPlan(p, scale), m = filmMargin(p, scale);
     // The output shows the middle of a frame 4 × the output, so no point reaches its edge.
     const full = 4 * W / scale, fullH = 4 * H / scale;
@@ -1003,7 +1005,7 @@ function probeFilmGrain(eng: Engine) {
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       const v = vals[(y + m) * ew + x + m], i = (y * W + x) * 4;
       if (!Number.isFinite(px[i]) || !Number.isFinite(px[i + 1])) { nan++; continue; }
-      const variance = varianceShape(mean[y * W + x], spread) * (radius * scale) ** 2 * filterEnergy(plan.k, filterTaps(plan.k, 0.8, scale));
+      const variance = varianceShape(mean[y * W + x], spread) * (radius * scale) ** 2 * filterEnergy(plan.k, filterTaps(plan.k, sigmaFilter, scale));
       const want = filmChange(ref[y * W + x], mean[y * W + x], v, kind, variance);
       const d = Math.max(Math.abs(px[i] - want.soft), Math.abs(px[i + 1] - want.grain));
       rms += want.grain * want.grain;

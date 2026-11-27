@@ -217,7 +217,7 @@ export const SLIDERS: SliderDef[] = [
   { key: 'grainIso', label: 'Size', group: 'grain', min: ISO_MIN, max: ISO_MAX, step: 1, stockKey: 'grainIso', log: true, hint: 'The grain size, as the ISO of the film.', format: (v) => `${Math.round(v)}` },
   { key: 'grainMidtones', label: 'Mid-tones', group: 'grain', grainType: 'classic', min: 0, max: 100, step: 1, default: 100, hint: 'How much the grain fades in shadows and highlights, as on a photographic print. At 0 it is even across every tone.', format: (v) => `${v}%` },
   { key: 'grainIrregularity', label: 'Irregularity', group: 'grain', grainType: 'film', min: 0, max: 100, step: 1, default: 80, hint: 'How much the grains differ in size: 80 is conventional film (Tri-X, HP5), 40 tabular and modern colour film (T-Max, Delta, Portra). The film stays as grainy; its grains change.', format: (v) => `${v}%` },
-  { key: 'grainSoftness', label: 'Softness', group: 'grain', grainType: 'film', min: 0.5, max: 2, step: 0.05, default: SOFTNESS_DEFAULT, hint: 'How softly the print renders the grains, and the photo with them. 0.8 px is the paper\'s default.', format: (v) => `${v.toFixed(2)} px` },
+  { key: 'grainSoftness', label: 'Softness', group: 'grain', grainType: 'film', min: 3, max: 25, step: 0.25, default: SOFTNESS_DEFAULT, hint: 'How softly the grains are seen, and the photo with them, as a blur on the film. 5.75 µm is as crisp as a lab scan; softer is more like a print.', format: (v) => `${v.toFixed(1)} µm` },
 ];
 
 export const SLIDER: Record<SliderKey, SliderDef> = Object.fromEntries(SLIDERS.map((s) => [s.key, s])) as Record<SliderKey, SliderDef>;
