@@ -80,9 +80,9 @@ export interface Recipe {
   saturation: number;
   halation: number;
   glow: number;
-  /** Film edges: the spatial part of a film's DIR couplers, 0–100 (engine/filmdev.ts). */
+  /** Film edges: the spatial part of a film's DIR couplers, 0–200, 100 the film's own (engine/filmdev.ts). */
   filmEdges: number;
-  /** Film softness: light scattering in the film's layers, 0–100 (engine/scatter.ts). */
+  /** Film softness: light scattering in the film's layers, 0–200: to 100 darktable's scatter amount, then its scatter size to 2× (engine/scatter.ts). */
   filmSoftness: number;
   halationSize: number;
   glowSize: number;
@@ -184,6 +184,8 @@ export interface SliderDef {
   default?: number;
   /** Shown only for this grain type (the grain group). */
   grainType?: GrainType;
+  /** The recommended value, marked on the track. */
+  mark?: number;
   format?: (v: number) => string;
 }
 
@@ -214,8 +216,8 @@ export const SLIDERS: SliderDef[] = [
   { key: 'halationSize', label: 'Halation size', group: 'optics', min: 20, max: 400, step: 1, default: 100, format: v => `${v}%`, hint: 'How far the warm halo spreads around bright areas.' },
   { key: 'glow', label: 'Glow', group: 'optics', min: 0, max: 100, step: 1, hint: 'Diffuses light around bright areas and softens contrast.' },
   { key: 'glowSize', label: 'Glow size', group: 'optics', min: 20, max: 400, step: 1, default: 100, format: v => `${v}%`, hint: 'How far the diffused light spreads.' },
-  { key: 'filmEdges', label: 'Film edges', group: 'optics', min: 0, max: 100, step: 1, hint: 'Contrast film’s development adds at edges and fine texture (DIR couplers). Shows at 100%.' },
-  { key: 'filmSoftness', label: 'Film softness', group: 'optics', min: 0, max: 100, step: 1, hint: 'Light spreading in the film’s layers softens the finest detail, red the most. Shows at 100%.' },
+  { key: 'filmEdges', label: 'Film edges', group: 'optics', min: 0, max: 200, step: 1, mark: 100, hint: 'Contrast film’s development adds at edges and fine texture (DIR couplers). 100 is the film’s own (darktable’s spektrafilm); above it, stronger. Shows at 100% zoom.' },
+  { key: 'filmSoftness', label: 'Film softness', group: 'optics', min: 0, max: 200, step: 1, mark: 100, hint: 'Light spreading in the film’s layers softens the finest detail, red the most. 100 is the film’s own (darktable’s spektrafilm); above it, the light spreads further. Shows at 100% zoom.' },
   { key: 'vignette', label: 'Vignette', group: 'optics', min: 0, max: 100, step: 1 },
   { key: 'grain', label: 'Amount', group: 'grain', min: 0, max: 100, step: 1, stockKey: 'grain' },
   { key: 'grainIso', label: 'Speed', group: 'grain', min: ISO_MIN, max: ISO_MAX, step: 1, stockKey: 'grainIso', log: true, hint: 'The film’s speed (ISO): faster film has coarser grain.', format: (v) => `${Math.round(v)}` },

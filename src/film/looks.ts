@@ -55,16 +55,34 @@ const T3M: Partial<Record<StockId, string>> = {
   hp5: 'Black and White - Ilford HP5 Plus 400',
 };
 
-/** Film stocks rendered from scene light by darktable's spektrafilm model (engine/film.ts),
- * baked by tools/spektrabake into public/looks/film/. */
-const FILM: Partial<Record<StockId, string>> = {
-  gold200: 'kodak_gold_200',
-  portra400: 'kodak_portra_400',
-  portra160: 'kodak_portra_160',
-  ektar100: 'kodak_ektar_100',
-  pro400h: 'fujifilm_pro_400h',
-  superia400: 'fujifilm_xtra_400',
-};
+/** Spectral Film: every film in darktable's spektrafilm data pack 0.3.3, rendered from scene light
+ * (engine/film.ts), baked by tools/spektrabake into public/looks/film/. Grouped by kind; negatives
+ * print on their own paper, slides are scanned directly. Portra 800's measured pushes are their own films. */
+const SPECTRAL_FILM: [StockId, string, string, string?][] = [
+  ['portra160', 'kodak_portra_160', 'Colour negative'],
+  ['portra400', 'kodak_portra_400', 'Colour negative'],
+  ['portra800', 'kodak_portra_800', 'Colour negative'],
+  // Kodak's measured pushed development, as darktable lists them.
+  ['portra800push1', 'kodak_portra_800_push1', 'Colour negative'],
+  ['portra800push2', 'kodak_portra_800_push2', 'Colour negative'],
+  ['gold200', 'kodak_gold_200', 'Colour negative'],
+  ['ultramax400', 'kodak_ultramax_400', 'Colour negative'],
+  ['ektar100', 'kodak_ektar_100', 'Colour negative'],
+  ['c200', 'fujifilm_c200', 'Colour negative'],
+  ['superia400', 'fujifilm_xtra_400', 'Colour negative', 'Superia X-TRA 400'],
+  ['pro400h', 'fujifilm_pro_400h', 'Colour negative'],
+  ['vision50d', 'kodak_vision3_50d', 'Cinema negative'],
+  ['vision200t', 'kodak_vision3_200t', 'Cinema negative'],
+  ['vision250d', 'kodak_vision3_250d', 'Cinema negative'],
+  ['vision500t', 'kodak_vision3_500t', 'Cinema negative'],
+  ['verita200d', 'kodak_verita_200d', 'Cinema negative'],
+  ['ektachrome100', 'kodak_ektachrome_100', 'Slide'],
+  ['kodachrome64', 'kodak_kodachrome_64', 'Slide'],
+  ['provia100f', 'fujifilm_provia_100f', 'Slide'],
+  ['velvia100', 'fujifilm_velvia_100', 'Slide'],
+  ['doublex', 'kodak_doublex', 'Black and white'],
+  ['trix7266', 'kodak_trix', 'Black and white'],
+];
 
 const bundledLooks = (pack: PackId): LookPack['looks'] => Object.fromEntries(
   [...catalogue, ...LOCAL_LOOKS].filter(s => s.pack === pack).map(s => [s.id, { file: s.file, category: s.category, name: s.name, kind: 'look' as const }]),
@@ -125,10 +143,12 @@ export const PACKS: LookPack[] = [
     looks: Object.fromEntries(Object.entries(T3M).map(([s, name]) => [s, { file: `t3mujinpack - ${name}.png`, kind: 'look' as const }])),
   },
   {
-    // Working name; the licence asks that "spektrafilm" not be used as a brand ("uses spektrafilm" is fine).
-    id: 'film', name: 'Film stocks',
-    hint: 'Film and its print, developed from the photo’s light by darktable’s film simulation (uses spektrafilm).',
-    looks: Object.fromEntries(Object.entries(FILM).map(([s, file]) => [s, { file: `${file}.film`, kind: 'look' as const }])),
+    // The licence asks that "spektrafilm" not be used as a brand; a factual credit is welcome.
+    id: 'film', name: 'Spectral Film',
+    hint: 'Films and their prints simulated from the manufacturers’ data, developed from the photo’s light. Uses spektrafilm by Andrea Volpato, through darktable.',
+    looks: Object.fromEntries(SPECTRAL_FILM.map(([stock, file, category, name]) => [stock, {
+      file: `${file}.film`, kind: 'look' as const, category, ...(name ? { name } : {}),
+    }])),
   },
   {
     id: 'gmic-film', name: 'Pat David', hint: 'Pat David’s film emulations, distributed as Cube LUTs by G’MIC and YahiaAngelo.',
@@ -315,8 +335,9 @@ export function lookSettings(pack: PackId, stock: StockId): ProfileSettings | nu
     : { kind: 'pack', pack, stock, amount: 1 } };
 }
 
-/** Only the raw LUT ingredient is selectable in the Look editor. */
+/** Only the raw LUT ingredient is selectable in the Look editor. A Spectral Film film is not a LUT. */
 export function lutBase(pack: PackId, stock: StockId) {
+  if (pack === 'film') return null;
   const settings = lookSettings(pack, stock);
   return settings && !settings.adaptiveShadows && !settings.grey && !settings.colorBalance && !settings.curve && !settings.color && (!settings.scanner || settings.scanner === 'straight') ? settings.lut : null;
 }

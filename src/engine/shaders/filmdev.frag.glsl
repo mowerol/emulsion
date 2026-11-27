@@ -38,16 +38,25 @@ vec4 fetch(sampler2D t, ivec2 p) {
   return texelFetch(t, clamp(p, ivec2(0), s - 1), 0);
 }
 
-// darktable's coupler spread on a film stock: delta - (c(e + delta) - c(e)) = spatial, by Newton's
-// method on I - M diag(s'(e + delta)) (engine/filmdev.ts stockDelta).
+// sf_sim_develop's receiver term (reversal films): the correction a layer takes in.
+vec3 received(vec3 corr) {
+  return uFilmCouplers.w > 0.5 ? corr * (uFilmReceiverK + uFilmReceiverCref) / (uFilmReceiverK + corr) : corr;
+}
+vec3 filmTaken(vec3 e) { return received(filmCorrection(e)); }
+
+// darktable's coupler spread on a film stock: delta - (G(e + delta) - G(e)) = spatial, G what its
+// own per-pixel couplers subtract, by Newton's method on I - R'(c) M s'(e + delta), R the receiver
+// term (engine/filmdev.ts stockDelta).
 vec3 stockDelta(vec3 e, vec3 spatial) {
-  vec3 ce = filmCorrection(e), d = spatial;
+  vec3 ge = filmTaken(e), d = spatial;
   const float h = 1e-3;
   for (int it = 0; it < 4; it++) {
     vec3 at = e + d;
-    vec3 f = d - (filmCorrection(at) - ce) - spatial;
+    vec3 c = filmCorrection(at);
+    vec3 f = d - (received(c) - ge) - spatial;
     vec3 ds = (filmSilver(at + h) - filmSilver(at - h)) / (2.0 * h);
-    mat3 J = mat3(1.0) - mat3(uFilmM[0] * ds.x, uFilmM[1] * ds.y, uFilmM[2] * ds.z);
+    vec3 rp = uFilmCouplers.w > 0.5 ? uFilmReceiverK * (uFilmReceiverK + uFilmReceiverCref) / ((uFilmReceiverK + c) * (uFilmReceiverK + c)) : vec3(1.0);
+    mat3 J = mat3(1.0) - mat3(uFilmM[0] * ds.x * rp, uFilmM[1] * ds.y * rp, uFilmM[2] * ds.z * rp);
     d -= inverse(J) * f;
   }
   return d;
@@ -78,7 +87,8 @@ void main() {
     vec4 src = fetch(uSource, p);
     vec3 x = max(uWb * src.rgb * uGain, vec3(0.0));
     vec3 e = filmExposure(x);
-    vec3 spatial = filmCorrection(e) - fetch(uOther, p).rgb;
+    vec3 own = filmCorrection(e), spread = fetch(uOther, p).rgb;
+    vec3 spatial = uStock > 0.5 ? received(own) - received(spread) : own - spread;
     vec3 d = uStock > 0.5 ? stockDelta(e, spatial) : spatial;
     vec3 moved = x * exp2(uEdges * d * 3.321928094887362);
     outColor = vec4(uWbInv * moved / uGain, src.a);

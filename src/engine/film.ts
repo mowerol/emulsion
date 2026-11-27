@@ -6,11 +6,11 @@
 // sf_sim_develop (the coupler correction and the curve lookup, interp_curve_uniform_f), between
 // the two lattices. Film modeling powered by spektrafilm, GPLv3, © Andrea Volpato.
 // Mirrors stages/film.glsl. Plan: docs/plans/film-stage.md.
-// Deviations (to be approved by Oli): baked lattices instead of darktable's live tables (grid
-// error under one 8-bit step); the input is Emulsion's linear Rec.2020 with a D65 white through
-// the engine's own Rec.2020 setters, not darktable's D50-adapted working profile; the couplers'
-// spread over the image is not here yet (phase 3), so each pixel inhibits only itself, as
-// spektrafilm's LUT mode does.
+// Deviations (agreed with Oli): baked lattices instead of darktable's live tables (grid error under
+// one 8-bit step); the input is Emulsion's linear Rec.2020 with a D65 white through the engine's
+// own Rec.2020 setters, not darktable's D50-adapted working profile; each pixel's couplers act on
+// itself here, as spektrafilm's LUT mode does, and their spread is Film edges (engine/filmdev.ts).
+// A slide (`scan`) is scanned directly: lattice B maps film density to the scan.
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { Vec3 } from '../film/stocks';
@@ -18,6 +18,7 @@ import type { Vec3 } from '../film/stocks';
 /** What a .film file's JSON holds (tools/spektrabake/main.c cmd_bake). */
 export interface FilmMeta {
   film: string;
+  /** The paper's profile, or "scan" for a slide. */
   print: string;
   push: number;
   pack: string;
@@ -51,6 +52,9 @@ export interface FilmMeta {
   };
   scatter: { core: Vec3; tail: Vec3; tailWeight: Vec3 };
 }
+
+/** A baked film, as Film edges and the stage take it. */
+export type Film = FilmData;
 
 export interface FilmData {
   meta: FilmMeta;

@@ -2647,7 +2647,8 @@ export class Engine {
    */
   private filmDeveloped(src: Source, recipe: Recipe | null, live: boolean): Source {
     if (!recipe || src.mode !== InputMode.SceneLinear || !this.gpu.hdr) return src;
-    const softness = (recipe.filmSoftness ?? 0) / 100, edges = (recipe.filmEdges ?? 0) / 100;
+    // Softness to 100 is darktable's scatter amount; past it, its scatter size (1× to 2×).
+    const softness = Math.min(recipe.filmSoftness ?? 0, 100) / 100, softnessScale = Math.max(1, (recipe.filmSoftness ?? 0) / 100), edges = (recipe.filmEdges ?? 0) / 100;
     if (softness <= 0 && edges <= 0) { this.dropFilmDev(); return src; }
     const look = lookLut(recipe);
     const filmLut = look?.film ? look : lutFor(FILM_REFERENCE);
@@ -2655,7 +2656,7 @@ export class Engine {
     const stock = !!look?.film;
     const u = developUniforms(recipe, { width: 1, height: 1, seed: 0, inputMode: src.mode, store: 1, white: src.white, cameraToWorking: src.camera?.cameraToWorking ?? null, camera: src.camera, look });
     const wb = u.uWbMat as number[], gain = 2 ** (u.uExposure as number);
-    const liveKey = JSON.stringify([softness, edges, filmLut.id, stock]);
+    const liveKey = JSON.stringify([softness, softnessScale, edges, filmLut.id, stock]);
     const key = JSON.stringify([liveKey, edges > 0 ? [wb, gain] : null]);
     const made = this.L.filmDevMade;
     if (made?.input === src.tex && (made.key === key || live && made.live === liveKey)) {
@@ -2668,7 +2669,7 @@ export class Engine {
     this.L.filmDevMade = null;
     // Made before binding: creating a texture can disturb one (see Gpu.scratch).
     const filmTex = this.lutTexture(filmLut);
-    fd.run(src.tex, src.w, src.h, { pixelUm: pixelUmFor(Math.max(...wholeSize(src))), softness, edges, film: { data: filmLut.film, tex: filmTex, stock }, wb, gain }, out);
+    fd.run(src.tex, src.w, src.h, { pixelUm: pixelUmFor(Math.max(...wholeSize(src))), softness, softnessScale, edges, film: { data: filmLut.film, tex: filmTex, stock }, wb, gain }, out);
     fd.release();
     this.gpu.scratch();
     this.gpu.gl.bindTexture(this.gpu.gl.TEXTURE_2D, out.tex);

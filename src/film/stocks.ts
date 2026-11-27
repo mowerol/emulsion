@@ -20,6 +20,23 @@ export type StockId =
   | 'cinestill800t'
   | 'trix400'
   | 'hp5'
+  // Films only the Spectral Film collection renders (darktable's spektrafilm pack, film/looks.ts).
+  | 'portra800'
+  | 'portra800push1'
+  | 'portra800push2'
+  | 'ultramax400'
+  | 'c200'
+  | 'vision50d'
+  | 'vision200t'
+  | 'vision250d'
+  | 'vision500t'
+  | 'verita200d'
+  | 'ektachrome100'
+  | 'kodachrome64'
+  | 'provia100f'
+  | 'velvia100'
+  | 'doublex'
+  | 'trix7266'
   | `lut:${string}`;
 
 import catalogue from './lut-catalogue.json';
@@ -84,6 +101,70 @@ const RAW_STOCKS: Omit<Stock, 'grainIso'>[] = [
   },
   {
     id: 'hp5', iso: 400, name: 'HP5 Plus', maker: 'Ilford', edge: 'HP5 PLUS', bw: true,
+    halation: 0, halationColor: [1, 1, 1], grain: 0,
+  },
+  {
+    id: 'portra800', iso: 800, name: 'Portra 800', maker: 'Kodak', edge: 'PORTRA 800', bw: false,
+    halation: 0, halationColor: [1, 0.32, 0.12], grain: 0,
+  },
+  {
+    id: 'portra800push1', iso: 1600, name: 'Portra 800 (Push 1)', maker: 'Kodak', edge: 'PORTRA 800', bw: false,
+    halation: 0, halationColor: [1, 0.32, 0.12], grain: 0,
+  },
+  {
+    id: 'portra800push2', iso: 3200, name: 'Portra 800 (Push 2)', maker: 'Kodak', edge: 'PORTRA 800', bw: false,
+    halation: 0, halationColor: [1, 0.32, 0.12], grain: 0,
+  },
+  {
+    id: 'ultramax400', iso: 400, name: 'UltraMax 400', maker: 'Kodak', edge: 'ULTRAMAX 400', bw: false,
+    halation: 0, halationColor: [1, 0.32, 0.12], grain: 0,
+  },
+  {
+    id: 'c200', iso: 200, name: 'Fujicolor C200', maker: 'Fujifilm', edge: 'C200', bw: false,
+    halation: 0, halationColor: [1, 0.34, 0.14], grain: 0,
+  },
+  {
+    id: 'vision50d', iso: 50, name: 'Vision3 50D', maker: 'Kodak', edge: 'VISION3 50D', bw: false,
+    halation: 0, halationColor: [1, 0.32, 0.12], grain: 0,
+  },
+  {
+    id: 'vision200t', iso: 200, name: 'Vision3 200T', maker: 'Kodak', edge: 'VISION3 200T', bw: false,
+    halation: 0, halationColor: [1, 0.32, 0.12], grain: 0,
+  },
+  {
+    id: 'vision250d', iso: 250, name: 'Vision3 250D', maker: 'Kodak', edge: 'VISION3 250D', bw: false,
+    halation: 0, halationColor: [1, 0.32, 0.12], grain: 0,
+  },
+  {
+    id: 'vision500t', iso: 500, name: 'Vision3 500T', maker: 'Kodak', edge: 'VISION3 500T', bw: false,
+    halation: 0, halationColor: [1, 0.32, 0.12], grain: 0,
+  },
+  {
+    id: 'verita200d', iso: 200, name: 'Verita 200D', maker: 'Kodak', edge: 'VERITA 200D', bw: false,
+    halation: 0, halationColor: [1, 0.32, 0.12], grain: 0,
+  },
+  {
+    id: 'ektachrome100', iso: 100, name: 'Ektachrome 100', maker: 'Kodak', edge: 'EKTACHROME 100', bw: false,
+    halation: 0, halationColor: [1, 0.32, 0.12], grain: 0,
+  },
+  {
+    id: 'kodachrome64', iso: 64, name: 'Kodachrome 64', maker: 'Kodak', edge: 'KODACHROME 64', bw: false,
+    halation: 0, halationColor: [1, 0.32, 0.12], grain: 0,
+  },
+  {
+    id: 'provia100f', iso: 100, name: 'Provia 100F', maker: 'Fujifilm', edge: 'PROVIA 100F', bw: false,
+    halation: 0, halationColor: [1, 0.34, 0.14], grain: 0,
+  },
+  {
+    id: 'velvia100', iso: 100, name: 'Velvia 100', maker: 'Fujifilm', edge: 'VELVIA 100', bw: false,
+    halation: 0, halationColor: [1, 0.34, 0.14], grain: 0,
+  },
+  {
+    id: 'doublex', iso: 250, name: 'Double-X 5222', maker: 'Kodak', edge: 'DOUBLE-X 5222', bw: true,
+    halation: 0, halationColor: [1, 1, 1], grain: 0,
+  },
+  {
+    id: 'trix7266', iso: 200, name: 'Tri-X 7266', maker: 'Kodak', edge: 'TRI-X 7266', bw: true,
     halation: 0, halationColor: [1, 1, 1], grain: 0,
   },
 ];

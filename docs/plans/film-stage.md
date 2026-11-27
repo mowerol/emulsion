@@ -22,6 +22,12 @@ Source to follow: **darktable's spektrafilm module** (`src/iop/spektrafilm.c`, `
 
 **Film edges and Film softness (27 November, Oli: "two toggles").** Instead of phases 3 and 4 inside the film stocks, two Optics sliders for every look, 0 by default: Film softness (scatter) and Film edges (the couplers' spatial part). Both replace a RAW's source after retouch, so no texture unit is needed and other drags don't pay for them. References `engine/filmdev.ts` (3 tests: on a film stock, within 1.3 steps of darktable's spatial render where the effect is 7.8) and `engine/scatter.ts`; GPU (`?filmdev`) within 1.2 % relative of them. Under a look that isn't a film stock, Portra 400's couplers act.
 
+**Spectral Film (27 November).** The collection is named Spectral Film (Oli) and holds every film in the pack: 10 colour negatives, 5 cinema negatives on Vision 2383, 4 slides scanned directly, Double-X on 2302 and Tri-X 7266, plus Portra 800's measured push +1/+2 as its Push. Every bake within 1.6 steps of the engine (reversal films too, with darktable's receiver term, which Film edges also solves for; a Provia fixture checks it). 14 new stock entries; Superia shows as Superia X-TRA 400 there.
+
+**Push removed (27 November).** A Push slider was built (darktable's push/pull, three-lattice format) and taken out again: with the lost exposure added back, one stop of push only deepens the shadows a little and adds about 3 % contrast, so the slider mostly duplicated Exposure, for 36 MB more data and a control on every look. Portra 800's measured pushes stay as their own films.
+
+**Film edges and softness to 200 (27 November, Oli).** Both run 0–200 with the film's own amount, 100, marked on the track (`SliderDef.mark`). Edges past 100 doubles the spatial couplers; softness past 100 widens the scatter with darktable's scatter size, up to 2× (the scatter amount stays at darktable's maximum of 1).
+
 Side-by-side 1:1 crops of three RAWs through Gold 200 in four steps (no couplers, per pixel, spreading, plus scatter) were reviewed by Oli (rendered with `tools/spektrabake/photo.mjs`).
 
 ## What the user gets

@@ -10,7 +10,7 @@ import { SHADERS } from './shaders';
 import { componentPlan } from './optics';
 import { gaussianKernel, scatterBank, SCATTER_DEFAULTS, type ScatterParams } from './scatter';
 import { couplerSpread } from './filmdev';
-import { filmUniforms, type FilmData } from './film';
+import { filmUniforms, type Film } from './film';
 
 const MAX_RADIUS = 48;
 
@@ -19,10 +19,12 @@ export interface FilmDevSettings {
   pixelUm: number;
   /** Film softness, 0–1 (darktable's scatter amount). */
   softness: number;
+  /** Film softness's spread, 1–2 (darktable's scatter size), past 100 on the slider. */
+  softnessScale?: number;
   /** Film edges, 0–1. */
   edges: number;
   /** The film whose couplers act: its data and texture, and whether the look is this stock. */
-  film: { data: FilmData; tex: WebGLTexture; stock: boolean } | null;
+  film: { data: Film; tex: WebGLTexture; stock: boolean } | null;
   /** Column-major white balance, and the exposure gain: the light that exposes the film. */
   wb: number[];
   gain: number;
@@ -78,7 +80,7 @@ export class FilmDevGpu {
     const common = { uSource: 0, uOther: 1, uThird: 2, uFilmTex: 3, uWb: s.wb, uWbInv: invert3(s.wb), uGain: s.gain };
     let light = src;
     if (s.softness > 0) {
-      const params: ScatterParams = s.film ? { ...SCATTER_DEFAULTS, ...s.film.data.meta.scatter, amount: s.softness } : { ...SCATTER_DEFAULTS, amount: s.softness };
+      const params: ScatterParams = { ...SCATTER_DEFAULTS, ...(s.film ? s.film.data.meta.scatter : {}), amount: s.softness, scale: s.softnessScale ?? 1 };
       const bank = scatterBank(s.pixelUm, params);
       const tmp = this.target('tmp', w, h), a = this.target('acc-a', w, h);
       const b = s.edges > 0 ? this.target('acc-b', w, h) : out;

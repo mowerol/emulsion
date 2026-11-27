@@ -24,6 +24,6 @@ for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
 }
 writeFileSync(join(out, 'film-edges.in.f32'), Buffer.from(img.buffer));
 for (const [name, args] of [['perpixel', ['--no-spread']], ['spread', []]]) {
-  execFileSync(bin, ['render', pack, film, join(out, 'film-edges.in.f32'), String(W), String(H), join(out, `film-edges.${name}.f32`), '--pixel-um', '50', ...args]);
+  execFileSync(bin, ['render', pack, film, join(out, 'film-edges.in.f32'), String(W), String(H), join(out, `film-edges.${film}.${name}.f32`), '--pixel-um', '50', ...args]);
 }
 console.log(`wrote ${film} fixtures to ${out}`);

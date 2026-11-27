@@ -533,13 +533,15 @@ async function probeFilmDev(eng: Engine) {
     return px;
   };
   const compare = (gpu: Float32Array, ref: Float32Array) => {
-    let worst = 0, sum = 0, effect = 0;
+    let worst = 0, sum = 0, effect = 0, at: unknown = null, over1 = 0;
     for (let i = 0; i < W * H; i++) for (let k = 0; k < 3; k++) {
       const r = ref[3 * i + k], e = Math.abs(gpu[4 * i + k] - r) / Math.max(0.01, r);
+      if (e > worst) at = { x: i % W, y: Math.floor(i / W), k, gpu: gpu[4 * i + k], ref: r, input: img[3 * i + k] };
+      if (e > 0.02) over1++;
       worst = Math.max(worst, e); sum += e;
       effect = Math.max(effect, Math.abs(r - img[3 * i + k]) / Math.max(0.01, img[3 * i + k]));
     }
-    return { worstRelative: +worst.toFixed(4), meanRelative: +(sum / (W * H * 3)).toFixed(5), effectRelative: +effect.toFixed(3) };
+    return { worstRelative: +worst.toFixed(4), meanRelative: +(sum / (W * H * 3)).toFixed(5), effectRelative: +effect.toFixed(3), at, over2pct: over1 };
   };
   const plain = { ...defaultRecipe('neutral', 'straight'), grain: 0, sharpen: 0, captureSharpening: 0, lookEnabled: false };
   const ref = (await loadLut('film/kodak_portra_400.film'))!.film!;
@@ -550,13 +552,16 @@ async function probeFilmDev(eng: Engine) {
   eng.readPixels(src, { ...plain, filmEdges: 100 }, 64, 40, 1);
   out.edgesAnyLook = compare(readPass(), mul(filmEdgesGain(img, W, H, pixelUm, ref, 1, false)));
   // Edges on a film stock (its own couplers, solved for its per-pixel couplers).
-  const stock = { ...withLook(plain, 'film', 'gold200'), filmEdges: 100 };
+  const stock = { ...withLook(plain, 'film', 'gold200'), filmEdges: 100, filmSoftness: 0 };
   await eng.prepare(stock);
   eng.readPixels(src, stock, 64, 40, 1);
   out.edgesStock = compare(readPass(), mul(filmEdgesGain(img, W, H, pixelUm, gold, 1, true)));
   // Softness alone, at 60.
   eng.readPixels(src, { ...plain, filmSoftness: 60 }, 64, 40, 1);
   out.softness = compare(readPass(), scatterImage(img, W, H, pixelUm, { ...SCATTER_DEFAULTS, ...ref.meta.scatter, amount: 0.6 }));
+  // Past 100, darktable's scatter size: 160 is the full scatter, 1.6 times as wide.
+  eng.readPixels(src, { ...plain, filmSoftness: 160 }, 64, 40, 1);
+  out.softnessWide = compare(readPass(), scatterImage(img, W, H, pixelUm, { ...SCATTER_DEFAULTS, ...ref.meta.scatter, amount: 1, scale: 1.6 }));
   out.glError = gl.getError();
   return out;
 }

@@ -22,7 +22,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 import type { Vec3 } from '../film/stocks';
-import { curveAt, filmCorrection, filmExposure, type FilmData } from './film';
+import { curveAt, filmCorrection, filmExposure, type Film } from './film';
 import { gaussianKernel } from './scatter';
 
 /** The exponential tail as three Gaussians (spektra_sim.h SF_EXPTAIL_*). */
@@ -33,7 +33,7 @@ export const EXPTAIL_RATIO = [0.5360, 1.5236, 2.7684] as const;
 export interface SpreadComponent { sigma: number; weight: number }
 
 /** darktable's coupler spread, (1 - w) G(σ) + w Σ a_g G(r_g λ), in pixels of `pixelUm` µm. */
-export function couplerSpread(film: FilmData, pixelUm: number): SpreadComponent[] {
+export function couplerSpread(film: Film, pixelUm: number): SpreadComponent[] {
   const c = film.meta.couplers;
   const w = c.tailWeight, tail = c.tailUm / Math.max(pixelUm, 1e-3);
   const bank: SpreadComponent[] = [{ sigma: c.diffusionUm / Math.max(pixelUm, 1e-3), weight: 1 - w }];
@@ -41,40 +41,46 @@ export function couplerSpread(film: FilmData, pixelUm: number): SpreadComponent[
   return bank;
 }
 
-/** A film's correction as a function of its log exposure, with its derivative per layer. */
-function silverSlope(film: FilmData, e: Vec3): { s: Vec3; ds: Vec3 } {
-  const c = film.meta.couplers, h = 1e-3;
-  const silver = (v: number, k: number) => {
-    const d = curveAt(c.curvesNorm, c.le0, c.invLeStep, v, k);
-    const s = c.positive ? c.dmax[k] - d : d;
-    return c.donorLangmuir ? s * (c.donorK[k] + c.donorDref[k]) / (c.donorK[k] + s) : s;
-  };
-  const s = e.map((v, k) => silver(v, k)) as Vec3;
-  const ds = e.map((v, k) => (silver(v + h, k) - silver(v - h, k)) / (2 * h)) as Vec3;
-  return { s, ds };
+/** sf_sim_develop's receiver term (reversal films): the correction a layer takes in. */
+export function received(film: Film, corr: Vec3): Vec3 {
+  const c = film.meta.couplers;
+  return c.receiverLangmuir ? corr.map((v, k) => v * (c.receiverK[k] + c.receiverCref[k]) / (c.receiverK[k] + v)) as Vec3 : corr;
 }
 
 /**
- * The log exposure change a film stock needs at this pixel: solves
- * delta - (c(e + delta) - c(e)) = spatial by Newton's method on the 3 x 3 Jacobian
- * I - Mᵀ diag(s'(e + delta)). `spatial` is c(e) - blur(c(e)).
+ * The log exposure change a film stock needs at this pixel: with G = received ∘ correction (what
+ * its own per-pixel couplers subtract), solves delta - (G(e + delta) - G(e)) = spatial by Newton's
+ * method on the Jacobian I - R'(c) Mᵀ diag(s'(e + delta)), R the receiver term.
+ * `spatial` is G(e) - received(blur(c(e))).
  */
-export function stockDelta(film: FilmData, e: Vec3, spatial: Vec3): Vec3 {
-  const M = film.meta.couplers.M;
-  const ce = filmCorrection(film, e);
+export function stockDelta(film: Film, e: Vec3, spatial: Vec3): Vec3 {
+  const k = film.meta.couplers, M = k.M, h = 1e-3;
+  const ge = received(film, filmCorrection(film, e));
   let d: Vec3 = [...spatial];
   for (let it = 0; it < 4; it++) {
-    const at = e.map((v, k) => v + d[k]) as Vec3;
-    const cd = filmCorrection(film, at);
-    const f = [0, 1, 2].map(m => d[m] - (cd[m] - ce[m]) - spatial[m]);
-    const { ds } = silverSlope(film, at);
-    // J[m][k] = δmk - M[k][m] s'_k
-    const J = [0, 1, 2].map(m => [0, 1, 2].map(k => (m === k ? 1 : 0) - M[k * 3 + m] * ds[k]));
+    const at = e.map((v, i) => v + d[i]) as Vec3;
+    const c = filmCorrection(film, at), gd = received(film, c);
+    const f = [0, 1, 2].map(m => d[m] - (gd[m] - ge[m]) - spatial[m]);
+    const up = silver(film, at.map(v => v + h) as Vec3), down = silver(film, at.map(v => v - h) as Vec3);
+    const ds = up.map((v, i) => (v - down[i]) / (2 * h));
+    const rp = c.map((v, m) => (k.receiverLangmuir ? k.receiverK[m] * (k.receiverK[m] + k.receiverCref[m]) / (k.receiverK[m] + v) ** 2 : 1));
+    // J[m][j] = δmj - R'_m M[j][m] s'_j
+    const J = [0, 1, 2].map(m => [0, 1, 2].map(j => (m === j ? 1 : 0) - rp[m] * M[j * 3 + m] * ds[j]));
     const step = solve3(J, f);
-    d = d.map((v, k) => v - step[k]) as Vec3;
+    d = d.map((v, i) => v - step[i]) as Vec3;
     if (Math.max(...f.map(Math.abs)) < 1e-6) break;
   }
   return d;
+}
+
+/** The silver each layer develops (the coupler's donor), as filmCorrection reads it. */
+function silver(film: Film, e: Vec3): Vec3 {
+  const c = film.meta.couplers;
+  return e.map((v, i) => {
+    const d = curveAt(c.curvesNorm, c.le0, c.invLeStep, v, i);
+    const s = c.positive ? c.dmax[i] - d : d;
+    return c.donorLangmuir ? s * (c.donorK[i] + c.donorDref[i]) / (c.donorK[i] + s) : s;
+  }) as Vec3;
 }
 
 function solve3(A: number[][], b: number[]): number[] {
@@ -112,7 +118,7 @@ export function blur3(src: Float32Array, w: number, h: number, sigma: number): F
  * pixel and channel, 10^(amount · delta). `stock` says the look is this film stock (its own
  * per-pixel couplers follow); otherwise `film` is the reference film for any look.
  */
-export function filmEdgesGain(rgb: Float32Array, w: number, h: number, pixelUm: number, film: FilmData, amount: number, stock: boolean): Float32Array {
+export function filmEdgesGain(rgb: Float32Array, w: number, h: number, pixelUm: number, film: Film, amount: number, stock: boolean): Float32Array {
   const n = w * h, e = new Float32Array(n * 3), c = new Float32Array(n * 3);
   for (let i = 0; i < n; i++) {
     const ei = filmExposure(film, [rgb[3 * i], rgb[3 * i + 1], rgb[3 * i + 2]]);
@@ -126,7 +132,9 @@ export function filmEdgesGain(rgb: Float32Array, w: number, h: number, pixelUm: 
   }
   const gain = new Float32Array(n * 3);
   for (let i = 0; i < n; i++) {
-    const spatial = [0, 1, 2].map(k => c[3 * i + k] - spread[3 * i + k]) as Vec3;
+    const own = [c[3 * i], c[3 * i + 1], c[3 * i + 2]] as Vec3, spreadAt = [spread[3 * i], spread[3 * i + 1], spread[3 * i + 2]] as Vec3;
+    // A film stock's own couplers take in the correction through its receiver term (reversal films).
+    const spatial = stock ? received(film, own).map((v, k) => v - received(film, spreadAt)[k]) as Vec3 : own.map((v, k) => v - spreadAt[k]) as Vec3;
     const d = stock ? stockDelta(film, [e[3 * i], e[3 * i + 1], e[3 * i + 2]], spatial) : spatial;
     for (let k = 0; k < 3; k++) gain[3 * i + k] = 10 ** (amount * d[k]);
   }

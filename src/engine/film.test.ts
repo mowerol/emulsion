@@ -61,3 +61,24 @@ describe('picking a film stock', () => {
     expect(withLook(defaultRecipe('neutral'), 't3mujinpack', 'gold200').filmEdges).toBe(0);
   });
 });
+
+import { PACK } from '../film/looks';
+describe('Spectral Film', () => {
+  it('has a baked file for every film, each rendering a rising grey ramp', () => {
+    const files = Object.values(PACK.film.looks).map(l => l!.file);
+    expect(files.length).toBe(22);
+    for (const file of files) {
+      const f = load(file.replace(/\.film$/, ''));
+      const ramp = [-8, -5, -3, -1, 1, 3].map(ev => filmPrint(f, [0.18 * 2 ** ev, 0.18 * 2 ** ev, 0.18 * 2 ** ev] as Vec3)[1]);
+      for (let i = 1; i < ramp.length; i++) expect(ramp[i], file).toBeGreaterThan(ramp[i - 1]);
+    }
+  }, 60_000);
+});
+
+import { lutBase } from '../film/looks';
+describe('Spectral Film in the Look editor', () => {
+  it('is not offered as a base LUT', () => {
+    expect(lutBase('film', 'gold200')).toBeNull();
+    expect(lutBase('t3mujinpack', 'gold200')).not.toBeNull();
+  });
+});
