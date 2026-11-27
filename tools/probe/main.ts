@@ -28,6 +28,7 @@ import { geometryFramePoint, geometryMatrix, type Perspective } from '../../src/
 import { invert3 } from '../../src/engine/color';
 import type { Vec3 } from '../../src/film/stocks';
 import { blackToeLift, toneForward, toneProfileRgb } from '../../src/engine/tone';
+import { blacksPrint } from '../../src/engine/blacks';
 import { adaptiveBlackLift } from '../../src/engine/adaptivetone';
 import { histogram } from '../../src/engine/histogram';
 import { drawHistogram } from '../../src/ui/Histogram';
@@ -78,7 +79,10 @@ import { clarityLogInput, logLightness, logShift, lumY } from '../../src/engine/
 import { LUT_UNIT } from '../../src/engine/params';
 import { loadLut, setLooksBase } from '../../src/engine/lutstore';
 import { tetrahedral, textureData, type Clut } from '../../src/engine/lut3d';
-import { PACKS, customLookId, lookFile, registerCustomLook, stockForPack } from '../../src/film/looks';
+import { PACKS, customLookId, lookFile, registerCustomLook, stockForPack, withLook } from '../../src/film/looks';
+import { filmPrint, filmTextureData, filmUniforms } from '../../src/engine/film';
+import { filmEdgesGain } from '../../src/engine/filmdev';
+import { scatterImage, SCATTER_DEFAULTS } from '../../src/engine/scatter';
 import { normalizeSettings, settingsFromRecipe, withoutProfileFields } from '../../src/film/creative';
 import { blendColor } from '../../src/engine/blend';
 import { drawnValue, maskValue, blendNormal, rangeValue, pickStats, pickedRange } from '../../src/engine/masks';
@@ -414,17 +418,161 @@ function probeTone(eng: Engine) {
     ref: (c: Vec3) => toneProfileRgb(c, whites, blacks, toneCharacter),
   }]));
   for (const blacks of [25, 50, 100, 200]) cases[`adaptiveToe${blacks}`] = {
-    uniforms: developUniforms({ ...defaultRecipe(), blacks }, stageCtx),
+    uniforms: developUniforms({ ...defaultRecipe(), toneVersions: { ...defaultRecipe().toneVersions, blacks: 2 }, blacks }, stageCtx),
     ref: (c: Vec3) => toneProfileRgb(c, 0, 0).map(v => blackToeLift(v, adaptiveBlackLift(blacks))) as Vec3,
   };
+  // Blacks processing 3: RawTherapee's Exposure Black on the print (blacks.ts).
+  for (const blacks of [-100, -50, -10, 10, 50, 100]) cases[`rtBlacks${blacks}`] = {
+    uniforms: developUniforms({ ...defaultRecipe(), blacks }, stageCtx),
+    ref: (c: Vec3) => blacksPrint(toneProfileRgb(c, 0, 0), blacks),
+  };
   // Very large scene values too: the curve's film term overflows floats there (darktable's NaN check).
-  const tone = probeStage(eng, ['stages/tone.glsl'], 'stageToneProfile(c)', [...COLOURS, [1e6, 1e15, 1e30], [3e38, 1e20, 50]], cases);
+  // Deep shadows for Blacks: a grey ramp over −13…+1 EV around middle grey, and dark colours.
+  const dark: Vec3[] = [...Array.from({ length: 29 }, (_, i) => { const v = 0.18 * 2 ** (-13 + i / 2); return [v, v, v] as Vec3; }),
+    [0.004, 0.0015, 0.001], [0.001, 0.006, 0.002], [0.0008, 0.001, 0.009], [0.03, 0.012, 0.006], [0.01, 0.02, 0.05]];
+  const tone = probeStage(eng, ['stages/tone.glsl'], 'stageToneProfile(c)', [...COLOURS, ...dark, [1e6, 1e15, 1e30], [3e38, 1e20, 50]], cases);
   // The input stage's inverse followed by the original's neutral curve must give back the display value.
   const display: Vec3[] = Array.from({ length: 16 }, (_, i) => [i / 15, Math.min(1, (i * 0.37) % 1), 0.002 + (i / 15) * 0.9] as Vec3);
   const roundTrip = probeStage(eng, ['stages/tone.glsl'], 'stageToneNeutral(vec3(toneInverse(c.r), toneInverse(c.g), toneInverse(c.b)))', display, {
     roundTrip: { uniforms: developUniforms(null, stageCtx), ref: (c: Vec3) => c },
   });
   return { tone, roundTrip };
+}
+
+/**
+ * Film stage (?film): the GLSL stage against engine/film.ts on scene colours, at Amount 100 and
+ * 50, then the whole engine on flat patches of the same colours (Gold 200 against the reference
+ * through the output stage, and the neutral render the same way, which checks the comparison).
+ */
+async function probeFilm(eng: Engine) {
+  const out: Record<string, unknown> = {};
+  const lut = await loadLut(lookFile('film', 'gold200', 0)!);
+  if (!lut?.film) throw new Error('film stock did not load');
+  const film = lut.film;
+  const t = filmTextureData(film);
+  const tex = eng.gpu.lutTexture(t.data, t.size, false, t.depth);
+  eng.gpu.bind3d(LUT_UNIT, tex);
+  eng.gpu.scratch();
+  const inputs: Vec3[] = [...COLOURS];
+  for (let i = 0; inputs.length < 64; i++) {
+    const y = 2 ** (-9 + ((i * 7) % 12));
+    inputs.push([y * (0.1 + ((i * 13) % 10) / 10), y * (0.1 + ((i * 29) % 10) / 10), y * (0.1 + ((i * 17) % 10) / 10)]);
+  }
+  const base = developUniforms(defaultRecipe(), stageCtx);
+  const includes = ['stages/tone.glsl', 'stages/input.glsl', 'stages/output.glsl', 'stages/lut.glsl', 'stages/filmcore.glsl', 'stages/film.glsl'];
+  // The stage test has its own sampler for the film (the develop pass shares uLutTex).
+  out.stage = probeStage(eng, includes, 'stageFilmPrint(c)', inputs, {
+    full: { uniforms: { ...base, uLutTex: LUT_UNIT, uFilmTex: LUT_UNIT, ...filmUniforms(film, 1) }, ref: (c: Vec3) => filmPrint(film, c) },
+    half: { uniforms: { ...base, uLutTex: LUT_UNIT, uFilmTex: LUT_UNIT, ...filmUniforms(film, 0.5) }, ref: (c: Vec3) => {
+      const f = filmPrint(film, c), n = toneProfileRgb(c, 0, 0);
+      return [0, 1, 2].map(k => n[k] + 0.5 * (f[k] - n[k])) as Vec3;
+    } },
+  });
+  // Whole engine: 16 flat patches of COLOURS, 8 px each.
+  const P = 8, w = P * COLOURS.length, h = P;
+  const halfOf = (v: number) => { const f = new Float32Array([v]), i = new Uint32Array(f.buffer)[0]; const s = (i >>> 16) & 0x8000, e = ((i >>> 23) & 255) - 112, m = i & 0x7fffff;
+    return e <= 0 ? s : e >= 31 ? s | 0x7c00 : s | (e << 10) | Math.round(m / 8192); };
+  const data = new Uint16Array(w * h * 4);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const c = COLOURS[Math.floor(x / P)];
+    data.set([halfOf(c[0]), halfOf(c[1]), halfOf(c[2]), halfOf(1)], 4 * (y * w + x));
+  }
+  const src = eng.sourceFromHalf({ width: w, height: h, mode: InputMode.SceneLinear, white: null, lens: null, camera: null, frame: null, fullWidth: w, fullHeight: h, data });
+  const plain = { ...defaultRecipe('neutral', 'straight'), grain: 0, sharpen: 0, captureSharpening: 0, lookEnabled: false };
+  const linear = (print: Vec3) => mulVec(REC2020_TO_SRGB, print.map(srgbEotf) as Vec3);
+  const display = (print: Vec3) => linear(print).map(v => 255 * srgbOetf(Math.min(1, Math.max(0, v))));
+  // Colours whose print is outside sRGB go through the output stage's gamut mapping, not a clamp.
+  const compare = (px: Uint8Array, ref: (c: Vec3) => Vec3, skipOut = true) => {
+    let worst = 0, at: unknown = null, skipped = 0;
+    const errors: number[] = [];
+    COLOURS.forEach((c, i) => {
+      if (skipOut && linear(ref(c)).some(v => v < -1e-3 || v > 1.001)) { skipped++; return; }
+      const want = display(ref(c)), o = 4 * (4 * w + i * P + 4);
+      for (let k = 0; k < 3; k++) { const e = Math.abs(px[o + k] - want[k]); if (e > worst) { worst = e; at = { colour: c, channel: k, want: want[k], got: px[o + k] }; } }
+      errors.push(+Math.max(...[0, 1, 2].map(k => Math.abs(px[o + k] - want[k]))).toFixed(1));
+    });
+    return { worst8bit: worst, at, skipped, errors };
+  };
+  out.engineNeutral = compare(eng.readPixels(src, plain, w, h, 1), c => toneProfileRgb(c, 0, 0) as Vec3);
+  const filmRecipe = { ...withLook(plain, 'film', 'gold200') };
+  await eng.prepare(filmRecipe);
+  out.engineFilm = compare(eng.readPixels(src, filmRecipe, w, h, 1), c => filmPrint(film, c));
+  // Diagnosis: the film recipe at Amount 0 against the neutral render, pixel for pixel.
+  const n0 = eng.readPixels(src, plain, w, h, 1).slice(), f0 = eng.readPixels(src, { ...filmRecipe, lookAmount: 0 }, w, h, 1).slice();
+  out.neutralAll = compare(n0, c => toneProfileRgb(c, 0, 0) as Vec3, false).errors;
+  out.amount0VsNeutral = COLOURS.map((_, i) => { const o = 4 * (4 * w + i * P + 4); return [0, 1, 2].map(k => f0[o + k] - n0[o + k]); });
+  out.glError = eng.gpu.gl.getError();
+  return out;
+}
+
+/**
+ * Film edges and Film softness (?filmdev): the film pass's output on a 720 x 480 scene (50 µm per
+ * pixel) against engine/filmdev.ts and engine/scatter.ts, as relative error in linear light.
+ */
+async function probeFilmDev(eng: Engine) {
+  const W = 720, H = 480, out: Record<string, unknown> = {};
+  const img = new Float32Array(W * H * 3);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    const u = x / W * 64, v = y / H * 40;
+    let c = [0.18, 0.18, 0.18];
+    if (u >= 8 && u < 24 && v >= 8 && v < 32) c = [1.2, 1.2, 1.2];
+    if (u >= 32 && u < 48 && v >= 8 && v < 20) c = [0.6, 0.08, 0.05];
+    if (u >= 32 && u < 48 && v >= 20 && v < 32) c = [0.05, 0.25, 0.08];
+    if (u >= 52 && u < 60) c = [0.02, 0.02, 0.02];
+    if (v >= 34) c = c.map(t => t * (0.3 + 1.4 * u / 64));
+    // fine texture, so the scatter has something to soften
+    if ((Math.floor(u * 4) + Math.floor(v * 4)) % 2 && u < 8) c = c.map(t => t * 1.6);
+    img.set(c, 3 * (y * W + x));
+  }
+  const halfOf = (v: number) => { const f = new Float32Array([v]), i = new Uint32Array(f.buffer)[0]; const s = (i >>> 16) & 0x8000, e = ((i >>> 23) & 255) - 112, m = i & 0x7fffff;
+    return e <= 0 ? s : e >= 31 ? s | 0x7c00 : s | (e << 10) | Math.round(m / 8192); };
+  const data = new Uint16Array(W * H * 4);
+  for (let i = 0; i < W * H; i++) data.set([halfOf(img[3 * i]), halfOf(img[3 * i + 1]), halfOf(img[3 * i + 2]), halfOf(1)], 4 * i);
+  // What the GPU sees: the image in half floats.
+  const h2f = (h: number) => { const s = h & 0x8000 ? -1 : 1, e = (h >> 10) & 31, m = h & 1023; return e === 0 ? s * m * 2 ** -24 : s * (1 + m / 1024) * 2 ** (e - 15); };
+  for (let i = 0; i < W * H; i++) for (let k = 0; k < 3; k++) img[3 * i + k] = h2f(data[4 * i + k]);
+  const src = eng.sourceFromHalf({ width: W, height: H, mode: InputMode.SceneLinear, white: null, lens: null, camera: null, frame: null, fullWidth: W, fullHeight: H, data });
+  const any = eng as unknown as { L: { filmDevMade: { out: { fbo: WebGLFramebuffer } } | null } };
+  const gl = eng.gpu.gl;
+  const readPass = () => {
+    const px = new Float32Array(W * H * 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, any.L.filmDevMade!.out.fbo);
+    gl.readPixels(0, 0, W, H, gl.RGBA, gl.FLOAT, px);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    return px;
+  };
+  const compare = (gpu: Float32Array, ref: Float32Array) => {
+    let worst = 0, sum = 0, effect = 0, at: unknown = null, over1 = 0;
+    for (let i = 0; i < W * H; i++) for (let k = 0; k < 3; k++) {
+      const r = ref[3 * i + k], e = Math.abs(gpu[4 * i + k] - r) / Math.max(0.01, r);
+      if (e > worst) at = { x: i % W, y: Math.floor(i / W), k, gpu: gpu[4 * i + k], ref: r, input: img[3 * i + k] };
+      if (e > 0.02) over1++;
+      worst = Math.max(worst, e); sum += e;
+      effect = Math.max(effect, Math.abs(r - img[3 * i + k]) / Math.max(0.01, img[3 * i + k]));
+    }
+    return { worstRelative: +worst.toFixed(4), meanRelative: +(sum / (W * H * 3)).toFixed(5), effectRelative: +effect.toFixed(3), at, over2pct: over1 };
+  };
+  const plain = { ...defaultRecipe('neutral', 'straight'), grain: 0, sharpen: 0, captureSharpening: 0, lookEnabled: false };
+  const ref = (await loadLut('film/kodak_portra_400.film'))!.film!;
+  const gold = (await loadLut(lookFile('film', 'gold200', 0)!))!.film!;
+  const pixelUm = 36000 / W;
+  const mul = (gain: Float32Array) => img.map((v, i) => v * gain[i]);
+  // Edges under a look that is not a film stock (Portra 400's couplers).
+  eng.readPixels(src, { ...plain, filmEdges: 100 }, 64, 40, 1);
+  out.edgesAnyLook = compare(readPass(), mul(filmEdgesGain(img, W, H, pixelUm, ref, 1, false)));
+  // Edges on a film stock (its own couplers, solved for its per-pixel couplers).
+  const stock = { ...withLook(plain, 'film', 'gold200'), filmEdges: 100, filmSoftness: 0 };
+  await eng.prepare(stock);
+  eng.readPixels(src, stock, 64, 40, 1);
+  out.edgesStock = compare(readPass(), mul(filmEdgesGain(img, W, H, pixelUm, gold, 1, true)));
+  // Softness alone, at 60.
+  eng.readPixels(src, { ...plain, filmSoftness: 60 }, 64, 40, 1);
+  out.softness = compare(readPass(), scatterImage(img, W, H, pixelUm, { ...SCATTER_DEFAULTS, ...ref.meta.scatter, amount: 0.6 }));
+  // Past 100, darktable's scatter size: 160 is the full scatter, 1.6 times as wide.
+  eng.readPixels(src, { ...plain, filmSoftness: 160 }, 64, 40, 1);
+  out.softnessWide = compare(readPass(), scatterImage(img, W, H, pixelUm, { ...SCATTER_DEFAULTS, ...ref.meta.scatter, amount: 1, scale: 1.6 }));
+  out.glError = gl.getError();
+  return out;
 }
 
 /** Grain: darktable's grain on the GPU against the reference, at 1:1 and zoomed out (21-sample averaging). */
@@ -1213,7 +1361,12 @@ view.width = W; view.height = H;
 document.body.append(view);
 const out: Record<string, unknown> = {};
 try {
-  if (new URLSearchParams(location.search).has('filmgrain')) {
+  if (new URLSearchParams(location.search).has('filmdev')) {
+    out.filmdev = 'see #filmdev';
+  } else if (new URLSearchParams(location.search).has('film')) {
+    // Asynchronous (the stock loads first): the result is in <pre id="film">.
+    out.film = 'see #film';
+  } else if (new URLSearchParams(location.search).has('filmgrain')) {
     const eng = new Engine(view);
     out.filmGrain = probeFilmGrain(eng);
   } else if (new URLSearchParams(location.search).has('greymix')) {
@@ -3085,4 +3238,34 @@ if (photoArg) {
     eng.release(full);eng.release(preview);eng.dispose();
   }catch(e){out.error=String(e)+(e instanceof Error?e.stack:'');}
   const pre=document.createElement('pre');pre.id='region';pre.textContent=JSON.stringify(out);document.body.append(pre);
+})();
+
+// ?film: the Film stage (probeFilm), in <pre id="film">.
+(async () => {
+  if (!new URLSearchParams(location.search).has('film')) return;
+  let res: unknown;
+  try {
+    res = await probeFilm(new Engine(document.createElement('canvas')));
+  } catch (e) {
+    res = { error: String(e), stack: (e as Error).stack };
+  }
+  const pre = document.createElement('pre');
+  pre.id = 'film';
+  pre.textContent = JSON.stringify(res);
+  document.body.append(pre);
+})();
+
+// ?filmdev: Film edges and Film softness (probeFilmDev), in <pre id="filmdev">.
+(async () => {
+  if (!new URLSearchParams(location.search).has('filmdev')) return;
+  let res: unknown;
+  try {
+    res = await probeFilmDev(new Engine(document.createElement('canvas')));
+  } catch (e) {
+    res = { error: String(e), stack: (e as Error).stack };
+  }
+  const pre = document.createElement('pre');
+  pre.id = 'filmdev';
+  pre.textContent = JSON.stringify(res);
+  document.body.append(pre);
 })();

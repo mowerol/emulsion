@@ -328,7 +328,7 @@ export class Gpu {
    * A 3D colour lookup table (RGBA, level^3, x red) read with texelFetch, made on the scratch unit:
    * 8 bits per channel when the LUT came from an 8-bit image (exact), half floats otherwise.
    */
-  lutTexture(data: Float32Array, level: number, eightBit: boolean): WebGLTexture {
+  lutTexture(data: Float32Array, level: number, eightBit: boolean, depth = level): WebGLTexture {
     const gl = this.gl;
     const tex = gl.createTexture()!;
     this.scratch();
@@ -336,7 +336,7 @@ export class Gpu {
     gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     if (eightBit) gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGBA8, level, level, level, 0, gl.RGBA, gl.UNSIGNED_BYTE, Uint8Array.from(data, (v) => Math.round(v * 255)));
-    else gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGBA16F, level, level, level, 0, gl.RGBA, gl.FLOAT, data);
+    else gl.texImage3D(gl.TEXTURE_3D, 0, gl.RGBA16F, level, level, depth, 0, gl.RGBA, gl.FLOAT, data);
     gl.bindTexture(gl.TEXTURE_3D, null);
     return tex;
   }

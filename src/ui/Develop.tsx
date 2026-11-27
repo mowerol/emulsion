@@ -16,7 +16,7 @@ import { useNoiseModel } from './noisemodel';
 import { KEY_STEPS, applyPending, cancelPending, removeSpot, scrollSpot, useRetouchUi } from './retouchui';
 import { cycleCropOverlay } from './prefs';
 import { lutPending, useLutVersion } from '../engine/lutstore';
-import { recipeLookFile } from '../film/looks';
+import { recipeAssetFiles } from '../film/looks';
 import { logToTerminal } from '../backend/api';
 import { geometrySourcePoint } from '../engine/perspective';
 import type { View } from '../engine/engine';
@@ -66,8 +66,7 @@ interface Loaded {
 
 /** Keep the previous frame until the recipe's optional creative LUT is ready (Engine.waiting). */
 const assetsPending = (recipe: Recipe | null, compare = false) => {
-  const file = compare ? null : recipeLookFile(recipe);
-  return !!file && lutPending(file);
+  return !compare && recipeAssetFiles(recipe).some(lutPending);
 };
 /** A number per recipe object, so a change of recipe is a change of key. */
 const recipeIds = new WeakMap<object, number>();

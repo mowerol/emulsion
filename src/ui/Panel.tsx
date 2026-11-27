@@ -97,7 +97,7 @@ const SliderRow = memo(function SliderRow({ def, recipe, raw, onChange }: Slider
   const film = filmGrainReference(def.key, recipe);
   const fallback = film ?? sliderDefault(def, recipe?.stock ?? DEFAULT_STOCK, raw);
   const changed = Math.abs(value - fallback) > 1e-9;
-  const marked = film ?? (def.stockKey && recipe ? sliderDefault(def, recipe.stock) : null);
+  const marked = film ?? (def.stockKey && recipe ? sliderDefault(def, recipe.stock) : def.mark ?? null);
   const tick = marked !== null ? (def.log ? toLog(def, marked) / LOG_STEPS : (marked - def.min) / (def.max - def.min)) : null;
   const id = `slider-${def.key}`;
   const drag = useDragGrouping(`slider:${def.key}`);
