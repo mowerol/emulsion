@@ -181,6 +181,7 @@ Only packs with an explicit licence ship (`public/looks`):
 | --- | --- | --- |
 | `gmic-film` (Pat David / RawTherapee film simulation: B&W and negatives, 121) | CC BY-SA 4.0 | `public/looks/gmic-film/SOURCES.md` |
 | `t3mujinpack` (João Almeida, 8) | MIT | `public/looks/t3mujinpack/LICENSE.txt` |
+| `film` (Spectral Film: 22 films baked from darktable's spektrafilm and Andrea Volpato's data pack 0.3.3) | CC BY-SA 4.0 with the spektrafilm preamble | `public/looks/film/README.md`, `LICENSE` |
 | `emulsion-luts` (Emulsion's own, used by some of its looks; hidden) | GPL-3.0-or-later | `public/looks/emulsion-luts/LICENSE.txt` |
 | `fuji-controls` (Emulsion's own Fuji recipe controls; hidden) | GPL-3.0-or-later | `public/looks/fuji-controls/LICENSE.txt` |
 
