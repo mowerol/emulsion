@@ -192,7 +192,7 @@ function ImportTile({ photo, checked, disabled, toggle, range }: { photo: Photo;
   return <label ref={ref} className={`import-tile${checked ? ' checked' : ''}${disabled ? ' imported' : ''}`} title={photo.pair ? `${photo.name} + ${photo.pair.split(/[\\/]/).pop()}` : photo.name} onClick={range}>
     <div className="import-thumb"><Thumb photo={photo} visible={visible} />{disabled && <span className="imported-badge">In library</span>}</div>
     <span><input type="checkbox" aria-label={`Import ${photo.name}`} disabled={disabled} checked={checked} onChange={toggle} /><span className="import-tile-name">{photo.name}</span>{photo.pair && <span className="pair-tag">RAW+JPEG</span>}</span>
-    <ExposureInfo photo={photo} visible={visible} />
+    <ExposureInfo photo={photo} visible={visible} reserve />
   </label>;
 }
 
@@ -212,15 +212,22 @@ export function FolderImportView() {
   const grid = useRef<HTMLDivElement>(null);
   const vp = useViewport(scroll, 'y', [tiles.length, size]);
   const [layout, setLayout] = useState({ cols: 1, pitch: size / 1.25 + 64, gap: 12 });
+  // Measure for a grid geometry, not for every scroll window, as the Library grid does (392d87d).
+  // WebKit snaps tiles a pixel apart from row to row: measuring the newly mounted first row
+  // after every render picked the next window from it, which could alternate between two rows
+  // forever once the import had scrolled a few hundred photos, and React stopped the interface
+  // with Maximum update depth exceeded.
+  // Tiles keep one height while their thumbnails and capture settings load (ExposureInfo reserves its
+  // line), so the first measurement stays right.
   useLayoutEffect(() => {
     const el = grid.current; if (!el) return;
     const css = getComputedStyle(el);
     const cols = Math.max(1, css.gridTemplateColumns.split(' ').length);
     const gap = parseFloat(css.rowGap) || 12;
     const cell = el.querySelector<HTMLElement>('.import-tile');
-    const pitch = cell ? cell.offsetHeight + gap : layout.pitch;
+    const pitch = cell && cell.offsetHeight > 0 ? cell.offsetHeight + gap : layout.pitch;
     if (cols !== layout.cols || pitch !== layout.pitch || gap !== layout.gap) setLayout({ cols, pitch, gap });
-  });
+  }, [size, vp.cross, !!tiles.length]);
   useLayoutEffect(resetImporter, [root]);
   const selectAll = useCallback(() => useImporter.setState({ picked: new Set(fresh.flatMap(p => p.pair ? [p.path, p.pair] : [p.path])) }), [fresh]);
   useEffect(() => {
