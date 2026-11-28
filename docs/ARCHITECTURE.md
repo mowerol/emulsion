@@ -83,7 +83,7 @@ Each stage is one GLSL file in `src/engine/shaders/stages/`, included into `deve
 | Look | `lut.glsl` | print | Optional creative LUT (a bundled pack's, or a custom look's: its own LUT file or the system look it refers to; `library/userlooks.ts`, `src-tauri/src/user_looks.rs`) on the base print, with Blend Normal or Colour (darktable's color blend mode, `engine/blend.ts`: the LUT's hue and saturation, the print's lightness): convert to sRGB, tetrahedral lookup, blend by Amount, return to print encoding. Never supplies the base rendering. **Ported from darktable lut3d** | |
 | Clarity | `clarity.glsl` | print | Clarity: darktable's local laplacian filter (its local contrast module's clarity preset) on CIE lightness, from a map the `ll*` passes make over the whole photo; keeps Lab a and b. The map folds in each mask's Clarity the same way as Texture's. **Ported from darktable local contrast** | |
 | Sharpening | `usm.glsl` | print | Sharpening, Radius, Masking: RawTherapee's unsharp mask on CIE lightness of the finished print, from a map the `usm` passes make over the whole photo; keeps Lab a and b. Runs after Tone and Clarity, before grain. **Ported from RawTherapee sharpening** | |
-| Grain | `grain.glsl` | print | Type Classic. Grain, Size (ISO), Mid-tones: darktable's grain on CIE lightness of the finished print, after Sharpening and before output: three octaves of simplex noise fitted to real grain scans, sized by film speed relative to the frame (pushing doubles the speed per stop), through darktable's paper response so it fades in shadows and highlights; away from 1:1 it averages 21 samples per pixel. **Ported from darktable grain** | |
+| Grain | `grain.glsl` | print | Type Standard. Grain, Size (ISO), Mid-tones: darktable's grain on CIE lightness of the finished print, after Sharpening and before output: three octaves of simplex noise fitted to real grain scans, sized by film speed relative to the frame (pushing doubles the speed per stop), through darktable's paper response so it fades in shadows and highlights; away from 1:1 it averages 21 samples per pixel. **Ported from darktable grain** | |
 | Film grain | `filmgrain*.frag.glsl` | display | Type Film. Amount (50 typical film's grain at this speed as a lab scans it, 100 twice it), Speed (ISO, with the Film speed menu), Softness: Newson et al.'s Boolean film grain model (IPOL 2017) over the finished frame's display luma, its own passes after the develop pass (see Passes); the frame is rendered from grains, keeping its colour. **Ported from the IPOL reference implementation**, its film baked and its filter evaluated on a grid | |
 | Output | `output.glsl` | print to display | Rec.2020 to sRGB | Colour-managed output |
 | Scanner | `scanner.glsl` | display | Levels, colour cast, contrast and saturation of the scan | |
@@ -578,3 +578,23 @@ File > Sync Folder opens the same reconciliation dialog as the header and folder
 Browser verification: `node tools/browser-tests/cdp-timing.mjs library-handoff`; set
 `VIEWPORT=1440x900` and `SHOT=.scratch/library-handoff.png` to capture a fixed viewport, or pass
 `screen=library`, `screen=sync`, or `screen=import` as the second argument to stop on that screen.
+
+
+### Film grain colour
+
+Film grain adds independent channel draws from the same Boolean model (IPOL section 5.2),
+with different seeded block offsets on its existing bake. Their tone-corrected print residuals
+contribute only chroma: the existing luma grain, softening, scanner calibration and zoom behavior
+remain. Amount and Speed scale brightness and colour grain together. This chroma-only composition
+is an agreed Emulsion extension, with no separate colour strength or channel-specific sizing.
+
+The output delta is RG for monochrome softening/grain; colour uses RGBA16F, BA storing the red
+and blue coordinates of the zero-luma chroma residual (green reconstructed using Rec.709 weights).
+Scalar RGB draws accumulate only BA, with blend state restored before every yield. A finished
+delta is published only after mono and all three colour draws complete. The cache includes effective
+colour mode, so a live view cannot reuse coloured grain for a monochrome look. Chroma contracts
+into gamut around the clamped mono result, preserving its display luma at RGB boundaries.
+
+Known B&W stocks, active grey mixers and monochrome colour-balance looks, and full photo
+desaturation select monochrome grain automatically. Colour is otherwise built into Film grain,
+with no separate recipe setting or checkbox. Standard rendering is unchanged.

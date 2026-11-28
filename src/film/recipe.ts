@@ -26,7 +26,7 @@ import { DEFAULT_PACK, PACK, isPackId, resolveUserLook, simulationLook, withLook
 export const RECIPE_VERSION = 1;
 
 export type Push = -1 | 0 | 1 | 2;
-/** Classic: darktable's grain (engine/grain.ts); Film: the Boolean film grain model (engine/filmgrain.ts). */
+/** Standard: darktable's grain (engine/grain.ts); Film: the Boolean film grain model (engine/filmgrain.ts). */
 export type GrainType = 'classic' | 'film';
 /** Whether a slider applies to the recipe's grain type (the grain group's are per type). */
 export const sliderApplies = (d: { grainType?: GrainType }, r: Pick<Recipe, 'grainType'> | null | undefined) => !d.grainType || d.grainType === grainTypeOf(r);
@@ -101,7 +101,7 @@ export interface Recipe {
   grainIso: number;
   /** darktable's grain mid-tones bias, 0 to 100: how much grain falls off in shadows and highlights. */
   grainMidtones: number;
-  /** Classic (absent): darktable's grain; 'film': the Boolean film grain model (engine/filmgrain.ts). */
+  /** Standard (absent): darktable's grain; 'film': the Boolean film grain model (engine/filmgrain.ts). */
   grainType?: 'film';
   /** Film grain: how many times its grains have been reshuffled (engine/filmgrain.ts grainSeed). */
   grainSeed?: number;
@@ -249,7 +249,7 @@ export function sliderDefault(def: SliderDef, stock: StockId, raw?: boolean): nu
 /**
  * Film grain's own reference for a grain slider: Amount 50, typical film's grain at this speed
  * (engine/filmgrain.ts TYPICAL_FILM), which Amount's tick, changed state and double-click reset
- * follow. Null where the Look's default applies (Classic grain, and every other slider).
+ * follow. Null where the Look's default applies (Standard grain, and every other slider).
  */
 export function filmGrainReference(key: SliderKey, r: Recipe | null): number | null {
   return r && grainTypeOf(r) === 'film' && key === 'grain' ? 50 : null;

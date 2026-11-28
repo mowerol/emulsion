@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 import { describe, expect, it } from 'vitest';
 import { coveredAt, filterOffsets, grainGeometry, type BoolGrainParams } from './boolgrain';
-import { FILM_BLOCK, FILM_SPREAD, FILM_STOCK, FILM_STOCKS, SCAN_GRANULARITY, SCAN_GRANULARITY_BW, TYPICAL_FILM, exactShare, filmAmountFor, filmPlan, FILM_TILE, FRAME_UM, LEVELS, blockOffset, coverageFor, filmAmounts, filmChange, filterEnergy, filterTaps, meanCoverage, pixelTaps, varianceShape, granularityPerUm, radiusUm, bakeParams, filmGrainParams, filmMargin, grainChange, grainThreshold, gridDensity, reaches, renderFilmGrain, shownFor, thresholdLevel, tileLevel, tileTexel, type FilmKind, type ShownImage } from './filmgrain';
+import { composeFilmGrain, filmChannelSeed, grainChroma, renderFilmChroma, shownLuma, FILM_BLOCK, FILM_SPREAD, FILM_STOCK, FILM_STOCKS, SCAN_GRANULARITY, SCAN_GRANULARITY_BW, TYPICAL_FILM, exactShare, filmAmountFor, filmPlan, FILM_TILE, FRAME_UM, LEVELS, blockOffset, coverageFor, filmAmounts, filmChange, filterEnergy, filterTaps, meanCoverage, pixelTaps, varianceShape, granularityPerUm, radiusUm, bakeParams, filmGrainParams, filmMargin, grainChange, grainThreshold, gridDensity, reaches, renderFilmGrain, shownFor, thresholdLevel, tileLevel, tileTexel, type FilmKind, type ShownImage } from './filmgrain';
 import { srgbOetf } from './color';
 import { resample } from './resample';
 
@@ -233,5 +233,48 @@ describe('Film grain (the Boolean model, baked, its filter on a grid)', () => {
     // The pixel taps are the grid's, gathered by pixel.
     const t = pixelTaps(6, 0.8, 1);
     expect(t.w.reduce((a, b) => a + b, 0)).toBeCloseTo(1, 6);
+  });
+});
+
+
+describe('Film colour grain', () => {
+  it('uses repeatable independent draws on the same film, with no preferred colour', () => {
+    const p = P(0.25), w = 32, h = 24;
+    const img = { data: new Float32Array(w * h * 3).fill(0.5), w, h, x0: 0, y0: 0 };
+    const seeds = [0, 1, 2].map(c => filmChannelSeed(p.seed, c));
+    expect(new Set([...seeds, p.seed]).size).toBe(4);
+    const level = levels(p);
+    const chroma = renderFilmChroma(img, 0, 0, w, h, 1, p, FILM_TILE, 'negative', level);
+    expect(renderFilmChroma(img, 0, 0, w, h, 1, p, FILM_TILE, 'negative', level)).toEqual(chroma);
+    const r = stats(chroma.filter((_, i) => i % 2 === 0)), b = stats(chroma.filter((_, i) => i % 2 === 1));
+    expect(r.sd).toBeGreaterThan(0.005);
+    expect(b.sd).toBeGreaterThan(0.005);
+    // A finite filtered patch need not average to exactly neutral. Four standard errors,
+    // using the Gaussian filter's effective area, bounds a systematic channel bias.
+    const meanBound = (sd: number) => 4 * sd * Math.sqrt(4 * Math.PI * p.sigmaFilter ** 2 / (w * h));
+    expect(Math.abs(r.mean)).toBeLessThan(meanBound(r.sd));
+    expect(Math.abs(b.mean)).toBeLessThan(meanBound(b.sd));
+    expect(chroma.filter((v, i) => i % 2 === 0 && Math.abs(v - chroma[i + 1]) > 1e-5).length).toBeGreaterThan(w * h * 0.9);
+  });
+
+  it('keeps the existing brightness grain even at saturated colours and output boundaries', () => {
+    const h = grainChroma([0.06, -0.03, 0.02]);
+    for (const rgb of [[0.5, 0.5, 0.5], [0.9, 0.1, 0.03], [1, 0.3, 0], [0, 0, 0], [1, 1, 1]]) {
+      for (const grain of [-0.1, 0, 0.1]) {
+        const amount = { soft: 0.6, grain: 2 };
+        const mono = composeFilmGrain(rgb, -0.01, grain, [0, 0], amount);
+        const color = composeFilmGrain(rgb, -0.01, grain, h, amount);
+        expect(shownLuma(...color)).toBeCloseTo(shownLuma(...mono), 12);
+        for (const v of color) { expect(v).toBeGreaterThanOrEqual(-1e-14); expect(v).toBeLessThanOrEqual(1 + 1e-14); }
+      }
+    }
+  });
+
+  it('scales brightness and colour grain together with Amount', () => {
+    const rgb = [0.5, 0.45, 0.4], h = grainChroma([0.02, -0.01, 0.015]);
+    const one = composeFilmGrain(rgb, 0.01, -0.005, h, { soft: 1, grain: 1 });
+    const half = composeFilmGrain(rgb, 0.01, -0.005, h, { soft: 0.5, grain: 0.5 });
+    expect(composeFilmGrain(rgb, 0.01, -0.005, h, { soft: 0, grain: 0 })).toEqual(rgb);
+    for (let c = 0; c < 3; c++) expect(half[c] - rgb[c]).toBeCloseTo((one[c] - rgb[c]) / 2, 12);
   });
 });

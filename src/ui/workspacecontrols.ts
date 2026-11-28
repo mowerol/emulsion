@@ -31,7 +31,7 @@ const basic: WorkspaceSlider[] = SLIDERS.map(d => ({
   value: r => r[d.key], fallback: (r, c) => sliderDefault(d, r.stock, c.raw),
   set: (r, v) => withSlider(r, d.key, v), format: d.format ?? String,
   ...(d.key === 'lookAmount' ? { setup: 'stock' as const, unavailable: (r: Recipe) => !r.lookEnabled ? 'Choose a look to adjust its amount.' : undefined } : {}),
-  ...(d.grainType ? { unavailable: (r: Recipe) => sliderApplies(d, r) ? undefined : `Set Grain type to ${d.grainType === 'film' ? 'Film' : 'Classic'} to use it.` } : {}),
+  ...(d.grainType ? { unavailable: (r: Recipe) => sliderApplies(d, r) ? undefined : `Set Grain type to ${d.grainType === 'film' ? 'Film' : 'Standard'} to use it.` } : {}),
 }));
 const asShot = (c: ControlContext) => { const wb = temperatureTint(c.white ?? D65_XY); return { temperature: wb.temperature, tint: Math.round(wb.tint) }; };
 const wb: WorkspaceSlider[] = (['temperature', 'tint'] as const).map(key => ({

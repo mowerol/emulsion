@@ -210,7 +210,7 @@ function ColorControls({ recipe, visibleControls }: { recipe: Recipe; visibleCon
   );
 }
 
-/** Grain type: Classic (darktable's grain) or Film (the Boolean film grain model). */
+/** Grain type: Film (the Boolean model) or Standard (darktable's grain). */
 function GrainType({ recipe }: { recipe: Recipe | null }) {
   return (
     <div className="grain-speed">
@@ -219,11 +219,11 @@ function GrainType({ recipe }: { recipe: Recipe | null }) {
         id="grain-type"
         value={grainTypeOf(recipe)}
         disabled={!recipe}
-        title="Classic: darktable's grain. Film: the photo rendered from film grains (Newson et al.), shown exactly a moment after a slider is released."
+        title="Film: the photo rendered from film grains (Newson et al.), shown exactly a moment after a slider is released. Standard: darktable's grain."
         onChange={(e) => editActive((r) => ({ ...(r ?? defaultRecipe()), grainType: e.target.value === 'film' ? 'film' : undefined }), 'Grain type')}
       >
-        <option value="classic">Classic</option>
         <option value="film">Film</option>
+        <option value="classic">Standard</option>
       </select>
     </div>
   );

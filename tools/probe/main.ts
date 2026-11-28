@@ -45,7 +45,7 @@ import { mulVec, srgbEotf, srgbOetf, SRGB_TO_REC2020, REC2020_TO_SRGB } from '..
 import { STOCK, type Stock } from '../../src/film/stocks';
 import { toneInverse } from '../../src/engine/tone';
 import { effectiveIso, grainL } from '../../src/engine/grain';
-import { FILM_TILE, bakeParams, filmAmounts, filmGrainGain, filmGrainParams, filmViewEnergy, coverageFor, exactShare, filmChange, filmMargin, filmPlan, filterEnergy, filterTaps, meanCoverage, renderFilmGrain, shownLuma, tileLevel, varianceShape, type FilmKind } from '../../src/engine/filmgrain';
+import { composeFilmGrain, renderFilmChroma, FILM_TILE, bakeParams, filmAmounts, filmGrainGain, filmGrainParams, filmViewEnergy, coverageFor, exactShare, filmChange, filmMargin, filmPlan, filterEnergy, filterTaps, meanCoverage, renderFilmGrain, shownLuma, tileLevel, varianceShape, type FilmKind } from '../../src/engine/filmgrain';
 import type { BoolGrainParams } from '../../src/engine/boolgrain';
 import { FilmGrainGpu } from '../../src/engine/filmgraingpu';
 import { CURVE_RES, curveTable, type ToneCurve } from '../../src/film/curve';
@@ -1091,7 +1091,8 @@ function probeFilmGrain(eng: Engine) {
   const out: Record<string, unknown> = {};
   const g = eng.gpu, gl = g.gl;
   const fg = new FilmGrainGpu(g);
-  const W = 24, H = 16;
+  const focused = new URLSearchParams(location.search).has('colorcheck');
+  const W = focused ? 8 : 24, H = focused ? 6 : 16;
   // Cases: grains a radius (in frame pixels) at a zoom: points (large grains), cells (fine grains)
   // at three pyramid levels, zoomed out (1:1), a slide, irregular grains.
   // The last three at the 0.5 px default (a lab scan's crispness): scanned Gold 200 and Tri-X sizes.
@@ -1100,18 +1101,27 @@ function probeFilmGrain(eng: Engine) {
     ['cellsL4', 0.035, 1, 0.2, 'slide', 0.8], ['fitL5', 0.0577, 0.25, 0.4, 'negative', 0.8], ['pointsIrregular', 0.25, 1, 0.5, 'negative', 0.8],
     ['scanCells', 0.025, 1, 0.2, 'negative', 0.5], ['scanPoints', 0.25, 1, 0.4, 'negative', 0.5], ['scanFit', 0.05, 0.5, 0.2, 'negative', 0.5],
   ];
-  for (const [name, radius, scale, spread, kind, sigmaFilter] of cases) {
+  for (const [name, radius, scale, spread, kind, sigmaFilter] of cases.filter(c => !focused || ['points100', 'scanCells', 'fitL5'].includes(c[0]))) {
     const p: BoolGrainParams = { radius, sigmaR: radius * spread, sigmaFilter, samples: 0, seed: 731 };
     const plan = filmPlan(p, scale), m = filmMargin(p, scale);
     // The output shows the middle of a frame 4 × the output, so no point reaches its edge.
     const full = 4 * W / scale, fullH = 4 * H / scale;
-    const tile = FILM_TILE, bake = bakeParams(p);
+    // A smaller periodic film checks the same kernels and wrap boundaries without making the
+    // CPU yardstick materialize millions of threshold points for the colour comparisons.
+    const tile = focused ? { ...FILM_TILE, cells: 256, side: 512 } : FILM_TILE, bake = bakeParams(p);
     const tb = performance.now();
     for (const _ of fg.bakeSteps(bake, tile, FilmGrainGpu.filmKey(bake, tile))) { /* every band and level */ }
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     const bakeMs = performance.now() - tb;
     const cache = new Map<number, number>();
     const level = (i: number, j: number) => { const key = j * tile.side + i; let v = cache.get(key); if (v === undefined) cache.set(key, v = tileLevel(tile, bake, i, j)); return v; };
+    const shares = new Map<string, number>();
+    const share = (L: number, x: number, y: number, j: number) => {
+      const key = `${L}|${x}|${y}|${j}`;
+      let v = shares.get(key);
+      if (v === undefined) shares.set(key, v = exactShare(level, L, x, y, j));
+      return v;
+    };
     // The GPU's first pyramid level against exact counts, a few blocks and knots.
     let pyrMax = 0;
     if (plan.integrated) {
@@ -1146,7 +1156,7 @@ function probeFilmGrain(eng: Engine) {
     const ms = performance.now() - t0;
     // The reference, in absolute output pixels: the output's (0, 0) is 3/8 into the frame.
     const ox = 1.5 * W, oy = 1.5 * H;
-    const ref = renderFilmGrain({ data: vals, w: ew, h: eh, x0: ox - m, y0: oy - m }, ox, oy, W, H, scale, p, tile, kind, level);
+    const ref = renderFilmGrain({ data: vals, w: ew, h: eh, x0: ox - m, y0: oy - m }, ox, oy, W, H, scale, p, tile, kind, level, share);
     // The softening and the grain against the reference's, in the shown value.
     const mean = meanCoverage({ data: vals, w: ew, h: eh, x0: ox - m, y0: oy - m }, ox, oy, W, H, scale, p, kind);
     let differ = 0, max = 0, rms = 0, nan = 0;
@@ -1161,11 +1171,48 @@ function probeFilmGrain(eng: Engine) {
       max = Math.max(max, d);
     }
     out[name] = { plan: `${plan.integrated ? 'cells L' + plan.level : 'points'} k${plan.k}`, bakeMs: Math.round(bakeMs), pyrMax: +pyrMax.toFixed(4), differ, nan, of: W * H, maxDiff: +max.toFixed(4), grainRms: +(Math.sqrt(rms / (W * H)) * 255).toFixed(2), ms: Math.round(ms) };
+    if (['points100', 'scanCells', 'fitL5'].includes(name)) {
+      // Colour input exercises channel-dependent coverage, not only decorrelated grey noise.
+      const rgb = new Float32Array(ew * eh * 3);
+      for (let i = 0; i < vals.length; i++) {
+        const v = vals[i];
+        rgb.set([v, 0.1 + v * 0.6, 0.85 - v * 0.5], 3 * i);
+        data.set([rgb[3 * i], rgb[3 * i + 1], rgb[3 * i + 2], 1], 4 * i);
+      }
+      g.scratch(); gl.bindTexture(gl.TEXTURE_2D, shown.tex);
+      gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, ew, eh, gl.RGBA, gl.FLOAT, data);
+      const colorDelta = g.target(W, H, true), composed = g.target(W, H, true, true);
+      const fv = { size: [W, H] as [number, number], view: [0.375, 0.375, 0.25, 0.25] as [number, number, number, number], geo: id, full: [full, fullH] as [number, number], scale };
+      for (const _ of fg.deltaSteps(shown, m, colorDelta, fv, p, tile, kind, true)) { /* mono + colour */ }
+      const d = new Float32Array(W * H * 4);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, colorDelta.fbo); gl.readPixels(0, 0, W, H, gl.RGBA, gl.FLOAT, d);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      const want = renderFilmChroma({ data: rgb, w: ew, h: eh, x0: ox - m, y0: oy - m }, ox, oy, W, H, scale, p, tile, kind, level, share);
+      let maxChroma = 0, maxCompose = 0, maxLuma = 0, colorPixels = 0;
+      const amount = { soft: 0.8, grain: 1.5 };
+      fg.compose(shown, m, colorDelta, amount, -1, W, H, true);
+      g.draw(fg.composeP, composed, W, H);
+      const result = new Float32Array(W * H * 4);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, composed.fbo); gl.readPixels(0, 0, W, H, gl.RGBA, gl.FLOAT, result);
+      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const i = y * W + x, si = ((y + m) * ew + x + m) * 3, j = i * 4;
+        maxChroma = Math.max(maxChroma, Math.abs(d[j + 2] - want[2 * i]), Math.abs(d[j + 3] - want[2 * i + 1]));
+        const input = [rgb[si], rgb[si + 1], rgb[si + 2]];
+        const expected = composeFilmGrain(input, d[j], d[j + 1], [d[j + 2], d[j + 3]], amount);
+        const mono = composeFilmGrain(input, d[j], d[j + 1], [0, 0], amount);
+        for (let c = 0; c < 3; c++) maxCompose = Math.max(maxCompose, Math.abs(result[j + c] - expected[c]));
+        maxLuma = Math.max(maxLuma, Math.abs(shownLuma(result[j], result[j + 1], result[j + 2]) - shownLuma(...mono)));
+        if (Math.abs(d[j + 2]) + Math.abs(d[j + 3]) > 1e-5) colorPixels++;
+      }
+      out[name + 'Color'] = { maxChroma, maxCompose, maxLuma, colorPixels, of: W * H, error: gl.getError() };
+      g.free(colorDelta); g.free(composed);
+    }
     g.free(shown); g.free(delta);
   }
   fg.free();
   // Through the engine: a soft synthetic photo, Film grain at 50.
-  const sw = 1500, sh = 1000;
+  const sw = focused ? 600 : 1500, sh = focused ? 400 : 1000;
   const c = document.createElement('canvas');
   c.width = sw; c.height = sh;
   const c2 = c.getContext('2d')!;
@@ -1184,6 +1231,35 @@ function probeFilmGrain(eng: Engine) {
   const t2 = performance.now();
   const again = eng.readPixels(src, film, sw, sh, 3).slice();
   const msCached = performance.now() - t2;
+  const bw = eng.readPixels(src, { ...film, saturation: -100 }, sw, sh, 3).slice();
+  const bwPlain = eng.readPixels(src, { ...base, saturation: -100 }, sw, sh, 3).slice();
+  let colorPixels = 0, bwGrainChroma = 0, bwTested = 0, repeatDifference = 0;
+  for (let i = 0; i < grained.length; i += 4) {
+    const delta = [0, 1, 2].map(c => grained[i + c] - plain[i + c]);
+    if (Math.max(...delta) - Math.min(...delta) > 2) colorPixels++;
+    // Scanner finish can tint the B&W image. Test the grain's change, on pixels where
+    // output clipping cannot change its RGB balance, rather than the image's absolute hue.
+    if ([0, 1, 2].every(c => bwPlain[i + c] > 1 && bwPlain[i + c] < 254 && bw[i + c] > 1 && bw[i + c] < 254)) {
+      const delta = [0, 1, 2].map(c => bw[i + c] - bwPlain[i + c]);
+      bwGrainChroma = Math.max(bwGrainChroma, Math.max(...delta) - Math.min(...delta));
+      bwTested++;
+    }
+    for (let c = 0; c < 3; c++) repeatDifference = Math.max(repeatDifference, Math.abs(grained[i + c] - again[i + c]));
+  }
+  out.colorEngine = { colorPixels, of: sw * sh, bwGrainChroma, bwTested, repeatDifference, msFirst: Math.round(msFull), msAgain: Math.round(msCached) };
+  if (focused) {
+    // A 24 MP photo represented by a small preview: measure screen cache reuse at 1500x1000.
+    const preview = { ...src, fullW: 6000, fullH: 4000 };
+    const pixel = new Uint8Array(4);
+    const timed = (r: Recipe, live = false) => {
+      const t = performance.now();
+      eng.render(preview, r, { target: 'screen', width: 1500, height: 1000, seed: 3, live });
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+      return Math.round(performance.now() - t);
+    };
+    out.screenColor = { exactMs: timed(film), cachedMs: timed(film), amountMs: timed({ ...film, grain: 60 }, true), inexactAfterAmount: eng.inexact };
+    eng.release(src); out.glError = gl.getError(); return out;
+  }
   let meanPlain = 0, meanGrain = 0, rms = 0, same = 0;
   for (let i = 0; i < plain.length; i += 4) {
     const a = shownLuma(plain[i], plain[i + 1], plain[i + 2]), b = shownLuma(grained[i], grained[i + 1], grained[i + 2]);

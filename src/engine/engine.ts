@@ -40,6 +40,7 @@ import { FilmDevGpu } from './filmdevgpu';
 import { pixelUmFor } from './scatter';
 import { type LoadedLut, loadLut, lutFor, lutPending } from './lutstore';
 import { FILM_REFERENCE, filmReferenceNeeded, recipeLookFile } from '../film/looks';
+import { filmGrainColor } from '../film/grain';
 import { GLOW_SIGMA, HALATION_SIGMA, blurPlan, pyramidFor, type Pyramid } from './pyramid';
 import { MASK_SIGMA } from './toneequalizer';
 import { adaptiveToneTransform, type ToneAnalysis } from './adaptivetone';
@@ -579,6 +580,7 @@ export class Engine {
   private filmGpu: FilmGrainGpu | null = null;
   private filmShown: { live: Target | null; exact: Target | null; still: Target | null } = { live: null, exact: null, still: null };
   private filmDeltas: Target[] = [];
+  private filmFormats = new WeakMap<Target, string>();
   /** The change for a render into a target (an export, a thumbnail): made each time, not kept. */
   private filmStill: Target | null = null;
   /** The screen's last Film grain change: its key, what a live frame may show it for (`held`), and
@@ -3065,9 +3067,12 @@ export class Engine {
 
   /** A film grain target of this size and kind, made again only when that changes. */
   private filmTarget(t: Target | null, w: number, h: number, hdr: boolean, precise = false, single: boolean | 'rg' = false): Target {
-    if (t && t.w === w && t.h === h && t.hdr === hdr) return t;
+    const format = `${hdr}|${precise}|${single}`;
+    if (t && t.w === w && t.h === h && this.filmFormats.get(t) === format) return t;
     if (t) this.gpu.free(t);
-    return this.gpu.target(w, h, hdr, precise, single);
+    const out = this.gpu.target(w, h, hdr, precise, single);
+    this.filmFormats.set(out, format);
+    return out;
   }
 
   /**
@@ -3945,6 +3950,7 @@ export class Engine {
     if (opts.prepare === 'frame' && !filmP) return;
     const film = filmP ? (() => {
       const W = opts.width, H = opts.height;
+      const color = filmGrainColor(recipe!);
       // Output pixels per frame pixel, along the source's own width.
       const scale = (turned ? fullH : fullW) / src.fullW;
       const m = filmMargin(filmP, scale);
@@ -3956,7 +3962,7 @@ export class Engine {
       const [sw, sh] = opts.shown ?? [W, H];
       // A live frame may show the last change for the same view and film: Size and Softness (the
       // radius and the filter) only rescale it (filmGrainGain), so they are not part of `held`.
-      const held = `${src.fullW}x${src.fullH}|${opts.seed}|${sw}x${sh}|${JSON.stringify(view)}|${JSON.stringify(frame)}|${JSON.stringify({ ...filmP, radius: 0, sigmaR: 0, sigmaFilter: 0 })}`;
+      const held = `${color}|${src.fullW}x${src.fullH}|${opts.seed}|${sw}x${sh}|${JSON.stringify(view)}|${JSON.stringify(frame)}|${JSON.stringify({ ...filmP, radius: 0, sigmaR: 0, sigmaFilter: 0 })}`;
       const key = `${held}|${W}x${H}|${textureId(src.tex)}|${JSON.stringify(src.roi ?? null)}|${this.L.stack.generation}|${JSON.stringify({ ...recipe, grain: 0, grainIso: 0, push: 0 })}|${opts.clipping}|${opts.maskShow}|${opts.split}|${opts.dither}|${this.detailOrder ?? Engine.detailOrder}|${this.retouchOwed}|${this.profiledOwed}`;
       // Amount, Size and push only scale the change as it is added (filmAmounts), so they are not
       // part of the key: their drags are exact.
@@ -3969,14 +3975,14 @@ export class Engine {
       // The settle's last render draws the frame its preparation just developed: keep it.
       const developed = lane === 'exact' && shown === before && this.filmShownKey === key;
       let into: Target | null = null;
-      if (!screen) into = this.filmStill = this.filmTarget(this.filmStill, W, H, true, false, 'rg');
+      if (!screen) into = this.filmStill = this.filmTarget(this.filmStill, W, H, true, false, color ? false : 'rg');
       else if (exact && this.filmMade?.key !== key) {
         const i = this.filmDeltas.findIndex((t) => t !== this.filmMade?.out);
-        into = this.filmDeltas[i < 0 ? this.filmDeltas.length : i] = this.filmTarget(this.filmDeltas[i] ?? null, W, H, true, false, 'rg');
+        into = this.filmDeltas[i < 0 ? this.filmDeltas.length : i] = this.filmTarget(this.filmDeltas[i] ?? null, W, H, true, false, color ? false : 'rg');
       }
       this.filmGpu ??= new FilmGrainGpu(g);
       const fv: FilmView = { size: [W, H], view: [view.x, view.y, view.w, view.h], geo, full: [src.fullW, src.fullH], scale };
-      return { W, H, m, exact, held, key, shown, developed, into, fv, tile, bake, filmKey };
+      return { W, H, m, exact, held, key, shown, developed, into, fv, tile, bake, filmKey, color };
     })() : null;
     // The frame itself is never clipped, whatever its size.
     g.clip = null;
@@ -4017,7 +4023,7 @@ export class Engine {
     let delta: Target | null = null, gain = 1;
     if (film.into) {
       yield* this.filmGpu!.bakeSteps(film.bake, film.tile, film.filmKey);
-      yield* this.filmGpu!.deltaSteps(film.shown, film.m, film.into, film.fv, filmP!, film.tile, TYPICAL_FILM.kind);
+      yield* this.filmGpu!.deltaSteps(film.shown, film.m, film.into, film.fv, filmP!, film.tile, TYPICAL_FILM.kind, film.color);
     }
     if (opts.target !== 'screen') delta = film.into;
     else {
@@ -4035,7 +4041,7 @@ export class Engine {
     }
     if (opts.prepare === 'frame') return;
     const amounts = filmAmounts(recipe!);
-    this.filmGpu!.compose(film.shown, film.m, delta, { ...amounts, grain: amounts.grain * gain }, (u.uSplit as number) ?? -1, film.W, film.H);
+    this.filmGpu!.compose(film.shown, film.m, delta, { ...amounts, grain: amounts.grain * gain }, (u.uSplit as number) ?? -1, film.W, film.H, film.color);
     if (opts.target === 'screen') this.toScreen(this.filmGpu!.composeP, film.W, film.H);
     else {
       g.draw(this.filmGpu!.composeP, opts.target, film.W, film.H, false);

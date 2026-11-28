@@ -4,6 +4,9 @@
 // with dark grains. The paper is logistic in density: slope 1.8, maximum density 2.0, its middle
 // at negative density 0.95.
 uniform int uKind;
+// -1: the original display luma; 0..2: an independent colour-channel draw (IPOL 5.2).
+uniform int uChannel;
+float grainValue(vec3 d) { return uChannel < 0 ? 0.2126 * d.r + 0.7152 * d.g + 0.0722 * d.b : d[uChannel]; }
 const float U_TOP = 255.0 / 255.1;
 const float PRINT_DMAX = 2.0;
 const float PRINT_MID = 0.95;

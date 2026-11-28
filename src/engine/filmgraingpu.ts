@@ -13,7 +13,7 @@ import blurShader from './shaders/filmgrain-blur.frag.glsl?raw';
 import composeShader from './shaders/filmgrain-compose.frag.glsl?raw';
 import { assemble } from './glsl';
 import { grainGeometry, type BoolGrainParams } from './boolgrain';
-import { FILM_BLOCK, FILM_SEED, LEVELS, U_TOP_VALUE, PYRAMID_FIRST, PYRAMID_KNOTS, PYRAMID_LAST, TEXEL_PHASE, blurMargin, filmPlan, filterEnergy, filterTaps, pixelTaps, pyramidKnot, varianceShape, type FilmKind, type FilmTile } from './filmgrain';
+import { FILM_BLOCK, FILM_SEED, filmChannelSeed, LEVELS, U_TOP_VALUE, PYRAMID_FIRST, PYRAMID_KNOTS, PYRAMID_LAST, TEXEL_PHASE, blurMargin, filmPlan, filterEnergy, filterTaps, pixelTaps, pyramidKnot, varianceShape, type FilmKind, type FilmTile } from './filmgrain';
 import { GpuError, type Gpu, type Program, type Target } from './gpu';
 
 /** Where the output's pixels are on the film (develop.frag's view and geometry). */
@@ -143,13 +143,24 @@ export class FilmGrainGpu {
 
   /**
    * The grain's change (the model's render printed, less the shown value's own; filmChange: its
-   * softening in .r, its grain in .g) at every pixel of `to` (the output's size, two channels), from `shown`, the developed frame with `margin` pixels
+   * softening in .r, its grain in .g) at every pixel of `to` (the output's size; .ba holds chroma
+   * R/B when colour is enabled, otherwise an RG target suffices), from `shown`, the developed frame with `margin` pixels
    * around the output, and the baked film (bakeSteps first), in radii of p.radius frame pixels, its
    * blocks placed by the photo's seed (p.seed), printed as `kind`. Grains far smaller than a pixel
    * read the integrated film by cells (filmPlan); larger ones are tested point by point. Yields
    * after each tile, each flushed.
    */
-  *deltaSteps(shown: Target, margin: number, to: Target, fv: FilmView, p: BoolGrainParams, tile: FilmTile, kind: FilmKind): Generator<void> {
+  *deltaSteps(shown: Target, margin: number, to: Target, fv: FilmView, p: BoolGrainParams, tile: FilmTile, kind: FilmKind, color = false): Generator<void> {
+    yield* this.channelSteps(shown, margin, to, fv, p, tile, kind, -1);
+    if (color) for (let c = 0; c < 3; c++) {
+      yield* this.channelSteps(shown, margin, to, fv, { ...p, seed: filmChannelSeed(p.seed, c) }, tile, kind, c);
+    }
+  }
+
+  /** The scalar renderer shared by mono and RGB. Colour draws accumulate only their chromatic
+   * residual into .ba of an RGBA16F target; .rg keeps the monochrome softening and grain. No
+   * blend state remains enabled across a yield, so live draws and cancelled builds are safe. */
+  private *channelSteps(shown: Target, margin: number, to: Target, fv: FilmView, p: BoolGrainParams, tile: FilmTile, kind: FilmKind, channel: number): Generator<void> {
     const g = this.g, gl = g.gl;
     const film = this.filmT;
     if (!film || !this.filmMade) throw Error('Film grain: the film is not baked');
@@ -186,7 +197,7 @@ export class FilmGrainGpu {
     const common = {
       uShown: 0, uMargin: margin, uSize: fv.size, uView: fv.view, uGeoU: fv.geo[0], uGeoV: fv.geo[1], uGeoW: fv.geo[2], uFull: fv.full,
       uK: k, uSide: tile.side, uTexel: tile.texel, uCells: tile.cells, uPerCell: tile.perCell, uRadius: p.radius,
-      uBlock: FILM_BLOCK, uSeed: p.seed >>> 0, uPhase: TEXEL_PHASE, uKind: kind === 'slide' ? 1 : 0,
+      uBlock: FILM_BLOCK, uSeed: p.seed >>> 0, uPhase: TEXEL_PHASE, uKind: kind === 'slide' ? 1 : 0, uChannel: channel,
     };
     const first = plan.integrated ? this.cellsP : this.gridP;
     const clip = g.clip;
@@ -206,7 +217,7 @@ export class FilmGrainGpu {
         g.bind(1, shown.tex);
         g.bind(3, this.lut!);
         g.bind(4, this.weights!);
-        this.blurP.set({ uSrc: 0, uShown: 1, uLut: 3, uWeights: 4, uMean: 5, uLo: taps.lo, uTaps: taps.w.length, uPLo: ptaps.lo, uPTaps: ptaps.w.length, uReach: M, uMargin: margin, uMode: plan.integrated ? 2 : 0, uTile: [0, 0], uK: k, uKind: common.uKind });
+        this.blurP.set({ uSrc: 0, uShown: 1, uLut: 3, uWeights: 4, uMean: 5, uLo: taps.lo, uTaps: taps.w.length, uPLo: ptaps.lo, uPTaps: ptaps.w.length, uReach: M, uMargin: margin, uMode: plan.integrated ? 2 : 0, uTile: [0, 0], uK: k, uKind: common.uKind, uChannel: channel });
         g.draw(this.blurP, this.mid!, tw, gh);
         if (FilmGrainGpu.passes === 1) { gl.flush(); yield; continue; }
         // The photo's own coverage along x, for the softening. Unbound first: the last tile's step
@@ -219,7 +230,14 @@ export class FilmGrainGpu {
         g.bind(5, this.meanMid!.tex);
         this.blurP.set({ uMode: 1, uTile: [tx, ty], uVarScale: (p.radius * fv.scale) ** 2 * filterEnergy(k, taps) });
         g.clip = { x: tx, y: ty, w: tw, h: th, tw: W, th: H };
-        g.draw(this.blurP, to, W, H);
+        if (channel >= 0) {
+          gl.enable(gl.BLEND);
+          gl.blendEquation(gl.FUNC_ADD);
+          gl.blendFunc(gl.ONE, gl.ONE);
+          gl.colorMask(false, false, true, true);
+        }
+        try { g.draw(this.blurP, to, W, H); }
+        finally { gl.disable(gl.BLEND); gl.colorMask(true, true, true, true); }
         gl.flush();
         yield;
       }
@@ -228,11 +246,11 @@ export class FilmGrainGpu {
 
   /** Bind and set the compose pass: the developed frame (`margin` pixels around the output) with
    * the grain's change added; the caller draws `composeP` to the screen or a target. */
-  compose(shown: Target, margin: number, delta: Target | null, amount: { soft: number; grain: number }, split: number, w: number, h: number) {
+  compose(shown: Target, margin: number, delta: Target | null, amount: { soft: number; grain: number }, split: number, w: number, h: number, color = false) {
     const g = this.g;
     g.bind(0, shown.tex);
     g.bind(1, delta?.tex ?? g.blackTexture);
-    this.composeP.set({ uShown: 0, uMargin: margin, uSize: [w, h], uDelta: 1, uDeltaOn: delta ? 1 : 0, uSoft: amount.soft, uGrain: amount.grain, uSplit: split });
+    this.composeP.set({ uShown: 0, uMargin: margin, uSize: [w, h], uDelta: 1, uDeltaOn: delta ? 1 : 0, uSoft: amount.soft, uGrain: amount.grain, uSplit: split, uColor: color ? 1 : 0 });
   }
 
   private freeFilm() {
