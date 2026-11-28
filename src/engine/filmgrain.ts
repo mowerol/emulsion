@@ -53,6 +53,12 @@
 // - The intensity is computed from the value directly (as boolgrain.ts), a cell holds at most 64
 //   grains (MAX_CELL_GRAINS; the reference's cap is 10000 × the intensity), and points outside the
 //   frame read its edge.
+// - Colour (agreed with Oli, 2026-11-27): section 5.2's independent colour-channel draws,
+//   sampled at independent seeded block offsets on the same baked film. Their zero-mean print
+//   residuals contribute only chroma; the existing luma grain and softening remain. Amount scales
+//   both together. This luma/chroma split is Emulsion's extension, with no per-channel retuning.
+//   Chroma contracts towards the monochrome result to fit the output gamut without shifting its
+//   display luma. Colour is automatic; black and white looks use the monochrome renderer.
 // SPDX-License-Identifier: GPL-3.0-or-later
 //
 // Film grain (Grain type Film): the photo rebuilt from silver grains, discs whose centres are a
@@ -659,3 +665,39 @@ export function meanCoverage(img: ShownImage, x0: number, y0: number, w: number,
 
 /** The display luma the model reads, and whose change the grain is (Rec.709 weights, as sRGB's). */
 export const shownLuma = (r: number, g: number, b: number) => 0.2126 * r + 0.7152 * g + 0.0722 * b;
+
+/** Independent channel draws on the shared bake. Channel 0..2, not the monochrome seed. */
+export const filmChannelSeed = (seed: number, channel: number): number => hash((seed ^ Math.imul(channel + 1, 0x9e3779b9)) >>> 0);
+
+/** Two coordinates of a zero-display-luma chroma residual; green follows from Rec.709 weights. */
+export function grainChroma(rgb: readonly number[]): [number, number] {
+  const y = shownLuma(rgb[0], rgb[1], rgb[2]);
+  return [rgb[0] - y, rgb[2] - y];
+}
+
+/** The colour-grain reference, reusing the scalar Boolean renderer, filter and print correction.
+ * The input is interleaved RGB, in the same absolute output coordinates as ShownImage. */
+export function renderFilmChroma(img: ShownImage, x0: number, y0: number, w: number, h: number, scale: number, p: BoolGrainParams, tile: FilmTile, kind: FilmKind, level: (i: number, j: number) => number,
+  share: (level: number, bi: number, bj: number, knot: number) => number = (L, bi, bj, j) => exactShare(level, L, bi, bj, j)): Float32Array {
+  const plan = filmPlan(p, scale, tile), varScale = (p.radius * scale) ** 2 * filterEnergy(plan.k, filterTaps(plan.k, p.sigmaFilter, scale));
+  const channels = [0, 1, 2].map(channel => {
+    const input: ShownImage = { ...img, data: Float32Array.from({ length: img.w * img.h }, (_, i) => img.data[3 * i + channel]) };
+    const params = { ...p, seed: filmChannelSeed(p.seed, channel) };
+    const filtered = renderFilmGrain(input, x0, y0, w, h, scale, params, tile, kind, level, share, plan);
+    const mean = meanCoverage(input, x0, y0, w, h, scale, params, kind, plan);
+    return filtered.map((v, i) => shownFor(v, kind) - expectedPrint(mean[i], varianceShape(mean[i], p.radius > 0 ? p.sigmaR / p.radius : 0) * varScale, kind));
+  });
+  const out = new Float32Array(w * h * 2);
+  for (let i = 0; i < w * h; i++) out.set(grainChroma(channels.map(c => c[i])), 2 * i);
+  return out;
+}
+
+/** Compose Film's mono and chromatic residuals. Gamut contraction keeps the monochrome
+ * result's display luma, including near black, white and saturated RGB boundaries. */
+export function composeFilmGrain(rgb: readonly number[], soft: number, grain: number, chroma: readonly number[], amount: { soft: number; grain: number }): [number, number, number] {
+  const base = rgb.map(v => Math.min(1, Math.max(0, v + amount.soft * soft + amount.grain * grain)));
+  const h = [chroma[0], -(0.2126 * chroma[0] + 0.0722 * chroma[1]) / 0.7152, chroma[1]].map(v => v * amount.grain);
+  let limit = 1;
+  for (let c = 0; c < 3; c++) if (h[c] !== 0) limit = Math.min(limit, h[c] > 0 ? (1 - base[c]) / h[c] : -base[c] / h[c]);
+  return [base[0] + limit * h[0], base[1] + limit * h[1], base[2] + limit * h[2]];
+}

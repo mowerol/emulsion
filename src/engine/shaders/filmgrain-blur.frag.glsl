@@ -65,7 +65,7 @@ void main() {
     float sum = 0.0;
     for (int a = 0; a < uPTaps; a++) {
       vec3 d = texelFetch(uShown, ivec2(uTile.x + p.x + uPLo + a, uTile.y - uReach + p.y) + uMargin, 0).rgb;
-      sum += texelFetch(uWeights, ivec2(a, 1), 0).r * coverageFor(0.2126 * d.r + 0.7152 * d.g + 0.0722 * d.b);
+      sum += texelFetch(uWeights, ivec2(a, 1), 0).r * coverageFor(grainValue(d));
     }
     outColor = vec4(sum, 0.0, 0.0, 1.0);
     return;
@@ -86,5 +86,16 @@ void main() {
   float shape = mix(texelFetch(uWeights, ivec2(i0, 2), 0).r, texelFetch(uWeights, ivec2(i0 + 1, 2), 0).r, x - float(i0));
   float dev = sqrt(3.0 * max(0.0, shape * uVarScale));
   float expected = (shownFor(clamp(mean - dev, 0.0, U_TOP)) + shownFor(clamp(mean + dev, 0.0, U_TOP))) / 6.0 + shownFor(mean) * (2.0 / 3.0);
-  outColor = vec4(shownFor(mean) - shownFor(coverageFor(0.2126 * d.r + 0.7152 * d.g + 0.0722 * d.b)), shownFor(sum) - expected, 0.0, 1.0);
+  float grain = shownFor(sum) - expected;
+  if (uChannel < 0) {
+    // The original monochrome result initializes the chroma coordinates to zero.
+    outColor = vec4(shownFor(mean) - shownFor(coverageFor(grainValue(d))), grain, 0.0, 0.0);
+  } else {
+    // Accumulate each independent channel's zero-luma contribution into .ba. The two
+    // coordinates store chroma R and B; G is reconstructed in the compose pass.
+    vec3 h = vec3(0.0);
+    h[uChannel] = grain;
+    h -= dot(h, vec3(0.2126, 0.7152, 0.0722));
+    outColor = vec4(0.0, 0.0, h.r, h.b);
+  }
 }

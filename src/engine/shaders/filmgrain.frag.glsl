@@ -64,7 +64,7 @@ void main() {
   vec2 inFrame = (clamp(fc, 0.0, 1.0) - uView.xy) / uView.zw * uSize;
   ivec2 e = clamp(ivec2(floor(inFrame)) + uMargin, ivec2(0), textureSize(uShown, 0) - 1);
   vec3 d = texelFetch(uShown, e, 0).rgb;
-  float cov = coverageFor(0.2126 * d.r + 0.7152 * d.g + 0.0722 * d.b);
+  float cov = coverageFor(grainValue(d));
   int bits = 0;
   // The row's points nearly always share a block: its place is hashed again only when it changes.
   ivec2 block = ivec2(-2147483647), offset = ivec2(0);

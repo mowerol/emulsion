@@ -173,8 +173,8 @@ const RAW_STOCKS: Omit<Stock, 'grainIso'>[] = [
 const FILM_STOCKS: Stock[] = RAW_STOCKS.map((s) => ({ ...s, grainIso: s.iso }));
 const LUT_STOCKS: Stock[] = [...catalogue, ...LOCAL_LOOKS].filter(s => s.id.startsWith('lut:')).map(s => ({
   id: s.id as StockId, name: s.name, maker: s.category, edge: s.name.toUpperCase(),
-  // The LUT itself performs any monochrome conversion.
-  bw: false, halation: 0, halationColor: [1, 0.36, 0.14],
+  // The catalogue identifies monochrome stocks; the LUT itself performs the conversion.
+  bw: s.category === 'Black & white', halation: 0, halationColor: [1, 0.36, 0.14],
   iso: s.iso, grainIso: s.iso, grain: 0,
 }));
 export const STOCKS: Stock[] = [...FILM_STOCKS, ...LUT_STOCKS];
